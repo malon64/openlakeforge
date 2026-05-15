@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# Bring up the OpenLakeForge local stack on an existing kind cluster.
+# Bring up the OpenLakeForge local stack on an existing Kubernetes cluster.
 #
 # Prerequisites (must be on PATH):
-#   kind, kubectl, helm, curl, jq
+#   kubectl, helm, curl
 #
 # The script assumes kubectl is already pointing at the target cluster.
-# On Windows run this from Git Bash or WSL.
+# On Windows run this from Git Bash (comes with Git for Windows).
 #
 # Usage:
-#   NAMESPACE=lakehouse bash scripts/local/setup.sh
+#   bash scripts/local/setup.sh
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -21,7 +21,7 @@ export BUCKET_NAME="iceberg-data"
 
 check_prereqs() {
   local missing=0
-  for cmd in kind kubectl helm curl; do
+  for cmd in kubectl helm curl; do
     if ! command -v "${cmd}" &>/dev/null; then
       echo "ERROR: '${cmd}' not found on PATH" >&2
       missing=1
