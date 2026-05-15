@@ -53,14 +53,13 @@ kubectl create namespace "${NAMESPACE}" --dry-run=client -o yaml | kubectl apply
 
 # ── Step 2: Helm repos ────────────────────────────────────────────────────
 echo "==> Adding Helm repos..."
-helm repo add derwitt-dev https://charts.derwitt.dev           2>/dev/null || true
-helm repo add polaris     https://downloads.apache.org/polaris/helm-chart 2>/dev/null || true
-helm repo add trino       https://trinodb.github.io/charts     2>/dev/null || true
+helm repo add polaris https://downloads.apache.org/polaris/helm-chart 2>/dev/null || true
+helm repo add trino   https://trinodb.github.io/charts               2>/dev/null || true
 helm repo update
 
 # ── Step 3: Garage ────────────────────────────────────────────────────────
 echo "==> Installing Garage..."
-helm upgrade --install garage derwitt-dev/garage \
+helm upgrade --install garage "${REPO_ROOT}/infra/helm/charts/garage" \
   --namespace "${NAMESPACE}" \
   -f "${HELM_VALUES}/garage.yaml" \
   --wait --timeout 5m
