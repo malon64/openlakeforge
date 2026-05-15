@@ -1,0 +1,33 @@
+# Trino SQL query engine — local kind cluster
+# Chart: trino/trino  (https://trinodb.github.io/charts)
+# Docs:  https://trino.io/docs/current/installation/kubernetes.html
+
+image:
+  tag: "480"
+
+server:
+  workers: 0
+
+coordinator:
+  jvm:
+    maxHeapSize: "2G"
+  config:
+    query:
+      maxMemoryPerNode: "1GB"
+    # Allow queries to run on the coordinator (no separate workers)
+    nodeScheduler:
+      includeCoordinator: true
+  resources:
+    requests:
+      cpu: 500m
+      memory: 2Gi
+    limits:
+      memory: 3Gi
+
+service:
+  type: ClusterIP
+  port: 8080
+
+# The iceberg catalog stanza with actual Polaris OAuth2 credentials and Garage
+# S3 keys is written to /tmp/trino-iceberg-generated.yaml by setup.sh and
+# passed as a second -f override. It is gitignored and never committed.

@@ -1,0 +1,46 @@
+# Apache Polaris Iceberg REST Catalog — local kind cluster
+# Chart: polaris/polaris  (https://downloads.apache.org/polaris/helm-chart)
+# Docs:  https://polaris.apache.org/releases/latest/helm-chart/
+
+image:
+  repository: apache/polaris
+  tag: "1.4.1"
+  pullPolicy: IfNotPresent
+
+replicaCount: 1
+
+# In-memory metastore: stateless, reset on pod restart — fine for local dev.
+# Switch to relational-jdbc + PostgreSQL for persistent local state.
+polaris:
+  persistence:
+    type: in-memory
+
+extraEnv:
+  # Bootstrap credentials injected at first startup: REALM,clientId,clientSecret
+  - name: POLARIS_BOOTSTRAP_CREDENTIALS
+    value: "POLARIS,root,polaris-secret"
+  - name: AWS_REGION
+    value: "us-east-1"
+  # Garage S3 endpoint (AWS SDK v2 env var)
+  - name: AWS_ENDPOINT_URL_S3
+    value: "http://garage:3900"
+  # Force path-style access required by Garage
+  - name: AWS_S3_FORCE_PATH_STYLE
+    value: "true"
+
+# Garage S3 key/secret loaded from the Secret created by bootstrap-garage.sh.
+# The Secret must exist before `helm install polaris` runs.
+extraEnvFrom:
+  - secretRef:
+      name: garage-s3-creds
+
+service:
+  type: ClusterIP
+  port: 8181
+
+resources:
+  requests:
+    cpu: 200m
+    memory: 512Mi
+  limits:
+    memory: 1Gi

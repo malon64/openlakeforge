@@ -1,0 +1,45 @@
+# Garage S3-compatible object storage — local kind cluster
+# Chart: derwitt-dev/garage  (https://charts.derwitt.dev)
+# Upstream: https://git.deuxfleurs.fr/Deuxfleurs/garage
+
+image:
+  repository: dxflrs/amd64_garage
+  tag: "v1.3.1"
+  pullPolicy: IfNotPresent
+
+garage:
+  replicationMode: "1"
+  # Generate with: openssl rand -hex 32
+  rpcSecret: "6da990f4e4b3f39f0a5f8cc2c1756af5f5b8f56de3d3a618cafe0000000000"
+
+deployment:
+  kind: StatefulSet
+  replicaCount: 1
+
+s3:
+  api:
+    region: "us-east-1"
+    rootDomain: ""
+
+# ClusterIP — use `make local-forward` or kubectl port-forward for host access
+service:
+  type: ClusterIP
+
+persistence:
+  meta:
+    size: 500Mi
+    storageClass: standard
+  data:
+    size: 5Gi
+    storageClass: standard
+
+# Admin token for garage CLI calls from bootstrap script
+environment:
+  GARAGE_ADMIN_TOKEN: "local-dev-admin-token"
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    memory: 512Mi
