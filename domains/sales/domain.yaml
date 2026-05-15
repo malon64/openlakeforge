@@ -1,0 +1,14 @@
+name: sales
+description: Sales proof-of-concept domain for the OpenLakeForge v1 lakehouse path.
+status: planned
+owners: []
+medallion:
+  bronze:
+    owner: ingestion
+    description: Raw immutable landing zone.
+  silver:
+    owner: floe
+    description: Technically validated Iceberg tables.
+  gold:
+    owner: dbt
+    description: Business-ready marts and analytics models.
