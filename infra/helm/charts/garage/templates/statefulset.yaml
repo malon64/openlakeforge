@@ -20,7 +20,7 @@ spec:
         - name: garage
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          command: ["/garage/garage"]
+          command: ["/garage"]
           args: ["-c", "/etc/garage/garage.toml", "server"]
           ports:
             - name: s3
