@@ -18,7 +18,7 @@ GARAGE_POD=$(kubectl get pods -n "${NAMESPACE}" \
   -o jsonpath='{.items[0].metadata.name}')
 
 garage_exec() {
-  kubectl exec -n "${NAMESPACE}" "${GARAGE_POD}" -- /garage "$@"
+  kubectl exec -n "${NAMESPACE}" "${GARAGE_POD}" -- /garage -c /etc/garage/garage.toml "$@"
 }
 
 echo "==> Checking Garage layout..."
