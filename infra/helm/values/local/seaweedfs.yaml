@@ -1,0 +1,65 @@
+# SeaweedFS S3-compatible object storage for the local kind cluster.
+global:
+  seaweedfs:
+    loggingLevel: 1
+
+image:
+  tag: "4.23"
+
+master:
+  replicas: 1
+  affinity: ""
+  data:
+    type: "emptyDir"
+  logs:
+    type: "emptyDir"
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+
+volume:
+  replicas: 1
+  affinity: ""
+  dataDirs:
+    - name: data1
+      type: "emptyDir"
+      maxVolumes: 0
+  logs:
+    type: "emptyDir"
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 512Mi
+
+filer:
+  replicas: 1
+  affinity: ""
+  data:
+    type: "emptyDir"
+  logs:
+    type: "emptyDir"
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 512Mi
+
+s3:
+  enabled: true
+  enableAuth: true
+  port: 8333
+  createBuckets: []
+  logs:
+    type: "emptyDir"
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      memory: 256Mi

@@ -19,7 +19,7 @@ OpenLakeForge v1 adopts the following baseline decisions:
 - Batch-first v1; streaming is postponed.
 - Apache Iceberg is the table format.
 - Apache Polaris is the Iceberg REST catalog.
-- Garage is the default local S3-compatible object storage backend.
+- SeaweedFS is the default local S3-compatible object storage backend.
 - Trino is used for analytics querying only, not ETL.
 - Floe owns Bronze-to-Silver technical validation and Silver materialization.
 - dbt owns Silver-to-Gold business transformation.

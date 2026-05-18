@@ -1,0 +1,10 @@
+# Ensure shell scripts and config files always use LF line endings.
+# Without this, git on Windows rewrites them as CRLF, which breaks
+# bash heredocs and generated YAML when scripts run under WSL.
+*.sh        text eol=lf
+*.yaml      text eol=lf
+*.yml       text eol=lf
+*.toml      text eol=lf
+*.md        text eol=lf
+*.json      text eol=lf
+Makefile    text eol=lf

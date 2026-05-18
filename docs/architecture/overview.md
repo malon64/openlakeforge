@@ -27,7 +27,7 @@ The first local infrastructure target is `k3d`. Iteration 1 will use it to stand
 | Processing scope | Batch-first v1; streaming deferred |
 | Table format | Apache Iceberg |
 | Catalog | Apache Polaris REST catalog |
-| Local object storage | Garage |
+| Local object storage | SeaweedFS |
 | Query layer | Trino for analytics queries only |
 | Orchestration | Dagster asset graph |
 | Lineage protocol | OpenLineage |

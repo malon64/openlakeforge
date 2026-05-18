@@ -6,6 +6,7 @@
 # Editors
 .idea/
 .vscode/
+.claude/
 *.swp
 *.swo
 *~
@@ -50,3 +51,6 @@ kubeconfig*
 *.log
 tmp/
 .tmp/
+
+# Terraform plans can contain sensitive values.
+*.tfplan

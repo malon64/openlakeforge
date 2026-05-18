@@ -1,0 +1,53 @@
+# Local Stack Contracts
+
+The local lakehouse stack is assembled by Terraform in
+`infra/terraform/environments/local`. Service modules exchange contracts through
+Kubernetes service DNS names and Kubernetes Secrets, not generated files.
+
+## Storage Contract
+
+SeaweedFS exposes the local S3-compatible API at:
+
+```text
+http://seaweedfs-s3:8333
+```
+
+The storage module owns:
+
+- S3 access credentials in `seaweedfs-s3-creds`
+- the Iceberg bucket `iceberg-data`
+- path-style S3 access
+- region `us-east-1`
+
+Downstream services consume only the endpoint, bucket name, region, and Secret
+key references.
+
+## Catalog Contract
+
+Polaris exposes the Iceberg REST catalog at:
+
+```text
+http://polaris:8181/api/catalog
+```
+
+The catalog module owns:
+
+- root bootstrap credentials in `polaris-bootstrap-credentials`
+- the `lakehouse` catalog
+- the Trino service principal and role grants
+- Trino OAuth credentials in `polaris-trino-creds`
+
+Trino consumes only the REST URI, token URI, warehouse name, OAuth scope, and
+Secret key references.
+
+## Query Contract
+
+Trino exposes SQL over HTTP at:
+
+```text
+http://trino:8080
+```
+
+The Trino Iceberg catalog uses environment-variable secret substitution for all
+credentials. The mounted catalog file must contain placeholders such as
+`${ENV:AWS_ACCESS_KEY_ID}` rather than literal secret values.

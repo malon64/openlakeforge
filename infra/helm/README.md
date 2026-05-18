@@ -1,13 +1,36 @@
 # Helm
 
-Helm assets will contain charts and values used by the Terraform environments.
+The local stack consumes upstream Helm charts through Terraform `helm_release`
+resources. Static, non-secret local chart values live in YAML files here.
+Terraform modules layer dynamic values on top for generated credentials, service
+contract endpoints, Secret references, and bootstrap run markers.
 
-Planned structure:
+## Structure
 
 ```text
 infra/helm/
-├── charts/
 └── values/
+    └── local/
+        ├── seaweedfs.yaml
+        ├── polaris.yaml
+        └── trino.yaml
 ```
 
-Iteration 1 will begin with local `k3d` values for PostgreSQL, Garage, Polaris, and Trino. No Helm charts or values are implemented in Iteration 0.
+## Local charts
+
+- **SeaweedFS** (`seaweedfs/seaweedfs`)
+  Chart source: https://seaweedfs.github.io/seaweedfs/helm
+- **Apache Polaris** (`polaris/polaris`)
+  Chart source: https://downloads.apache.org/polaris/helm-chart
+- **Trino** (`trino/trino`)
+  Chart source: https://trinodb.github.io/charts
+
+## Workflow
+
+```bash
+make local-cluster
+make local-up
+make local-forward
+make local-down
+make local-destroy-cluster
+```

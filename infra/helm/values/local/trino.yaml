@@ -1,0 +1,25 @@
+# Trino SQL query engine for the local kind cluster.
+image:
+  tag: "480"
+
+server:
+  workers: 0
+
+coordinator:
+  jvm:
+    maxHeapSize: "2G"
+  config:
+    query:
+      maxMemoryPerNode: "1GB"
+    nodeScheduler:
+      includeCoordinator: true
+  resources:
+    requests:
+      cpu: 500m
+      memory: 2Gi
+    limits:
+      memory: 3Gi
+
+service:
+  type: ClusterIP
+  port: 8080
