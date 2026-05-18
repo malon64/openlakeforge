@@ -29,6 +29,15 @@ for cmd in docker kind kubectl; do
   fi
 done
 
+# Ensure kubectl is a native Linux binary, not a Windows .exe picked up via WSL interop
+if ! kubectl version --client &>/dev/null; then
+  echo "ERROR: kubectl is not executable (may be a Windows binary on the WSL PATH)." >&2
+  echo "  Install the native Linux binary:" >&2
+  echo "    curl -LO \"https://dl.k8s.io/release/\$(curl -Ls https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl\"" >&2
+  echo "    chmod +x kubectl && sudo mv kubectl /usr/local/bin/kubectl" >&2
+  exit 1
+fi
+
 if ! docker info &>/dev/null; then
   echo "ERROR: Docker daemon is not running or not accessible." >&2
   echo "  Start Docker Desktop and enable WSL integration, or install Docker Engine in WSL." >&2
