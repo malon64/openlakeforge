@@ -1,27 +1,19 @@
 #!/usr/bin/env bash
-# Bring up the OpenLakeForge local stack on an existing Kubernetes cluster.
+# Bring up the OpenLakeForge local stack on the current Kubernetes context.
 #
-# Prerequisites (must be on PATH):
-#   kubectl, helm, curl, aws
-#
-# The script assumes kubectl is already pointing at the target cluster.
-# On Windows run this from Git Bash (comes with Git for Windows).
-#
-# Usage:
-#   bash scripts/local/setup.sh
+# Terraform owns namespace creation, Helm releases, local credentials, bootstrap
+# jobs, and service contracts. The kind cluster itself is still created by
+# scripts/local/create-cluster.sh.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-HELM_VALUES="${REPO_ROOT}/infra/helm/values"
-GENERATED_VALUES="/tmp/trino-iceberg-generated.yaml"
-
-export NAMESPACE="${NAMESPACE:-lakehouse}"
-export BUCKET_NAME="iceberg-data"
+TERRAFORM_DIR="${REPO_ROOT}/infra/terraform/environments/local"
+NAMESPACE="${NAMESPACE:-lakehouse}"
 
 check_prereqs() {
   local missing=0
-  for cmd in kubectl helm curl aws; do
+  for cmd in terraform kubectl; do
     if ! command -v "${cmd}" &>/dev/null; then
       echo "ERROR: '${cmd}' not found on PATH" >&2
       missing=1
@@ -30,128 +22,23 @@ check_prereqs() {
   [[ $missing -eq 0 ]] || exit 1
 }
 
-wait_rollout() {
-  local kind="$1" name="$2"
-  echo "    Waiting for ${kind}/${name}..."
-  kubectl rollout status "${kind}/${name}" -n "${NAMESPACE}" --timeout=300s
-}
-
-port_forward_bg() {
-  local svc="$1" local_port="$2" remote_port="$3"
-  kubectl port-forward "svc/${svc}" "${local_port}:${remote_port}" \
-    -n "${NAMESPACE}" &>/dev/null &
-  echo $!
-}
-
-# ── Step 0: prerequisites ──────────────────────────────────────────────────
 echo "==> Checking prerequisites..."
 check_prereqs
 
-# ── Step 1: namespace ─────────────────────────────────────────────────────
-echo "==> Creating namespace '${NAMESPACE}'..."
-kubectl get namespace "${NAMESPACE}" &>/dev/null || kubectl create namespace "${NAMESPACE}"
+echo "==> Applying Terraform local stack..."
+terraform -chdir="${TERRAFORM_DIR}" init
+terraform -chdir="${TERRAFORM_DIR}" apply \
+  -auto-approve \
+  -var="namespace=${NAMESPACE}"
 
-# ── Step 2: Helm repos ────────────────────────────────────────────────────
-echo "==> Adding Helm repos..."
-helm repo add polaris   https://downloads.apache.org/polaris/helm-chart 2>/dev/null || true
-helm repo add seaweedfs https://seaweedfs.github.io/seaweedfs/helm      2>/dev/null || true
-helm repo add trino     https://trinodb.github.io/charts                2>/dev/null || true
-helm repo update
-
-# ── Step 3: SeaweedFS ─────────────────────────────────────────────────────
-echo "==> Installing SeaweedFS..."
-helm upgrade --install seaweedfs seaweedfs/seaweedfs \
-  --namespace "${NAMESPACE}" \
-  --version 4.23.0 \
-  -f "${HELM_VALUES}/seaweedfs.yaml" \
-  --wait --timeout 5m
-
-wait_rollout statefulset seaweedfs-master
-wait_rollout statefulset seaweedfs-volume
-wait_rollout statefulset seaweedfs-filer
-wait_rollout deployment seaweedfs-s3
-
-# ── Step 4: Bootstrap SeaweedFS (bucket + key secret) ─────────────────────
-echo "==> Bootstrapping SeaweedFS..."
-# shellcheck source=./bootstrap-seaweedfs.sh
-source "${SCRIPT_DIR}/bootstrap-seaweedfs.sh"
-# SEAWEEDFS_ACCESS_KEY and SEAWEEDFS_SECRET_KEY are now exported
-
-# ── Step 5: Polaris ───────────────────────────────────────────────────────
-echo "==> Installing Polaris..."
-helm upgrade --install polaris polaris/polaris \
-  --namespace "${NAMESPACE}" \
-  -f "${HELM_VALUES}/polaris.yaml" \
-  --wait --timeout 5m
-
-wait_rollout deployment polaris
-
-# The local Polaris catalog is in-memory and S3 credentials are read from
-# environment variables at process start. Restart after Helm converges so reruns
-# always bootstrap against a pod with the current seaweedfs-s3-creds Secret.
-kubectl rollout restart deployment/polaris -n "${NAMESPACE}"
-wait_rollout deployment polaris
-
-# ── Step 6: Bootstrap Polaris (catalog + principal + grants) ──────────────
-echo "==> Starting port-forward for Polaris bootstrap..."
-PF_PID=$(port_forward_bg polaris 8181 8181)
-trap 'kill "${PF_PID}" 2>/dev/null || true' EXIT
-
-# Give port-forward a moment to establish
-sleep 3
-
-export POLARIS_HOST="localhost:8181"
-# shellcheck source=./bootstrap-polaris.sh
-source "${SCRIPT_DIR}/bootstrap-polaris.sh"
-# POLARIS_TRINO_CLIENT_ID and POLARIS_TRINO_CLIENT_SECRET are now exported
-
-kill "${PF_PID}" 2>/dev/null || true
-
-# ── Step 7: Generate Trino catalog values with real credentials ───────────
-echo "==> Generating Trino iceberg catalog values..."
-# Write via printf to avoid CRLF from heredoc on Windows-hosted filesystems.
-# additionalCatalogs is the established key in trinodb/charts.
-printf 'additionalCatalogs:\n' > "${GENERATED_VALUES}"
-printf '  iceberg: |\n' >> "${GENERATED_VALUES}"
-printf '    connector.name=iceberg\n' >> "${GENERATED_VALUES}"
-printf '    iceberg.catalog.type=rest\n' >> "${GENERATED_VALUES}"
-printf '    iceberg.rest-catalog.uri=http://polaris:8181/api/catalog\n' >> "${GENERATED_VALUES}"
-printf '    iceberg.rest-catalog.warehouse=%s\n' "${CATALOG_NAME:-lakehouse}" >> "${GENERATED_VALUES}"
-printf '    iceberg.rest-catalog.security=OAUTH2\n' >> "${GENERATED_VALUES}"
-printf '    iceberg.rest-catalog.oauth2.credential=%s:%s\n' "${POLARIS_TRINO_CLIENT_ID}" "${POLARIS_TRINO_CLIENT_SECRET}" >> "${GENERATED_VALUES}"
-printf '    iceberg.rest-catalog.oauth2.server-uri=http://polaris:8181/api/catalog/v1/oauth/tokens\n' >> "${GENERATED_VALUES}"
-printf '    iceberg.rest-catalog.oauth2.scope=PRINCIPAL_ROLE:ALL\n' >> "${GENERATED_VALUES}"
-printf '    iceberg.rest-catalog.vended-credentials-enabled=false\n' >> "${GENERATED_VALUES}"
-printf '    iceberg.rest-catalog.nested-namespace-enabled=true\n' >> "${GENERATED_VALUES}"
-printf '    fs.native-s3.enabled=true\n' >> "${GENERATED_VALUES}"
-printf '    s3.endpoint=http://seaweedfs-s3:8333\n' >> "${GENERATED_VALUES}"
-printf '    s3.path-style-access=true\n' >> "${GENERATED_VALUES}"
-printf '    s3.region=us-east-1\n' >> "${GENERATED_VALUES}"
-printf '    s3.aws-access-key=%s\n' "${SEAWEEDFS_ACCESS_KEY}" >> "${GENERATED_VALUES}"
-printf '    s3.aws-secret-key=%s\n' "${SEAWEEDFS_SECRET_KEY}" >> "${GENERATED_VALUES}"
-
-echo "    Written to ${GENERATED_VALUES}:"
-cat "${GENERATED_VALUES}"
-
-# ── Step 8: Trino ─────────────────────────────────────────────────────────
-echo "==> Installing Trino..."
-helm upgrade --install trino trino/trino \
-  --namespace "${NAMESPACE}" \
-  -f "${HELM_VALUES}/trino.yaml" \
-  -f "${GENERATED_VALUES}" \
-  --wait --timeout 5m
-
-# ── Done ──────────────────────────────────────────────────────────────────
 echo ""
-echo "╔══════════════════════════════════════════════════════════════╗"
-echo "║  OpenLakeForge local stack is up                            ║"
-echo "╠══════════════════════════════════════════════════════════════╣"
-echo "║  Port-forward commands:                                     ║"
-echo "║    kubectl port-forward svc/seaweedfs-s3 9000:8333 -n lakehouse ║"
-echo "║    kubectl port-forward svc/polaris 8181:8181 -n lakehouse  ║"
-echo "║    kubectl port-forward svc/trino   8080:8080 -n lakehouse  ║"
-echo "╠══════════════════════════════════════════════════════════════╣"
-echo "║  Trino UI:    http://localhost:8080  (user: any, no pwd)    ║"
-echo "║  Polaris API: http://localhost:8181/api/catalog             ║"
-echo "║  SeaweedFS S3: http://localhost:9000                        ║"
-echo "╚══════════════════════════════════════════════════════════════╝"
+echo "OpenLakeForge local stack is up."
+echo ""
+echo "Port-forward commands:"
+echo "  kubectl port-forward svc/seaweedfs-s3 9000:8333 -n ${NAMESPACE}"
+echo "  kubectl port-forward svc/polaris 8181:8181 -n ${NAMESPACE}"
+echo "  kubectl port-forward svc/trino 8080:8080 -n ${NAMESPACE}"
+echo ""
+echo "Trino UI:     http://localhost:8080"
+echo "Polaris API:  http://localhost:8181/api/catalog"
+echo "SeaweedFS S3: http://localhost:9000"

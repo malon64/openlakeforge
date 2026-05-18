@@ -2,7 +2,7 @@
 
 Terraform will own environment assembly and reusable platform modules.
 
-Planned structure:
+Implemented local structure:
 
 ```text
 infra/terraform/
@@ -20,4 +20,25 @@ infra/terraform/
     └── observability/
 ```
 
-No Terraform modules are implemented in Iteration 0.
+The local environment deploys into the active Kubernetes context. It does not
+create the kind cluster; use `make local-cluster` for that.
+
+## Local workflow
+
+```bash
+make local-up
+make local-down
+```
+
+`make local-up` runs `terraform init` and `terraform apply` in
+`infra/terraform/environments/local`. Terraform owns:
+
+- Kubernetes namespace creation
+- SeaweedFS, Polaris, and Trino Helm releases
+- local generated credentials
+- Kubernetes Secrets used as service contracts
+- SeaweedFS bucket creation jobs
+- Polaris catalog and Trino principal bootstrap jobs
+
+Terraform state is local and contains generated development credentials. Treat
+state files as sensitive; they are gitignored.

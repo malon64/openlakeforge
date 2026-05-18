@@ -1,6 +1,7 @@
 # Helm
 
-Helm assets contain chart values used by each environment target.
+Helm assets contain non-secret chart values used by each environment target.
+Terraform overlays dynamic service contracts, endpoints, and Secret references.
 
 ## Structure
 
@@ -15,8 +16,8 @@ infra/helm/
 
 ## Iteration 1 — local kind cluster
 
-All three services deploy to a single `lakehouse` namespace.
-The `scripts/local/setup.sh` orchestrates the full install sequence:
+All three services deploy to a single `lakehouse` namespace. Terraform
+orchestrates the full install sequence:
 
 1. **SeaweedFS** (`seaweedfs/seaweedfs`) — S3-compatible object storage  
    Chart source: https://seaweedfs.github.io/seaweedfs/helm
@@ -46,14 +47,17 @@ make local-status
 make local-down
 ```
 
-### Secrets and generated files
+### Secrets and service contracts
 
-`setup.sh` generates `/tmp/trino-iceberg-generated.yaml` at deploy time.
-This file contains SeaweedFS S3 credentials and Polaris OAuth2 credentials and
-is **never committed to git**.
+Terraform generates local development credentials and stores them in Kubernetes
+Secrets:
 
-SeaweedFS S3 credentials are stored in the `seaweedfs-s3-creds` Kubernetes Secret
-(created by `bootstrap-seaweedfs.sh`) and injected into Polaris via `extraEnv`.
+- `seaweedfs-s3-creds`
+- `polaris-bootstrap-credentials`
+- `polaris-trino-creds`
+
+Trino catalog files use environment-variable secret substitution and should not
+contain literal credential values.
 
 ## Future iterations
 

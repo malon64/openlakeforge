@@ -52,6 +52,5 @@ kubeconfig*
 tmp/
 .tmp/
 
-# Generated Helm values containing secrets (produced by scripts/local/setup.sh)
-trino-iceberg-generated.yaml
-/tmp/trino-iceberg-generated.yaml
+# Terraform plans can contain sensitive values.
+*.tfplan

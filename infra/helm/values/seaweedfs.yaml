@@ -56,13 +56,7 @@ s3:
   enabled: true
   enableAuth: true
   port: 8333
-  credentials:
-    admin:
-      accessKey: openlakeforge
-      secretKey: openlakeforge-secret
-  createBuckets:
-    - name: iceberg-data
-      anonymousRead: false
+  createBuckets: []
   logs:
     type: "emptyDir"
   resources:

@@ -9,8 +9,8 @@ help:
 	@printf '%s\n' ''
 	@printf '%s\n' 'Local stack:'
 	@printf '%s\n' '  make local-cluster    Create the kind cluster (WSL + kind required)'
-	@printf '%s\n' '  make local-up         Deploy SeaweedFS + Polaris + Trino to the current cluster'
-	@printf '%s\n' '  make local-down       Uninstall all releases and delete the namespace'
+	@printf '%s\n' '  make local-up         Terraform-apply SeaweedFS + Polaris + Trino'
+	@printf '%s\n' '  make local-down       Terraform-destroy the local stack'
 	@printf '%s\n' '  make local-status     Show pod and service status in the lakehouse namespace'
 	@printf '%s\n' '  make local-forward    Port-forward all services to localhost'
 
