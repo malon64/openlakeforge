@@ -50,7 +50,7 @@ TOKEN_RESPONSE=$(polaris_curl POST "/api/catalog/v1/oauth/tokens" \
   -u "${ROOT_CLIENT_ID}:${ROOT_CLIENT_SECRET}" \
   -d "grant_type=client_credentials" \
   -d "scope=PRINCIPAL_ROLE:ALL")
-POLARIS_TOKEN=$(echo "${TOKEN_RESPONSE}" | grep -o '"access_token":"[^"]*"' | cut -d'"' -f4)
+POLARIS_TOKEN=$(echo "${TOKEN_RESPONSE}" | grep -o '"access_token":"[^"]*"' | cut -d'"' -f4 || true)
 
 if [[ -z "${POLARIS_TOKEN}" ]]; then
   echo "ERROR: failed to obtain Polaris token. Response:"
@@ -80,9 +80,9 @@ PRINCIPAL_RESPONSE=$(polaris_mgmt POST "/principals" -d \
   "{\"name\": \"${PRINCIPAL_NAME}\", \"type\": \"SERVICE\"}" 2>/dev/null || true)
 
 POLARIS_TRINO_CLIENT_ID=$(echo "${PRINCIPAL_RESPONSE}" \
-  | grep -o '"clientId":"[^"]*"' | cut -d'"' -f4)
+  | grep -o '"clientId":"[^"]*"' | cut -d'"' -f4 || true)
 POLARIS_TRINO_CLIENT_SECRET=$(echo "${PRINCIPAL_RESPONSE}" \
-  | grep -o '"clientSecret":"[^"]*"' | cut -d'"' -f4)
+  | grep -o '"clientSecret":"[^"]*"' | cut -d'"' -f4 || true)
 
 if [[ -z "${POLARIS_TRINO_CLIENT_ID}" ]]; then
   echo "    Principal already exists or credentials unavailable — using placeholder."
