@@ -48,19 +48,31 @@ else
 fi
 
 echo "==> Creating access key '${KEY_NAME}'..."
-if garage_exec key list | grep -qF "${KEY_NAME}"; then
-  echo "    Key already exists — fetching credentials with --show-secret..."
-  KEY_OUTPUT=$(garage_exec key get --show-secret "${KEY_NAME}")
+if garage_exec key list 2>&1 | grep -qF "${KEY_NAME}"; then
+  # Garage v1.x does not allow re-reading secrets after creation.
+  # If the key already exists, recover credentials from the k8s Secret
+  # written on the previous run. If that Secret is also gone, recreate the key.
+  if kubectl get secret garage-s3-creds -n "${NAMESPACE}" &>/dev/null; then
+    echo "    Key exists — reading credentials from existing Secret..."
+    GARAGE_KEY_ID=$(kubectl get secret garage-s3-creds -n "${NAMESPACE}" \
+      -o jsonpath='{.data.AWS_ACCESS_KEY_ID}' | base64 -d)
+    GARAGE_SECRET_KEY=$(kubectl get secret garage-s3-creds -n "${NAMESPACE}" \
+      -o jsonpath='{.data.AWS_SECRET_ACCESS_KEY}' | base64 -d)
+  else
+    echo "    Key exists but Secret is gone — deleting key and recreating..."
+    garage_exec key delete "${KEY_NAME}" 2>/dev/null || true
+    KEY_OUTPUT=$(garage_exec key create "${KEY_NAME}")
+    GARAGE_KEY_ID=$(echo "${KEY_OUTPUT}"     | grep -i "Key ID"     | awk '{print $NF}')
+    GARAGE_SECRET_KEY=$(echo "${KEY_OUTPUT}" | grep -i "Secret key" | awk '{print $NF}')
+  fi
 else
   KEY_OUTPUT=$(garage_exec key create "${KEY_NAME}")
+  GARAGE_KEY_ID=$(echo "${KEY_OUTPUT}"     | grep -i "Key ID"     | awk '{print $NF}')
+  GARAGE_SECRET_KEY=$(echo "${KEY_OUTPUT}" | grep -i "Secret key" | awk '{print $NF}')
 fi
 
-GARAGE_KEY_ID=$(echo "${KEY_OUTPUT}"    | grep -i "Key ID"     | awk '{print $NF}')
-GARAGE_SECRET_KEY=$(echo "${KEY_OUTPUT}" | grep -i "Secret key" | awk '{print $NF}')
-
 if [[ -z "${GARAGE_KEY_ID}" || -z "${GARAGE_SECRET_KEY}" ]]; then
-  echo "ERROR: could not parse key credentials from garage output:"
-  echo "${KEY_OUTPUT}"
+  echo "ERROR: could not obtain key credentials." >&2
   exit 1
 fi
 
