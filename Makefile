@@ -44,7 +44,12 @@ local-status:
 
 local-forward:
 	@echo "Starting port-forwards (Ctrl-C to stop all)..."
-	@kubectl port-forward svc/seaweedfs-s3 9000:8333 -n $(NAMESPACE) &
-	@kubectl port-forward svc/polaris 8181:8181 -n $(NAMESPACE) &
-	@kubectl port-forward svc/trino   8080:8080 -n $(NAMESPACE) &
-	@wait
+	@set -e; \
+	kubectl port-forward svc/seaweedfs-s3 9000:8333 -n $(NAMESPACE) & \
+	seaweedfs_pid=$$!; \
+	kubectl port-forward svc/polaris 8181:8181 -n $(NAMESPACE) & \
+	polaris_pid=$$!; \
+	kubectl port-forward svc/trino 8080:8080 -n $(NAMESPACE) & \
+	trino_pid=$$!; \
+	trap 'kill $$seaweedfs_pid $$polaris_pid $$trino_pid 2>/dev/null || true' INT TERM EXIT; \
+	wait
