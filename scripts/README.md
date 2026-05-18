@@ -2,7 +2,7 @@
 
 Local developer and repository validation scripts live here.
 
-Iteration 0 includes `check-structure.sh`, which validates the repository skeleton and documentation contract.
+Iteration 0 includes `check-structure.sh`, which validates the repository skeleton and documentation contract. Infrastructure checks live in `check-infra.sh`; it runs Terraform formatting/validation and renders the upstream Helm charts with local values.
 
 Local stack scripts under `scripts/local/` are thin wrappers around Terraform for
 the lakehouse deployment and around kind for cluster creation/destruction. The

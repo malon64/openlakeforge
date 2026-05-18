@@ -1,4 +1,4 @@
-.PHONY: help tree check-structure local-cluster local-destroy-cluster local-up local-down local-status local-forward
+.PHONY: help tree check-structure check-infra local-cluster local-destroy-cluster local-up local-down local-status local-forward
 
 NAMESPACE ?= lakehouse
 
@@ -6,6 +6,7 @@ help:
 	@printf '%s\n' 'OpenLakeForge bootstrap targets:'
 	@printf '%s\n' '  make tree             Show the repository structure'
 	@printf '%s\n' '  make check-structure  Validate the Iteration 0 repository contract'
+	@printf '%s\n' '  make check-infra      Validate Terraform and render Helm values'
 	@printf '%s\n' ''
 	@printf '%s\n' 'Local stack:'
 	@printf '%s\n' '  make local-cluster    Create the kind cluster (WSL + kind required)'
@@ -20,6 +21,9 @@ tree:
 
 check-structure:
 	@bash scripts/check-structure.sh
+
+check-infra:
+	@bash scripts/check-infra.sh
 
 local-cluster:
 	@bash scripts/local/create-cluster.sh
