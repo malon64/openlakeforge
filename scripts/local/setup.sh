@@ -98,27 +98,29 @@ kill "${PF_PID}" 2>/dev/null || true
 
 # ── Step 7: Generate Trino catalog values with real credentials ───────────
 echo "==> Generating Trino iceberg catalog values..."
-cat > "${GENERATED_VALUES}" <<EOF
-catalogs:
-  iceberg: |
-    connector.name=iceberg
-    iceberg.catalog.type=rest
-    iceberg.rest-catalog.uri=http://polaris:8181/api/catalog
-    iceberg.rest-catalog.warehouse=${CATALOG_NAME:-lakehouse}
-    iceberg.rest-catalog.security=OAUTH2
-    iceberg.rest-catalog.oauth2.credential=${POLARIS_TRINO_CLIENT_ID}:${POLARIS_TRINO_CLIENT_SECRET}
-    iceberg.rest-catalog.oauth2.server-uri=http://polaris:8181/api/catalog/v1/oauth/tokens
-    iceberg.rest-catalog.oauth2.scope=PRINCIPAL_ROLE:ALL
-    iceberg.rest-catalog.vended-credentials-enabled=true
-    iceberg.rest-catalog.nested-namespace-enabled=true
-    fs.native-s3.enabled=true
-    s3.endpoint=http://garage:3900
-    s3.path-style-access=true
-    s3.region=us-east-1
-    s3.aws-access-key=${GARAGE_KEY_ID}
-    s3.aws-secret-key=${GARAGE_SECRET_KEY}
-EOF
-echo "    Written to ${GENERATED_VALUES} (not committed to git)"
+# Write via printf to avoid CRLF from heredoc on Windows-hosted filesystems.
+# additionalCatalogs is the established key in trinodb/charts.
+printf 'additionalCatalogs:\n' > "${GENERATED_VALUES}"
+printf '  iceberg: |\n' >> "${GENERATED_VALUES}"
+printf '    connector.name=iceberg\n' >> "${GENERATED_VALUES}"
+printf '    iceberg.catalog.type=rest\n' >> "${GENERATED_VALUES}"
+printf '    iceberg.rest-catalog.uri=http://polaris:8181/api/catalog\n' >> "${GENERATED_VALUES}"
+printf '    iceberg.rest-catalog.warehouse=%s\n' "${CATALOG_NAME:-lakehouse}" >> "${GENERATED_VALUES}"
+printf '    iceberg.rest-catalog.security=OAUTH2\n' >> "${GENERATED_VALUES}"
+printf '    iceberg.rest-catalog.oauth2.credential=%s:%s\n' "${POLARIS_TRINO_CLIENT_ID}" "${POLARIS_TRINO_CLIENT_SECRET}" >> "${GENERATED_VALUES}"
+printf '    iceberg.rest-catalog.oauth2.server-uri=http://polaris:8181/api/catalog/v1/oauth/tokens\n' >> "${GENERATED_VALUES}"
+printf '    iceberg.rest-catalog.oauth2.scope=PRINCIPAL_ROLE:ALL\n' >> "${GENERATED_VALUES}"
+printf '    iceberg.rest-catalog.vended-credentials-enabled=true\n' >> "${GENERATED_VALUES}"
+printf '    iceberg.rest-catalog.nested-namespace-enabled=true\n' >> "${GENERATED_VALUES}"
+printf '    fs.native-s3.enabled=true\n' >> "${GENERATED_VALUES}"
+printf '    s3.endpoint=http://garage:3900\n' >> "${GENERATED_VALUES}"
+printf '    s3.path-style-access=true\n' >> "${GENERATED_VALUES}"
+printf '    s3.region=us-east-1\n' >> "${GENERATED_VALUES}"
+printf '    s3.aws-access-key=%s\n' "${GARAGE_KEY_ID}" >> "${GENERATED_VALUES}"
+printf '    s3.aws-secret-key=%s\n' "${GARAGE_SECRET_KEY}" >> "${GENERATED_VALUES}"
+
+echo "    Written to ${GENERATED_VALUES}:"
+cat "${GENERATED_VALUES}"
 
 # ── Step 8: Trino ─────────────────────────────────────────────────────────
 echo "==> Installing Trino..."
