@@ -49,7 +49,7 @@ check_prereqs
 
 # ── Step 1: namespace ─────────────────────────────────────────────────────
 echo "==> Creating namespace '${NAMESPACE}'..."
-kubectl create namespace "${NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
+kubectl get namespace "${NAMESPACE}" &>/dev/null || kubectl create namespace "${NAMESPACE}"
 
 # ── Step 2: Helm repos ────────────────────────────────────────────────────
 echo "==> Adding Helm repos..."
