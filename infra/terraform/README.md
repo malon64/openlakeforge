@@ -10,7 +10,7 @@ infra/terraform/
 │   └── local/
 └── modules/
     ├── platform/
-    ├── storage/garage/
+    ├── storage/seaweedfs/
     ├── catalog/polaris/
     ├── query/trino/
     ├── orchestration/dagster/

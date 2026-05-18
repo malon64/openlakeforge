@@ -7,7 +7,7 @@ set -euo pipefail
 NAMESPACE="${NAMESPACE:-lakehouse}"
 
 echo "==> Uninstalling Helm releases from namespace '${NAMESPACE}'..."
-for release in trino polaris garage; do
+for release in trino polaris seaweedfs garage; do
   if helm status "${release}" -n "${NAMESPACE}" &>/dev/null; then
     echo "    Uninstalling ${release}..."
     helm uninstall "${release}" -n "${NAMESPACE}"

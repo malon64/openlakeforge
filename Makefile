@@ -9,7 +9,7 @@ help:
 	@printf '%s\n' ''
 	@printf '%s\n' 'Local stack:'
 	@printf '%s\n' '  make local-cluster    Create the kind cluster (WSL + kind required)'
-	@printf '%s\n' '  make local-up         Deploy Garage + Polaris + Trino to the current cluster'
+	@printf '%s\n' '  make local-up         Deploy SeaweedFS + Polaris + Trino to the current cluster'
 	@printf '%s\n' '  make local-down       Uninstall all releases and delete the namespace'
 	@printf '%s\n' '  make local-status     Show pod and service status in the lakehouse namespace'
 	@printf '%s\n' '  make local-forward    Port-forward all services to localhost'
@@ -36,7 +36,7 @@ local-status:
 
 local-forward:
 	@echo "Starting port-forwards (Ctrl-C to stop all)..."
-	@kubectl port-forward svc/garage  9000:3900 -n $(NAMESPACE) &
+	@kubectl port-forward svc/seaweedfs-s3 9000:8333 -n $(NAMESPACE) &
 	@kubectl port-forward svc/polaris 8181:8181 -n $(NAMESPACE) &
 	@kubectl port-forward svc/trino   8080:8080 -n $(NAMESPACE) &
 	@wait

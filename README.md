@@ -41,7 +41,7 @@ Iteration 0 establishes the repository structure and records the first architect
 | Transformation | dbt-duckdb | Silver-to-Gold business models |
 | Table format | Apache Iceberg | Open table format |
 | Catalog | Apache Polaris | Iceberg REST catalog |
-| Object storage | Garage | Default local S3-compatible backend |
+| Object storage | SeaweedFS | Default local S3-compatible backend |
 | Query serving | Trino | Analytics query engine |
 | Orchestration | Dagster | Asset graph and run orchestration |
 | Lineage protocol | OpenLineage | Standard lineage event model |
@@ -126,7 +126,7 @@ The image will contain Dagster code, the Dagster-Floe connector, Floe contracts,
 ## Roadmap
 
 - Iteration 0: repository skeleton, architecture documentation, and validation automation.
-- Iteration 1: local `k3d` foundation with namespaces, PostgreSQL, Garage, Polaris, and Trino.
+- Iteration 1: local `k3d` foundation with namespaces, PostgreSQL, SeaweedFS, Polaris, and Trino.
 - Iteration 2: project-code image and Dagster deployment with Kubernetes run launcher.
 - Iteration 3: Sales POC ingestion and Floe Silver materialization.
 - Iteration 4: dbt-duckdb Gold models and Dagster-dbt integration.

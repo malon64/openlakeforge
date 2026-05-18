@@ -28,6 +28,6 @@ service:
   type: ClusterIP
   port: 8080
 
-# The iceberg catalog stanza with actual Polaris OAuth2 credentials and Garage
+# The iceberg catalog stanza with actual Polaris OAuth2 credentials and SeaweedFS
 # S3 keys is written to /tmp/trino-iceberg-generated.yaml by setup.sh and
 # passed as a second -f override. It is gitignored and never committed.

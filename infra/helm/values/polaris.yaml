@@ -21,18 +21,25 @@ extraEnv:
     value: "POLARIS,root,polaris-secret"
   - name: AWS_REGION
     value: "us-east-1"
-  # Garage S3 endpoint (AWS SDK v2 env var)
+  # SeaweedFS S3 endpoint (AWS SDK v2 env var)
   - name: AWS_ENDPOINT_URL_S3
-    value: "http://garage:3900"
-  # Force path-style access required by Garage
+    value: "http://seaweedfs-s3:8333"
+  # Force path-style access for local S3-compatible storage.
   - name: AWS_S3_FORCE_PATH_STYLE
     value: "true"
-
-# Garage S3 key/secret loaded from the Secret created by bootstrap-garage.sh.
-# The Secret must exist before `helm install polaris` runs.
-extraEnvFrom:
-  - secretRef:
-      name: garage-s3-creds
+  # SeaweedFS S3 key/secret loaded from the Secret created by bootstrap-seaweedfs.sh.
+  # Keep these in extraEnv because the Polaris chart renders it directly into
+  # the Deployment; extraEnvFrom is not rendered by chart 1.4.1.
+  - name: AWS_ACCESS_KEY_ID
+    valueFrom:
+      secretKeyRef:
+        name: seaweedfs-s3-creds
+        key: AWS_ACCESS_KEY_ID
+  - name: AWS_SECRET_ACCESS_KEY
+    valueFrom:
+      secretKeyRef:
+        name: seaweedfs-s3-creds
+        key: AWS_SECRET_ACCESS_KEY
 
 service:
   type: ClusterIP

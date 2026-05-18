@@ -1,6 +1,0 @@
-apiVersion: v2
-name: garage
-description: Garage S3-compatible distributed object storage (single-node local dev)
-type: application
-version: 0.1.0
-appVersion: "v1.3.1"

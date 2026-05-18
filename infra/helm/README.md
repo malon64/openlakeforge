@@ -8,7 +8,7 @@ Helm assets contain chart values used by each environment target.
 infra/helm/
 ├── charts/          # vendored or custom charts (none yet in iteration 1)
 └── values/
-    ├── garage.yaml  # Garage S3 object storage
+    ├── seaweedfs.yaml # SeaweedFS S3 object storage
     ├── polaris.yaml # Apache Polaris Iceberg REST catalog
     └── trino.yaml   # Trino SQL query engine
 ```
@@ -18,8 +18,8 @@ infra/helm/
 All three services deploy to a single `lakehouse` namespace.
 The `scripts/local/setup.sh` orchestrates the full install sequence:
 
-1. **Garage** (`derwitt-dev/garage`) — S3-compatible object storage  
-   Chart source: https://git.deuxfleurs.fr/Deuxfleurs/garage
+1. **SeaweedFS** (`seaweedfs/seaweedfs`) — S3-compatible object storage  
+   Chart source: https://seaweedfs.github.io/seaweedfs/helm
 
 2. **Apache Polaris** (`polaris/polaris`) — Iceberg REST catalog  
    Chart source: https://downloads.apache.org/polaris/helm-chart
@@ -37,7 +37,7 @@ make local-up
 make local-forward
 # Trino UI:    http://localhost:8080
 # Polaris API: http://localhost:8181/api/catalog
-# Garage S3:   http://localhost:9000
+# SeaweedFS S3: http://localhost:9000
 
 # Status
 make local-status
@@ -49,11 +49,11 @@ make local-down
 ### Secrets and generated files
 
 `setup.sh` generates `/tmp/trino-iceberg-generated.yaml` at deploy time.
-This file contains Garage S3 credentials and Polaris OAuth2 credentials and
+This file contains SeaweedFS S3 credentials and Polaris OAuth2 credentials and
 is **never committed to git**.
 
-Garage S3 credentials are stored in the `garage-s3-creds` Kubernetes Secret
-(created by `bootstrap-garage.sh`) and injected into Polaris via `extraEnvFrom`.
+SeaweedFS S3 credentials are stored in the `seaweedfs-s3-creds` Kubernetes Secret
+(created by `bootstrap-seaweedfs.sh`) and injected into Polaris via `extraEnv`.
 
 ## Future iterations
 

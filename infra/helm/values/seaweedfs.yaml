@@ -1,0 +1,73 @@
+# SeaweedFS S3-compatible object storage — local kind / Docker Desktop cluster
+# Chart: seaweedfs/seaweedfs  (https://seaweedfs.github.io/seaweedfs/helm)
+
+global:
+  seaweedfs:
+    loggingLevel: 1
+
+image:
+  tag: "4.23"
+
+master:
+  replicas: 1
+  affinity: ""
+  data:
+    type: "emptyDir"
+  logs:
+    type: "emptyDir"
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+
+volume:
+  replicas: 1
+  affinity: ""
+  dataDirs:
+    - name: data1
+      type: "emptyDir"
+      maxVolumes: 0
+  logs:
+    type: "emptyDir"
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 512Mi
+
+filer:
+  replicas: 1
+  affinity: ""
+  data:
+    type: "emptyDir"
+  logs:
+    type: "emptyDir"
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 512Mi
+
+s3:
+  enabled: true
+  enableAuth: true
+  port: 8333
+  credentials:
+    admin:
+      accessKey: openlakeforge
+      secretKey: openlakeforge-secret
+  createBuckets:
+    - name: iceberg-data
+      anonymousRead: false
+  logs:
+    type: "emptyDir"
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
