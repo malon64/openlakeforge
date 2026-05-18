@@ -43,4 +43,4 @@ echo "==> Deleting namespace '${NAMESPACE}' if it still exists..."
 kubectl delete namespace "${NAMESPACE}" --ignore-not-found
 
 echo "Teardown complete. Kind cluster is still running."
-echo "To delete the cluster: kind delete cluster --name openlakeforge-local"
+echo "To delete the cluster: make local-destroy-cluster"

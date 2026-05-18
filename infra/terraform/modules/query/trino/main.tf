@@ -9,7 +9,7 @@ resource "helm_release" "trino" {
   timeout = 300
 
   values = [
-    file(var.values_file),
+    file(var.base_values_file),
     yamlencode({
       envFrom = [
         {
@@ -26,6 +26,7 @@ resource "helm_release" "trino" {
 
       catalogs = {
         iceberg = <<-CATALOG
+          # openlakeforge.polaris-bootstrap-run=${var.catalog_contract.bootstrap_run_id}
           connector.name=iceberg
           iceberg.catalog.type=rest
           iceberg.rest-catalog.uri=${var.catalog_contract.rest_uri}

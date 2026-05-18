@@ -1,4 +1,4 @@
-.PHONY: help tree check-structure local-cluster local-up local-down local-status local-forward
+.PHONY: help tree check-structure local-cluster local-destroy-cluster local-up local-down local-status local-forward
 
 NAMESPACE ?= lakehouse
 
@@ -9,6 +9,7 @@ help:
 	@printf '%s\n' ''
 	@printf '%s\n' 'Local stack:'
 	@printf '%s\n' '  make local-cluster    Create the kind cluster (WSL + kind required)'
+	@printf '%s\n' '  make local-destroy-cluster  Delete the local kind cluster'
 	@printf '%s\n' '  make local-up         Terraform-apply SeaweedFS + Polaris + Trino'
 	@printf '%s\n' '  make local-down       Terraform-destroy the local stack'
 	@printf '%s\n' '  make local-status     Show pod and service status in the lakehouse namespace'
@@ -22,6 +23,9 @@ check-structure:
 
 local-cluster:
 	@bash scripts/local/create-cluster.sh
+
+local-destroy-cluster:
+	@bash scripts/local/destroy-cluster.sh
 
 local-up:
 	@NAMESPACE=$(NAMESPACE) bash scripts/local/setup.sh

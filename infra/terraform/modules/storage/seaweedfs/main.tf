@@ -9,6 +9,9 @@ locals {
   master_service_name = "${var.release_name}-master"
   filer_service_name  = "${var.release_name}-filer-client"
   access_key_id       = "olf${random_id.s3_access_key.hex}"
+  bucket_job_annotations = {
+    "openlakeforge.io/seaweedfs-release-revision" = tostring(helm_release.seaweedfs.metadata.revision)
+  }
 }
 
 resource "random_id" "s3_access_key" {
@@ -46,19 +49,21 @@ resource "helm_release" "seaweedfs" {
   timeout = 300
 
   values = [
-    file(var.values_file),
+    file(var.base_values_file),
     yamlencode({
       image = {
         tag = var.image_tag
       }
+
       s3 = {
+        port          = var.s3_port
+        createBuckets = []
         credentials = {
           admin = {
             accessKey = local.access_key_id
             secretKey = random_password.s3_secret_key.result
           }
         }
-        createBuckets = []
       }
     }),
   ]
@@ -68,7 +73,7 @@ resource "kubernetes_job_v1" "bucket" {
   for_each = toset(var.bucket_names)
 
   metadata {
-    name      = "seaweedfs-bucket-${each.key}"
+    name      = "seaweedfs-bucket-${each.key}-${helm_release.seaweedfs.metadata.revision}"
     namespace = var.namespace
     labels    = local.labels
   }
@@ -81,6 +86,7 @@ resource "kubernetes_job_v1" "bucket" {
         labels = merge(local.labels, {
           "openlakeforge.io/job" = "bucket-bootstrap"
         })
+        annotations = local.bucket_job_annotations
       }
 
       spec {

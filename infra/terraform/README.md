@@ -21,7 +21,9 @@ infra/terraform/
 ```
 
 The local environment deploys into the active Kubernetes context. It does not
-create the kind cluster; use `make local-cluster` for that.
+create the kind cluster; use `make local-cluster` for that. Static, non-secret
+Helm chart values live in `../helm/values/local`; Terraform modules overlay the
+dynamic contract values and Secret references.
 
 ## Local workflow
 
@@ -35,6 +37,7 @@ make local-down
 
 - Kubernetes namespace creation
 - SeaweedFS, Polaris, and Trino Helm releases
+- dynamic Helm values passed to those releases
 - local generated credentials
 - Kubernetes Secrets used as service contracts
 - SeaweedFS bucket creation jobs

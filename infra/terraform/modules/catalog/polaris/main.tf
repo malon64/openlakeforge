@@ -10,6 +10,9 @@ locals {
   rest_uri       = "http://${var.release_name}:8181/api/catalog"
   token_uri      = "http://${var.release_name}:8181/api/catalog/v1/oauth/tokens"
   oauth_scope    = "PRINCIPAL_ROLE:ALL"
+  bootstrap_annotations = {
+    "openlakeforge.io/polaris-release-revision" = tostring(helm_release.polaris.metadata.revision)
+  }
 }
 
 resource "random_password" "root_client_secret" {
@@ -44,7 +47,7 @@ resource "helm_release" "polaris" {
   timeout = 300
 
   values = [
-    file(var.values_file),
+    file(var.base_values_file),
     yamlencode({
       extraEnv = [
         {
@@ -88,6 +91,12 @@ resource "helm_release" "polaris" {
         },
       ]
     }),
+  ]
+}
+
+resource "terraform_data" "polaris_release_revision" {
+  triggers_replace = [
+    helm_release.polaris.metadata.revision,
   ]
 }
 
@@ -135,7 +144,7 @@ resource "kubernetes_role_binding_v1" "bootstrap" {
 
 resource "kubernetes_job_v1" "bootstrap" {
   metadata {
-    name      = "polaris-bootstrap"
+    name      = "polaris-bootstrap-${helm_release.polaris.metadata.revision}"
     namespace = var.namespace
     labels    = local.labels
   }
@@ -148,6 +157,7 @@ resource "kubernetes_job_v1" "bootstrap" {
         labels = merge(local.labels, {
           "openlakeforge.io/job" = "catalog-bootstrap"
         })
+        annotations = local.bootstrap_annotations
       }
 
       spec {
@@ -297,4 +307,10 @@ resource "kubernetes_job_v1" "bootstrap" {
     helm_release.polaris,
     kubernetes_role_binding_v1.bootstrap,
   ]
+
+  lifecycle {
+    replace_triggered_by = [
+      terraform_data.polaris_release_revision,
+    ]
+  }
 }

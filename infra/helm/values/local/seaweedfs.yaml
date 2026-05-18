@@ -1,6 +1,4 @@
-# SeaweedFS S3-compatible object storage — local kind / Docker Desktop cluster
-# Chart: seaweedfs/seaweedfs  (https://seaweedfs.github.io/seaweedfs/helm)
-
+# SeaweedFS S3-compatible object storage for the local kind cluster.
 global:
   seaweedfs:
     loggingLevel: 1

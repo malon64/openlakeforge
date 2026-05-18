@@ -1,0 +1,23 @@
+# Apache Polaris Iceberg REST catalog for the local kind cluster.
+image:
+  repository: apache/polaris
+  tag: "1.4.1"
+  pullPolicy: IfNotPresent
+
+replicaCount: 1
+
+# In-memory metastore is intentionally ephemeral for local development.
+polaris:
+  persistence:
+    type: in-memory
+
+service:
+  type: ClusterIP
+  port: 8181
+
+resources:
+  requests:
+    cpu: 200m
+    memory: 512Mi
+  limits:
+    memory: 1Gi

@@ -21,8 +21,8 @@ variable "chart_version" {
   default     = "4.23.0"
 }
 
-variable "values_file" {
-  description = "Path to the non-secret SeaweedFS Helm values file."
+variable "base_values_file" {
+  description = "Path to the non-secret base Helm values file."
   type        = string
 }
 

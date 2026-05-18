@@ -21,8 +21,8 @@ variable "chart_version" {
   default     = "1.4.1"
 }
 
-variable "values_file" {
-  description = "Path to the non-secret Polaris Helm values file."
+variable "base_values_file" {
+  description = "Path to the non-secret base Helm values file."
   type        = string
 }
 

@@ -10,7 +10,7 @@ set -euo pipefail
 
 CLUSTER_NAME="openlakeforge-local"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CLUSTER_CONFIG="${SCRIPT_DIR}/../../infra/kind/cluster.yaml"
+CLUSTER_CONFIG="${SCRIPT_DIR}/../../infra/kind/local/kind-cluster.yaml"
 
 RESET=false
 for arg in "$@"; do

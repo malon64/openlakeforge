@@ -8,6 +8,7 @@ output "contract" {
     trino_credentials_secret_name = var.trino_credentials_secret_name
     trino_client_id_key           = "POLARIS_TRINO_CLIENT_ID"
     trino_client_secret_key       = "POLARIS_TRINO_CLIENT_SECRET"
+    bootstrap_run_id              = kubernetes_job_v1.bootstrap.metadata[0].name
   }
 
   depends_on = [

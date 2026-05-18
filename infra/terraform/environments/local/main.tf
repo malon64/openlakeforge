@@ -42,8 +42,8 @@ resource "kubernetes_namespace_v1" "lakehouse" {
 module "seaweedfs" {
   source = "../../modules/storage/seaweedfs"
 
-  namespace   = kubernetes_namespace_v1.lakehouse.metadata[0].name
-  values_file = "${path.root}/../../../helm/values/seaweedfs.yaml"
+  namespace        = kubernetes_namespace_v1.lakehouse.metadata[0].name
+  base_values_file = "${path.root}/../../../helm/values/local/seaweedfs.yaml"
   bucket_names = [
     var.iceberg_bucket_name,
   ]
@@ -54,7 +54,7 @@ module "polaris" {
   source = "../../modules/catalog/polaris"
 
   namespace        = kubernetes_namespace_v1.lakehouse.metadata[0].name
-  values_file      = "${path.root}/../../../helm/values/polaris.yaml"
+  base_values_file = "${path.root}/../../../helm/values/local/polaris.yaml"
   catalog_name     = var.catalog_name
   principal_name   = "trino"
   principal_role   = "data-engineer"
@@ -70,7 +70,7 @@ module "trino" {
   source = "../../modules/query/trino"
 
   namespace        = kubernetes_namespace_v1.lakehouse.metadata[0].name
-  values_file      = "${path.root}/../../../helm/values/trino.yaml"
+  base_values_file = "${path.root}/../../../helm/values/local/trino.yaml"
   storage_contract = module.seaweedfs.contract
   catalog_contract = module.polaris.contract
 
