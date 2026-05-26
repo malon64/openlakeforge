@@ -16,7 +16,7 @@ CSV examples
   -> Dagster asset graph
 ```
 
-Iteration 0 establishes the repository structure and records the first architectural decisions. Runtime infrastructure and local cluster deployment start in Iteration 1, with `k3d` as the default local Kubernetes target.
+Iteration 0 establishes the repository structure and records the first architectural decisions. Iteration 1 creates the local Kubernetes foundation with SeaweedFS, Polaris, and Trino. Iteration 2 adds the `project-code` image and Dagster deployment with a Kubernetes run launcher.
 
 ## Core Principles
 
@@ -126,7 +126,7 @@ The image will contain Dagster code, the Dagster-Floe connector, Floe contracts,
 ## Roadmap
 
 - Iteration 0: repository skeleton, architecture documentation, and validation automation.
-- Iteration 1: local `k3d` foundation with namespaces, PostgreSQL, SeaweedFS, Polaris, and Trino.
+- Iteration 1: local kind foundation with namespaces, SeaweedFS, Polaris, and Trino.
 - Iteration 2: project-code image and Dagster deployment with Kubernetes run launcher.
 - Iteration 3: Sales POC ingestion and Floe Silver materialization.
 - Iteration 4: dbt-duckdb Gold models and Dagster-dbt integration.
@@ -141,3 +141,17 @@ Run the Iteration 0 repository contract check:
 ```sh
 make check-structure
 ```
+
+Run the Iteration 2 local Dagster flow:
+
+```sh
+make local-cluster
+make project-code-image
+make project-code-load
+make local-up
+make local-dagster-smoke
+```
+
+The local shell must have Docker, kind, kubectl, Terraform, Helm, and Python
+available. The Dagster UI is available at `http://localhost:3000` through
+`make local-forward`.

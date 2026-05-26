@@ -36,3 +36,21 @@ jobs:
 
       - name: Check Terraform and Helm
         run: make check-infra
+
+  project-code:
+    name: Validate project-code runtime
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Check project-code package
+        run: make check-project-code
+
+      - name: Build project-code image
+        run: make project-code-image

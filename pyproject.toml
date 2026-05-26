@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "openlakeforge-project"
+version = "0.1.0"
+description = "OpenLakeForge v1 project-code runtime package."
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "dagster==1.13.6",
+]
+
+[tool.setuptools.packages.find]
+include = ["domains*"]

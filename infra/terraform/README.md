@@ -37,11 +37,14 @@ make local-down
 
 - Kubernetes namespace creation
 - SeaweedFS, Polaris, and Trino Helm releases
+- Dagster Helm release
 - dynamic Helm values passed to those releases
 - local generated credentials
 - Kubernetes Secrets used as service contracts
 - SeaweedFS bucket creation jobs
 - Polaris catalog and Trino principal bootstrap jobs
+- chart-managed local Dagster PostgreSQL
+- Dagster webserver, daemon, sales code server, and Kubernetes run launcher
 
 Terraform state is local and contains generated development credentials. Treat
 state files as sensitive; they are gitignored.

@@ -51,3 +51,22 @@ http://trino:8080
 The Trino Iceberg catalog uses environment-variable secret substitution for all
 credentials. The mounted catalog file must contain placeholders such as
 `${ENV:AWS_ACCESS_KEY_ID}` rather than literal secret values.
+
+## Orchestration Contract
+
+Dagster exposes the local UI and GraphQL API over HTTP at:
+
+```text
+http://dagster-dagster-webserver:80
+```
+
+The orchestration module owns:
+
+- the Dagster Helm release
+- chart-managed local PostgreSQL for Dagster metadata
+- the Sales code server loading `domains.sales.orchestration.dagster.definitions`
+- the Kubernetes run launcher
+- the local project-code image reference `ghcr.io/openlakeforge/project-code:local`
+
+Local validation loads the image into kind and launches `iteration2_smoke_job`.
+The smoke job must complete in an isolated Kubernetes run pod.

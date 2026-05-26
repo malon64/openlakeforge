@@ -78,3 +78,17 @@ module "trino" {
     module.polaris,
   ]
 }
+
+module "dagster" {
+  source = "../../modules/orchestration/dagster"
+
+  namespace                      = kubernetes_namespace_v1.lakehouse.metadata[0].name
+  base_values_file               = "${path.root}/../../../helm/values/local/dagster.yaml"
+  project_code_image_repository  = var.project_code_image_repository
+  project_code_image_tag         = var.project_code_image_tag
+  project_code_image_pull_policy = var.project_code_image_pull_policy
+
+  depends_on = [
+    module.trino,
+  ]
+}

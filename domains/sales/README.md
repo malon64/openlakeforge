@@ -17,4 +17,10 @@ domains/sales/
 └── tests/
 ```
 
-Iteration 0 creates the directory contract only. Data, pipelines, contracts, models, and assets start in later iterations.
+Iteration 2 adds a minimal Dagster smoke job under
+`orchestration/dagster/definitions.py`. The job only proves that the Sales code
+location can be loaded from the project-code image and launched as an isolated
+Kubernetes run pod.
+
+Data, ingestion pipelines, Floe contracts, dbt models, and real assets start in
+later iterations.

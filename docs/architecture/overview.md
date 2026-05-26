@@ -16,7 +16,10 @@ CSV examples
   -> Dagster asset graph
 ```
 
-The first local infrastructure target is `k3d`. Iteration 1 will use it to stand up the local Kubernetes foundation before introducing Dagster runs and domain pipelines.
+The first local infrastructure target is kind. Iteration 1 stands up the local
+Kubernetes foundation before introducing Dagster runs and domain pipelines.
+Iteration 2 adds the project-code image, Dagster webserver, Dagster daemon,
+sales code server, and Kubernetes run launcher.
 
 ## Core Platform Decisions
 
@@ -74,3 +77,8 @@ Dagster webserver / daemon / code server
 ```
 
 Separate Floe and dbt runner images are not part of the v1 baseline.
+
+Iteration 2 loads `ghcr.io/openlakeforge/project-code:local` into the local kind
+cluster and uses it for both the Sales code server and isolated Dagster run
+pods. The first job is `iteration2_smoke_job` under
+`domains/sales/orchestration/dagster`, and it has no data dependencies.

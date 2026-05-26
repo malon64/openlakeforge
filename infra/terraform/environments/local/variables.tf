@@ -33,3 +33,21 @@ variable "s3_region" {
   type        = string
   default     = "us-east-1"
 }
+
+variable "project_code_image_repository" {
+  description = "Project-code image repository used by the Dagster code server and run pods."
+  type        = string
+  default     = "ghcr.io/openlakeforge/project-code"
+}
+
+variable "project_code_image_tag" {
+  description = "Project-code image tag used by the Dagster code server and run pods."
+  type        = string
+  default     = "local"
+}
+
+variable "project_code_image_pull_policy" {
+  description = "Project-code image pull policy used by the Dagster code server and run pods."
+  type        = string
+  default     = "IfNotPresent"
+}

@@ -6,3 +6,6 @@ Start with `0001-v1-platform-baseline.md` for the v1 platform baseline.
 
 `0002-local-object-storage-seaweedfs.md` supersedes the Iteration 1 local object
 storage choice from Garage to SeaweedFS.
+
+`0003-local-dagster-project-code-runtime.md` records the Iteration 2 Dagster and
+project-code runtime boundary.

@@ -13,7 +13,8 @@ infra/helm/
     └── local/
         ├── seaweedfs.yaml
         ├── polaris.yaml
-        └── trino.yaml
+        ├── trino.yaml
+        └── dagster.yaml
 ```
 
 ## Local charts
@@ -24,12 +25,17 @@ infra/helm/
   Chart source: https://downloads.apache.org/polaris/helm-chart
 - **Trino** (`trino/trino`)
   Chart source: https://trinodb.github.io/charts
+- **Dagster** (`dagster/dagster`)
+  Chart source: https://dagster-io.github.io/helm
 
 ## Workflow
 
 ```bash
 make local-cluster
+make project-code-image
+make project-code-load
 make local-up
+make local-dagster-smoke
 make local-forward
 make local-down
 make local-destroy-cluster
