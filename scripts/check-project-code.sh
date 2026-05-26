@@ -23,17 +23,26 @@ cp -R domains "${build_dir}/domains"
 cp -R libs "${build_dir}/libs"
 
 echo "==> Installing project-code package into an isolated target"
-python3 -m pip install --disable-pip-version-check --target "${site_dir}" "${build_dir}"
+PYTHONDONTWRITEBYTECODE=1 python3 -m pip install \
+  --disable-pip-version-check \
+  --no-compile \
+  --prefer-binary \
+  --target "${site_dir}" \
+  "${build_dir}"
 
-echo "==> Executing Iteration 2 Dagster smoke job in-process"
+echo "==> Loading Sales Dagster pipeline definitions"
 PYTHONPATH="${site_dir}:${PWD}" python3 - <<'PY'
-from domains.sales.pipelines.dagster.definitions import defs, iteration2_smoke_job
+from domains.sales.extract.dlt.sales_poc import SALES_POC_ENTITIES
+from domains.sales.pipelines.dagster.definitions import defs
 
-result = iteration2_smoke_job.execute_in_process()
-if not result.success:
-    raise SystemExit("iteration2_smoke_job failed")
+defs.resolve_job_def("sales_bronze_to_silver_job")
 
-defs.get_job_def("iteration3_sales_silver_job")
+asset_keys = {tuple(key.path) for asset_def in defs.assets for key in asset_def.keys}
+for entity in SALES_POC_ENTITIES:
+    if ("default", f"{entity}_source") not in asset_keys:
+        raise SystemExit(f"missing Bronze source asset for {entity}")
+    if ("default", entity) not in asset_keys:
+        raise SystemExit(f"missing Floe Silver asset for {entity}")
 
-print("Project-code smoke job passed.")
+print("Project-code Sales pipeline definitions loaded.")
 PY

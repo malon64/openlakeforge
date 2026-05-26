@@ -70,9 +70,7 @@ The orchestration module owns:
 - the Kubernetes run launcher
 - the local project-code image reference `ghcr.io/openlakeforge/project-code:local`
 
-Local validation loads the image into kind and launches `iteration2_smoke_job`.
-The smoke job must complete in an isolated Kubernetes run pod.
-
-Iteration 3 validation launches `iteration3_sales_silver_job`. Dagster loads the
-generated Sales Floe manifest and the connector launches Floe Kubernetes jobs
-from `ghcr.io/malon64/floe:0.4.2`.
+Local development loads the image into kind and uses the Dagster UI to launch
+`sales_bronze_to_silver_job`. Dagster loads the generated Sales Floe manifest,
+and the connector launches Floe Kubernetes jobs from
+`ghcr.io/malon64/floe:0.4.2`.

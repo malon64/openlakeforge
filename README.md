@@ -90,10 +90,10 @@ make floe-manifest
 make project-code-image
 make project-code-load
 make local-up
-make local-dagster-smoke
-make local-iteration3-smoke
 ```
 
 The local shell must have Docker, kind, kubectl, Terraform, Helm, Python, and
 the `floe` CLI available. The Dagster UI is available at `http://localhost:3000`
-through `make local-forward`.
+through `make local-forward`. Launch `sales_bronze_to_silver_job` from Dagster
+to run the Sales `dlt -> Floe -> Silver Iceberg` pipeline. Trino is forwarded to
+`http://localhost:8080` for local SQL clients such as DBeaver.

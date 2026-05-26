@@ -39,8 +39,7 @@ required_paths=(
   "domains/sales/pipelines/__init__.py"
   "domains/sales/pipelines/dagster/__init__.py"
   "domains/sales/pipelines/dagster/definitions.py"
-  "domains/sales/tests/test_iteration2_smoke.py"
-  "domains/sales/tests/test_iteration3_definitions.py"
+  "domains/sales/tests/test_sales_pipeline_definitions.py"
   "scripts/README.md"
   "scripts/check-structure.sh"
   "scripts/check-infra.sh"
@@ -48,8 +47,6 @@ required_paths=(
   "scripts/local/floe-manifest.sh"
   "scripts/local/build-project-code-image.sh"
   "scripts/local/load-project-code-image.sh"
-  "scripts/local/dagster-smoke.sh"
-  "scripts/local/iteration3-smoke.sh"
 )
 
 missing=0

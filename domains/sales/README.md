@@ -26,5 +26,7 @@ Iteration 3 adds:
 - Floe contracts and a generated `floe.manifest.v1` manifest
 - Dagster definitions under `pipelines/dagster/definitions.py`
 
-`iteration3_sales_silver_job` materializes Bronze source assets, then the
-manifest-loaded Floe assets write Silver Iceberg tables through Polaris.
+`sales_bronze_to_silver_job` materializes Bronze source assets, then the
+manifest-loaded Floe assets write Silver Iceberg tables through Polaris. Query
+the local Silver tables from Trino with names such as `iceberg.sales.sales`,
+`iceberg.sales.customers`, and `iceberg.sales.products`.

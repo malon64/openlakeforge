@@ -1,4 +1,4 @@
-.PHONY: help tree check-structure check-infra check-project-code floe-manifest project-code-image project-code-load local-cluster local-destroy-cluster local-up local-down local-status local-forward local-dagster-smoke local-iteration3-smoke
+.PHONY: help tree check-structure check-infra check-project-code floe-manifest project-code-image project-code-load local-cluster local-destroy-cluster local-up local-down local-status local-forward
 
 NAMESPACE ?= lakehouse
 PROJECT_CODE_IMAGE_REPOSITORY ?= ghcr.io/openlakeforge/project-code
@@ -22,8 +22,6 @@ help:
 	@printf '%s\n' '  make local-down       Terraform-destroy the local stack'
 	@printf '%s\n' '  make local-status     Show pod and service status in the lakehouse namespace'
 	@printf '%s\n' '  make local-forward    Port-forward all services to localhost'
-	@printf '%s\n' '  make local-dagster-smoke  Launch the Iteration 2 Dagster smoke job'
-	@printf '%s\n' '  make local-iteration3-smoke  Launch Sales dlt + Floe Silver smoke test'
 
 tree:
 	@find . -path './.git' -prune -o -print | sort
@@ -77,9 +75,3 @@ local-forward:
 	dagster_pid=$$!; \
 	trap 'kill $$seaweedfs_pid $$polaris_pid $$trino_pid $$dagster_pid 2>/dev/null || true' INT TERM EXIT; \
 	wait
-
-local-dagster-smoke:
-	@NAMESPACE=$(NAMESPACE) bash scripts/local/dagster-smoke.sh
-
-local-iteration3-smoke:
-	@NAMESPACE=$(NAMESPACE) DAGSTER_SMOKE_JOB=iteration3_sales_silver_job bash scripts/local/iteration3-smoke.sh

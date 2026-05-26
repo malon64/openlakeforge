@@ -79,11 +79,9 @@ Dagster webserver / daemon / code server
   -> lineage and metadata emission
 ```
 
-Iteration 2 loads `ghcr.io/openlakeforge/project-code:local` into the local kind
-cluster and uses it for both the Sales code server and isolated Dagster run
-pods. The first job is `iteration2_smoke_job` under
-`domains/sales/pipelines/dagster`, and it has no data dependencies.
-
-Iteration 3 adds `iteration3_sales_silver_job`, which materializes Sales Bronze
-source assets and then executes manifest-loaded Floe assets for `sales`,
-`customers`, and `products`.
+The local stack loads `ghcr.io/openlakeforge/project-code:local` into the local
+kind cluster and uses it for both the Sales code server and isolated Dagster run
+pods. The durable Sales job is `sales_bronze_to_silver_job` under
+`domains/sales/pipelines/dagster`. It materializes Sales Bronze source assets
+and then executes manifest-loaded Floe assets for `sales`, `customers`, and
+`products`.

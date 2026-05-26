@@ -36,8 +36,6 @@ make floe-manifest
 make project-code-image
 make project-code-load
 make local-up
-make local-dagster-smoke
-make local-iteration3-smoke
 make local-forward
 make local-down
 make local-destroy-cluster

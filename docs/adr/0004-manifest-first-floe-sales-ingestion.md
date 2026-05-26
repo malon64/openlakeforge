@@ -24,6 +24,10 @@ manifest profile declares a Kubernetes runner using `ghcr.io/malon64/floe:0.4.2`
 Polaris owns separate service principals for Trino and Floe. Floe credentials
 are stored in `polaris-floe-creds`.
 
+The durable Dagster job for this path is `sales_bronze_to_silver_job`. Local
+developers launch it from the Dagster UI after deploying the stack and forwarding
+the webserver.
+
 ## Consequences
 
 - Dagster parses a generated Floe manifest instead of Floe YAML at runtime.

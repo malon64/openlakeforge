@@ -1,6 +1,6 @@
 {
   "schema": "floe.manifest.v1",
-  "generated_at_ts_ms": 1779790532141,
+  "generated_at_ts_ms": 1779803881807,
   "floe_version": "0.4.2",
   "spec_version": "0.2",
   "manifest_id": "mfv1-468c56668f28d97c",
@@ -27,8 +27,8 @@
       "run_finished_event": true,
       "summary_uri_field": "summary_uri",
       "exit_codes": {
-        "0": "success_or_rejected",
         "2": "aborted",
+        "0": "success_or_rejected",
         "1": "technical_failure"
       }
     },
@@ -75,10 +75,10 @@
         "resources": null,
         "env": {
           "AWS_REGION": "us-east-1",
-          "AWS_DEFAULT_REGION": "us-east-1",
           "AWS_ENDPOINT_URL_S3": "http://seaweedfs-s3:8333",
           "AWS_S3_FORCE_PATH_STYLE": "true",
-          "AWS_ALLOW_HTTP": "true"
+          "AWS_ALLOW_HTTP": "true",
+          "AWS_DEFAULT_REGION": "us-east-1"
         },
         "workspace_url": null,
         "existing_cluster_id": null,

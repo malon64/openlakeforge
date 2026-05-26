@@ -10,9 +10,7 @@ from dagster import (
     MetadataValue,
     Output,
     define_asset_job,
-    job,
     multi_asset,
-    op,
 )
 from floe_dagster.definitions import build_definitions
 
@@ -21,31 +19,14 @@ from domains.sales.extract.dlt.sales_poc import SALES_POC_ENTITIES, load_all_ent
 _DAGSTER_DIR = Path(__file__).resolve().parent
 _SALES_DIR = _DAGSTER_DIR.parents[1]
 _FLOE_MANIFEST = _SALES_DIR / "contracts" / "floe" / "manifests" / "sales.manifest.json"
-
-
-@op
-def iteration2_smoke_op(context) -> str:
-    context.log.info("OpenLakeForge Iteration 2 Dagster smoke run executed.")
-    context.add_output_metadata(
-        {
-            "iteration": MetadataValue.int(2),
-            "domain": MetadataValue.text("sales"),
-            "purpose": MetadataValue.text("project-code Kubernetes run launcher smoke test"),
-        }
-    )
-    return "ok"
-
-
-@job
-def iteration2_smoke_job() -> None:
-    iteration2_smoke_op()
+_FLOE_ASSET_PREFIX = "default"
 
 
 @multi_asset(
     name="sales_poc_bronze_sources",
     outs={
         f"{entity}_source": AssetOut(
-            key=AssetKey(["sales", f"{entity}_source"]),
+            key=AssetKey([_FLOE_ASSET_PREFIX, f"{entity}_source"]),
             is_required=True,
         )
         for entity in SALES_POC_ENTITIES
@@ -67,13 +48,19 @@ def sales_poc_bronze_sources(context):
         )
 
 
-iteration3_sales_silver_job = define_asset_job(
-    name="iteration3_sales_silver_job",
+sales_bronze_to_silver_job = define_asset_job(
+    name="sales_bronze_to_silver_job",
     selection=(
         AssetSelection.keys(
-            *[AssetKey(["sales", f"{entity}_source"]) for entity in SALES_POC_ENTITIES],
-            *[AssetKey(["sales", entity]) for entity in SALES_POC_ENTITIES],
-            *[AssetKey(["sales", f"{entity}_rejected"]) for entity in SALES_POC_ENTITIES],
+            *[
+                AssetKey([_FLOE_ASSET_PREFIX, f"{entity}_source"])
+                for entity in SALES_POC_ENTITIES
+            ],
+            *[AssetKey([_FLOE_ASSET_PREFIX, entity]) for entity in SALES_POC_ENTITIES],
+            *[
+                AssetKey([_FLOE_ASSET_PREFIX, f"{entity}_rejected"])
+                for entity in SALES_POC_ENTITIES
+            ],
         ).required_multi_asset_neighbors()
     ),
 )
@@ -93,7 +80,7 @@ _floe_defs = build_definitions(
 defs = Definitions.merge(
     Definitions(
         assets=[sales_poc_bronze_sources],
-        jobs=[iteration2_smoke_job, iteration3_sales_silver_job],
+        jobs=[sales_bronze_to_silver_job],
     ),
     _floe_defs,
 )

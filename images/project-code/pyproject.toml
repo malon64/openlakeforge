@@ -14,7 +14,7 @@ dependencies = [
   "dagster-k8s==0.29.6",
   "dagster-postgres==0.29.6",
   "dagster-webserver==1.13.6",
-  "dlt[filesystem]>=1.17,<2",
+  "dlt>=1.17,<2",
   "kubernetes<36",
 ]
 
