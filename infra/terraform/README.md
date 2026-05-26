@@ -43,6 +43,7 @@ make local-down
 - Kubernetes Secrets used as service contracts
 - SeaweedFS bucket creation jobs
 - Polaris catalog and Trino principal bootstrap jobs
+- Polaris Floe principal bootstrap credentials for manifest-driven Floe jobs
 - chart-managed local Dagster PostgreSQL
 - Dagster webserver, daemon, sales code server, and Kubernetes run launcher
 

@@ -3,17 +3,20 @@ requires = ["setuptools>=69"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "openlakeforge-project"
-version = "0.1.0"
-description = "OpenLakeForge v1 project-code runtime package."
+name = "openlakeforge-project-code"
+version = "0.3.0"
+description = "OpenLakeForge project-code runtime package."
 requires-python = ">=3.12,<3.13"
 dependencies = [
+  "boto3>=1.34,<2",
   "dagster==1.13.6",
+  "dagster-floe[kubernetes]==0.1.6",
   "dagster-k8s==0.29.6",
   "dagster-postgres==0.29.6",
   "dagster-webserver==1.13.6",
+  "dlt[filesystem]>=1.17,<2",
   "kubernetes<36",
 ]
 
 [tool.setuptools.packages.find]
-include = ["domains*"]
+include = ["domains*", "libs*"]

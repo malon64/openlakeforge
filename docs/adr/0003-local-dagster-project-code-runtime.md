@@ -33,7 +33,7 @@ The local Dagster deployment uses:
 The first domain-owned Dagster code lives under:
 
 ```text
-domains/sales/orchestration/dagster
+domains/sales/pipelines/dagster
 ```
 
 It exposes a minimal no-data smoke job named `iteration2_smoke_job`. This job

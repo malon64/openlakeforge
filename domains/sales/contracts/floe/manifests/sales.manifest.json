@@ -1,0 +1,406 @@
+{
+  "schema": "floe.manifest.v1",
+  "generated_at_ts_ms": 1779790532141,
+  "floe_version": "0.4.2",
+  "spec_version": "0.2",
+  "manifest_id": "mfv1-468c56668f28d97c",
+  "config_uri": "local:///mnt/c/Users/alexi/openlakeforge/domains/sales/contracts/floe/sales_poc.yml",
+  "config_checksum": null,
+  "report_base_uri": "s3://iceberg-data/floe/reports/sales",
+  "domains": [],
+  "execution": {
+    "entrypoint": "floe",
+    "base_args": [
+      "run",
+      "--manifest",
+      "{manifest_uri}",
+      "--log-format",
+      "json",
+      "--quiet"
+    ],
+    "per_entity_args": [
+      "--entities",
+      "{entity_name}"
+    ],
+    "log_format": "json",
+    "result_contract": {
+      "run_finished_event": true,
+      "summary_uri_field": "summary_uri",
+      "exit_codes": {
+        "0": "success_or_rejected",
+        "2": "aborted",
+        "1": "technical_failure"
+      }
+    },
+    "defaults": {
+      "env": {},
+      "workdir": null
+    }
+  },
+  "runners": {
+    "default": "default",
+    "definitions": {
+      "default": {
+        "type": "kubernetes_job",
+        "command": null,
+        "args": null,
+        "timeout_seconds": 600,
+        "ttl_seconds_after_finished": 3600,
+        "poll_interval_seconds": 5,
+        "secrets": [
+          {
+            "name": "AWS_ACCESS_KEY_ID",
+            "secret_name": "seaweedfs-s3-creds",
+            "key": "AWS_ACCESS_KEY_ID"
+          },
+          {
+            "name": "AWS_SECRET_ACCESS_KEY",
+            "secret_name": "seaweedfs-s3-creds",
+            "key": "AWS_SECRET_ACCESS_KEY"
+          },
+          {
+            "name": "POLARIS_FLOE_CLIENT_ID",
+            "secret_name": "polaris-floe-creds",
+            "key": "POLARIS_FLOE_CLIENT_ID"
+          },
+          {
+            "name": "POLARIS_FLOE_CLIENT_SECRET",
+            "secret_name": "polaris-floe-creds",
+            "key": "POLARIS_FLOE_CLIENT_SECRET"
+          }
+        ],
+        "image": "ghcr.io/malon64/floe:0.4.2",
+        "namespace": "lakehouse",
+        "service_account": "dagster",
+        "resources": null,
+        "env": {
+          "AWS_REGION": "us-east-1",
+          "AWS_DEFAULT_REGION": "us-east-1",
+          "AWS_ENDPOINT_URL_S3": "http://seaweedfs-s3:8333",
+          "AWS_S3_FORCE_PATH_STYLE": "true",
+          "AWS_ALLOW_HTTP": "true"
+        },
+        "workspace_url": null,
+        "existing_cluster_id": null,
+        "config_uri": null,
+        "python_file_uri": null,
+        "job_name": null,
+        "auth": null,
+        "env_parameters": null
+      }
+    }
+  },
+  "entities": [
+    {
+      "name": "customers",
+      "domain": null,
+      "group_name": "default",
+      "asset_key": [
+        "default",
+        "customers"
+      ],
+      "source_format": "csv",
+      "accepted_sink_uri": "s3://iceberg-data/silver/sales/customers",
+      "rejected_sink_uri": "s3://iceberg-data/floe/rejected/sales/customers",
+      "tags": null,
+      "source": {
+        "format": "csv",
+        "storage": "lakehouse_s3",
+        "uri": "s3://iceberg-data/bronze/sales/customers",
+        "path": "bronze/sales/customers",
+        "resolved": true,
+        "cast_mode": "strict",
+        "options": {
+          "data_row": null,
+          "encoding": "utf-8",
+          "glob": "*.csv",
+          "header": true,
+          "header_row": 1,
+          "json_mode": null,
+          "namespace": null,
+          "null_values": [
+            ""
+          ],
+          "recursive": false,
+          "row_tag": null,
+          "separator": ",",
+          "sheet": null,
+          "value_tag": null
+        }
+      },
+      "sinks": {
+        "accepted": {
+          "format": "iceberg",
+          "storage": "lakehouse_s3",
+          "uri": "s3://iceberg-data/silver/sales/customers",
+          "path": "silver/sales/customers",
+          "resolved": true,
+          "iceberg": {
+            "catalog": "polaris",
+            "location": null,
+            "namespace": "sales",
+            "table": "customers"
+          }
+        },
+        "rejected": {
+          "format": "csv",
+          "storage": "lakehouse_s3",
+          "uri": "s3://iceberg-data/floe/rejected/sales/customers",
+          "path": "floe/rejected/sales/customers",
+          "resolved": true
+        },
+        "archive": null
+      },
+      "runner": null,
+      "policy_severity": "reject",
+      "write_mode": "overwrite",
+      "incremental_mode": "none",
+      "schema": {
+        "columns": [
+          {
+            "name": "customer_id",
+            "column_type": "string",
+            "nullable": false
+          },
+          {
+            "name": "first_name",
+            "column_type": "string",
+            "nullable": false
+          },
+          {
+            "name": "last_name",
+            "column_type": "string",
+            "nullable": false
+          },
+          {
+            "name": "country",
+            "column_type": "string",
+            "nullable": false
+          },
+          {
+            "name": "segment",
+            "column_type": "string",
+            "nullable": false
+          }
+        ],
+        "primary_key": [
+          "customer_id"
+        ],
+        "unique_keys": [],
+        "normalize_columns": {
+          "enabled": true,
+          "strategy": "snake_case"
+        }
+      }
+    },
+    {
+      "name": "products",
+      "domain": null,
+      "group_name": "default",
+      "asset_key": [
+        "default",
+        "products"
+      ],
+      "source_format": "csv",
+      "accepted_sink_uri": "s3://iceberg-data/silver/sales/products",
+      "rejected_sink_uri": "s3://iceberg-data/floe/rejected/sales/products",
+      "tags": null,
+      "source": {
+        "format": "csv",
+        "storage": "lakehouse_s3",
+        "uri": "s3://iceberg-data/bronze/sales/products",
+        "path": "bronze/sales/products",
+        "resolved": true,
+        "cast_mode": "strict",
+        "options": {
+          "data_row": null,
+          "encoding": "utf-8",
+          "glob": "*.csv",
+          "header": true,
+          "header_row": 1,
+          "json_mode": null,
+          "namespace": null,
+          "null_values": [
+            ""
+          ],
+          "recursive": false,
+          "row_tag": null,
+          "separator": ",",
+          "sheet": null,
+          "value_tag": null
+        }
+      },
+      "sinks": {
+        "accepted": {
+          "format": "iceberg",
+          "storage": "lakehouse_s3",
+          "uri": "s3://iceberg-data/silver/sales/products",
+          "path": "silver/sales/products",
+          "resolved": true,
+          "iceberg": {
+            "catalog": "polaris",
+            "location": null,
+            "namespace": "sales",
+            "table": "products"
+          }
+        },
+        "rejected": {
+          "format": "csv",
+          "storage": "lakehouse_s3",
+          "uri": "s3://iceberg-data/floe/rejected/sales/products",
+          "path": "floe/rejected/sales/products",
+          "resolved": true
+        },
+        "archive": null
+      },
+      "runner": null,
+      "policy_severity": "reject",
+      "write_mode": "overwrite",
+      "incremental_mode": "none",
+      "schema": {
+        "columns": [
+          {
+            "name": "product_id",
+            "column_type": "string",
+            "nullable": false
+          },
+          {
+            "name": "product_name",
+            "column_type": "string",
+            "nullable": false
+          },
+          {
+            "name": "category",
+            "column_type": "string",
+            "nullable": false
+          },
+          {
+            "name": "unit_cost",
+            "column_type": "number",
+            "nullable": false
+          }
+        ],
+        "primary_key": [
+          "product_id"
+        ],
+        "unique_keys": [],
+        "normalize_columns": {
+          "enabled": true,
+          "strategy": "snake_case"
+        }
+      }
+    },
+    {
+      "name": "sales",
+      "domain": null,
+      "group_name": "default",
+      "asset_key": [
+        "default",
+        "sales"
+      ],
+      "source_format": "csv",
+      "accepted_sink_uri": "s3://iceberg-data/silver/sales/sales",
+      "rejected_sink_uri": "s3://iceberg-data/floe/rejected/sales/sales",
+      "tags": null,
+      "source": {
+        "format": "csv",
+        "storage": "lakehouse_s3",
+        "uri": "s3://iceberg-data/bronze/sales/sales",
+        "path": "bronze/sales/sales",
+        "resolved": true,
+        "cast_mode": "strict",
+        "options": {
+          "data_row": null,
+          "encoding": "utf-8",
+          "glob": "*.csv",
+          "header": true,
+          "header_row": 1,
+          "json_mode": null,
+          "namespace": null,
+          "null_values": [
+            ""
+          ],
+          "recursive": false,
+          "row_tag": null,
+          "separator": ",",
+          "sheet": null,
+          "value_tag": null
+        }
+      },
+      "sinks": {
+        "accepted": {
+          "format": "iceberg",
+          "storage": "lakehouse_s3",
+          "uri": "s3://iceberg-data/silver/sales/sales",
+          "path": "silver/sales/sales",
+          "resolved": true,
+          "iceberg": {
+            "catalog": "polaris",
+            "location": null,
+            "namespace": "sales",
+            "table": "sales"
+          }
+        },
+        "rejected": {
+          "format": "csv",
+          "storage": "lakehouse_s3",
+          "uri": "s3://iceberg-data/floe/rejected/sales/sales",
+          "path": "floe/rejected/sales/sales",
+          "resolved": true
+        },
+        "archive": null
+      },
+      "runner": null,
+      "policy_severity": "reject",
+      "write_mode": "overwrite",
+      "incremental_mode": "none",
+      "schema": {
+        "columns": [
+          {
+            "name": "sale_id",
+            "column_type": "string",
+            "nullable": false
+          },
+          {
+            "name": "customer_id",
+            "column_type": "string",
+            "nullable": false
+          },
+          {
+            "name": "product_id",
+            "column_type": "string",
+            "nullable": false
+          },
+          {
+            "name": "sale_date",
+            "column_type": "date",
+            "nullable": false
+          },
+          {
+            "name": "quantity",
+            "column_type": "integer",
+            "nullable": false
+          },
+          {
+            "name": "unit_price",
+            "column_type": "number",
+            "nullable": false
+          },
+          {
+            "name": "region",
+            "column_type": "string",
+            "nullable": false
+          }
+        ],
+        "primary_key": [
+          "sale_id"
+        ],
+        "unique_keys": [],
+        "normalize_columns": {
+          "enabled": true,
+          "strategy": "snake_case"
+        }
+      }
+    }
+  ]
+}

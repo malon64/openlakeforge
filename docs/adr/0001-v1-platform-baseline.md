@@ -28,7 +28,7 @@ OpenLakeForge v1 adopts the following baseline decisions:
 - OpenMetadata is the governance and catalog UI target.
 - Keycloak is the central IAM and SSO layer.
 - Vault, External Secrets Operator, Traefik, and cert-manager are product-grade platform requirements.
-- v1 uses one custom `images/project-code/` runtime image for domain code, contracts, dbt, dlt, Dagster assets, and shared libraries.
+- v1 uses one custom `images/project-code/` runtime image for domain code, contracts, dlt, Dagster assets, and shared libraries. External runner images such as Floe may be referenced by generated orchestration manifests.
 - The first local Kubernetes foundation will target `k3d`.
 
 ## Consequences
@@ -39,4 +39,4 @@ Floe is the technical owner of Silver tables. dbt starts from Floe-produced Silv
 
 Trino remains a serving and analytics query engine. Transformation workloads belong to Floe, dbt, and later optional Spark profiles.
 
-The single project-code image keeps the v1 runtime simple. Separate Floe and dbt runner images can be reconsidered later if operational pressure justifies them.
+The project-code image keeps the Dagster/domain runtime simple while allowing manifest-declared task runner images where a tool already ships its own runtime, such as Floe.

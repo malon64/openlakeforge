@@ -53,5 +53,31 @@ variable "code_location_name" {
 variable "definitions_module" {
   description = "Python module exposing Dagster Definitions."
   type        = string
-  default     = "domains.sales.orchestration.dagster.definitions"
+  default     = "domains.sales.pipelines.dagster.definitions"
+}
+
+variable "storage_contract" {
+  description = "Storage contract output from the SeaweedFS module."
+  type = object({
+    endpoint                = string
+    region                  = string
+    bucket_name             = string
+    path_style_access       = bool
+    credentials_secret_name = string
+    access_key_id_key       = string
+    secret_access_key_key   = string
+  })
+}
+
+variable "catalog_contract" {
+  description = "Polaris REST catalog contract output from the Polaris module."
+  type = object({
+    rest_uri                     = string
+    token_uri                    = string
+    warehouse                    = string
+    oauth_scope                  = string
+    floe_credentials_secret_name = string
+    floe_client_id_key           = string
+    floe_client_secret_key       = string
+  })
 }

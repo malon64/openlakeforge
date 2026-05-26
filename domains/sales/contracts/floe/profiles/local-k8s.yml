@@ -1,0 +1,36 @@
+apiVersion: floe/v1
+kind: EnvironmentProfile
+metadata:
+  name: local-k8s
+  env: local
+  description: "Local kind Kubernetes runner profile for Sales Floe assets."
+execution:
+  runner:
+    type: kubernetes_job
+    image: ghcr.io/malon64/floe:0.4.2
+    namespace: lakehouse
+    service_account: dagster
+    timeout_seconds: 600
+    ttl_seconds_after_finished: 3600
+    poll_interval_seconds: 5
+    env:
+      AWS_REGION: us-east-1
+      AWS_DEFAULT_REGION: us-east-1
+      AWS_ENDPOINT_URL_S3: http://seaweedfs-s3:8333
+      AWS_S3_FORCE_PATH_STYLE: "true"
+      AWS_ALLOW_HTTP: "true"
+    secrets:
+      - name: AWS_ACCESS_KEY_ID
+        secret_name: seaweedfs-s3-creds
+        key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        secret_name: seaweedfs-s3-creds
+        key: AWS_SECRET_ACCESS_KEY
+      - name: POLARIS_FLOE_CLIENT_ID
+        secret_name: polaris-floe-creds
+        key: POLARIS_FLOE_CLIENT_ID
+      - name: POLARIS_FLOE_CLIENT_SECRET
+        secret_name: polaris-floe-creds
+        key: POLARIS_FLOE_CLIENT_SECRET
+validation:
+  strict: true

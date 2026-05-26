@@ -19,7 +19,8 @@ CSV examples
 The first local infrastructure target is kind. Iteration 1 stands up the local
 Kubernetes foundation before introducing Dagster runs and domain pipelines.
 Iteration 2 adds the project-code image, Dagster webserver, Dagster daemon,
-sales code server, and Kubernetes run launcher.
+sales code server, and Kubernetes run launcher. Iteration 3 adds the Sales dlt
+Bronze extract and manifest-first Floe Silver materialization.
 
 ## Core Platform Decisions
 
@@ -53,16 +54,18 @@ OpenLakeForge v1 uses one custom runtime image:
 ghcr.io/openlakeforge/project-code:<tag>
 ```
 
-The image will contain:
+The image contains:
 
 - Dagster code
-- dagster-floe / Floe connector
+- dagster-floe connector
 - Floe contracts
-- dagster-dbt
-- dbt-duckdb project
 - dlt pipelines
 - domain Python code
 - shared OpenLakeForge libraries
+
+The project-code image does not install the Floe CLI. Floe manifests are
+generated before image build, and Floe work runs from the manifest-declared
+`ghcr.io/malon64/floe:0.4.2` Kubernetes runner image.
 
 The expected runtime flow is:
 
@@ -71,14 +74,16 @@ Dagster webserver / daemon / code server
   -> Kubernetes run launcher
   -> isolated Dagster run pod using project-code image
   -> dlt ingestion assets
-  -> Floe assets through dagster-floe
-  -> dbt assets through dagster-dbt
+  -> Floe assets through dagster-floe and the Floe runner image
+  -> dbt assets through dagster-dbt in a later iteration
   -> lineage and metadata emission
 ```
-
-Separate Floe and dbt runner images are not part of the v1 baseline.
 
 Iteration 2 loads `ghcr.io/openlakeforge/project-code:local` into the local kind
 cluster and uses it for both the Sales code server and isolated Dagster run
 pods. The first job is `iteration2_smoke_job` under
-`domains/sales/orchestration/dagster`, and it has no data dependencies.
+`domains/sales/pipelines/dagster`, and it has no data dependencies.
+
+Iteration 3 adds `iteration3_sales_silver_job`, which materializes Sales Bronze
+source assets and then executes manifest-loaded Floe assets for `sales`,
+`customers`, and `products`.

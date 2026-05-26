@@ -87,6 +87,8 @@ module "dagster" {
   project_code_image_repository  = var.project_code_image_repository
   project_code_image_tag         = var.project_code_image_tag
   project_code_image_pull_policy = var.project_code_image_pull_policy
+  storage_contract               = module.seaweedfs.contract
+  catalog_contract               = module.polaris.contract
 
   depends_on = [
     module.trino,

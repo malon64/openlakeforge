@@ -1,4 +1,4 @@
-from domains.sales.orchestration.dagster.definitions import iteration2_smoke_job
+from domains.sales.pipelines.dagster.definitions import iteration2_smoke_job
 
 
 def test_iteration2_smoke_job_executes_in_process() -> None:

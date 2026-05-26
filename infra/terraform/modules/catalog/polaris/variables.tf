@@ -46,6 +46,24 @@ variable "catalog_role" {
   type        = string
 }
 
+variable "floe_principal_name" {
+  description = "Polaris service principal name for Floe."
+  type        = string
+  default     = "floe"
+}
+
+variable "floe_principal_role" {
+  description = "Polaris principal role granted to Floe."
+  type        = string
+  default     = "data-writer"
+}
+
+variable "floe_catalog_role" {
+  description = "Polaris catalog role granted to the Floe principal role."
+  type        = string
+  default     = "catalog-writer"
+}
+
 variable "storage_contract" {
   description = "Storage contract output from the SeaweedFS module."
   type = object({
@@ -69,6 +87,12 @@ variable "trino_credentials_secret_name" {
   description = "Kubernetes Secret written by the bootstrap job with Trino OAuth credentials."
   type        = string
   default     = "polaris-trino-creds"
+}
+
+variable "floe_credentials_secret_name" {
+  description = "Kubernetes Secret written by the bootstrap job with Floe OAuth credentials."
+  type        = string
+  default     = "polaris-floe-creds"
 }
 
 variable "bootstrap_job_image" {
