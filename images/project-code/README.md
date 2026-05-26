@@ -23,6 +23,7 @@ The local image tag is:
 ghcr.io/openlakeforge/project-code:local
 ```
 
-The image currently contains the minimal Sales Dagster smoke job used to prove
-that Dagster can launch an isolated Kubernetes run pod through the
-`K8sRunLauncher`. It does not yet contain dlt, Floe, dbt, or OpenLineage code.
+The image currently contains Dagster webserver/daemon/runtime dependencies and
+the minimal Sales Dagster smoke job used to prove that Dagster can launch an
+isolated Kubernetes run pod through the `K8sRunLauncher`. It does not yet
+contain dlt, Floe, dbt, or OpenLineage code.

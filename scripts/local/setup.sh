@@ -25,8 +25,35 @@ check_prereqs() {
   [[ $missing -eq 0 ]] || exit 1
 }
 
+prepare_local_project_code_image() {
+  if [[ "${PROJECT_CODE_IMAGE_TAG}" != "local" ]]; then
+    return 0
+  fi
+
+  local image="${PROJECT_CODE_IMAGE_REPOSITORY}:${PROJECT_CODE_IMAGE_TAG}"
+
+  if ! command -v docker &>/dev/null; then
+    echo "ERROR: Docker is required when PROJECT_CODE_IMAGE_TAG=local." >&2
+    echo "Run 'make project-code-image' and 'make project-code-load' from a shell with Docker access." >&2
+    exit 1
+  fi
+
+  if ! docker image inspect "${image}" >/dev/null 2>&1; then
+    echo "ERROR: local project-code image '${image}' does not exist." >&2
+    echo "Run 'make project-code-image' before 'make local-up'." >&2
+    exit 1
+  fi
+
+  echo "==> Ensuring local project-code image is available to kind..."
+  PROJECT_CODE_IMAGE_REPOSITORY="${PROJECT_CODE_IMAGE_REPOSITORY}" \
+    PROJECT_CODE_IMAGE_TAG="${PROJECT_CODE_IMAGE_TAG}" \
+    bash "${SCRIPT_DIR}/load-project-code-image.sh"
+}
+
 echo "==> Checking prerequisites..."
 check_prereqs
+
+prepare_local_project_code_image
 
 echo "==> Applying Terraform local stack..."
 terraform -chdir="${TERRAFORM_DIR}" init

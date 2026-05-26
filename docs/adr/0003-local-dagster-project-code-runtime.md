@@ -27,6 +27,8 @@ The local Dagster deployment uses:
 - Dagster webserver, daemon, and one sales code server.
 - `K8sRunLauncher` for isolated run pods.
 - Local image loading into kind for `ghcr.io/openlakeforge/project-code:local`.
+- The project-code image for the Dagster webserver, daemon, code server, and run
+  pods so all Dagster components use the same pinned Python dependency set.
 
 The first domain-owned Dagster code lives under:
 

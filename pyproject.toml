@@ -9,6 +9,10 @@ description = "OpenLakeForge v1 project-code runtime package."
 requires-python = ">=3.12,<3.13"
 dependencies = [
   "dagster==1.13.6",
+  "dagster-k8s==0.29.6",
+  "dagster-postgres==0.29.6",
+  "dagster-webserver==1.13.6",
+  "kubernetes<36",
 ]
 
 [tool.setuptools.packages.find]

@@ -34,6 +34,22 @@ resource "helm_release" "dagster" {
         ]
       }
 
+      dagsterWebserver = {
+        image = {
+          repository = var.project_code_image_repository
+          tag        = var.project_code_image_tag
+          pullPolicy = var.project_code_image_pull_policy
+        }
+      }
+
+      dagsterDaemon = {
+        image = {
+          repository = var.project_code_image_repository
+          tag        = var.project_code_image_tag
+          pullPolicy = var.project_code_image_pull_policy
+        }
+      }
+
       runLauncher = {
         type = "K8sRunLauncher"
         config = {
