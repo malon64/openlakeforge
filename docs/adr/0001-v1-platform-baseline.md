@@ -29,7 +29,7 @@ OpenLakeForge v1 adopts the following baseline decisions:
 - Keycloak is the central IAM and SSO layer.
 - Vault, External Secrets Operator, Traefik, and cert-manager are product-grade platform requirements.
 - v1 uses one custom `images/project-code/` runtime image for domain code, contracts, dlt, Dagster assets, and shared libraries. External runner images such as Floe may be referenced by generated orchestration manifests.
-- The first local Kubernetes foundation will target `k3d`.
+- The first local Kubernetes foundation will target `kind`.
 
 ## Consequences
 
