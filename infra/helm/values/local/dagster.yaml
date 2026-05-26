@@ -1,0 +1,33 @@
+# Dagster orchestration layer for the local kind cluster.
+dagsterWebserver:
+  replicaCount: 1
+  service:
+    type: ClusterIP
+    port: 80
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      memory: 1Gi
+
+dagsterDaemon:
+  enabled: true
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      memory: 1Gi
+
+postgresql:
+  enabled: true
+  postgresqlUsername: dagster
+  postgresqlPassword: dagster
+  postgresqlDatabase: dagster
+
+computeLogManager:
+  type: NoOpComputeLogManager
+
+telemetry:
+  enabled: false

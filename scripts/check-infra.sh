@@ -27,6 +27,7 @@ echo "==> Helm repo setup"
 helm repo add seaweedfs https://seaweedfs.github.io/seaweedfs/helm --force-update >/dev/null
 helm repo add polaris https://downloads.apache.org/polaris/helm-chart --force-update >/dev/null
 helm repo add trino https://trinodb.github.io/charts --force-update >/dev/null
+helm repo add dagster https://dagster-io.github.io/helm --force-update >/dev/null
 helm repo update >/dev/null
 
 echo "==> Helm template: SeaweedFS"
@@ -46,5 +47,11 @@ helm template trino trino/trino \
   --version 1.42.2 \
   --namespace lakehouse \
   --values infra/helm/values/local/trino.yaml >/dev/null
+
+echo "==> Helm template: Dagster"
+helm template dagster dagster/dagster \
+  --version 1.13.6 \
+  --namespace lakehouse \
+  --values infra/helm/values/local/dagster.yaml >/dev/null
 
 echo "Infrastructure checks passed."

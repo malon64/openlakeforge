@@ -1,0 +1,14 @@
+.git
+.github
+.terraform
+**/.terraform
+**/.terraform.lock.hcl
+**/terraform.tfstate
+**/terraform.tfstate.*
+__pycache__
+*.pyc
+.pytest_cache
+.venv
+venv
+dist
+build
