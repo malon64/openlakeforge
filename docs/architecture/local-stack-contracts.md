@@ -16,6 +16,7 @@ The storage module owns:
 
 - S3 access credentials in `seaweedfs-s3-creds`
 - the Iceberg bucket `iceberg-data`
+- the local code/artifact bucket `openlakeforge-code`
 - path-style S3 access
 - region `us-east-1`
 
@@ -69,8 +70,10 @@ The orchestration module owns:
 - the Sales code server loading `domains.sales.pipelines.dagster.definitions`
 - the Kubernetes run launcher
 - the local project-code image reference `ghcr.io/openlakeforge/project-code:local`
+- the Sales Floe manifest URI `s3://openlakeforge-code/floe/sales/sales.manifest.json`
 
 Local development loads the image into kind and uses the Dagster UI to launch
-`sales_bronze_to_silver_job`. Dagster loads the generated Sales Floe manifest,
-and the connector launches Floe Kubernetes jobs from
-`ghcr.io/malon64/floe:0.4.2`.
+`sales_bronze_to_silver_job`. Terraform uploads the generated Sales Floe
+manifest and config to SeaweedFS before Dagster starts. Dagster passes the
+remote manifest URI to `dagster-floe`, and the connector launches Floe
+Kubernetes jobs from `ghcr.io/malon64/floe:0.4.3`.

@@ -6,7 +6,7 @@ from floe_dagster.manifest import load_manifest
 from domains.sales.extract.dlt.sales_poc import SALES_POC_ENTITIES
 from domains.sales.pipelines.dagster.definitions import defs
 
-FLOE_ASSET_PREFIX = "default"
+FLOE_ASSET_PREFIX = "sales"
 
 
 def test_sales_floe_manifest_loads() -> None:
@@ -19,6 +19,18 @@ def test_sales_floe_manifest_loads() -> None:
     )
     manifest = load_manifest(manifest_path)
     assert [entity.name for entity in manifest.entities] == list(SALES_POC_ENTITIES)
+    assert manifest.config_uri == "s3://openlakeforge-code/floe/sales/sales_poc.yml"
+    assert manifest.execution.base_args == [
+        "run",
+        "--manifest",
+        "s3://openlakeforge-code/floe/sales/sales.manifest.json",
+        "--log-format",
+        "json",
+        "--quiet",
+    ]
+    for entity in manifest.entities:
+        assert entity.group_name == "sales"
+        assert entity.asset_key == ["sales", entity.name]
 
 
 def test_sales_bronze_to_silver_job_and_assets_are_registered() -> None:

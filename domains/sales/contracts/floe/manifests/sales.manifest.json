@@ -1,10 +1,10 @@
 {
   "schema": "floe.manifest.v1",
-  "generated_at_ts_ms": 1779803881807,
-  "floe_version": "0.4.2",
+  "generated_at_ts_ms": 1779805327987,
+  "floe_version": "0.4.3",
   "spec_version": "0.2",
   "manifest_id": "mfv1-468c56668f28d97c",
-  "config_uri": "local:///mnt/c/Users/alexi/openlakeforge/domains/sales/contracts/floe/sales_poc.yml",
+  "config_uri": "s3://openlakeforge-code/floe/sales/sales_poc.yml",
   "config_checksum": null,
   "report_base_uri": "s3://iceberg-data/floe/reports/sales",
   "domains": [],
@@ -13,7 +13,7 @@
     "base_args": [
       "run",
       "--manifest",
-      "{manifest_uri}",
+      "s3://openlakeforge-code/floe/sales/sales.manifest.json",
       "--log-format",
       "json",
       "--quiet"
@@ -28,8 +28,8 @@
       "summary_uri_field": "summary_uri",
       "exit_codes": {
         "2": "aborted",
-        "0": "success_or_rejected",
-        "1": "technical_failure"
+        "1": "technical_failure",
+        "0": "success_or_rejected"
       }
     },
     "defaults": {
@@ -69,16 +69,16 @@
             "key": "POLARIS_FLOE_CLIENT_SECRET"
           }
         ],
-        "image": "ghcr.io/malon64/floe:0.4.2",
+        "image": "ghcr.io/malon64/floe:0.4.3",
         "namespace": "lakehouse",
         "service_account": "dagster",
         "resources": null,
         "env": {
-          "AWS_REGION": "us-east-1",
-          "AWS_ENDPOINT_URL_S3": "http://seaweedfs-s3:8333",
           "AWS_S3_FORCE_PATH_STYLE": "true",
           "AWS_ALLOW_HTTP": "true",
-          "AWS_DEFAULT_REGION": "us-east-1"
+          "AWS_DEFAULT_REGION": "us-east-1",
+          "AWS_ENDPOINT_URL_S3": "http://seaweedfs-s3:8333",
+          "AWS_REGION": "us-east-1"
         },
         "workspace_url": null,
         "existing_cluster_id": null,
@@ -93,10 +93,10 @@
   "entities": [
     {
       "name": "customers",
-      "domain": null,
-      "group_name": "default",
+      "domain": "sales",
+      "group_name": "sales",
       "asset_key": [
-        "default",
+        "sales",
         "customers"
       ],
       "source_format": "csv",
@@ -195,10 +195,10 @@
     },
     {
       "name": "products",
-      "domain": null,
-      "group_name": "default",
+      "domain": "sales",
+      "group_name": "sales",
       "asset_key": [
-        "default",
+        "sales",
         "products"
       ],
       "source_format": "csv",
@@ -292,10 +292,10 @@
     },
     {
       "name": "sales",
-      "domain": null,
-      "group_name": "default",
+      "domain": "sales",
+      "group_name": "sales",
       "asset_key": [
-        "default",
+        "sales",
         "sales"
       ],
       "source_format": "csv",

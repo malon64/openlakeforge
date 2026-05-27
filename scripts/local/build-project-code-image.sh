@@ -11,10 +11,6 @@ if ! command -v docker &>/dev/null; then
   exit 1
 fi
 
-if [[ "${SKIP_FLOE_MANIFEST:-0}" != "1" ]]; then
-  bash scripts/local/floe-manifest.sh
-fi
-
 echo "==> Building project-code image: ${IMAGE}"
 docker build \
   --file images/project-code/Dockerfile \

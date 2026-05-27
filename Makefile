@@ -27,13 +27,13 @@ tree:
 	@find . -path './.git' -prune -o -print | sort
 
 check-structure:
-	@bash scripts/check-structure.sh
+	@bash scripts/test/check-structure.sh
 
 check-infra:
-	@bash scripts/check-infra.sh
+	@bash scripts/test/check-infra.sh
 
 check-project-code:
-	@bash scripts/check-project-code.sh
+	@bash scripts/test/check-project-code.sh
 
 floe-manifest:
 	@bash scripts/local/floe-manifest.sh

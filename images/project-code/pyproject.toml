@@ -10,7 +10,7 @@ requires-python = ">=3.12,<3.13"
 dependencies = [
   "boto3>=1.34,<2",
   "dagster==1.13.6",
-  "dagster-floe[kubernetes]==0.1.6",
+  "dagster-floe[kubernetes]==0.1.7",
   "dagster-k8s==0.29.6",
   "dagster-postgres==0.29.6",
   "dagster-webserver==1.13.6",

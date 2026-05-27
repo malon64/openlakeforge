@@ -28,6 +28,12 @@ variable "iceberg_bucket_name" {
   default     = "iceberg-data"
 }
 
+variable "code_bucket_name" {
+  description = "S3 bucket used for local code and orchestration artifacts."
+  type        = string
+  default     = "openlakeforge-code"
+}
+
 variable "s3_region" {
   description = "S3 region used by local S3-compatible storage clients."
   type        = string

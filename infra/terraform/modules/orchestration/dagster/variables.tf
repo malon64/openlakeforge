@@ -56,6 +56,11 @@ variable "definitions_module" {
   default     = "domains.sales.pipelines.dagster.definitions"
 }
 
+variable "floe_manifest_uri" {
+  description = "S3 URI of the generated Floe manifest loaded by Dagster."
+  type        = string
+}
+
 variable "storage_contract" {
   description = "Storage contract output from the SeaweedFS module."
   type = object({

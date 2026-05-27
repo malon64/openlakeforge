@@ -42,6 +42,7 @@ make local-down
 - local generated credentials
 - Kubernetes Secrets used as service contracts
 - SeaweedFS bucket creation jobs
+- Sales Floe manifest/config upload to the local code bucket
 - Polaris catalog and Trino principal bootstrap jobs
 - Polaris Floe principal bootstrap credentials for manifest-driven Floe jobs
 - chart-managed local Dagster PostgreSQL

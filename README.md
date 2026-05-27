@@ -71,7 +71,9 @@ ghcr.io/openlakeforge/project-code:<tag>
 
 It contains Dagster code, `dagster-floe`, Floe contracts, dlt extract code,
 domain Python code, and shared OpenLakeForge libraries. It does not install the
-Floe CLI; Floe runs from the manifest-declared GHCR runner image.
+Floe CLI or bake generated Floe manifests into the image. Terraform uploads the
+generated Sales Floe manifest and config to the local SeaweedFS code bucket, and
+Floe runs from the manifest-declared GHCR runner image.
 
 ## Roadmap
 

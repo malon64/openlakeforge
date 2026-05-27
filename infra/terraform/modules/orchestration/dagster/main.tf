@@ -60,6 +60,10 @@ resource "helm_release" "dagster" {
                 value = var.storage_contract.bucket_name
               },
               {
+                name  = "OPENLAKEFORGE_FLOE_MANIFEST_URI"
+                value = var.floe_manifest_uri
+              },
+              {
                 name  = "POLARIS_REST_URI"
                 value = var.catalog_contract.rest_uri
               },
@@ -73,8 +77,12 @@ resource "helm_release" "dagster" {
               },
             ]
             envSecrets = [
-              var.storage_contract.credentials_secret_name,
-              var.catalog_contract.floe_credentials_secret_name,
+              {
+                name = var.storage_contract.credentials_secret_name
+              },
+              {
+                name = var.catalog_contract.floe_credentials_secret_name
+              },
             ]
           },
         ]
@@ -138,6 +146,10 @@ resource "helm_release" "dagster" {
                   {
                     name  = "OPENLAKEFORGE_S3_BUCKET"
                     value = var.storage_contract.bucket_name
+                  },
+                  {
+                    name  = "OPENLAKEFORGE_FLOE_MANIFEST_URI"
+                    value = var.floe_manifest_uri
                   },
                 ]
                 envFrom = [

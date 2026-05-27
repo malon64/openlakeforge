@@ -3,6 +3,11 @@ output "storage_contract" {
   value       = module.seaweedfs.contract
 }
 
+output "sales_floe_manifest_uri" {
+  description = "S3 URI of the Sales Floe manifest consumed by Dagster and Floe."
+  value       = local.sales_floe_manifest_uri
+}
+
 output "catalog_contract" {
   description = "Non-secret Polaris REST catalog contract consumed by Trino."
   value       = module.polaris.contract

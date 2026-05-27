@@ -16,10 +16,12 @@ Kubernetes jobs from the manifest runner definition.
 Sales owns raw examples, dlt extract code, Floe contracts, generated Floe
 manifests, and Dagster definitions under `domains/sales`.
 
-The project-code image contains Dagster code, `dagster-floe`, dlt code, domain
-code, and the generated manifest. It does not install the Floe CLI. Local
-developer workflows run `floe manifest generate` before building the image. The
-manifest profile declares a Kubernetes runner using `ghcr.io/malon64/floe:0.4.2`.
+The project-code image contains Dagster code, `dagster-floe`, dlt code, and
+domain code. It does not install the Floe CLI and does not bake generated Floe
+manifests into the image. Local developer workflows run `floe manifest generate`
+before applying the stack. Terraform uploads the generated Sales manifest and
+config to the SeaweedFS code bucket, and the manifest profile declares a
+Kubernetes runner using `ghcr.io/malon64/floe:0.4.3`.
 
 Polaris owns separate service principals for Trino and Floe. Floe credentials
 are stored in `polaris-floe-creds`.
@@ -31,7 +33,9 @@ the webserver.
 ## Consequences
 
 - Dagster parses a generated Floe manifest instead of Floe YAML at runtime.
+- The local stack stores the Sales Floe manifest and config in
+  `s3://openlakeforge-code/floe/sales/`.
 - Floe execution is isolated in Kubernetes jobs from the Floe runner image.
-- `make project-code-image` depends on manifest generation unless explicitly
-  bypassed with `SKIP_FLOE_MANIFEST=1`.
+- `make local-up` requires a generated Sales Floe manifest because Terraform
+  uploads it to SeaweedFS before Dagster starts.
 - dbt and DuckDB remain outside Iteration 3.
