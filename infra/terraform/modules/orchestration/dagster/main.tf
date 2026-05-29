@@ -64,6 +64,14 @@ resource "helm_release" "dagster" {
                 value = var.floe_manifest_uri
               },
               {
+                name  = "OPENLAKEFORGE_FLOE_MANIFEST_REVISION"
+                value = var.floe_manifest_revision
+              },
+              {
+                name  = "OPENLAKEFORGE_PROJECT_CODE_REVISION"
+                value = var.project_code_image_revision
+              },
+              {
                 name  = "POLARIS_REST_URI"
                 value = var.catalog_contract.rest_uri
               },
@@ -150,6 +158,14 @@ resource "helm_release" "dagster" {
                   {
                     name  = "OPENLAKEFORGE_FLOE_MANIFEST_URI"
                     value = var.floe_manifest_uri
+                  },
+                  {
+                    name  = "OPENLAKEFORGE_FLOE_MANIFEST_REVISION"
+                    value = var.floe_manifest_revision
+                  },
+                  {
+                    name  = "OPENLAKEFORGE_PROJECT_CODE_REVISION"
+                    value = var.project_code_image_revision
                   },
                 ]
                 envFrom = [

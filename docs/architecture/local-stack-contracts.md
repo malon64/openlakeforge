@@ -76,4 +76,4 @@ Local development loads the image into kind and uses the Dagster UI to launch
 `sales_bronze_to_silver_job`. Terraform uploads the generated Sales Floe
 manifest and config to SeaweedFS before Dagster starts. Dagster passes the
 remote manifest URI to `dagster-floe`, and the connector launches Floe
-Kubernetes jobs from `ghcr.io/malon64/floe:0.4.3`.
+Kubernetes jobs from `ghcr.io/malon64/floe:0.4.4`.

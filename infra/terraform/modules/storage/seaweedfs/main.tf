@@ -46,7 +46,7 @@ resource "helm_release" "seaweedfs" {
   namespace  = var.namespace
 
   wait    = true
-  timeout = 300
+  timeout = 900
 
   values = [
     file(var.base_values_file),
@@ -57,6 +57,7 @@ resource "helm_release" "seaweedfs" {
 
       s3 = {
         port          = var.s3_port
+        domainName    = "${var.namespace}.svc.cluster.local"
         createBuckets = []
         credentials = {
           admin = {
@@ -66,6 +67,39 @@ resource "helm_release" "seaweedfs" {
         }
       }
     }),
+  ]
+}
+
+resource "kubernetes_service_v1" "bucket_virtual_host" {
+  for_each = toset(var.bucket_names)
+
+  metadata {
+    name      = each.key
+    namespace = var.namespace
+    labels = merge(local.labels, {
+      "openlakeforge.io/service-role" = "s3-bucket-virtual-host"
+    })
+  }
+
+  spec {
+    type = "ClusterIP"
+
+    selector = {
+      "app.kubernetes.io/component" = "s3"
+      "app.kubernetes.io/instance"  = var.release_name
+      "app.kubernetes.io/name"      = "seaweedfs"
+    }
+
+    port {
+      name        = "swfs-s3"
+      port        = var.s3_port
+      target_port = var.s3_port
+      protocol    = "TCP"
+    }
+  }
+
+  depends_on = [
+    helm_release.seaweedfs,
   ]
 }
 

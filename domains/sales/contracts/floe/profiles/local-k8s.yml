@@ -7,7 +7,7 @@ metadata:
 execution:
   runner:
     type: kubernetes_job
-    image: ghcr.io/malon64/floe:0.4.3
+    image: ghcr.io/malon64/floe:0.4.4
     namespace: lakehouse
     service_account: dagster
     timeout_seconds: 600
@@ -16,9 +16,11 @@ execution:
     env:
       AWS_REGION: us-east-1
       AWS_DEFAULT_REGION: us-east-1
-      AWS_ENDPOINT_URL_S3: http://seaweedfs-s3:8333
-      AWS_S3_FORCE_PATH_STYLE: "true"
+      AWS_ENDPOINT_URL: http://seaweedfs-s3:8333
+      AWS_ENDPOINT_URL_S3: http://lakehouse.svc.cluster.local:8333
+      AWS_S3_FORCE_PATH_STYLE: "false"
       AWS_ALLOW_HTTP: "true"
+      AWS_EC2_METADATA_DISABLED: "true"
     secrets:
       - name: AWS_ACCESS_KEY_ID
         secret_name: seaweedfs-s3-creds

@@ -57,3 +57,9 @@ variable "project_code_image_pull_policy" {
   type        = string
   default     = "IfNotPresent"
 }
+
+variable "project_code_image_revision" {
+  description = "Local project-code image revision used to force Dagster pod rollouts when the tag is reused."
+  type        = string
+  default     = "manual"
+}

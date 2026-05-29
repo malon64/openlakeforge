@@ -1,5 +1,6 @@
 .git
 .github
+.cache
 .terraform
 **/.terraform
 **/.terraform.lock.hcl

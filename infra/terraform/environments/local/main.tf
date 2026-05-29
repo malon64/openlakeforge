@@ -38,6 +38,7 @@ locals {
   sales_floe_artifact_hash = substr(sha256(join("\n", [
     file("${path.root}/../../../../domains/sales/contracts/floe/manifests/sales.manifest.json"),
     file("${path.root}/../../../../domains/sales/contracts/floe/sales_poc.yml"),
+    module.polaris.contract.bootstrap_run_id,
   ])), 0, 12)
 }
 
@@ -125,8 +126,20 @@ resource "kubernetes_job_v1" "sales_floe_artifact_upload" {
               sleep 5
             done
 
+            escape_sed_replacement() {
+              printf '%s' "$1" | sed 's/[&|\\]/\\&/g'
+            }
+
+            floe_client_id="$(escape_sed_replacement "$POLARIS_FLOE_CLIENT_ID")"
+            floe_client_secret="$(escape_sed_replacement "$POLARIS_FLOE_CLIENT_SECRET")"
+
+            sed \
+              -e 's|$${POLARIS_FLOE_CLIENT_ID}|'"$floe_client_id"'|g' \
+              -e 's|$${POLARIS_FLOE_CLIENT_SECRET}|'"$floe_client_secret"'|g' \
+              /artifacts/sales.manifest.json > /tmp/sales.manifest.json
+
             aws --endpoint-url "${module.seaweedfs.contract.endpoint}" s3 cp \
-              /artifacts/sales.manifest.json \
+              /tmp/sales.manifest.json \
               "s3://${var.code_bucket_name}/${local.sales_floe_manifest_key}" \
               --content-type application/json
 
@@ -172,6 +185,26 @@ resource "kubernetes_job_v1" "sales_floe_artifact_upload" {
             }
           }
 
+          env {
+            name = "POLARIS_FLOE_CLIENT_ID"
+            value_from {
+              secret_key_ref {
+                name = module.polaris.contract.floe_credentials_secret_name
+                key  = module.polaris.contract.floe_client_id_key
+              }
+            }
+          }
+
+          env {
+            name = "POLARIS_FLOE_CLIENT_SECRET"
+            value_from {
+              secret_key_ref {
+                name = module.polaris.contract.floe_credentials_secret_name
+                key  = module.polaris.contract.floe_client_secret_key
+              }
+            }
+          }
+
           volume_mount {
             name       = "artifacts"
             mount_path = "/artifacts"
@@ -198,6 +231,7 @@ resource "kubernetes_job_v1" "sales_floe_artifact_upload" {
 
   depends_on = [
     module.seaweedfs,
+    module.polaris,
   ]
 }
 
@@ -238,9 +272,11 @@ module "dagster" {
   project_code_image_repository  = var.project_code_image_repository
   project_code_image_tag         = var.project_code_image_tag
   project_code_image_pull_policy = var.project_code_image_pull_policy
+  project_code_image_revision    = var.project_code_image_revision
   storage_contract               = module.seaweedfs.contract
   catalog_contract               = module.polaris.contract
   floe_manifest_uri              = local.sales_floe_manifest_uri
+  floe_manifest_revision         = local.sales_floe_artifact_hash
 
   depends_on = [
     module.trino,

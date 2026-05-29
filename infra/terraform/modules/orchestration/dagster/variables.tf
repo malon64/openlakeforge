@@ -44,6 +44,12 @@ variable "project_code_image_pull_policy" {
   default     = "IfNotPresent"
 }
 
+variable "project_code_image_revision" {
+  description = "Project-code image revision used to force Dagster pod rollouts when the tag is reused."
+  type        = string
+  default     = "manual"
+}
+
 variable "code_location_name" {
   description = "Dagster user-code deployment and code location name."
   type        = string
@@ -59,6 +65,12 @@ variable "definitions_module" {
 variable "floe_manifest_uri" {
   description = "S3 URI of the generated Floe manifest loaded by Dagster."
   type        = string
+}
+
+variable "floe_manifest_revision" {
+  description = "Content revision of the generated Floe manifest used to force Dagster code-server rollouts."
+  type        = string
+  default     = "manual"
 }
 
 variable "storage_contract" {
