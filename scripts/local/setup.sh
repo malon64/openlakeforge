@@ -56,6 +56,9 @@ prepare_local_project_code_image() {
 echo "==> Checking prerequisites..."
 check_prereqs
 
+echo "==> Generating local Floe manifest for namespace '${NAMESPACE}'..."
+NAMESPACE="${NAMESPACE}" bash "${SCRIPT_DIR}/floe-manifest.sh"
+
 prepare_local_project_code_image
 
 echo "==> Applying Terraform local stack..."

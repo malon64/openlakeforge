@@ -7,6 +7,7 @@ PROFILE_PATH="${FLOE_PROFILE_PATH:-domains/sales/contracts/floe/profiles/local-k
 MANIFEST_PATH="${FLOE_MANIFEST_PATH:-domains/sales/contracts/floe/manifests/sales.manifest.json}"
 CODE_BUCKET="${OPENLAKEFORGE_CODE_BUCKET:-openlakeforge-code}"
 FLOE_ARTIFACT_PREFIX="${OPENLAKEFORGE_FLOE_ARTIFACT_PREFIX:-floe/sales}"
+NAMESPACE="${NAMESPACE:-lakehouse}"
 
 FLOE_CMD=(floe)
 if ! command -v floe &>/dev/null || [[ "$(floe --version 2>/dev/null || true)" != "floe 0.4.4" ]]; then
@@ -29,7 +30,7 @@ echo "==> Generating Floe manifest: ${MANIFEST_PATH}"
   --output "${MANIFEST_PATH}"
 
 echo "==> Patching manifest artifact URIs for s3://${CODE_BUCKET}/${FLOE_ARTIFACT_PREFIX}"
-CODE_BUCKET="${CODE_BUCKET}" FLOE_ARTIFACT_PREFIX="${FLOE_ARTIFACT_PREFIX}" MANIFEST_PATH="${MANIFEST_PATH}" python3 - <<'PY'
+CODE_BUCKET="${CODE_BUCKET}" FLOE_ARTIFACT_PREFIX="${FLOE_ARTIFACT_PREFIX}" MANIFEST_PATH="${MANIFEST_PATH}" NAMESPACE="${NAMESPACE}" python3 - <<'PY'
 import json
 import os
 from pathlib import Path
@@ -37,12 +38,17 @@ from pathlib import Path
 bucket = os.environ["CODE_BUCKET"]
 prefix = os.environ["FLOE_ARTIFACT_PREFIX"].strip("/")
 manifest_path = Path(os.environ["MANIFEST_PATH"])
+namespace = os.environ["NAMESPACE"]
 manifest_uri = f"s3://{bucket}/{prefix}/sales.manifest.json"
 config_uri = f"s3://{bucket}/{prefix}/sales_poc.yml"
 
 payload = json.loads(manifest_path.read_text(encoding="utf-8"))
 payload["config_uri"] = config_uri
 payload["domains"] = []
+payload["runners"]["definitions"]["default"]["namespace"] = namespace
+payload["runners"]["definitions"]["default"]["env"][
+    "AWS_ENDPOINT_URL_S3"
+] = f"http://{namespace}.svc.cluster.local:8333"
 
 payload["execution"]["base_args"] = [
     "run",

@@ -20,7 +20,7 @@ help:
 	@printf '%s\n' '  make local-destroy-cluster  Delete the local kind cluster'
 	@printf '%s\n' '  make local-up         Terraform-apply SeaweedFS + Polaris + Trino + Dagster'
 	@printf '%s\n' '  make local-down       Terraform-destroy the local stack'
-	@printf '%s\n' '  make local-status     Show pod and service status in the lakehouse namespace'
+	@printf '%s\n' '  make local-status     Show pod and service status in the configured namespace'
 	@printf '%s\n' '  make local-forward    Port-forward all services to localhost'
 
 tree:
@@ -36,7 +36,7 @@ check-project-code:
 	@bash scripts/test/check-project-code.sh
 
 floe-manifest:
-	@bash scripts/local/floe-manifest.sh
+	@NAMESPACE=$(NAMESPACE) bash scripts/local/floe-manifest.sh
 
 project-code-image:
 	@PROJECT_CODE_IMAGE_REPOSITORY=$(PROJECT_CODE_IMAGE_REPOSITORY) PROJECT_CODE_IMAGE_TAG=$(PROJECT_CODE_IMAGE_TAG) bash scripts/local/build-project-code-image.sh
