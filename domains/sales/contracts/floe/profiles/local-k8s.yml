@@ -4,6 +4,25 @@ metadata:
   name: local-k8s
   env: local
   description: "Local kind Kubernetes runner profile for Sales Floe assets."
+storages:
+  default: "lakehouse_s3"
+  definitions:
+    - name: "lakehouse_s3"
+      type: "s3"
+      bucket: "iceberg-data"
+      region: "us-east-1"
+catalogs:
+  default: "polaris"
+  definitions:
+    - name: "polaris"
+      type: "rest"
+      uri: "http://polaris:8181/api/catalog"
+      credential: "client_credentials:${POLARIS_FLOE_CLIENT_ID}:${POLARIS_FLOE_CLIENT_SECRET}"
+      warehouse: "lakehouse"
+      oauth2_server_uri: "http://polaris:8181/api/catalog/v1/oauth/tokens"
+      scope: "PRINCIPAL_ROLE:ALL"
+      warehouse_storage: "lakehouse_s3"
+      warehouse_prefix: "s3://iceberg-data"
 execution:
   runner:
     type: kubernetes_job
