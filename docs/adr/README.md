@@ -9,3 +9,6 @@ storage choice from Garage to SeaweedFS.
 
 `0003-local-dagster-project-code-runtime.md` records the Iteration 2 Dagster and
 project-code runtime boundary.
+
+`0004-manifest-first-floe-sales-ingestion.md` records the Iteration 3 Sales dlt
+and Floe manifest-first runtime boundary.

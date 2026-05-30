@@ -1,5 +1,6 @@
 .git
 .github
+.cache
 .terraform
 **/.terraform
 **/.terraform.lock.hcl
@@ -12,3 +13,4 @@ __pycache__
 venv
 dist
 build
+domains/sales/contracts/floe/manifests/*.json

@@ -1,4 +1,4 @@
-.PHONY: help tree check-structure check-infra check-project-code project-code-image project-code-load local-cluster local-destroy-cluster local-up local-down local-status local-forward local-dagster-smoke
+.PHONY: help tree check-structure check-infra check-project-code floe-manifest project-code-image project-code-load local-cluster local-destroy-cluster local-up local-down local-status local-forward
 
 NAMESPACE ?= lakehouse
 PROJECT_CODE_IMAGE_REPOSITORY ?= ghcr.io/openlakeforge/project-code
@@ -11,6 +11,7 @@ help:
 	@printf '%s\n' '  make check-structure  Validate the Iteration 0 repository contract'
 	@printf '%s\n' '  make check-infra      Validate Terraform and render Helm values'
 	@printf '%s\n' '  make check-project-code  Validate the project-code Dagster package'
+	@printf '%s\n' '  make floe-manifest   Generate the Sales Floe Dagster manifest'
 	@printf '%s\n' ''
 	@printf '%s\n' 'Local stack:'
 	@printf '%s\n' '  make local-cluster    Create the kind cluster (WSL + kind required)'
@@ -19,21 +20,23 @@ help:
 	@printf '%s\n' '  make local-destroy-cluster  Delete the local kind cluster'
 	@printf '%s\n' '  make local-up         Terraform-apply SeaweedFS + Polaris + Trino + Dagster'
 	@printf '%s\n' '  make local-down       Terraform-destroy the local stack'
-	@printf '%s\n' '  make local-status     Show pod and service status in the lakehouse namespace'
+	@printf '%s\n' '  make local-status     Show pod and service status in the configured namespace'
 	@printf '%s\n' '  make local-forward    Port-forward all services to localhost'
-	@printf '%s\n' '  make local-dagster-smoke  Launch the Iteration 2 Dagster smoke job'
 
 tree:
 	@find . -path './.git' -prune -o -print | sort
 
 check-structure:
-	@bash scripts/check-structure.sh
+	@bash scripts/test/check-structure.sh
 
 check-infra:
-	@bash scripts/check-infra.sh
+	@bash scripts/test/check-infra.sh
 
 check-project-code:
-	@bash scripts/check-project-code.sh
+	@bash scripts/test/check-project-code.sh
+
+floe-manifest:
+	@NAMESPACE=$(NAMESPACE) bash scripts/local/floe-manifest.sh
 
 project-code-image:
 	@PROJECT_CODE_IMAGE_REPOSITORY=$(PROJECT_CODE_IMAGE_REPOSITORY) PROJECT_CODE_IMAGE_TAG=$(PROJECT_CODE_IMAGE_TAG) bash scripts/local/build-project-code-image.sh
@@ -72,6 +75,3 @@ local-forward:
 	dagster_pid=$$!; \
 	trap 'kill $$seaweedfs_pid $$polaris_pid $$trino_pid $$dagster_pid 2>/dev/null || true' INT TERM EXIT; \
 	wait
-
-local-dagster-smoke:
-	@NAMESPACE=$(NAMESPACE) bash scripts/local/dagster-smoke.sh

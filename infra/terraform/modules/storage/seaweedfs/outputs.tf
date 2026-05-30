@@ -2,6 +2,7 @@ output "contract" {
   description = "S3-compatible storage contract for local lakehouse services."
   value = {
     endpoint                = "http://${local.s3_service_name}:${var.s3_port}"
+    virtual_host_endpoint   = "http://${var.namespace}.svc.cluster.local:${var.s3_port}"
     region                  = var.region
     bucket_name             = var.bucket_names[0]
     bucket_names            = var.bucket_names

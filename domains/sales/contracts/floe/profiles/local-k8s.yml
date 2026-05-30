@@ -1,0 +1,57 @@
+apiVersion: floe/v1
+kind: EnvironmentProfile
+metadata:
+  name: local-k8s
+  env: local
+  description: "Local kind Kubernetes runner profile for Sales Floe assets."
+storages:
+  default: "lakehouse_s3"
+  definitions:
+    - name: "lakehouse_s3"
+      type: "s3"
+      bucket: "iceberg-data"
+      region: "us-east-1"
+catalogs:
+  default: "polaris"
+  definitions:
+    - name: "polaris"
+      type: "rest"
+      uri: "http://polaris:8181/api/catalog"
+      credential: "client_credentials:${POLARIS_FLOE_CLIENT_ID}:${POLARIS_FLOE_CLIENT_SECRET}"
+      warehouse: "lakehouse"
+      oauth2_server_uri: "http://polaris:8181/api/catalog/v1/oauth/tokens"
+      scope: "PRINCIPAL_ROLE:ALL"
+      warehouse_storage: "lakehouse_s3"
+      warehouse_prefix: "s3://iceberg-data"
+execution:
+  runner:
+    type: kubernetes_job
+    image: ghcr.io/malon64/floe:0.4.5
+    namespace: lakehouse
+    service_account: dagster
+    timeout_seconds: 600
+    ttl_seconds_after_finished: 3600
+    poll_interval_seconds: 5
+    env:
+      AWS_REGION: us-east-1
+      AWS_DEFAULT_REGION: us-east-1
+      AWS_ENDPOINT_URL: http://seaweedfs-s3:8333
+      AWS_ENDPOINT_URL_S3: http://lakehouse.svc.cluster.local:8333
+      AWS_S3_FORCE_PATH_STYLE: "false"
+      AWS_ALLOW_HTTP: "true"
+      AWS_EC2_METADATA_DISABLED: "true"
+    secrets:
+      - name: AWS_ACCESS_KEY_ID
+        secret_name: seaweedfs-s3-creds
+        key: AWS_ACCESS_KEY_ID
+      - name: AWS_SECRET_ACCESS_KEY
+        secret_name: seaweedfs-s3-creds
+        key: AWS_SECRET_ACCESS_KEY
+      - name: POLARIS_FLOE_CLIENT_ID
+        secret_name: polaris-floe-creds
+        key: POLARIS_FLOE_CLIENT_ID
+      - name: POLARIS_FLOE_CLIENT_SECRET
+        secret_name: polaris-floe-creds
+        key: POLARIS_FLOE_CLIENT_SECRET
+validation:
+  strict: true
