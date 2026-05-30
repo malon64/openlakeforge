@@ -21,7 +21,7 @@ domain code. It does not install the Floe CLI and does not bake generated Floe
 manifests into the image. Local developer workflows run `floe manifest generate`
 before applying the stack. Terraform uploads the generated Sales manifest and
 config to the SeaweedFS code bucket, and the manifest profile declares a
-Kubernetes runner using `ghcr.io/malon64/floe:0.4.4`.
+Kubernetes runner using `ghcr.io/malon64/floe:0.4.5`.
 
 Polaris owns separate service principals for Trino and Floe. Floe credentials
 are stored in `polaris-floe-creds`.

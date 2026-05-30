@@ -66,8 +66,15 @@ from domains.sales.pipelines.dagster.definitions import defs
 defs.resolve_job_def("sales_bronze_to_silver_job")
 
 manifest = load_manifest(Path("domains/sales/contracts/floe/manifests/sales.manifest.json"))
-if manifest.config_uri != "s3://openlakeforge-code/floe/sales/sales_poc.yml":
-    raise SystemExit("Sales Floe manifest config_uri is not the local code bucket URI")
+if manifest.execution.base_args != [
+    "run",
+    "--manifest",
+    "{manifest_uri}",
+    "--log-format",
+    "json",
+    "--quiet",
+]:
+    raise SystemExit("Sales Floe manifest does not use the runtime manifest_uri placeholder")
 
 asset_keys = {
     tuple(key.path)

@@ -1,11 +1,15 @@
 {
   "schema": "floe.manifest.v1",
-  "generated_at_ts_ms": 1780040217161,
-  "floe_version": "0.4.4",
+  "generated_at_ts_ms": 0,
+  "floe_version": "0.4.5",
   "spec_version": "0.2",
-  "manifest_id": "mfv1-5e560405f815c5fe",
-  "config_uri": "s3://openlakeforge-code/floe/sales/sales_poc.yml",
-  "config_checksum": null,
+  "manifest_name": "sales.local",
+  "manifest_id": "mfv1-b36330ca3e09e364",
+  "manifest_revision": "sha256:e5b4ce11bf1271c3b5f8d87583cbc50ee120abd77561751caa7ee8c871d81e14",
+  "config_uri": "local:///work/domains/sales/contracts/floe/sales_poc.yml",
+  "config_checksum": "sha256:674594514059a8f82c7183b958c4bb8660068b4fe9f6a0f8a7ddc540443910a7",
+  "profile_uri": "local:///work/domains/sales/contracts/floe/profiles/local-k8s.yml",
+  "profile_checksum": "sha256:c0d61a22a4cbd542d4665e4918824f0545b9b65a6570914719dac0aced40ae84",
   "report_base_uri": "s3://iceberg-data/floe/reports/sales",
   "domains": [],
   "execution": {
@@ -13,7 +17,7 @@
     "base_args": [
       "run",
       "--manifest",
-      "s3://openlakeforge-code/floe/sales/sales.manifest.json",
+      "{manifest_uri}",
       "--log-format",
       "json",
       "--quiet"
@@ -27,9 +31,9 @@
       "run_finished_event": true,
       "summary_uri_field": "summary_uri",
       "exit_codes": {
-        "2": "aborted",
         "0": "success_or_rejected",
-        "1": "technical_failure"
+        "1": "technical_failure",
+        "2": "aborted"
       }
     },
     "defaults": {
@@ -69,18 +73,18 @@
             "key": "POLARIS_FLOE_CLIENT_SECRET"
           }
         ],
-        "image": "ghcr.io/malon64/floe:0.4.4",
+        "image": "ghcr.io/malon64/floe:0.4.5",
         "namespace": "lakehouse",
         "service_account": "dagster",
         "resources": null,
         "env": {
+          "AWS_ALLOW_HTTP": "true",
+          "AWS_DEFAULT_REGION": "us-east-1",
           "AWS_EC2_METADATA_DISABLED": "true",
           "AWS_ENDPOINT_URL": "http://seaweedfs-s3:8333",
-          "AWS_S3_FORCE_PATH_STYLE": "false",
+          "AWS_ENDPOINT_URL_S3": "http://lakehouse.svc.cluster.local:8333",
           "AWS_REGION": "us-east-1",
-          "AWS_DEFAULT_REGION": "us-east-1",
-          "AWS_ALLOW_HTTP": "true",
-          "AWS_ENDPOINT_URL_S3": "http://lakehouse.svc.cluster.local:8333"
+          "AWS_S3_FORCE_PATH_STYLE": "false"
         },
         "workspace_url": null,
         "existing_cluster_id": null,
@@ -409,13 +413,15 @@
     "default": "lakehouse_s3",
     "definitions": [
       {
-        "name": "lakehouse_s3",
-        "fs_type": "s3",
-        "bucket": "iceberg-data",
-        "region": "us-east-1",
         "account": null,
+        "bucket": "iceberg-data",
         "container": null,
-        "prefix": null
+        "endpoint": null,
+        "fs_type": "s3",
+        "name": "lakehouse_s3",
+        "path_style_access": null,
+        "prefix": null,
+        "region": "us-east-1"
       }
     ]
   },
@@ -425,15 +431,15 @@
       {
         "name": "polaris",
         "type_config": {
+          "credential": "client_credentials:${POLARIS_FLOE_CLIENT_ID}:${POLARIS_FLOE_CLIENT_SECRET}",
+          "oauth2_server_uri": "http://polaris:8181/api/catalog/v1/oauth/tokens",
+          "scope": "PRINCIPAL_ROLE:ALL",
           "type": "rest",
           "uri": "http://polaris:8181/api/catalog",
-          "credential": "client_credentials:${POLARIS_FLOE_CLIENT_ID}:${POLARIS_FLOE_CLIENT_SECRET}",
-          "warehouse": "lakehouse",
-          "oauth2_server_uri": "http://polaris:8181/api/catalog/v1/oauth/tokens",
-          "scope": "PRINCIPAL_ROLE:ALL"
+          "warehouse": "lakehouse"
         },
-        "warehouse_storage": "lakehouse_s3",
-        "warehouse_prefix": "s3://iceberg-data"
+        "warehouse_prefix": "s3://iceberg-data",
+        "warehouse_storage": "lakehouse_s3"
       }
     ]
   }

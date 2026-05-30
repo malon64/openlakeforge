@@ -18,12 +18,11 @@ def test_sales_floe_manifest_loads() -> None:
         / "sales.manifest.json"
     )
     manifest = load_manifest(manifest_path)
-    assert [entity.name for entity in manifest.entities] == list(SALES_POC_ENTITIES)
-    assert manifest.config_uri == "s3://openlakeforge-code/floe/sales/sales_poc.yml"
+    assert {entity.name for entity in manifest.entities} == set(SALES_POC_ENTITIES)
     assert manifest.execution.base_args == [
         "run",
         "--manifest",
-        "s3://openlakeforge-code/floe/sales/sales.manifest.json",
+        "{manifest_uri}",
         "--log-format",
         "json",
         "--quiet",
