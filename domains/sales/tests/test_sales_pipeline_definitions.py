@@ -38,3 +38,18 @@ def test_sales_bronze_to_silver_job_and_assets_are_registered() -> None:
     for entity in SALES_POC_ENTITIES:
         assert AssetKey([FLOE_ASSET_PREFIX, f"{entity}_source"]) in asset_keys
         assert AssetKey([FLOE_ASSET_PREFIX, entity]) in asset_keys
+
+
+def test_sales_floe_assets_depend_on_bronze_sources() -> None:
+    asset_deps = {
+        key: deps
+        for asset_def in defs.assets
+        for key, deps in asset_def.asset_deps.items()
+    }
+
+    for entity in SALES_POC_ENTITIES:
+        bronze_key = AssetKey([FLOE_ASSET_PREFIX, f"{entity}_source"])
+        assert asset_deps[AssetKey([FLOE_ASSET_PREFIX, entity])] == {bronze_key}
+        assert asset_deps[AssetKey([FLOE_ASSET_PREFIX, f"{entity}_rejected"])] == {
+            bronze_key
+        }
