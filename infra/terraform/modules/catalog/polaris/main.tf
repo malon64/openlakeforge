@@ -237,29 +237,47 @@ resource "kubernetes_job_v1" "bootstrap" {
               }
             }'
 
-            request DELETE "/principals/${var.principal_name}" "204 404"
+            create_principal_secret() {
+              principal_name="$1"
+              secret_name="$2"
+              client_id_key="$3"
+              client_secret_key="$4"
 
-            request POST "/principals" "201" '{"name": "${var.principal_name}", "type": "SERVICE"}'
-            client_id="$(sed -n 's/.*"clientId":"\([^"]*\)".*/\1/p' /tmp/polaris-body | head -n 1)"
-            client_secret="$(sed -n 's/.*"clientSecret":"\([^"]*\)".*/\1/p' /tmp/polaris-body | head -n 1)"
+              request DELETE "/principals/$principal_name" "204 404"
+              request POST "/principals" "201" "{\"name\": \"$principal_name\", \"type\": \"SERVICE\"}"
+              client_id="$(sed -n 's/.*"clientId":"\([^"]*\)".*/\1/p' /tmp/polaris-body | head -n 1)"
+              client_secret="$(sed -n 's/.*"clientSecret":"\([^"]*\)".*/\1/p' /tmp/polaris-body | head -n 1)"
 
-            if [ -z "$client_id" ] || [ -z "$client_secret" ]; then
-              echo "Failed to parse Trino principal credentials" >&2
-              cat /tmp/polaris-body >&2
-              exit 1
-            fi
+              if [ -z "$client_id" ] || [ -z "$client_secret" ]; then
+                echo "Failed to parse Polaris principal credentials for $principal_name" >&2
+                cat /tmp/polaris-body >&2
+                exit 1
+              fi
 
-            kubectl delete secret "${var.trino_credentials_secret_name}" -n "$NAMESPACE" --ignore-not-found
-            kubectl create secret generic "${var.trino_credentials_secret_name}" \
-              -n "$NAMESPACE" \
-              --from-literal=POLARIS_TRINO_CLIENT_ID="$client_id" \
-              --from-literal=POLARIS_TRINO_CLIENT_SECRET="$client_secret"
+              kubectl delete secret "$secret_name" -n "$NAMESPACE" --ignore-not-found
+              kubectl create secret generic "$secret_name" \
+                -n "$NAMESPACE" \
+                --from-literal="$client_id_key=$client_id" \
+                --from-literal="$client_secret_key=$client_secret"
+            }
 
-            request POST "/principal-roles" "201 409" '{"principalRole": {"name": "${var.principal_role}"}}'
-            request PUT "/principals/${var.principal_name}/principal-roles" "201 409" '{"principalRole": {"name": "${var.principal_role}"}}'
-            request POST "/catalogs/${var.catalog_name}/catalog-roles" "201 409" '{"catalogRole": {"name": "${var.catalog_role}"}}'
-            request PUT "/catalogs/${var.catalog_name}/catalog-roles/${var.catalog_role}/grants" "201 409" '{"grant": {"type": "catalog", "privilege": "CATALOG_MANAGE_CONTENT"}}'
-            request PUT "/principal-roles/${var.principal_role}/catalog-roles/${var.catalog_name}" "201 409" '{"catalogRole": {"name": "${var.catalog_role}"}}'
+            grant_catalog_access() {
+              principal_name="$1"
+              principal_role="$2"
+              catalog_role="$3"
+
+              request POST "/principal-roles" "201 409" "{\"principalRole\": {\"name\": \"$principal_role\"}}"
+              request PUT "/principals/$principal_name/principal-roles" "201 409" "{\"principalRole\": {\"name\": \"$principal_role\"}}"
+              request POST "/catalogs/${var.catalog_name}/catalog-roles" "201 409" "{\"catalogRole\": {\"name\": \"$catalog_role\"}}"
+              request PUT "/catalogs/${var.catalog_name}/catalog-roles/$catalog_role/grants" "201 409" '{"grant": {"type": "catalog", "privilege": "CATALOG_MANAGE_CONTENT"}}'
+              request PUT "/principal-roles/$principal_role/catalog-roles/${var.catalog_name}" "201 409" "{\"catalogRole\": {\"name\": \"$catalog_role\"}}"
+            }
+
+            create_principal_secret "${var.principal_name}" "${var.trino_credentials_secret_name}" "POLARIS_TRINO_CLIENT_ID" "POLARIS_TRINO_CLIENT_SECRET"
+            grant_catalog_access "${var.principal_name}" "${var.principal_role}" "${var.catalog_role}"
+
+            create_principal_secret "${var.floe_principal_name}" "${var.floe_credentials_secret_name}" "POLARIS_FLOE_CLIENT_ID" "POLARIS_FLOE_CLIENT_SECRET"
+            grant_catalog_access "${var.floe_principal_name}" "${var.floe_principal_role}" "${var.floe_catalog_role}"
           SCRIPT
           ]
 

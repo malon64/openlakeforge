@@ -11,6 +11,10 @@ resource "helm_release" "dagster" {
   values = [
     file(var.base_values_file),
     yamlencode({
+      global = {
+        serviceAccountName = "dagster"
+      }
+
       "dagster-user-deployments" = {
         enabled        = true
         enableSubchart = true
@@ -30,6 +34,64 @@ resource "helm_release" "dagster" {
             includeConfigInLaunchedRuns = {
               enabled = true
             }
+            env = [
+              {
+                name  = "AWS_REGION"
+                value = var.storage_contract.region
+              },
+              {
+                name  = "AWS_DEFAULT_REGION"
+                value = var.storage_contract.region
+              },
+              {
+                name  = "AWS_ENDPOINT_URL_S3"
+                value = var.storage_contract.endpoint
+              },
+              {
+                name  = "AWS_S3_FORCE_PATH_STYLE"
+                value = tostring(var.storage_contract.path_style_access)
+              },
+              {
+                name  = "AWS_ALLOW_HTTP"
+                value = "true"
+              },
+              {
+                name  = "OPENLAKEFORGE_S3_BUCKET"
+                value = var.storage_contract.bucket_name
+              },
+              {
+                name  = "OPENLAKEFORGE_FLOE_MANIFEST_URI"
+                value = var.floe_manifest_uri
+              },
+              {
+                name  = "OPENLAKEFORGE_FLOE_MANIFEST_REVISION"
+                value = var.floe_manifest_revision
+              },
+              {
+                name  = "OPENLAKEFORGE_PROJECT_CODE_REVISION"
+                value = var.project_code_image_revision
+              },
+              {
+                name  = "POLARIS_REST_URI"
+                value = var.catalog_contract.rest_uri
+              },
+              {
+                name  = "POLARIS_TOKEN_URI"
+                value = var.catalog_contract.token_uri
+              },
+              {
+                name  = "POLARIS_WAREHOUSE"
+                value = var.catalog_contract.warehouse
+              },
+            ]
+            envSecrets = [
+              {
+                name = var.storage_contract.credentials_secret_name
+              },
+              {
+                name = var.catalog_contract.floe_credentials_secret_name
+              },
+            ]
           },
         ]
       }
@@ -66,6 +128,58 @@ resource "helm_release" "dagster" {
             runK8sConfig = {
               jobSpecConfig = {
                 ttlSecondsAfterFinished = 3600
+              }
+              containerConfig = {
+                env = [
+                  {
+                    name  = "AWS_REGION"
+                    value = var.storage_contract.region
+                  },
+                  {
+                    name  = "AWS_DEFAULT_REGION"
+                    value = var.storage_contract.region
+                  },
+                  {
+                    name  = "AWS_ENDPOINT_URL_S3"
+                    value = var.storage_contract.endpoint
+                  },
+                  {
+                    name  = "AWS_S3_FORCE_PATH_STYLE"
+                    value = tostring(var.storage_contract.path_style_access)
+                  },
+                  {
+                    name  = "AWS_ALLOW_HTTP"
+                    value = "true"
+                  },
+                  {
+                    name  = "OPENLAKEFORGE_S3_BUCKET"
+                    value = var.storage_contract.bucket_name
+                  },
+                  {
+                    name  = "OPENLAKEFORGE_FLOE_MANIFEST_URI"
+                    value = var.floe_manifest_uri
+                  },
+                  {
+                    name  = "OPENLAKEFORGE_FLOE_MANIFEST_REVISION"
+                    value = var.floe_manifest_revision
+                  },
+                  {
+                    name  = "OPENLAKEFORGE_PROJECT_CODE_REVISION"
+                    value = var.project_code_image_revision
+                  },
+                ]
+                envFrom = [
+                  {
+                    secretRef = {
+                      name = var.storage_contract.credentials_secret_name
+                    }
+                  },
+                  {
+                    secretRef = {
+                      name = var.catalog_contract.floe_credentials_secret_name
+                    }
+                  },
+                ]
               }
             }
           }

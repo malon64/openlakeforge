@@ -33,17 +33,17 @@ The local Dagster deployment uses:
 The first domain-owned Dagster code lives under:
 
 ```text
-domains/sales/orchestration/dagster
+domains/sales/pipelines/dagster
 ```
 
-It exposes a minimal no-data smoke job named `iteration2_smoke_job`. This job
-exists only to prove that Dagster can load the sales code location and launch an
-isolated Kubernetes run pod from the project-code image.
+The initial no-data validation job was temporary. The durable local run target
+is the Sales asset job introduced by the ingestion milestone, which launches
+isolated Kubernetes run pods from the project-code image.
 
 ## Consequences
 
-Iteration 2 validates the execution boundary without starting Sales ingestion or
-Silver/Gold processing.
+The execution boundary is validated by running real domain assets instead of a
+separate iteration-specific validation job.
 
 The local workflow now requires Docker, kind, kubectl, Terraform, Helm, and
 Python in the shell used to run the Make targets.

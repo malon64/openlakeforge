@@ -1,0 +1,4 @@
+customer_id,first_name,last_name,country,segment
+C-001,Ada,Lovelace,United Kingdom,enterprise
+C-002,Grace,Hopper,United States,midmarket
+C-003,Katherine,Johnson,United States,enterprise

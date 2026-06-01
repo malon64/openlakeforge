@@ -1,6 +1,8 @@
 # OpenLakeForge
 
-OpenLakeForge is a cloud-agnostic, open-source, self-hostable modern lakehouse platform. It assembles a coherent data platform from open-source components, deployed on Kubernetes with Terraform and Helm, and eventually exposed through a unified product UI.
+OpenLakeForge is a cloud-agnostic, open-source, self-hostable modern lakehouse
+platform. It assembles open-source data platform components on Kubernetes with
+Terraform and Helm.
 
 ![OpenLakeForge Architecture](/docs/assets/openlakeforge_archi.png)
 
@@ -16,21 +18,9 @@ CSV examples
   -> Dagster asset graph
 ```
 
-Iteration 0 establishes the repository structure and records the first architectural decisions. Iteration 1 creates the local Kubernetes foundation with SeaweedFS, Polaris, and Trino. Iteration 2 adds the `project-code` image and Dagster deployment with a Kubernetes run launcher.
-
-## Core Principles
-
-- Kubernetes-native from the beginning.
-- Cloud-agnostic across local, on-prem, and cloud Kubernetes targets.
-- Apache Iceberg is the table format from v1.
-- v1 is batch-first; streaming is deferred.
-- Trino is the analytics query layer, not the ETL engine.
-- Floe owns Bronze-to-Silver technical validation and Silver materialization.
-- dbt owns Silver-to-Gold business transformations.
-- Dagster orchestrates domain assets.
-- OpenLineage is the lineage protocol.
-- OpenMetadata is the governance and catalog UI target.
-- Keycloak, Vault, External Secrets Operator, Traefik, and cert-manager are product-grade platform requirements.
+Iterations 1 and 2 established the local SeaweedFS, Polaris, Trino, Dagster, and
+project-code runtime baseline. Iteration 3 adds the Sales dlt Bronze extract and
+manifest-first Floe Silver materialization through Polaris.
 
 ## v1 Stack
 
@@ -44,84 +34,46 @@ Iteration 0 establishes the repository structure and records the first architect
 | Object storage | SeaweedFS | Default local S3-compatible backend |
 | Query serving | Trino | Analytics query engine |
 | Orchestration | Dagster | Asset graph and run orchestration |
-| Lineage protocol | OpenLineage | Standard lineage event model |
-| IAM | Keycloak | Central SSO and identity layer |
-| Secrets | Vault + External Secrets Operator | Secret storage and Kubernetes sync |
-| TLS | cert-manager | Certificate automation |
-| Ingress | Traefik | Default ingress layer |
-
-Optional or later v1 components include Airbyte, Spark, Superset, OpenMetadata, and Marquez.
-
-## Medallion Ownership
-
-| Layer | Owner | Description |
-| --- | --- | --- |
-| Bronze | Ingestion | Raw immutable landing zone |
-| Silver | Floe | Technically validated Iceberg tables |
-| Gold | dbt | Business-ready marts and analytics models |
-
-dbt does not own a Silver staging layer in v1. Floe writes Silver Iceberg tables directly through the Polaris REST catalog. dbt starts from Floe-produced Silver tables and builds only Gold business models and marts.
 
 ## Repository Structure
 
 ```text
 openlakeforge/
-├── README.md
-├── Makefile
 ├── docs/
-│   ├── architecture/
-│   └── adr/
 ├── infra/
-│   ├── terraform/
-│   └── helm/
-├── images/
-│   └── project-code/
+├── images/project-code/
 ├── libs/
 ├── domains/
 │   └── sales/
-├── scripts/
-└── .github/
-    └── workflows/
+└── scripts/
 ```
 
-| Path | Purpose |
-| --- | --- |
-| `docs/architecture/` | Architecture overview and platform shape |
-| `docs/adr/` | Architecture decision records |
-| `infra/terraform/` | Future Terraform environments and modules |
-| `infra/helm/` | Future Helm charts and values |
-| `images/project-code/` | Single custom v1 runtime image boundary |
-| `libs/` | Shared platform glue, not business logic |
-| `domains/` | Domain-owned ingestion, contracts, transformations, assets, and tests |
-| `scripts/` | Local validation and developer utility scripts |
-| `.github/workflows/` | Repository validation automation |
-
-## Domain Contract
-
-Each domain under `domains/<domain>/` owns business and data-product logic:
+Each domain follows this shape:
 
 ```text
 domains/<domain>/
 ├── domain.yaml
 ├── examples/raw/
-├── ingestion/dlt/
+├── extract/dlt/
 ├── contracts/floe/
 ├── transformations/dbt/
-├── orchestration/dagster/
+├── pipelines/dagster/
 └── tests/
 ```
 
-Shared code belongs in `libs/` only when it is reusable platform glue such as config loading, storage path conventions, Dagster helpers, OpenLineage naming, or observability helpers.
+## Runtime Boundary
 
-## Runtime Image Boundary
-
-Only one custom runtime image is required in v1:
+The project-code image is built as:
 
 ```text
 ghcr.io/openlakeforge/project-code:<tag>
 ```
 
-The image will contain Dagster code, the Dagster-Floe connector, Floe contracts, Dagster-dbt integration, the dbt-duckdb project, dlt pipelines, domain Python code, and shared OpenLakeForge libraries.
+It contains Dagster code, `dagster-floe`, Floe contracts, dlt extract code,
+domain Python code, and shared OpenLakeForge libraries. It does not install the
+Floe CLI or bake generated Floe manifests into the image. Terraform uploads the
+generated Sales Floe manifest and config to the local SeaweedFS code bucket, and
+Floe runs from the manifest-declared GHCR runner image.
 
 ## Roadmap
 
@@ -130,28 +82,21 @@ The image will contain Dagster code, the Dagster-Floe connector, Floe contracts,
 - Iteration 2: project-code image and Dagster deployment with Kubernetes run launcher.
 - Iteration 3: Sales POC ingestion and Floe Silver materialization.
 - Iteration 4: dbt-duckdb Gold models and Dagster-dbt integration.
-- Iteration 5: OpenLineage naming and lineage emission.
-- Iteration 6: interfaces and security with Keycloak, Traefik, cert-manager, Vault, External Secrets Operator, Superset, and OpenMetadata.
-- Iteration 7: platform hardening with observability, backup, policy, optional Argo CD, optional Airbyte, and optional Spark.
 
 ## Local Validation
 
-Run the Iteration 0 repository contract check:
-
 ```sh
 make check-structure
-```
-
-Run the Iteration 2 local Dagster flow:
-
-```sh
 make local-cluster
+make floe-manifest
 make project-code-image
 make project-code-load
 make local-up
-make local-dagster-smoke
 ```
 
-The local shell must have Docker, kind, kubectl, Terraform, Helm, and Python
-available. The Dagster UI is available at `http://localhost:3000` through
-`make local-forward`.
+The local shell must have Docker, kind, kubectl, Terraform, Helm, and Python.
+The `floe` CLI is optional locally because `make floe-manifest` falls back to
+the Floe runner image. The Dagster UI is available at `http://localhost:3000`
+through `make local-forward`. Launch `sales_bronze_to_silver_job` from Dagster
+to run the Sales `dlt -> Floe -> Silver Iceberg` pipeline. Trino is forwarded to
+`http://localhost:8080` for local SQL clients such as DBeaver.

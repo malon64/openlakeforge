@@ -28,6 +28,12 @@ variable "iceberg_bucket_name" {
   default     = "iceberg-data"
 }
 
+variable "code_bucket_name" {
+  description = "S3 bucket used for local code and orchestration artifacts."
+  type        = string
+  default     = "openlakeforge-code"
+}
+
 variable "s3_region" {
   description = "S3 region used by local S3-compatible storage clients."
   type        = string
@@ -50,4 +56,10 @@ variable "project_code_image_pull_policy" {
   description = "Project-code image pull policy used by the Dagster code server and run pods."
   type        = string
   default     = "IfNotPresent"
+}
+
+variable "project_code_image_revision" {
+  description = "Local project-code image revision used to force Dagster pod rollouts when the tag is reused."
+  type        = string
+  default     = "manual"
 }

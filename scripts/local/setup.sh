@@ -13,6 +13,7 @@ NAMESPACE="${NAMESPACE:-lakehouse}"
 PROJECT_CODE_IMAGE_REPOSITORY="${PROJECT_CODE_IMAGE_REPOSITORY:-ghcr.io/openlakeforge/project-code}"
 PROJECT_CODE_IMAGE_TAG="${PROJECT_CODE_IMAGE_TAG:-local}"
 PROJECT_CODE_IMAGE_PULL_POLICY="${PROJECT_CODE_IMAGE_PULL_POLICY:-IfNotPresent}"
+PROJECT_CODE_IMAGE_REVISION="${PROJECT_CODE_IMAGE_REVISION:-manual}"
 
 check_prereqs() {
   local missing=0
@@ -44,6 +45,8 @@ prepare_local_project_code_image() {
     exit 1
   fi
 
+  PROJECT_CODE_IMAGE_REVISION="$(docker image inspect "${image}" --format '{{.Id}}')"
+
   echo "==> Ensuring local project-code image is available to kind..."
   PROJECT_CODE_IMAGE_REPOSITORY="${PROJECT_CODE_IMAGE_REPOSITORY}" \
     PROJECT_CODE_IMAGE_TAG="${PROJECT_CODE_IMAGE_TAG}" \
@@ -52,6 +55,9 @@ prepare_local_project_code_image() {
 
 echo "==> Checking prerequisites..."
 check_prereqs
+
+echo "==> Generating local Floe manifest for namespace '${NAMESPACE}'..."
+NAMESPACE="${NAMESPACE}" bash "${SCRIPT_DIR}/floe-manifest.sh"
 
 prepare_local_project_code_image
 
@@ -62,7 +68,8 @@ terraform -chdir="${TERRAFORM_DIR}" apply \
   -var="namespace=${NAMESPACE}" \
   -var="project_code_image_repository=${PROJECT_CODE_IMAGE_REPOSITORY}" \
   -var="project_code_image_tag=${PROJECT_CODE_IMAGE_TAG}" \
-  -var="project_code_image_pull_policy=${PROJECT_CODE_IMAGE_PULL_POLICY}"
+  -var="project_code_image_pull_policy=${PROJECT_CODE_IMAGE_PULL_POLICY}" \
+  -var="project_code_image_revision=${PROJECT_CODE_IMAGE_REVISION}"
 
 echo ""
 echo "OpenLakeForge local stack is up."
@@ -71,7 +78,7 @@ echo "Port-forward commands:"
 echo "  kubectl port-forward svc/seaweedfs-s3 9000:8333 -n ${NAMESPACE}"
 echo "  kubectl port-forward svc/polaris 8181:8181 -n ${NAMESPACE}"
 echo "  kubectl port-forward svc/trino 8080:8080 -n ${NAMESPACE}"
-echo "  kubectl port-forward <dagster-webserver-pod> 3000:80 -n ${NAMESPACE}"
+echo "  make local-forward"
 echo ""
 echo "Trino UI:     http://localhost:8080"
 echo "Polaris API:  http://localhost:8181/api/catalog"
