@@ -23,6 +23,15 @@ _SALES_DIR = _DAGSTER_DIR.parents[1]
 _FLOE_MANIFEST = _SALES_DIR / "contracts" / "floe" / "manifests" / "sales.manifest.json"
 _FLOE_ASSET_PREFIX = "sales"
 _REMOTE_MANIFEST_ENV = "OPENLAKEFORGE_FLOE_MANIFEST_URI"
+_SALES_JOB_CONFIG = {
+    "execution": {
+        "config": {
+            "multiprocess": {
+                "max_concurrent": 1,
+            },
+        },
+    },
+}
 
 
 @multi_asset(
@@ -66,6 +75,7 @@ sales_bronze_to_silver_job = define_asset_job(
             ],
         ).required_multi_asset_neighbors()
     ),
+    config=_SALES_JOB_CONFIG,
 )
 
 

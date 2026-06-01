@@ -11,7 +11,7 @@ dependencies = [
   "aiobotocore==2.22.0",
   "boto3==1.37.3",
   "dagster==1.13.6",
-  "dagster-floe[kubernetes]==0.1.8",
+  "dagster-floe[kubernetes]==0.2.0",
   "dagster-k8s==0.29.6",
   "dagster-postgres==0.29.6",
   "dagster-webserver==1.13.6",
