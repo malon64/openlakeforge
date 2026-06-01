@@ -1,0 +1,11 @@
+sales_poc:
+  target: local
+  outputs:
+    local:
+      type: duckdb
+      path: "{{ env_var('OPENLAKEFORGE_DBT_DUCKDB_PATH', '/tmp/openlakeforge-sales-dbt.duckdb') }}"
+      threads: 1
+      extensions:
+        - httpfs
+        - parquet
+        - iceberg

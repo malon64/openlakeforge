@@ -96,5 +96,8 @@ variable "catalog_contract" {
     floe_credentials_secret_name = string
     floe_client_id_key           = string
     floe_client_secret_key       = string
+    dbt_credentials_secret_name  = string
+    dbt_client_id_key            = string
+    dbt_client_secret_key        = string
   })
 }

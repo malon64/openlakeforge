@@ -3,8 +3,8 @@
 The Sales domain is the first v1 proof-of-concept domain.
 
 It proves the path from example CSV data to Bronze landing, Floe-validated
-Silver Iceberg tables, Trino querying, and Dagster asset orchestration.
-dbt-duckdb Gold marts start in a later iteration.
+Silver Iceberg tables, dbt-duckdb Gold marts, Trino querying, and Dagster asset
+orchestration.
 
 ## Domain Contract
 
@@ -30,3 +30,13 @@ Iteration 3 adds:
 manifest-loaded Floe assets write Silver Iceberg tables through Polaris. Query
 the local Silver tables from Trino with names such as `iceberg.sales.sales`,
 `iceberg.sales.customers`, and `iceberg.sales.products`.
+
+Iteration 4 adds:
+
+- dbt-duckdb Gold marts under `transformations/dbt/models/gold`
+- dagster-dbt assets in the existing `sales` asset group
+- the end-to-end `sales_bronze_to_gold_job`
+- a Trino smoke-test asset for `iceberg.sales_gold.*` marts
+
+Run `make dbt-parse` before building the project-code image when you want the
+generated dbt manifest baked into the local image.

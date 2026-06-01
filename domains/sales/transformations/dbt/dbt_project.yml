@@ -1,0 +1,24 @@
+name: sales_poc
+version: "0.4.0"
+config-version: 2
+
+profile: sales_poc
+
+model-paths: ["models"]
+macro-paths: ["macros"]
+target-path: "target"
+clean-targets: ["target", "dbt_packages"]
+
+on-run-start:
+  - "{{ openlakeforge_attach_polaris() }}"
+
+models:
+  sales_poc:
+    +database: polaris
+    +schema: sales_gold
+    +materialized: table
+    +meta:
+      dagster:
+        group: sales
+    gold:
+      +tags: ["sales", "gold"]

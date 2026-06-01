@@ -83,6 +83,22 @@ resource "helm_release" "dagster" {
                 name  = "POLARIS_WAREHOUSE"
                 value = var.catalog_contract.warehouse
               },
+              {
+                name  = "POLARIS_OAUTH_SCOPE"
+                value = var.catalog_contract.oauth_scope
+              },
+              {
+                name  = "DBT_PROFILES_DIR"
+                value = "/opt/openlakeforge/domains/sales/transformations/dbt"
+              },
+              {
+                name  = "OPENLAKEFORGE_TRINO_URI"
+                value = "http://trino:8080"
+              },
+              {
+                name  = "OPENLAKEFORGE_DBT_ATTACH_POLARIS"
+                value = "true"
+              },
             ]
             envSecrets = [
               {
@@ -90,6 +106,9 @@ resource "helm_release" "dagster" {
               },
               {
                 name = var.catalog_contract.floe_credentials_secret_name
+              },
+              {
+                name = var.catalog_contract.dbt_credentials_secret_name
               },
             ]
           },
@@ -167,6 +186,34 @@ resource "helm_release" "dagster" {
                     name  = "OPENLAKEFORGE_PROJECT_CODE_REVISION"
                     value = var.project_code_image_revision
                   },
+                  {
+                    name  = "POLARIS_REST_URI"
+                    value = var.catalog_contract.rest_uri
+                  },
+                  {
+                    name  = "POLARIS_TOKEN_URI"
+                    value = var.catalog_contract.token_uri
+                  },
+                  {
+                    name  = "POLARIS_WAREHOUSE"
+                    value = var.catalog_contract.warehouse
+                  },
+                  {
+                    name  = "POLARIS_OAUTH_SCOPE"
+                    value = var.catalog_contract.oauth_scope
+                  },
+                  {
+                    name  = "DBT_PROFILES_DIR"
+                    value = "/opt/openlakeforge/domains/sales/transformations/dbt"
+                  },
+                  {
+                    name  = "OPENLAKEFORGE_TRINO_URI"
+                    value = "http://trino:8080"
+                  },
+                  {
+                    name  = "OPENLAKEFORGE_DBT_ATTACH_POLARIS"
+                    value = "true"
+                  },
                 ]
                 envFrom = [
                   {
@@ -177,6 +224,11 @@ resource "helm_release" "dagster" {
                   {
                     secretRef = {
                       name = var.catalog_contract.floe_credentials_secret_name
+                    }
+                  },
+                  {
+                    secretRef = {
+                      name = var.catalog_contract.dbt_credentials_secret_name
                     }
                   },
                 ]

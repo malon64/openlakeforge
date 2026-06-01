@@ -55,7 +55,7 @@ else
 fi
 
 echo "==> Loading Sales Dagster pipeline definitions"
-PYTHONPATH="${site_dir}:${PWD}" python3 - <<'PY'
+PATH="${site_dir}/bin:${PATH}" PYTHONPATH="${site_dir}:${PWD}" python3 - <<'PY'
 from pathlib import Path
 
 from floe_dagster.manifest import load_manifest
@@ -64,6 +64,7 @@ from domains.sales.extract.dlt.sales_poc import SALES_POC_ENTITIES
 from domains.sales.pipelines.dagster.definitions import defs
 
 defs.resolve_job_def("sales_bronze_to_silver_job")
+defs.resolve_job_def("sales_bronze_to_gold_job")
 
 manifest = load_manifest(Path("domains/sales/contracts/floe/manifests/sales.manifest.json"))
 if manifest.execution.base_args != [
@@ -97,6 +98,15 @@ for entity in SALES_POC_ENTITIES:
         raise SystemExit(f"missing Floe manifest entity for {entity}")
     if matching_entities[0].group_name != "sales":
         raise SystemExit(f"Floe manifest entity {entity} is not in the sales group")
+
+for asset_name in [
+    "mart_sales_by_day",
+    "mart_revenue_by_product",
+    "mart_sales_by_customer",
+    "sales_gold_trino_smoke_test",
+]:
+    if ("sales", asset_name) not in asset_keys:
+        raise SystemExit(f"missing dbt Gold or smoke-test asset {asset_name}")
 
 print("Project-code Sales pipeline definitions loaded.")
 PY

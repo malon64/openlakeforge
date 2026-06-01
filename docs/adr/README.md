@@ -12,3 +12,6 @@ project-code runtime boundary.
 
 `0004-manifest-first-floe-sales-ingestion.md` records the Iteration 3 Sales dlt
 and Floe manifest-first runtime boundary.
+
+`0005-dbt-duckdb-gold-on-dagster-kubernetes.md` records the Iteration 4
+dbt-duckdb Gold runtime boundary.

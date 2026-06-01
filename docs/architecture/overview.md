@@ -20,7 +20,9 @@ The first local infrastructure target is kind. Iteration 1 stands up the local
 Kubernetes foundation before introducing Dagster runs and domain pipelines.
 Iteration 2 adds the project-code image, Dagster webserver, Dagster daemon,
 sales code server, and Kubernetes run launcher. Iteration 3 adds the Sales dlt
-Bronze extract and manifest-first Floe Silver materialization.
+Bronze extract and manifest-first Floe Silver materialization. Iteration 4 adds
+Sales dbt-duckdb Gold marts and dagster-dbt orchestration in the same Kubernetes
+run-pod execution model.
 
 ## Core Platform Decisions
 
@@ -58,7 +60,9 @@ The image contains:
 
 - Dagster code
 - dagster-floe connector
+- dagster-dbt connector
 - Floe contracts
+- dbt project and models
 - dlt pipelines
 - domain Python code
 - shared OpenLakeForge libraries
@@ -77,7 +81,7 @@ Dagster webserver / daemon / code server
   -> isolated Dagster run pod using project-code image
   -> dlt ingestion assets
   -> Floe assets through dagster-floe and the Floe runner image
-  -> dbt assets through dagster-dbt in a later iteration
+  -> dbt assets through dagster-dbt
   -> lineage and metadata emission
 ```
 
@@ -87,3 +91,7 @@ pods. The durable Sales job is `sales_bronze_to_silver_job` under
 `domains/sales/pipelines/dagster`. It materializes Sales Bronze source assets
 and then executes manifest-loaded Floe assets for `sales`, `customers`, and
 `products`.
+
+Iteration 4 adds `sales_bronze_to_gold_job`, which extends the same Sales asset
+graph through dbt-duckdb Gold marts in the `sales_gold` Polaris namespace and a
+Trino smoke-test asset.
