@@ -48,6 +48,10 @@ resource "helm_release" "dagster" {
                 value = var.storage_contract.endpoint
               },
               {
+                name  = "OPENLAKEFORGE_DUCKDB_S3_ENDPOINT"
+                value = replace(var.storage_contract.endpoint, "http://", "")
+              },
+              {
                 name  = "AWS_S3_FORCE_PATH_STYLE"
                 value = tostring(var.storage_contract.path_style_access)
               },
@@ -161,6 +165,10 @@ resource "helm_release" "dagster" {
                   {
                     name  = "AWS_ENDPOINT_URL_S3"
                     value = var.storage_contract.endpoint
+                  },
+                  {
+                    name  = "OPENLAKEFORGE_DUCKDB_S3_ENDPOINT"
+                    value = replace(var.storage_contract.endpoint, "http://", "")
                   },
                   {
                     name  = "AWS_S3_FORCE_PATH_STYLE"

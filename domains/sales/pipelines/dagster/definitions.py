@@ -213,7 +213,7 @@ def _build_defs() -> Definitions:
                 "dbt": DbtCliResource(
                     project_dir=str(_DBT_PROJECT_DIR),
                     profiles_dir=str(_DBT_PROJECT_DIR),
-                    target="local",
+                    target="local_runtime",
                 ),
             },
         ),

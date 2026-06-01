@@ -27,6 +27,7 @@ resource "helm_release" "trino" {
       catalogs = {
         iceberg = <<-CATALOG
           # openlakeforge.polaris-bootstrap-run=${var.catalog_contract.bootstrap_run_id}
+          # openlakeforge.polaris-bootstrap-revision=${var.catalog_bootstrap_revision}
           connector.name=iceberg
           iceberg.catalog.type=rest
           iceberg.rest-catalog.uri=${var.catalog_contract.rest_uri}

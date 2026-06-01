@@ -35,10 +35,12 @@ locals {
   sales_floe_manifest_key    = "${local.sales_floe_artifact_prefix}/sales.manifest.json"
   sales_floe_config_key      = "${local.sales_floe_artifact_prefix}/sales_poc.yml"
   sales_floe_manifest_uri    = "s3://${var.code_bucket_name}/${local.sales_floe_manifest_key}"
+  polaris_bootstrap_hash     = filesha256("${path.root}/../../modules/catalog/polaris/main.tf")
   sales_floe_artifact_hash = substr(sha256(join("\n", [
     file("${path.root}/../../../../domains/sales/contracts/floe/manifests/sales.manifest.json"),
     file("${path.root}/../../../../domains/sales/contracts/floe/sales_poc.yml"),
     module.polaris.contract.bootstrap_run_id,
+    local.polaris_bootstrap_hash,
   ])), 0, 12)
 }
 
@@ -254,10 +256,11 @@ module "polaris" {
 module "trino" {
   source = "../../modules/query/trino"
 
-  namespace        = kubernetes_namespace_v1.lakehouse.metadata[0].name
-  base_values_file = "${path.root}/../../../helm/values/local/trino.yaml"
-  storage_contract = module.seaweedfs.contract
-  catalog_contract = module.polaris.contract
+  namespace                  = kubernetes_namespace_v1.lakehouse.metadata[0].name
+  base_values_file           = "${path.root}/../../../helm/values/local/trino.yaml"
+  storage_contract           = module.seaweedfs.contract
+  catalog_contract           = module.polaris.contract
+  catalog_bootstrap_revision = local.polaris_bootstrap_hash
 
   depends_on = [
     module.polaris,

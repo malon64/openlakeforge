@@ -19,11 +19,11 @@ select
     products.product_id,
     products.product_name,
     products.category,
-    count(*) as order_count,
-    sum(sales.quantity) as units_sold,
-    sum(sales.quantity * sales.unit_price) as gross_revenue,
-    sum(sales.quantity * products.unit_cost) as total_cost,
-    sum(sales.quantity * (sales.unit_price - products.unit_cost)) as gross_margin
+    cast(count(*) as bigint) as order_count,
+    cast(sum(sales.quantity) as bigint) as units_sold,
+    cast(sum(sales.quantity * sales.unit_price) as double) as gross_revenue,
+    cast(sum(sales.quantity * products.unit_cost) as double) as total_cost,
+    cast(sum(sales.quantity * (sales.unit_price - products.unit_cost)) as double) as gross_margin
 from sales
 join products using (product_id)
 group by products.product_id, products.product_name, products.category

@@ -10,8 +10,8 @@ with sales as (
 select
     sale_date,
     region,
-    count(*) as order_count,
-    sum(quantity) as units_sold,
-    sum(quantity * unit_price) as gross_revenue
+    cast(count(*) as bigint) as order_count,
+    cast(sum(quantity) as bigint) as units_sold,
+    cast(sum(quantity * unit_price) as double) as gross_revenue
 from sales
 group by sale_date, region

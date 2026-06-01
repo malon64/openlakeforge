@@ -22,9 +22,9 @@ select
     customers.last_name,
     customers.country,
     customers.segment,
-    count(*) as order_count,
-    sum(sales.quantity) as units_sold,
-    sum(sales.quantity * sales.unit_price) as gross_revenue
+    cast(count(*) as bigint) as order_count,
+    cast(sum(sales.quantity) as bigint) as units_sold,
+    cast(sum(sales.quantity * sales.unit_price) as double) as gross_revenue
 from sales
 join customers using (customer_id)
 group by

@@ -47,3 +47,8 @@ variable "catalog_contract" {
     bootstrap_run_id              = string
   })
 }
+
+variable "catalog_bootstrap_revision" {
+  description = "Content revision used to force Trino pod rollouts when Polaris bootstrap credentials or grants change."
+  type        = string
+}
