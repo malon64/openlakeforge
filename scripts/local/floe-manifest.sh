@@ -6,7 +6,7 @@ CONFIG_PATH="${FLOE_CONFIG_PATH:-domains/sales/contracts/floe/sales_poc.yml}"
 PROFILE_PATH="${FLOE_PROFILE_PATH:-domains/sales/contracts/floe/profiles/local-k8s.yml}"
 MANIFEST_PATH="${FLOE_MANIFEST_PATH:-domains/sales/contracts/floe/manifests/sales.manifest.json}"
 NAMESPACE="${NAMESPACE:-lakehouse}"
-FLOE_VERSION="${FLOE_VERSION:-0.4.5}"
+FLOE_VERSION="${FLOE_VERSION:-0.4.6}"
 FLOE_IMAGE="${FLOE_IMAGE:-ghcr.io/malon64/floe:${FLOE_VERSION}}"
 
 if command -v docker &>/dev/null; then

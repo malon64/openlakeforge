@@ -26,17 +26,16 @@ Iteration 3 adds:
 - Floe contracts and a generated `floe.manifest.v1` manifest
 - Dagster definitions under `pipelines/dagster/definitions.py`
 
-`sales_bronze_to_silver_job` materializes Bronze source assets, then the
-manifest-loaded Floe assets write Silver Iceberg tables through Polaris. Query
-the local Silver tables from Trino with names such as `iceberg.sales.sales`,
+`sales_etl_pipeline` materializes Bronze source assets, then the manifest-loaded
+Floe assets write Silver Iceberg tables through Polaris. Query the local Silver
+tables from Trino with names such as `iceberg.sales.sales`,
 `iceberg.sales.customers`, and `iceberg.sales.products`.
 
 Iteration 4 adds:
 
 - dbt-duckdb Gold marts under `transformations/dbt/models/gold`
 - dagster-dbt assets in the existing `sales` asset group
-- the end-to-end `sales_bronze_to_gold_job`
-- a Trino smoke-test asset for `iceberg.sales_gold.*` marts
+- the end-to-end `sales_etl_pipeline`
 
 Run `make dbt-parse` before building the project-code image when you want the
 generated dbt manifest baked into the local image.

@@ -25,9 +25,10 @@ Gold Iceberg tables through the Polaris REST catalog. Silver remains in the
 Polaris owns a dedicated dbt service principal and Kubernetes Secret
 `polaris-dbt-creds`, separate from Floe and Trino credentials.
 
-The durable Sales end-to-end job is `sales_bronze_to_gold_job`. It materializes
-Bronze source assets, Floe Silver assets, dbt Gold assets, and a Trino smoke-test
-asset in the Dagster `sales` asset group.
+The durable Sales end-to-end job is `sales_etl_pipeline`. It materializes
+Bronze source assets, Floe Silver assets, and dbt Gold assets in the Dagster
+`sales` asset group. Trino remains the SQL query engine for inspecting and
+validating the resulting Iceberg tables.
 
 ## Consequences
 

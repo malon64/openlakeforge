@@ -21,13 +21,14 @@ domain code. It does not install the Floe CLI and does not bake generated Floe
 manifests into the image. Local developer workflows run `floe manifest generate`
 before applying the stack. Terraform uploads the generated Sales manifest and
 config to the SeaweedFS code bucket, and the manifest profile declares a
-Kubernetes runner using `ghcr.io/malon64/floe:0.4.5`.
+Kubernetes runner using `ghcr.io/malon64/floe:0.4.6`.
 
 Polaris owns separate service principals for Trino and Floe. Floe credentials
 are stored in `polaris-floe-creds`.
 
-The durable Dagster job for this path is `sales_bronze_to_silver_job`. Local
-developers launch it from the Dagster UI after deploying the stack and forwarding
+The Iteration 3 Dagster milestone materialized Bronze and Silver Sales assets.
+Iteration 4 folds that path into the durable `sales_etl_pipeline` job, which
+developers launch from the Dagster UI after deploying the stack and forwarding
 the webserver.
 
 ## Consequences

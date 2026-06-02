@@ -1,15 +1,15 @@
 {
   "schema": "floe.manifest.v1",
   "generated_at_ts_ms": 0,
-  "floe_version": "0.4.5",
+  "floe_version": "0.4.6",
   "spec_version": "0.2",
   "manifest_name": "sales.local",
   "manifest_id": "mfv1-b36330ca3e09e364",
-  "manifest_revision": "sha256:e5b4ce11bf1271c3b5f8d87583cbc50ee120abd77561751caa7ee8c871d81e14",
+  "manifest_revision": "sha256:8e1362b5dc43da52a954bc04228b2e9acc1d08d4645e0b8c76bf4849d48fa7ae",
   "config_uri": "local:///work/domains/sales/contracts/floe/sales_poc.yml",
   "config_checksum": "sha256:674594514059a8f82c7183b958c4bb8660068b4fe9f6a0f8a7ddc540443910a7",
   "profile_uri": "local:///work/domains/sales/contracts/floe/profiles/local-k8s.yml",
-  "profile_checksum": "sha256:c0d61a22a4cbd542d4665e4918824f0545b9b65a6570914719dac0aced40ae84",
+  "profile_checksum": "sha256:9e100e18e372891ec0f8166d04f37c9e4b3a60595ec29d7f8aeeb27203cd9e09",
   "report_base_uri": "s3://iceberg-data/floe/reports/sales",
   "domains": [],
   "execution": {
@@ -73,7 +73,7 @@
             "key": "POLARIS_FLOE_CLIENT_SECRET"
           }
         ],
-        "image": "ghcr.io/malon64/floe:0.4.5",
+        "image": "ghcr.io/malon64/floe:0.4.6",
         "namespace": "lakehouse",
         "service_account": "dagster",
         "resources": null,

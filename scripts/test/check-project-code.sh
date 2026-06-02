@@ -63,8 +63,7 @@ from floe_dagster.manifest import load_manifest
 from domains.sales.extract.dlt.sales_poc import SALES_POC_ENTITIES
 from domains.sales.pipelines.dagster.definitions import defs
 
-defs.resolve_job_def("sales_bronze_to_silver_job")
-defs.resolve_job_def("sales_bronze_to_gold_job")
+defs.resolve_job_def("sales_etl_pipeline")
 
 manifest = load_manifest(Path("domains/sales/contracts/floe/manifests/sales.manifest.json"))
 if manifest.execution.base_args != [
@@ -103,10 +102,9 @@ for asset_name in [
     "mart_sales_by_day",
     "mart_revenue_by_product",
     "mart_sales_by_customer",
-    "sales_gold_trino_smoke_test",
 ]:
     if ("sales", asset_name) not in asset_keys:
-        raise SystemExit(f"missing dbt Gold or smoke-test asset {asset_name}")
+        raise SystemExit(f"missing dbt Gold asset {asset_name}")
 
 print("Project-code Sales pipeline definitions loaded.")
 PY

@@ -12,7 +12,7 @@ dependencies = [
   "boto3==1.37.3",
   "dagster==1.13.6",
   "dagster-dbt==0.29.6",
-  "dagster-floe[kubernetes]==0.2.0",
+  "dagster-floe[kubernetes]==0.2.1",
   "dagster-k8s==0.29.6",
   "dagster-postgres==0.29.6",
   "dagster-webserver==1.13.6",
@@ -21,7 +21,6 @@ dependencies = [
   "duckdb>=1.4.1,<1.5",
   "kubernetes<36",
   "s3fs==2025.3.0",
-  "trino>=0.336,<0.337",
 ]
 
 [tool.setuptools.packages.find]

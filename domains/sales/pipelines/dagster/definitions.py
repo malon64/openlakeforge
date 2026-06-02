@@ -3,7 +3,6 @@ from __future__ import annotations
 import os
 import subprocess
 from pathlib import Path
-from urllib.parse import urlparse
 
 from dagster import (
     AssetKey,
@@ -12,14 +11,12 @@ from dagster import (
     Definitions,
     MetadataValue,
     Output,
-    asset,
     define_asset_job,
     multi_asset,
 )
 from dagster_dbt import DagsterDbtTranslator, DbtCliResource, dbt_assets
 from floe_dagster.assets import load_floe_assets
 from floe_dagster.definitions import build_runner_from_env
-from trino.dbapi import connect
 
 from domains.sales.extract.dlt.sales_poc import SALES_POC_ENTITIES, load_all_entities_to_bronze
 
@@ -35,7 +32,6 @@ _DBT_GOLD_ASSETS = (
     "mart_sales_by_customer",
 )
 _REMOTE_MANIFEST_ENV = "OPENLAKEFORGE_FLOE_MANIFEST_URI"
-_TRINO_URI_ENV = "OPENLAKEFORGE_TRINO_URI"
 _SALES_JOB_CONFIG = {
     "execution": {
         "config": {
@@ -123,32 +119,8 @@ def sales_dbt_gold_assets(context, dbt: DbtCliResource):
     yield from dbt.cli(["build"], context=context).stream()
 
 
-@asset(
-    key=AssetKey([_FLOE_ASSET_PREFIX, "sales_gold_trino_smoke_test"]),
-    group_name="sales",
-    deps=[AssetKey([_FLOE_ASSET_PREFIX, asset_name]) for asset_name in _DBT_GOLD_ASSETS],
-)
-def sales_gold_trino_smoke_test() -> dict[str, int]:
-    uri = os.environ.get(_TRINO_URI_ENV, "http://trino:8080")
-    parsed = urlparse(uri)
-    host = parsed.hostname or "trino"
-    port = parsed.port or 8080
-
-    with connect(host=host, port=port, user="openlakeforge") as conn:
-        cursor = conn.cursor()
-        row_counts: dict[str, int] = {}
-        for table_name in _DBT_GOLD_ASSETS:
-            cursor.execute(f"select count(*) from iceberg.sales_gold.{table_name}")
-            row_counts[table_name] = int(cursor.fetchone()[0])
-
-    if any(count <= 0 for count in row_counts.values()):
-        raise RuntimeError(f"Gold Trino smoke test found empty marts: {row_counts}")
-
-    return row_counts
-
-
-sales_bronze_to_silver_job = define_asset_job(
-    name="sales_bronze_to_silver_job",
+sales_etl_pipeline = define_asset_job(
+    name="sales_etl_pipeline",
     selection=(
         AssetSelection.keys(
             *[
@@ -156,30 +128,7 @@ sales_bronze_to_silver_job = define_asset_job(
                 for entity in SALES_POC_ENTITIES
             ],
             *[AssetKey([_FLOE_ASSET_PREFIX, entity]) for entity in SALES_POC_ENTITIES],
-            *[
-                AssetKey([_FLOE_ASSET_PREFIX, f"{entity}_rejected"])
-                for entity in SALES_POC_ENTITIES
-            ],
-        ).required_multi_asset_neighbors()
-    ),
-    config=_SALES_JOB_CONFIG,
-)
-
-sales_bronze_to_gold_job = define_asset_job(
-    name="sales_bronze_to_gold_job",
-    selection=(
-        AssetSelection.keys(
-            *[
-                AssetKey([_FLOE_ASSET_PREFIX, f"{entity}_source"])
-                for entity in SALES_POC_ENTITIES
-            ],
-            *[AssetKey([_FLOE_ASSET_PREFIX, entity]) for entity in SALES_POC_ENTITIES],
-            *[
-                AssetKey([_FLOE_ASSET_PREFIX, f"{entity}_rejected"])
-                for entity in SALES_POC_ENTITIES
-            ],
             *[AssetKey([_FLOE_ASSET_PREFIX, asset_name]) for asset_name in _DBT_GOLD_ASSETS],
-            AssetKey([_FLOE_ASSET_PREFIX, "sales_gold_trino_smoke_test"]),
         ).required_multi_asset_neighbors()
     ),
     config=_SALES_JOB_CONFIG,
@@ -207,8 +156,8 @@ def _build_defs() -> Definitions:
     )
     return Definitions.merge(
         Definitions(
-            assets=[sales_poc_bronze_sources, sales_dbt_gold_assets, sales_gold_trino_smoke_test],
-            jobs=[sales_bronze_to_silver_job, sales_bronze_to_gold_job],
+            assets=[sales_poc_bronze_sources, sales_dbt_gold_assets],
+            jobs=[sales_etl_pipeline],
             resources={
                 "dbt": DbtCliResource(
                     project_dir=str(_DBT_PROJECT_DIR),

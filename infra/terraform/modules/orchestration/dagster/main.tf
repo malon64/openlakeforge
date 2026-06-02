@@ -96,10 +96,6 @@ resource "helm_release" "dagster" {
                 value = "/opt/openlakeforge/domains/sales/transformations/dbt"
               },
               {
-                name  = "OPENLAKEFORGE_TRINO_URI"
-                value = "http://trino:8080"
-              },
-              {
                 name  = "OPENLAKEFORGE_DBT_ATTACH_POLARIS"
                 value = "true"
               },
@@ -213,10 +209,6 @@ resource "helm_release" "dagster" {
                   {
                     name  = "DBT_PROFILES_DIR"
                     value = "/opt/openlakeforge/domains/sales/transformations/dbt"
-                  },
-                  {
-                    name  = "OPENLAKEFORGE_TRINO_URI"
-                    value = "http://trino:8080"
                   },
                   {
                     name  = "OPENLAKEFORGE_DBT_ATTACH_POLARIS"

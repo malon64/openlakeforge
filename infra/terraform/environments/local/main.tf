@@ -30,12 +30,12 @@ provider "helm" {
 }
 
 locals {
-  kubeconfig_path            = var.kubeconfig_path != null ? pathexpand(var.kubeconfig_path) : pathexpand("~/.kube/config")
-  sales_floe_artifact_prefix = "floe/sales"
-  sales_floe_manifest_key    = "${local.sales_floe_artifact_prefix}/sales.manifest.json"
-  sales_floe_config_key      = "${local.sales_floe_artifact_prefix}/sales_poc.yml"
-  sales_floe_manifest_uri    = "s3://${var.code_bucket_name}/${local.sales_floe_manifest_key}"
-  polaris_bootstrap_hash     = filesha256("${path.root}/../../modules/catalog/polaris/main.tf")
+  kubeconfig_path               = var.kubeconfig_path != null ? pathexpand(var.kubeconfig_path) : pathexpand("~/.kube/config")
+  sales_floe_artifact_prefix    = "floe/sales"
+  sales_floe_manifest_key       = "${local.sales_floe_artifact_prefix}/sales.manifest.json"
+  sales_floe_config_key         = "${local.sales_floe_artifact_prefix}/sales_poc.yml"
+  sales_floe_manifest_uri       = "s3://${var.code_bucket_name}/${local.sales_floe_manifest_key}"
+  polaris_bootstrap_hash        = filesha256("${path.root}/../../modules/catalog/polaris/main.tf")
   sales_floe_artifact_hash = substr(sha256(join("\n", [
     file("${path.root}/../../../../domains/sales/contracts/floe/manifests/sales.manifest.json"),
     file("${path.root}/../../../../domains/sales/contracts/floe/sales_poc.yml"),
@@ -128,20 +128,8 @@ resource "kubernetes_job_v1" "sales_floe_artifact_upload" {
               sleep 5
             done
 
-            escape_sed_replacement() {
-              printf '%s' "$1" | sed 's/[&|\\]/\\&/g'
-            }
-
-            floe_client_id="$(escape_sed_replacement "$POLARIS_FLOE_CLIENT_ID")"
-            floe_client_secret="$(escape_sed_replacement "$POLARIS_FLOE_CLIENT_SECRET")"
-
-            sed \
-              -e 's|$${POLARIS_FLOE_CLIENT_ID}|'"$floe_client_id"'|g' \
-              -e 's|$${POLARIS_FLOE_CLIENT_SECRET}|'"$floe_client_secret"'|g' \
-              /artifacts/sales.manifest.json > /tmp/sales.manifest.json
-
             aws --endpoint-url "${module.seaweedfs.contract.endpoint}" s3 cp \
-              /tmp/sales.manifest.json \
+              /artifacts/sales.manifest.json \
               "s3://${var.code_bucket_name}/${local.sales_floe_manifest_key}" \
               --content-type application/json
 
@@ -183,26 +171,6 @@ resource "kubernetes_job_v1" "sales_floe_artifact_upload" {
               secret_key_ref {
                 name = module.seaweedfs.contract.credentials_secret_name
                 key  = module.seaweedfs.contract.secret_access_key_key
-              }
-            }
-          }
-
-          env {
-            name = "POLARIS_FLOE_CLIENT_ID"
-            value_from {
-              secret_key_ref {
-                name = module.polaris.contract.floe_credentials_secret_name
-                key  = module.polaris.contract.floe_client_id_key
-              }
-            }
-          }
-
-          env {
-            name = "POLARIS_FLOE_CLIENT_SECRET"
-            value_from {
-              secret_key_ref {
-                name = module.polaris.contract.floe_credentials_secret_name
-                key  = module.polaris.contract.floe_client_secret_key
               }
             }
           }

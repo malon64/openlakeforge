@@ -71,7 +71,7 @@ The project-code image does not install the Floe CLI and does not bake generated
 Floe manifests into the image. Local Floe manifests are generated before the
 stack is applied; Terraform uploads the generated Sales manifest and config to
 SeaweedFS, and Floe work runs from the manifest-declared
-`ghcr.io/malon64/floe:0.4.5` Kubernetes runner image.
+`ghcr.io/malon64/floe:0.4.6` Kubernetes runner image.
 
 The expected runtime flow is:
 
@@ -87,11 +87,7 @@ Dagster webserver / daemon / code server
 
 The local stack loads `ghcr.io/openlakeforge/project-code:local` into the local
 kind cluster and uses it for both the Sales code server and isolated Dagster run
-pods. The durable Sales job is `sales_bronze_to_silver_job` under
-`domains/sales/pipelines/dagster`. It materializes Sales Bronze source assets
-and then executes manifest-loaded Floe assets for `sales`, `customers`, and
-`products`.
-
-Iteration 4 adds `sales_bronze_to_gold_job`, which extends the same Sales asset
-graph through dbt-duckdb Gold marts in the `sales_gold` Polaris namespace and a
-Trino smoke-test asset.
+pods. The durable Sales job is `sales_etl_pipeline` under
+`domains/sales/pipelines/dagster`. It materializes Sales Bronze source assets,
+executes manifest-loaded Floe assets for `sales`, `customers`, and `products`,
+then runs dbt-duckdb Gold marts in the `sales_gold` Polaris namespace.

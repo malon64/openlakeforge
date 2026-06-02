@@ -37,16 +37,14 @@ def test_sales_floe_manifest_loads() -> None:
         assert entity.asset_key == ["sales", entity.name]
 
 
-def test_sales_bronze_to_silver_job_and_assets_are_registered() -> None:
-    assert defs.resolve_job_def("sales_bronze_to_silver_job").name == "sales_bronze_to_silver_job"
-    assert defs.resolve_job_def("sales_bronze_to_gold_job").name == "sales_bronze_to_gold_job"
+def test_sales_etl_pipeline_and_assets_are_registered() -> None:
+    assert defs.resolve_job_def("sales_etl_pipeline").name == "sales_etl_pipeline"
     asset_keys = {key for asset_def in defs.assets for key in asset_def.keys}
     for entity in SALES_POC_ENTITIES:
         assert AssetKey([FLOE_ASSET_PREFIX, f"{entity}_source"]) in asset_keys
         assert AssetKey([FLOE_ASSET_PREFIX, entity]) in asset_keys
     for asset_name in DBT_GOLD_ASSETS:
         assert AssetKey([FLOE_ASSET_PREFIX, asset_name]) in asset_keys
-    assert AssetKey([FLOE_ASSET_PREFIX, "sales_gold_trino_smoke_test"]) in asset_keys
 
 
 def test_sales_floe_assets_depend_on_bronze_sources() -> None:
@@ -81,7 +79,4 @@ def test_sales_dbt_gold_assets_depend_on_silver_assets() -> None:
     assert asset_deps[AssetKey([FLOE_ASSET_PREFIX, "mart_sales_by_customer"])] == {
         AssetKey([FLOE_ASSET_PREFIX, "sales"]),
         AssetKey([FLOE_ASSET_PREFIX, "customers"]),
-    }
-    assert asset_deps[AssetKey([FLOE_ASSET_PREFIX, "sales_gold_trino_smoke_test"])] == {
-        AssetKey([FLOE_ASSET_PREFIX, asset_name]) for asset_name in DBT_GOLD_ASSETS
     }
