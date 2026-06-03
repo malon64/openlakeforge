@@ -1,4 +1,4 @@
-.PHONY: help tree check-structure check-infra check-project-code check-dbt floe-manifest dbt-parse project-code-image project-code-load local-cluster local-destroy-cluster local-up local-down local-status local-forward
+.PHONY: help tree check-structure check-infra check-project-code check-dbt floe-manifest floe-manifest-upload dbt-parse project-code-image project-code-load local-cluster local-destroy-cluster local-up local-down local-status local-forward
 
 NAMESPACE ?= lakehouse
 PROJECT_CODE_IMAGE_REPOSITORY ?= ghcr.io/openlakeforge/project-code
@@ -13,6 +13,7 @@ help:
 	@printf '%s\n' '  make check-project-code  Validate the project-code Dagster package'
 	@printf '%s\n' '  make check-dbt        Validate the Sales dbt-duckdb project'
 	@printf '%s\n' '  make floe-manifest   Generate the Sales Floe Dagster manifest'
+	@printf '%s\n' '  make floe-manifest-upload  Upload the Sales Floe manifest to the local code bucket'
 	@printf '%s\n' '  make dbt-parse       Generate the Sales dbt manifest'
 	@printf '%s\n' ''
 	@printf '%s\n' 'Local stack:'
@@ -42,6 +43,9 @@ check-dbt:
 
 floe-manifest:
 	@NAMESPACE=$(NAMESPACE) bash scripts/local/floe-manifest.sh
+
+floe-manifest-upload:
+	@NAMESPACE=$(NAMESPACE) bash scripts/local/upload-floe-manifest.sh
 
 dbt-parse:
 	@bash scripts/local/dbt-parse.sh

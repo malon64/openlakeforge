@@ -122,7 +122,7 @@ def sales_dbt_gold_assets(context, dbt: DbtCliResource):
 sales_etl_pipeline = define_asset_job(
     name="sales_etl_pipeline",
     selection=(
-        AssetSelection.keys(
+        AssetSelection.assets(
             *[
                 AssetKey([_FLOE_ASSET_PREFIX, f"{entity}_source"])
                 for entity in SALES_POC_ENTITIES
@@ -136,14 +136,10 @@ sales_etl_pipeline = define_asset_job(
 
 
 def _manifest_path_for_dagster() -> str:
-    remote_uri = os.environ.get(_REMOTE_MANIFEST_ENV)
-    if remote_uri:
-        return remote_uri
-
     if not _FLOE_MANIFEST.exists():
         raise RuntimeError(
             f"Missing Floe manifest at {_FLOE_MANIFEST}. "
-            "Run 'make floe-manifest' before loading Dagster definitions."
+            "Run 'make floe-manifest' before building the project-code image."
         )
     return str(_FLOE_MANIFEST)
 
@@ -151,6 +147,7 @@ def _manifest_path_for_dagster() -> str:
 def _build_defs() -> Definitions:
     floe_defs = load_floe_assets(
         manifest_path=_manifest_path_for_dagster(),
+        manifest_uri=os.environ.get(_REMOTE_MANIFEST_ENV),
         runner=build_runner_from_env(),
         register_source_assets=False,
     )

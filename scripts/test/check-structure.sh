@@ -45,6 +45,7 @@ required_paths=(
   "scripts/test/check-infra.sh"
   "scripts/test/check-project-code.sh"
   "scripts/local/floe-manifest.sh"
+  "scripts/local/upload-floe-manifest.sh"
   "scripts/local/build-project-code-image.sh"
   "scripts/local/load-project-code-image.sh"
 )

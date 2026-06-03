@@ -67,11 +67,11 @@ The image contains:
 - domain Python code
 - shared OpenLakeForge libraries
 
-The project-code image does not install the Floe CLI and does not bake generated
-Floe manifests into the image. Local Floe manifests are generated before the
-stack is applied; Terraform uploads the generated Sales manifest and config to
-SeaweedFS, and Floe work runs from the manifest-declared
-`ghcr.io/malon64/floe:0.4.6` Kubernetes runner image.
+The project-code image does not install the Floe CLI. It includes the generated
+Sales Floe manifest so the Dagster code server can load the asset graph from the
+image. Because Floe work runs in a separate manifest-declared
+`ghcr.io/malon64/floe:0.4.6` Kubernetes runner image, local/CD artifact upload
+also publishes the generated Sales manifest to SeaweedFS for the runner pod.
 
 The expected runtime flow is:
 
