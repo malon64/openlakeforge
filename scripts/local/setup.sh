@@ -53,6 +53,37 @@ prepare_local_project_code_image() {
     bash "${SCRIPT_DIR}/load-project-code-image.sh"
 }
 
+refresh_ephemeral_polaris_bootstrap() {
+  # Local Polaris uses the in-memory test metastore. If the Polaris pod restarts,
+  # Kubernetes secrets can outlive the Polaris principals they refer to.
+  echo "==> Refreshing Polaris local bootstrap principals..."
+  kubectl delete job polaris-bootstrap-1 -n "${NAMESPACE}" --ignore-not-found=true
+  terraform -chdir="${TERRAFORM_DIR}" apply \
+    -auto-approve \
+    -target=module.polaris.kubernetes_job_v1.bootstrap \
+    -var="namespace=${NAMESPACE}" \
+    -var="project_code_image_repository=${PROJECT_CODE_IMAGE_REPOSITORY}" \
+    -var="project_code_image_tag=${PROJECT_CODE_IMAGE_TAG}" \
+    -var="project_code_image_pull_policy=${PROJECT_CODE_IMAGE_PULL_POLICY}" \
+    -var="project_code_image_revision=${PROJECT_CODE_IMAGE_REVISION}"
+
+  echo "==> Restarting Trino so it reads refreshed Polaris credentials..."
+  kubectl rollout restart deployment/trino-coordinator -n "${NAMESPACE}"
+  kubectl rollout status deployment/trino-coordinator -n "${NAMESPACE}" --timeout=300s
+}
+
+restart_sales_code_server() {
+  local deployment="dagster-user-deployments-sales-dagster"
+
+  if ! kubectl get deployment "${deployment}" -n "${NAMESPACE}" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  echo "==> Restarting Sales Dagster code server after manifest upload and Polaris refresh..."
+  kubectl rollout restart "deployment/${deployment}" -n "${NAMESPACE}"
+  kubectl rollout status "deployment/${deployment}" -n "${NAMESPACE}" --timeout=300s
+}
+
 echo "==> Checking prerequisites..."
 check_prereqs
 
@@ -70,6 +101,12 @@ terraform -chdir="${TERRAFORM_DIR}" apply \
   -var="project_code_image_tag=${PROJECT_CODE_IMAGE_TAG}" \
   -var="project_code_image_pull_policy=${PROJECT_CODE_IMAGE_PULL_POLICY}" \
   -var="project_code_image_revision=${PROJECT_CODE_IMAGE_REVISION}"
+
+echo "==> Publishing Sales Floe manifest to local code bucket..."
+NAMESPACE="${NAMESPACE}" bash "${SCRIPT_DIR}/upload-floe-manifest.sh"
+
+refresh_ephemeral_polaris_bootstrap
+restart_sales_code_server
 
 echo ""
 echo "OpenLakeForge local stack is up."

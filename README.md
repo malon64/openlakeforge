@@ -69,11 +69,11 @@ The project-code image is built as:
 ghcr.io/openlakeforge/project-code:<tag>
 ```
 
-It contains Dagster code, `dagster-floe`, Floe contracts, dlt extract code,
-domain Python code, and shared OpenLakeForge libraries. It does not install the
-Floe CLI or bake generated Floe manifests into the image. Terraform uploads the
-generated Sales Floe manifest and config to the local SeaweedFS code bucket, and
-Floe runs from the manifest-declared GHCR runner image.
+It contains Dagster code, `dagster-floe`, Floe contracts, the generated Sales
+Floe manifest, dlt extract code, domain Python code, and shared OpenLakeForge
+libraries. Terraform provisions the local SeaweedFS code bucket and passes a
+runner-facing Sales Floe manifest URI to Dagster; manifest publication for the
+separate Floe runner pod is handled by local/CD artifact upload.
 
 ## Roadmap
 
@@ -96,7 +96,9 @@ make local-up
 
 The local shell must have Docker, kind, kubectl, Terraform, Helm, and Python.
 The `floe` CLI is optional locally because `make floe-manifest` falls back to
-the Floe runner image. The Dagster UI is available at `http://localhost:3000`
-through `make local-forward`. Launch `sales_bronze_to_silver_job` from Dagster
-to run the Sales `dlt -> Floe -> Silver Iceberg` pipeline. Trino is forwarded to
-`http://localhost:8080` for local SQL clients such as DBeaver.
+the Floe runner image. `make local-up` uploads the generated manifest to the
+local code bucket after Terraform applies the stack. The Dagster UI is available
+at `http://localhost:3000` through `make local-forward`. Launch
+`sales_etl_pipeline` from Dagster to run the Sales `dlt -> Floe -> dbt-duckdb`
+pipeline. Trino is forwarded to `http://localhost:8080` for local SQL clients
+such as DBeaver.

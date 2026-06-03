@@ -54,5 +54,8 @@ kubeconfig*
 tmp/
 .tmp/
 
+# Vendored patched dependencies (test-only, not for commit)
+vendor/
+
 # Terraform plans can contain sensitive values.
 *.tfplan

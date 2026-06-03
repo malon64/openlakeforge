@@ -7,6 +7,11 @@ from domains.sales.extract.dlt.sales_poc import SALES_POC_ENTITIES
 from domains.sales.pipelines.dagster.definitions import defs
 
 FLOE_ASSET_PREFIX = "sales"
+DBT_GOLD_ASSETS = {
+    "mart_sales_by_day",
+    "mart_revenue_by_product",
+    "mart_sales_by_customer",
+}
 
 
 def test_sales_floe_manifest_loads() -> None:
@@ -32,12 +37,14 @@ def test_sales_floe_manifest_loads() -> None:
         assert entity.asset_key == ["sales", entity.name]
 
 
-def test_sales_bronze_to_silver_job_and_assets_are_registered() -> None:
-    assert defs.resolve_job_def("sales_bronze_to_silver_job").name == "sales_bronze_to_silver_job"
+def test_sales_etl_pipeline_and_assets_are_registered() -> None:
+    assert defs.resolve_job_def("sales_etl_pipeline").name == "sales_etl_pipeline"
     asset_keys = {key for asset_def in defs.assets for key in asset_def.keys}
     for entity in SALES_POC_ENTITIES:
         assert AssetKey([FLOE_ASSET_PREFIX, f"{entity}_source"]) in asset_keys
         assert AssetKey([FLOE_ASSET_PREFIX, entity]) in asset_keys
+    for asset_name in DBT_GOLD_ASSETS:
+        assert AssetKey([FLOE_ASSET_PREFIX, asset_name]) in asset_keys
 
 
 def test_sales_floe_assets_depend_on_bronze_sources() -> None:
@@ -53,3 +60,23 @@ def test_sales_floe_assets_depend_on_bronze_sources() -> None:
         assert asset_deps[AssetKey([FLOE_ASSET_PREFIX, f"{entity}_rejected"])] == {
             bronze_key
         }
+
+
+def test_sales_dbt_gold_assets_depend_on_silver_assets() -> None:
+    asset_deps = {
+        key: deps
+        for asset_def in defs.assets
+        for key, deps in asset_def.asset_deps.items()
+    }
+
+    assert asset_deps[AssetKey([FLOE_ASSET_PREFIX, "mart_sales_by_day"])] == {
+        AssetKey([FLOE_ASSET_PREFIX, "sales"])
+    }
+    assert asset_deps[AssetKey([FLOE_ASSET_PREFIX, "mart_revenue_by_product"])] == {
+        AssetKey([FLOE_ASSET_PREFIX, "sales"]),
+        AssetKey([FLOE_ASSET_PREFIX, "products"]),
+    }
+    assert asset_deps[AssetKey([FLOE_ASSET_PREFIX, "mart_sales_by_customer"])] == {
+        AssetKey([FLOE_ASSET_PREFIX, "sales"]),
+        AssetKey([FLOE_ASSET_PREFIX, "customers"]),
+    }

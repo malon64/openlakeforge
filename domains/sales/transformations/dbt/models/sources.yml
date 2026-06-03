@@ -1,0 +1,14 @@
+version: 2
+
+sources:
+  - name: silver
+    database: polaris
+    schema: sales
+    description: Floe-owned Sales Silver Iceberg tables.
+    tables:
+      - name: sales
+        description: Validated Sales transactions.
+      - name: customers
+        description: Validated Sales customers.
+      - name: products
+        description: Validated Sales products.

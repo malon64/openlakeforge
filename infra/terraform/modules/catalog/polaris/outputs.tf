@@ -11,6 +11,9 @@ output "contract" {
     floe_credentials_secret_name  = var.floe_credentials_secret_name
     floe_client_id_key            = "POLARIS_FLOE_CLIENT_ID"
     floe_client_secret_key        = "POLARIS_FLOE_CLIENT_SECRET"
+    dbt_credentials_secret_name   = var.dbt_credentials_secret_name
+    dbt_client_id_key             = "POLARIS_DBT_CLIENT_ID"
+    dbt_client_secret_key         = "POLARIS_DBT_CLIENT_SECRET"
     bootstrap_run_id              = kubernetes_job_v1.bootstrap.metadata[0].name
   }
 

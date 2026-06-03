@@ -278,6 +278,9 @@ resource "kubernetes_job_v1" "bootstrap" {
 
             create_principal_secret "${var.floe_principal_name}" "${var.floe_credentials_secret_name}" "POLARIS_FLOE_CLIENT_ID" "POLARIS_FLOE_CLIENT_SECRET"
             grant_catalog_access "${var.floe_principal_name}" "${var.floe_principal_role}" "${var.floe_catalog_role}"
+
+            create_principal_secret "${var.dbt_principal_name}" "${var.dbt_credentials_secret_name}" "POLARIS_DBT_CLIENT_ID" "POLARIS_DBT_CLIENT_SECRET"
+            grant_catalog_access "${var.dbt_principal_name}" "${var.dbt_principal_role}" "${var.dbt_catalog_role}"
           SCRIPT
           ]
 
