@@ -79,7 +79,7 @@ restart_sales_code_server() {
     return 0
   fi
 
-  echo "==> Restarting Sales Dagster code server after manifest upload..."
+  echo "==> Restarting Sales Dagster code server after manifest upload and Polaris refresh..."
   kubectl rollout restart "deployment/${deployment}" -n "${NAMESPACE}"
   kubectl rollout status "deployment/${deployment}" -n "${NAMESPACE}" --timeout=300s
 }
@@ -104,9 +104,9 @@ terraform -chdir="${TERRAFORM_DIR}" apply \
 
 echo "==> Publishing Sales Floe manifest to local code bucket..."
 NAMESPACE="${NAMESPACE}" bash "${SCRIPT_DIR}/upload-floe-manifest.sh"
-restart_sales_code_server
 
 refresh_ephemeral_polaris_bootstrap
+restart_sales_code_server
 
 echo ""
 echo "OpenLakeForge local stack is up."

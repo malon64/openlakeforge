@@ -13,4 +13,3 @@ __pycache__
 venv
 dist
 build
-domains/sales/contracts/floe/manifests/*.json
