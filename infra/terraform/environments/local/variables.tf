@@ -55,7 +55,7 @@ variable "project_code_image_tag" {
 variable "project_code_image_pull_policy" {
   description = "Project-code image pull policy used by the Dagster code server and run pods."
   type        = string
-  default     = "IfNotPresent"
+  default     = "Never"
 }
 
 variable "project_code_image_revision" {

@@ -1,0 +1,25 @@
+# openmetadata-dependencies chart 1.12.10 — OpenSearch only.
+# MySQL replaced by shared PostgreSQL cluster; Airflow replaced by K8s pipeline client.
+
+mysql:
+  enabled: false
+
+opensearch:
+  enabled: true
+  singleNode: true
+  persistence:
+    enabled: false
+  resources:
+    requests:
+      cpu: 250m
+      memory: 1536Mi
+    limits:
+      memory: 2Gi
+  opensearchJavaOpts: "-Xms512m -Xmx1g"
+  config:
+    opensearch.yml: |
+      plugins.security.disabled: true
+      indices.query.bool.max_clause_count: 4096
+
+airflow:
+  enabled: false

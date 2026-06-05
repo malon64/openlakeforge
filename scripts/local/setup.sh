@@ -12,7 +12,7 @@ TERRAFORM_DIR="${REPO_ROOT}/infra/terraform/environments/local"
 NAMESPACE="${NAMESPACE:-lakehouse}"
 PROJECT_CODE_IMAGE_REPOSITORY="${PROJECT_CODE_IMAGE_REPOSITORY:-ghcr.io/openlakeforge/project-code}"
 PROJECT_CODE_IMAGE_TAG="${PROJECT_CODE_IMAGE_TAG:-local}"
-PROJECT_CODE_IMAGE_PULL_POLICY="${PROJECT_CODE_IMAGE_PULL_POLICY:-IfNotPresent}"
+PROJECT_CODE_IMAGE_PULL_POLICY="${PROJECT_CODE_IMAGE_PULL_POLICY:-Never}"
 PROJECT_CODE_IMAGE_REVISION="${PROJECT_CODE_IMAGE_REVISION:-manual}"
 
 check_prereqs() {
@@ -39,11 +39,10 @@ prepare_local_project_code_image() {
     exit 1
   fi
 
-  if ! docker image inspect "${image}" >/dev/null 2>&1; then
-    echo "ERROR: local project-code image '${image}' does not exist." >&2
-    echo "Run 'make project-code-image' before 'make local-up'." >&2
-    exit 1
-  fi
+  echo "==> Building local project-code image..."
+  PROJECT_CODE_IMAGE_REPOSITORY="${PROJECT_CODE_IMAGE_REPOSITORY}" \
+    PROJECT_CODE_IMAGE_TAG="${PROJECT_CODE_IMAGE_TAG}" \
+    bash "${SCRIPT_DIR}/build-project-code-image.sh"
 
   PROJECT_CODE_IMAGE_REVISION="$(docker image inspect "${image}" --format '{{.Id}}')"
 
@@ -73,15 +72,55 @@ refresh_ephemeral_polaris_bootstrap() {
 }
 
 restart_sales_code_server() {
-  local deployment="dagster-user-deployments-sales-dagster"
+  local deployment="dagster-dagster-user-deployments-sales-dagster"
 
   if ! kubectl get deployment "${deployment}" -n "${NAMESPACE}" >/dev/null 2>&1; then
-    return 0
+    deployment="dagster-user-deployments-sales-dagster"
+
+    if ! kubectl get deployment "${deployment}" -n "${NAMESPACE}" >/dev/null 2>&1; then
+      return 0
+    fi
   fi
 
   echo "==> Restarting Sales Dagster code server after manifest upload and Polaris refresh..."
   kubectl rollout restart "deployment/${deployment}" -n "${NAMESPACE}"
   kubectl rollout status "deployment/${deployment}" -n "${NAMESPACE}" --timeout=300s
+}
+
+apply_foundation_stack() {
+  echo "==> Applying Terraform foundation services..."
+  terraform -chdir="${TERRAFORM_DIR}" apply \
+    -auto-approve \
+    -target=module.seaweedfs \
+    -target=module.postgresql \
+    -target=module.polaris \
+    -target=module.trino \
+    -var="namespace=${NAMESPACE}" \
+    -var="project_code_image_repository=${PROJECT_CODE_IMAGE_REPOSITORY}" \
+    -var="project_code_image_tag=${PROJECT_CODE_IMAGE_TAG}" \
+    -var="project_code_image_pull_policy=${PROJECT_CODE_IMAGE_PULL_POLICY}" \
+    -var="project_code_image_revision=${PROJECT_CODE_IMAGE_REVISION}"
+}
+
+refresh_openmetadata_bootstrap() {
+  echo "==> Refreshing OpenMetadata local bootstrap..."
+  kubectl delete job -n "${NAMESPACE}" \
+    -l app.kubernetes.io/name=openmetadata,openlakeforge.io/component=governance \
+    --ignore-not-found=true
+  terraform -chdir="${TERRAFORM_DIR}" apply \
+    -auto-approve \
+    -target=module.openmetadata.kubernetes_job_v1.bootstrap \
+    -var="namespace=${NAMESPACE}" \
+    -var="project_code_image_repository=${PROJECT_CODE_IMAGE_REPOSITORY}" \
+    -var="project_code_image_tag=${PROJECT_CODE_IMAGE_TAG}" \
+    -var="project_code_image_pull_policy=${PROJECT_CODE_IMAGE_PULL_POLICY}" \
+    -var="project_code_image_revision=${PROJECT_CODE_IMAGE_REVISION}"
+
+  if kubectl get deployment openmetadata-openlineage -n "${NAMESPACE}" >/dev/null 2>&1; then
+    echo "==> Restarting OpenLineage proxy so it reads refreshed OpenMetadata bot credentials..."
+    kubectl rollout restart deployment/openmetadata-openlineage -n "${NAMESPACE}"
+    kubectl rollout status deployment/openmetadata-openlineage -n "${NAMESPACE}" --timeout=300s
+  fi
 }
 
 echo "==> Checking prerequisites..."
@@ -94,6 +133,14 @@ prepare_local_project_code_image
 
 echo "==> Applying Terraform local stack..."
 terraform -chdir="${TERRAFORM_DIR}" init
+apply_foundation_stack
+
+echo "==> Publishing Sales Floe manifest to local code bucket..."
+NAMESPACE="${NAMESPACE}" bash "${SCRIPT_DIR}/upload-floe-manifest.sh"
+
+refresh_ephemeral_polaris_bootstrap
+refresh_openmetadata_bootstrap
+
 terraform -chdir="${TERRAFORM_DIR}" apply \
   -auto-approve \
   -var="namespace=${NAMESPACE}" \
@@ -102,22 +149,15 @@ terraform -chdir="${TERRAFORM_DIR}" apply \
   -var="project_code_image_pull_policy=${PROJECT_CODE_IMAGE_PULL_POLICY}" \
   -var="project_code_image_revision=${PROJECT_CODE_IMAGE_REVISION}"
 
-echo "==> Publishing Sales Floe manifest to local code bucket..."
-NAMESPACE="${NAMESPACE}" bash "${SCRIPT_DIR}/upload-floe-manifest.sh"
-
-refresh_ephemeral_polaris_bootstrap
 restart_sales_code_server
 
 echo ""
 echo "OpenLakeForge local stack is up."
 echo ""
-echo "Port-forward commands:"
-echo "  kubectl port-forward svc/seaweedfs-s3 9000:8333 -n ${NAMESPACE}"
-echo "  kubectl port-forward svc/polaris 8181:8181 -n ${NAMESPACE}"
-echo "  kubectl port-forward svc/trino 8080:8080 -n ${NAMESPACE}"
-echo "  make local-forward"
+echo "Run 'make local-forward' to port-forward all services, then open:"
 echo ""
-echo "Trino UI:     http://localhost:8080"
-echo "Polaris API:  http://localhost:8181/api/catalog"
-echo "SeaweedFS S3: http://localhost:9000"
-echo "Dagster UI:   http://localhost:3000"
+echo "  Dagster UI:       http://localhost:3000"
+echo "  OpenMetadata UI:  http://localhost:8585  (admin@open-metadata.org / admin)"
+echo "  Trino UI:         http://localhost:8080"
+echo "  Polaris API:      http://localhost:8181/api/catalog"
+echo "  SeaweedFS S3:     http://localhost:9000"

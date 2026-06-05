@@ -5,11 +5,11 @@
   "spec_version": "0.2",
   "manifest_name": "sales.local",
   "manifest_id": "mfv1-b36330ca3e09e364",
-  "manifest_revision": "sha256:8e1362b5dc43da52a954bc04228b2e9acc1d08d4645e0b8c76bf4849d48fa7ae",
+  "manifest_revision": "sha256:c857e42d6d72741dfeb77f5d9ca3e02185ee1102924179b7f8236cdea979714e",
   "config_uri": "local:///work/domains/sales/contracts/floe/sales_poc.yml",
   "config_checksum": "sha256:674594514059a8f82c7183b958c4bb8660068b4fe9f6a0f8a7ddc540443910a7",
   "profile_uri": "local:///work/domains/sales/contracts/floe/profiles/local-k8s.yml",
-  "profile_checksum": "sha256:9e100e18e372891ec0f8166d04f37c9e4b3a60595ec29d7f8aeeb27203cd9e09",
+  "profile_checksum": "sha256:c41a2dcd5e17a7aa6c39ab9d2a1f6a43ca8eec37c90d1f4676129b71b0eb3571",
   "report_base_uri": "s3://iceberg-data/floe/reports/sales",
   "domains": [],
   "execution": {
@@ -20,7 +20,9 @@
       "{manifest_uri}",
       "--log-format",
       "json",
-      "--quiet"
+      "--quiet",
+      "--run-id",
+      "{run_id}"
     ],
     "per_entity_args": [
       "--entities",
@@ -39,6 +41,9 @@
     "defaults": {
       "env": {},
       "workdir": null
+    },
+    "orchestration": {
+      "strategy": "sequential"
     }
   },
   "runners": {
@@ -71,6 +76,11 @@
             "name": "POLARIS_FLOE_CLIENT_SECRET",
             "secret_name": "polaris-floe-creds",
             "key": "POLARIS_FLOE_CLIENT_SECRET"
+          },
+          {
+            "name": "OPENLINEAGE_API_KEY",
+            "secret_name": "openmetadata-ingestion-bot",
+            "key": "OPENMETADATA_INGESTION_BOT_JWT"
           }
         ],
         "image": "ghcr.io/malon64/floe:0.4.6",
@@ -442,5 +452,14 @@
         "warehouse_storage": "lakehouse_s3"
       }
     ]
+  },
+  "lineage": {
+    "api_key": "{{OPENLINEAGE_API_KEY}}",
+    "job_name": null,
+    "max_failures": null,
+    "namespace": "openlakeforge",
+    "producer": null,
+    "timeout_secs": 10,
+    "url": "http://openmetadata-openlineage:5000"
   }
 }

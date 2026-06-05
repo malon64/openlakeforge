@@ -53,4 +53,26 @@ echo "==> Generating Floe manifest: ${MANIFEST_PATH}"
   --manifest-path-mode resolved-uri \
   --output "${MANIFEST_PATH}"
 
+if ! command -v python3 &>/dev/null; then
+  echo "ERROR: python3 is required to patch the generated Floe manifest." >&2
+  exit 1
+fi
+
+python3 - "${MANIFEST_PATH}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+manifest_path = Path(sys.argv[1])
+payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+base_args = payload["execution"]["base_args"]
+
+# Keep the Dagster run id in the manifest execution contract so Kubernetes
+# Floe runners can propagate lineage and report ids consistently.
+if "--run-id" not in base_args:
+    base_args.extend(["--run-id", "{run_id}"])
+
+manifest_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+PY
+
 echo "Generated ${MANIFEST_PATH}"

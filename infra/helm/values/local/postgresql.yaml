@@ -1,0 +1,15 @@
+# Shared PostgreSQL cluster for Dagster and OpenMetadata — local kind cluster.
+# Passwords and the openmetadata database are injected by Terraform yamlencode.
+
+primary:
+  persistence:
+    enabled: false
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 512Mi
+
+readReplicas:
+  replicaCount: 0

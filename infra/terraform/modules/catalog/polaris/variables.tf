@@ -124,3 +124,27 @@ variable "bootstrap_job_image" {
   type        = string
   default     = "alpine/k8s:1.30.0"
 }
+
+variable "om_principal_name" {
+  description = "Polaris service principal name for OpenMetadata (read-only catalog discovery)."
+  type        = string
+  default     = "openmetadata"
+}
+
+variable "om_principal_role" {
+  description = "Polaris principal role granted to the OpenMetadata principal."
+  type        = string
+  default     = "data-reader"
+}
+
+variable "om_catalog_role" {
+  description = "Polaris catalog role granted to the OpenMetadata principal role."
+  type        = string
+  default     = "catalog-reader"
+}
+
+variable "om_credentials_secret_name" {
+  description = "Kubernetes Secret written by the bootstrap job with OpenMetadata OAuth credentials."
+  type        = string
+  default     = "polaris-om-creds"
+}

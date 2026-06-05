@@ -1,0 +1,88 @@
+# OpenMetadata governance layer — local kind cluster.
+# MySQL is replaced by the shared PostgreSQL cluster.
+# OpenSearch is deployed by the openmetadata-dependencies chart.
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 1Gi
+  limits:
+    memory: 2Gi
+
+openmetadata:
+  config:
+    logLevel: INFO
+
+    openmetadata:
+      host: "0.0.0.0"
+      port: 8585
+      adminPort: 8586
+
+    fernetkey:
+      value: "jJ/9sz0g0OHxsfxOoSfdFdmk3ysNmPRnH3TUAbz3IHA="
+
+    authentication:
+      enabled: true
+      clientType: public
+      provider: "basic"
+      publicKeys:
+        - "http://openmetadata:8585/api/v1/system/config/jwks"
+      authority: "http://openmetadata:8585/api"
+      enableSelfSignup: false
+
+    authorizer:
+      enabled: true
+      className: "org.openmetadata.service.security.DefaultAuthorizer"
+      containerRequestFilter: "org.openmetadata.service.security.JwtFilter"
+      initialAdmins:
+        - "admin"
+      allowedEmailRegistrationDomains:
+        - "all"
+      allowedDomains: []
+      principalDomain: "open-metadata.org"
+      enforcePrincipalDomain: false
+
+    jwtTokenConfiguration:
+      enabled: true
+      rsapublicKeyFilePath: "./conf/public_key.der"
+      rsaprivateKeyFilePath: "./conf/private_key.der"
+      jwtissuer: "open-metadata.org"
+      keyId: "Gb389a-9f76-gdjs-a92j-0242bk94356"
+
+    # database host/port/scheme/auth injected by Terraform yamlencode override
+    database:
+      maxSize: 50
+      minSize: 5
+      dbParams: "sslmode=disable"
+
+    elasticsearch:
+      host: opensearch
+      searchType: opensearch
+      port: 9200
+      scheme: http
+      connectionTimeoutSecs: 5
+      socketTimeoutSecs: 60
+      batchSize: 10
+
+    pipelineServiceClientConfig:
+      enabled: true
+      type: "k8s"
+      metadataApiEndpoint: http://openmetadata:8585/api
+      k8s:
+        # namespace injected by Terraform yamlencode override
+        ingestionImage: "docker.getcollate.io/openmetadata/ingestion-base:1.12.10"
+        imagePullPolicy: "IfNotPresent"
+        ttlSecondsAfterFinished: 3600
+        activeDeadlineSeconds: 3600
+        backoffLimit: 1
+        resources:
+          limits:
+            cpu: "1"
+            memory: "1Gi"
+          requests:
+            cpu: "250m"
+            memory: "512Mi"
+
+service:
+  type: ClusterIP
+  port: 8585

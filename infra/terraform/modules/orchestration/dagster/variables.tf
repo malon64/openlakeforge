@@ -101,3 +101,24 @@ variable "catalog_contract" {
     dbt_client_secret_key        = string
   })
 }
+
+variable "postgresql_contract" {
+  description = "Shared PostgreSQL contract from the postgresql module."
+  type = object({
+    host                            = string
+    port                            = number
+    dagster_db_name                 = string
+    dagster_db_user                 = string
+    dagster_credentials_secret_name = string
+  })
+}
+
+variable "governance_contract" {
+  description = "OpenMetadata governance contract — provides the OpenLineage endpoint and ingestion-bot JWT for Floe and dbt run pods."
+  type = object({
+    openlineage_url           = string
+    lineage_endpoint          = string
+    ingestion_bot_secret_name = string
+    ingestion_bot_jwt_key     = string
+  })
+}

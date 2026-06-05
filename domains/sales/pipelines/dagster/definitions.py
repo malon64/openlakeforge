@@ -16,7 +16,7 @@ from dagster import (
 )
 from dagster_dbt import DagsterDbtTranslator, DbtCliResource, dbt_assets
 from floe_dagster.assets import load_floe_assets
-from floe_dagster.definitions import build_runner_from_env
+from floe_dagster.definitions import build_job_run_config_from_manifest, build_runner_from_env
 
 from domains.sales.extract.dlt.sales_poc import SALES_POC_ENTITIES, load_all_entities_to_bronze
 
@@ -32,15 +32,7 @@ _DBT_GOLD_ASSETS = (
     "mart_sales_by_customer",
 )
 _REMOTE_MANIFEST_ENV = "OPENLAKEFORGE_FLOE_MANIFEST_URI"
-_SALES_JOB_CONFIG = {
-    "execution": {
-        "config": {
-            "multiprocess": {
-                "max_concurrent": 1,
-            },
-        },
-    },
-}
+_DBT_EXECUTABLE = "dbt-ol" if os.environ.get("OPENLINEAGE_URL") else "dbt"
 
 
 class SalesDbtTranslator(DagsterDbtTranslator):
@@ -119,6 +111,15 @@ def sales_dbt_gold_assets(context, dbt: DbtCliResource):
     yield from dbt.cli(["build"], context=context).stream()
 
 
+def _manifest_path_for_dagster() -> str:
+    if not _FLOE_MANIFEST.exists():
+        raise RuntimeError(
+            f"Missing Floe manifest at {_FLOE_MANIFEST}. "
+            "Run 'make floe-manifest' before building the project-code image."
+        )
+    return str(_FLOE_MANIFEST)
+
+
 sales_etl_pipeline = define_asset_job(
     name="sales_etl_pipeline",
     selection=(
@@ -131,17 +132,8 @@ sales_etl_pipeline = define_asset_job(
             *[AssetKey([_FLOE_ASSET_PREFIX, asset_name]) for asset_name in _DBT_GOLD_ASSETS],
         ).required_multi_asset_neighbors()
     ),
-    config=_SALES_JOB_CONFIG,
+    config=build_job_run_config_from_manifest(_manifest_path_for_dagster()),
 )
-
-
-def _manifest_path_for_dagster() -> str:
-    if not _FLOE_MANIFEST.exists():
-        raise RuntimeError(
-            f"Missing Floe manifest at {_FLOE_MANIFEST}. "
-            "Run 'make floe-manifest' before building the project-code image."
-        )
-    return str(_FLOE_MANIFEST)
 
 
 def _build_defs() -> Definitions:
@@ -153,13 +145,17 @@ def _build_defs() -> Definitions:
     )
     return Definitions.merge(
         Definitions(
-            assets=[sales_poc_bronze_sources, sales_dbt_gold_assets],
+            assets=[
+                sales_poc_bronze_sources,
+                sales_dbt_gold_assets,
+            ],
             jobs=[sales_etl_pipeline],
             resources={
                 "dbt": DbtCliResource(
                     project_dir=str(_DBT_PROJECT_DIR),
                     profiles_dir=str(_DBT_PROJECT_DIR),
                     target="local_runtime",
+                    dbt_executable=_DBT_EXECUTABLE,
                 ),
             },
         ),

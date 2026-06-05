@@ -5,14 +5,26 @@ resource "helm_release" "dagster" {
   version    = var.chart_version
   namespace  = var.namespace
 
-  wait    = true
-  timeout = 300
+  wait            = true
+  timeout         = 300
+  cleanup_on_fail = true
 
   values = [
     file(var.base_values_file),
     yamlencode({
       global = {
-        serviceAccountName = "dagster"
+        serviceAccountName   = "dagster"
+        postgresqlSecretName = var.postgresql_contract.dagster_credentials_secret_name
+      }
+
+      generatePostgresqlPasswordSecret = false
+
+      postgresql = {
+        enabled            = false
+        postgresqlHost     = var.postgresql_contract.host
+        postgresqlPort     = tostring(var.postgresql_contract.port)
+        postgresqlDatabase = var.postgresql_contract.dagster_db_name
+        postgresqlUsername = var.postgresql_contract.dagster_db_user
       }
 
       "dagster-user-deployments" = {
@@ -98,6 +110,23 @@ resource "helm_release" "dagster" {
               {
                 name  = "OPENLAKEFORGE_DBT_ATTACH_POLARIS"
                 value = "true"
+              },
+              {
+                name  = "OPENLINEAGE_URL"
+                value = var.governance_contract.openlineage_url
+              },
+              {
+                name  = "OPENLINEAGE_ENDPOINT"
+                value = var.governance_contract.lineage_endpoint
+              },
+              {
+                name = "OPENLINEAGE_API_KEY"
+                valueFrom = {
+                  secretKeyRef = {
+                    name = var.governance_contract.ingestion_bot_secret_name
+                    key  = var.governance_contract.ingestion_bot_jwt_key
+                  }
+                }
               },
             ]
             envSecrets = [
@@ -213,6 +242,23 @@ resource "helm_release" "dagster" {
                   {
                     name  = "OPENLAKEFORGE_DBT_ATTACH_POLARIS"
                     value = "true"
+                  },
+                  {
+                    name  = "OPENLINEAGE_URL"
+                    value = var.governance_contract.openlineage_url
+                  },
+                  {
+                    name  = "OPENLINEAGE_ENDPOINT"
+                    value = var.governance_contract.lineage_endpoint
+                  },
+                  {
+                    name = "OPENLINEAGE_API_KEY"
+                    valueFrom = {
+                      secretKeyRef = {
+                        name = var.governance_contract.ingestion_bot_secret_name
+                        key  = var.governance_contract.ingestion_bot_jwt_key
+                      }
+                    }
                   },
                 ]
                 envFrom = [

@@ -7,11 +7,14 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /opt/openlakeforge
 
 COPY images/project-code/pyproject.toml ./pyproject.toml
+
+RUN pip install --no-cache-dir --upgrade pip \
+    && python -c "import subprocess, sys, tomllib; from pathlib import Path; dependencies = tomllib.load(Path('pyproject.toml').open('rb'))['project']['dependencies']; subprocess.check_call([sys.executable, '-m', 'pip', 'install', '--no-cache-dir', *dependencies])"
+
 COPY domains ./domains
 COPY libs ./libs
 
-RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir .
+RUN pip install --no-cache-dir --no-deps .
 
 RUN mkdir -p "${DAGSTER_HOME}"
 
