@@ -21,10 +21,7 @@ dagsterDaemon:
       memory: 1Gi
 
 postgresql:
-  enabled: true
-  postgresqlUsername: dagster
-  postgresqlPassword: dagster
-  postgresqlDatabase: dagster
+  enabled: false
 
 computeLogManager:
   type: NoOpComputeLogManager

@@ -41,6 +41,12 @@ resource "kubernetes_namespace_v1" "lakehouse" {
   }
 }
 
+module "postgresql" {
+  source = "../../modules/storage/postgresql"
+
+  namespace = kubernetes_namespace_v1.lakehouse.metadata[0].name
+}
+
 module "seaweedfs" {
   source = "../../modules/storage/seaweedfs"
 
@@ -83,6 +89,26 @@ module "trino" {
   ]
 }
 
+module "openmetadata" {
+  source = "../../modules/governance/openmetadata"
+
+  namespace           = kubernetes_namespace_v1.lakehouse.metadata[0].name
+  base_values_file    = "${path.root}/../../../helm/values/local/openmetadata.yaml"
+  deps_values_file    = "${path.root}/../../../helm/values/local/openmetadata-deps.yaml"
+  catalog_contract    = module.polaris.contract
+  storage_contract    = module.seaweedfs.contract
+  postgresql_contract = module.postgresql.contract
+  domain_configs = [
+    yamldecode(file("${path.root}/../../../../domains/sales/domain.yaml")),
+  ]
+
+  depends_on = [
+    module.polaris,
+    module.postgresql,
+    module.seaweedfs,
+  ]
+}
+
 module "dagster" {
   source = "../../modules/orchestration/dagster"
 
@@ -94,9 +120,13 @@ module "dagster" {
   project_code_image_revision    = var.project_code_image_revision
   storage_contract               = module.seaweedfs.contract
   catalog_contract               = module.polaris.contract
+  governance_contract            = module.openmetadata.contract
+  postgresql_contract            = module.postgresql.contract
   floe_manifest_uri              = local.sales_floe_manifest_uri
 
   depends_on = [
     module.trino,
+    module.openmetadata,
+    module.postgresql,
   ]
 }

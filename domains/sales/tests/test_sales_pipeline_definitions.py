@@ -31,14 +31,20 @@ def test_sales_floe_manifest_loads() -> None:
         "--log-format",
         "json",
         "--quiet",
+        "--run-id",
+        "{run_id}",
     ]
+    assert manifest.execution.orchestration is not None
+    assert manifest.execution.orchestration.strategy == "sequential"
     for entity in manifest.entities:
         assert entity.group_name == "sales"
         assert entity.asset_key == ["sales", entity.name]
 
 
 def test_sales_etl_pipeline_and_assets_are_registered() -> None:
-    assert defs.resolve_job_def("sales_etl_pipeline").name == "sales_etl_pipeline"
+    job = defs.resolve_job_def("sales_etl_pipeline")
+    assert job.name == "sales_etl_pipeline"
+    assert job.run_config["execution"]["config"]["multiprocess"]["max_concurrent"] == 1
     asset_keys = {key for asset_def in defs.assets for key in asset_def.keys}
     for entity in SALES_POC_ENTITIES:
         assert AssetKey([FLOE_ASSET_PREFIX, f"{entity}_source"]) in asset_keys

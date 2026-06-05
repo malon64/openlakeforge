@@ -1,6 +1,9 @@
 .git
 .github
 .cache
+.claude
+.tmp
+.vscode
 .terraform
 **/.terraform
 **/.terraform.lock.hcl
@@ -13,3 +16,11 @@ __pycache__
 venv
 dist
 build
+devnull
+docs
+infra
+openlakeforge_project.egg-info
+scripts
+vendor
+domains/**/target
+domains/**/.dbt

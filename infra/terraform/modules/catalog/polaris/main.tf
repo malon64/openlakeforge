@@ -281,6 +281,9 @@ resource "kubernetes_job_v1" "bootstrap" {
 
             create_principal_secret "${var.dbt_principal_name}" "${var.dbt_credentials_secret_name}" "POLARIS_DBT_CLIENT_ID" "POLARIS_DBT_CLIENT_SECRET"
             grant_catalog_access "${var.dbt_principal_name}" "${var.dbt_principal_role}" "${var.dbt_catalog_role}"
+
+            create_principal_secret "${var.om_principal_name}" "${var.om_credentials_secret_name}" "POLARIS_OM_CLIENT_ID" "POLARIS_OM_CLIENT_SECRET"
+            grant_catalog_access "${var.om_principal_name}" "${var.om_principal_role}" "${var.om_catalog_role}"
           SCRIPT
           ]
 

@@ -63,8 +63,6 @@ from floe_dagster.manifest import load_manifest
 from domains.sales.extract.dlt.sales_poc import SALES_POC_ENTITIES
 from domains.sales.pipelines.dagster.definitions import defs
 
-defs.resolve_job_def("sales_etl_pipeline")
-
 manifest = load_manifest(Path("domains/sales/contracts/floe/manifests/sales.manifest.json"))
 if manifest.execution.base_args != [
     "run",
@@ -73,8 +71,18 @@ if manifest.execution.base_args != [
     "--log-format",
     "json",
     "--quiet",
+    "--run-id",
+    "{run_id}",
 ]:
     raise SystemExit("Sales Floe manifest does not use the runtime manifest_uri placeholder")
+if manifest.execution.orchestration is None:
+    raise SystemExit("Sales Floe manifest is missing execution.orchestration")
+if manifest.execution.orchestration.strategy != "sequential":
+    raise SystemExit("Sales Floe manifest should use sequential orchestration locally")
+
+job = defs.resolve_job_def("sales_etl_pipeline")
+if job.run_config["execution"]["config"]["multiprocess"]["max_concurrent"] != 1:
+    raise SystemExit("Sales Dagster job did not inherit Floe orchestration concurrency")
 
 asset_keys = {
     tuple(key.path)

@@ -8,7 +8,11 @@
 
   {{ run_hooks(pre_hooks, inside_transaction=True) }}
 
-  {{ drop_relation_if_exists(existing_relation) }}
+  {% call statement("drop_existing_relation", language="sql") -%}
+    drop table if exists {{ target_relation }}
+  {%- endcall %}
+
+  {{ adapter.commit() }}
 
   {% call statement("main", language="sql") -%}
     {{ create_table_as(False, target_relation, compiled_code, "sql") }}
