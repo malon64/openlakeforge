@@ -57,6 +57,21 @@ The Trino Iceberg catalog uses environment-variable secret substitution for all
 credentials. The mounted catalog file must contain placeholders such as
 `${ENV:AWS_ACCESS_KEY_ID}` rather than literal secret values.
 
+## Reporting Contract
+
+Superset exposes the local BI UI over HTTP at:
+
+```text
+http://superset:8088
+```
+
+Superset uses the shared PostgreSQL service for metadata and chart-managed Redis
+for local cache and worker support. Sales report assets are not seeded by
+Terraform bootstrap. They are source-controlled under
+`domains/sales/reports/superset/`, copied into the Superset reports PVC at
+`/app/openlakeforge/reports`, and imported by the local/CD report deployment
+step.
+
 ## Orchestration Contract
 
 Dagster exposes the local UI and GraphQL API over HTTP at:
@@ -68,7 +83,7 @@ http://dagster-dagster-webserver:80
 The orchestration module owns:
 
 - the Dagster Helm release
-- chart-managed local PostgreSQL for Dagster metadata
+- shared PostgreSQL credentials for Dagster metadata
 - the Sales code server loading `domains.sales.pipelines.dagster.definitions`
 - the Kubernetes run launcher
 - the local project-code image reference `ghcr.io/openlakeforge/project-code:local`

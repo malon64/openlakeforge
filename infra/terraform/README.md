@@ -13,6 +13,7 @@ infra/terraform/
     ├── storage/seaweedfs/
     ├── catalog/polaris/
     ├── query/trino/
+    ├── analytics/superset/
     ├── orchestration/dagster/
     ├── database/postgres/
     ├── security/
@@ -36,7 +37,7 @@ make local-down
 `infra/terraform/environments/local`. Terraform owns:
 
 - Kubernetes namespace creation
-- SeaweedFS, Polaris, and Trino Helm releases
+- SeaweedFS, Polaris, Trino, and Superset Helm releases
 - Dagster Helm release
 - dynamic Helm values passed to those releases
 - local generated credentials
@@ -45,8 +46,9 @@ make local-down
 - Sales Floe manifest/config upload to the local code bucket
 - Polaris catalog and Trino principal bootstrap jobs
 - Polaris Floe principal bootstrap credentials for manifest-driven Floe jobs
-- chart-managed local Dagster PostgreSQL
+- shared local PostgreSQL for Dagster, OpenMetadata, and Superset metadata
 - Dagster webserver, daemon, sales code server, and Kubernetes run launcher
+- Superset webserver, worker, reports volume, and local report deploy path
 
 Terraform state is local and contains generated development credentials. Treat
 state files as sensitive; they are gitignored.

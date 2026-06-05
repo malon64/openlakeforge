@@ -22,3 +22,8 @@ output "dagster_code_location_name" {
   description = "Dagster code location name."
   value       = module.dagster.code_location_name
 }
+
+output "superset_contract" {
+  description = "Non-secret Superset reporting contract."
+  value       = module.superset.contract
+}

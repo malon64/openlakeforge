@@ -14,6 +14,7 @@ infra/helm/
         ├── seaweedfs.yaml
         ├── polaris.yaml
         ├── trino.yaml
+        ├── superset.yaml
         └── dagster.yaml
 ```
 
@@ -25,6 +26,8 @@ infra/helm/
   Chart source: https://downloads.apache.org/polaris/helm-chart
 - **Trino** (`trino/trino`)
   Chart source: https://trinodb.github.io/charts
+- **Apache Superset** (`superset/superset`)
+  Chart source: http://apache.github.io/superset/
 - **Dagster** (`dagster/dagster`)
   Chart source: https://dagster-io.github.io/helm
 

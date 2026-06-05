@@ -28,6 +28,7 @@ helm repo add seaweedfs https://seaweedfs.github.io/seaweedfs/helm --force-updat
 helm repo add polaris https://downloads.apache.org/polaris/helm-chart --force-update >/dev/null
 helm repo add trino https://trinodb.github.io/charts --force-update >/dev/null
 helm repo add dagster https://dagster-io.github.io/helm --force-update >/dev/null
+helm repo add superset http://apache.github.io/superset/ --force-update >/dev/null
 helm repo update >/dev/null
 
 echo "==> Helm template: SeaweedFS"
@@ -53,5 +54,20 @@ helm template dagster dagster/dagster \
   --version 1.13.6 \
   --namespace lakehouse \
   --values infra/helm/values/local/dagster.yaml >/dev/null
+
+echo "==> Helm template: Superset"
+helm template superset superset/superset \
+  --version 0.15.5 \
+  --namespace lakehouse \
+  --values infra/helm/values/local/superset.yaml \
+  --set image.repository=ghcr.io/openlakeforge/superset \
+  --set image.tag=local \
+  --set image.pullPolicy=Never \
+  --set extraSecretEnv.SUPERSET_SECRET_KEY=check \
+  --set supersetNode.connections.db_host=postgresql \
+  --set supersetNode.connections.db_port=5432 \
+  --set supersetNode.connections.db_user=superset \
+  --set supersetNode.connections.db_pass=check \
+  --set supersetNode.connections.db_name=superset >/dev/null
 
 echo "Infrastructure checks passed."

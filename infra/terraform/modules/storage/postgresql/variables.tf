@@ -56,3 +56,21 @@ variable "openmetadata_credentials_secret_name" {
   type        = string
   default     = "postgresql-openmetadata-creds"
 }
+
+variable "superset_db_name" {
+  description = "PostgreSQL database name for Superset."
+  type        = string
+  default     = "superset"
+}
+
+variable "superset_db_user" {
+  description = "PostgreSQL user for Superset."
+  type        = string
+  default     = "superset"
+}
+
+variable "superset_credentials_secret_name" {
+  description = "Kubernetes Secret holding the Superset PostgreSQL password."
+  type        = string
+  default     = "postgresql-superset-creds"
+}

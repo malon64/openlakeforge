@@ -109,6 +109,22 @@ module "openmetadata" {
   ]
 }
 
+module "superset" {
+  source = "../../modules/analytics/superset"
+
+  namespace           = kubernetes_namespace_v1.lakehouse.metadata[0].name
+  base_values_file    = "${path.root}/../../../helm/values/local/superset.yaml"
+  image_repository    = var.superset_image_repository
+  image_tag           = var.superset_image_tag
+  image_pull_policy   = var.superset_image_pull_policy
+  postgresql_contract = module.postgresql.contract
+
+  depends_on = [
+    module.postgresql,
+    module.trino,
+  ]
+}
+
 module "dagster" {
   source = "../../modules/orchestration/dagster"
 
@@ -128,5 +144,6 @@ module "dagster" {
     module.trino,
     module.openmetadata,
     module.postgresql,
+    module.superset,
   ]
 }

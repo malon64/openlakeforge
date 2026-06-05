@@ -13,6 +13,7 @@ CSV examples
   -> Silver Iceberg tables through Polaris
   -> dbt-duckdb Gold marts
   -> Trino query
+  -> Superset reports
   -> Dagster asset graph
 ```
 
@@ -23,6 +24,9 @@ sales code server, and Kubernetes run launcher. Iteration 3 adds the Sales dlt
 Bronze extract and manifest-first Floe Silver materialization. Iteration 4 adds
 Sales dbt-duckdb Gold marts and dagster-dbt orchestration in the same Kubernetes
 run-pod execution model.
+Iteration 5 adds OpenMetadata governance, catalog discovery, and OpenLineage
+ingestion. Iteration 6 adds Superset reporting over Sales Gold marts through
+Trino.
 
 ## Core Platform Decisions
 
@@ -35,6 +39,7 @@ run-pod execution model.
 | Catalog | Apache Polaris REST catalog |
 | Local object storage | SeaweedFS |
 | Query layer | Trino for analytics queries only |
+| Reporting | Superset over Gold marts through Trino |
 | Orchestration | Dagster asset graph |
 | Lineage protocol | OpenLineage |
 | Governance target | OpenMetadata |
@@ -91,3 +96,9 @@ pods. The durable Sales job is `sales_etl_pipeline` under
 `domains/sales/pipelines/dagster`. It materializes Sales Bronze source assets,
 executes manifest-loaded Floe assets for `sales`, `customers`, and `products`,
 then runs dbt-duckdb Gold marts in the `sales_gold` Polaris namespace.
+
+Superset is deployed as a BI consumer of those Gold marts through Trino. Sales
+Superset reports are dynamic domain artifacts under
+`domains/sales/reports/superset/` and are deployed separately from Terraform
+bootstrap so UI edits can be exported back to source control when they become
+durable report changes.

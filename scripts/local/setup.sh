@@ -14,6 +14,9 @@ PROJECT_CODE_IMAGE_REPOSITORY="${PROJECT_CODE_IMAGE_REPOSITORY:-ghcr.io/openlake
 PROJECT_CODE_IMAGE_TAG="${PROJECT_CODE_IMAGE_TAG:-local}"
 PROJECT_CODE_IMAGE_PULL_POLICY="${PROJECT_CODE_IMAGE_PULL_POLICY:-Never}"
 PROJECT_CODE_IMAGE_REVISION="${PROJECT_CODE_IMAGE_REVISION:-manual}"
+SUPERSET_IMAGE_REPOSITORY="${SUPERSET_IMAGE_REPOSITORY:-ghcr.io/openlakeforge/superset}"
+SUPERSET_IMAGE_TAG="${SUPERSET_IMAGE_TAG:-local}"
+SUPERSET_IMAGE_PULL_POLICY="${SUPERSET_IMAGE_PULL_POLICY:-Never}"
 
 check_prereqs() {
   local missing=0
@@ -52,6 +55,30 @@ prepare_local_project_code_image() {
     bash "${SCRIPT_DIR}/load-project-code-image.sh"
 }
 
+prepare_local_superset_image() {
+  if [[ "${SUPERSET_IMAGE_TAG}" != "local" ]]; then
+    return 0
+  fi
+
+  local image="${SUPERSET_IMAGE_REPOSITORY}:${SUPERSET_IMAGE_TAG}"
+
+  if ! command -v docker &>/dev/null; then
+    echo "ERROR: Docker is required when SUPERSET_IMAGE_TAG=local." >&2
+    echo "Run 'make superset-image' and 'make superset-load' from a shell with Docker access." >&2
+    exit 1
+  fi
+
+  echo "==> Building local Superset image..."
+  SUPERSET_IMAGE_REPOSITORY="${SUPERSET_IMAGE_REPOSITORY}" \
+    SUPERSET_IMAGE_TAG="${SUPERSET_IMAGE_TAG}" \
+    bash "${SCRIPT_DIR}/build-superset-image.sh"
+
+  echo "==> Ensuring local Superset image is available to kind..."
+  SUPERSET_IMAGE_REPOSITORY="${SUPERSET_IMAGE_REPOSITORY}" \
+    SUPERSET_IMAGE_TAG="${SUPERSET_IMAGE_TAG}" \
+    bash "${SCRIPT_DIR}/load-superset-image.sh"
+}
+
 refresh_ephemeral_polaris_bootstrap() {
   # Local Polaris uses the in-memory test metastore. If the Polaris pod restarts,
   # Kubernetes secrets can outlive the Polaris principals they refer to.
@@ -64,7 +91,10 @@ refresh_ephemeral_polaris_bootstrap() {
     -var="project_code_image_repository=${PROJECT_CODE_IMAGE_REPOSITORY}" \
     -var="project_code_image_tag=${PROJECT_CODE_IMAGE_TAG}" \
     -var="project_code_image_pull_policy=${PROJECT_CODE_IMAGE_PULL_POLICY}" \
-    -var="project_code_image_revision=${PROJECT_CODE_IMAGE_REVISION}"
+    -var="project_code_image_revision=${PROJECT_CODE_IMAGE_REVISION}" \
+    -var="superset_image_repository=${SUPERSET_IMAGE_REPOSITORY}" \
+    -var="superset_image_tag=${SUPERSET_IMAGE_TAG}" \
+    -var="superset_image_pull_policy=${SUPERSET_IMAGE_PULL_POLICY}"
 
   echo "==> Restarting Trino so it reads refreshed Polaris credentials..."
   kubectl rollout restart deployment/trino-coordinator -n "${NAMESPACE}"
@@ -99,7 +129,10 @@ apply_foundation_stack() {
     -var="project_code_image_repository=${PROJECT_CODE_IMAGE_REPOSITORY}" \
     -var="project_code_image_tag=${PROJECT_CODE_IMAGE_TAG}" \
     -var="project_code_image_pull_policy=${PROJECT_CODE_IMAGE_PULL_POLICY}" \
-    -var="project_code_image_revision=${PROJECT_CODE_IMAGE_REVISION}"
+    -var="project_code_image_revision=${PROJECT_CODE_IMAGE_REVISION}" \
+    -var="superset_image_repository=${SUPERSET_IMAGE_REPOSITORY}" \
+    -var="superset_image_tag=${SUPERSET_IMAGE_TAG}" \
+    -var="superset_image_pull_policy=${SUPERSET_IMAGE_PULL_POLICY}"
 }
 
 refresh_openmetadata_bootstrap() {
@@ -114,7 +147,10 @@ refresh_openmetadata_bootstrap() {
     -var="project_code_image_repository=${PROJECT_CODE_IMAGE_REPOSITORY}" \
     -var="project_code_image_tag=${PROJECT_CODE_IMAGE_TAG}" \
     -var="project_code_image_pull_policy=${PROJECT_CODE_IMAGE_PULL_POLICY}" \
-    -var="project_code_image_revision=${PROJECT_CODE_IMAGE_REVISION}"
+    -var="project_code_image_revision=${PROJECT_CODE_IMAGE_REVISION}" \
+    -var="superset_image_repository=${SUPERSET_IMAGE_REPOSITORY}" \
+    -var="superset_image_tag=${SUPERSET_IMAGE_TAG}" \
+    -var="superset_image_pull_policy=${SUPERSET_IMAGE_PULL_POLICY}"
 
   if kubectl get deployment openmetadata-openlineage -n "${NAMESPACE}" >/dev/null 2>&1; then
     echo "==> Restarting OpenLineage proxy so it reads refreshed OpenMetadata bot credentials..."
@@ -130,6 +166,7 @@ echo "==> Generating local Floe manifest for namespace '${NAMESPACE}'..."
 NAMESPACE="${NAMESPACE}" bash "${SCRIPT_DIR}/floe-manifest.sh"
 
 prepare_local_project_code_image
+prepare_local_superset_image
 
 echo "==> Applying Terraform local stack..."
 terraform -chdir="${TERRAFORM_DIR}" init
@@ -147,7 +184,13 @@ terraform -chdir="${TERRAFORM_DIR}" apply \
   -var="project_code_image_repository=${PROJECT_CODE_IMAGE_REPOSITORY}" \
   -var="project_code_image_tag=${PROJECT_CODE_IMAGE_TAG}" \
   -var="project_code_image_pull_policy=${PROJECT_CODE_IMAGE_PULL_POLICY}" \
-  -var="project_code_image_revision=${PROJECT_CODE_IMAGE_REVISION}"
+  -var="project_code_image_revision=${PROJECT_CODE_IMAGE_REVISION}" \
+  -var="superset_image_repository=${SUPERSET_IMAGE_REPOSITORY}" \
+  -var="superset_image_tag=${SUPERSET_IMAGE_TAG}" \
+  -var="superset_image_pull_policy=${SUPERSET_IMAGE_PULL_POLICY}"
+
+echo "==> Deploying Sales Superset report assets..."
+NAMESPACE="${NAMESPACE}" bash "${SCRIPT_DIR}/superset-reports-deploy.sh"
 
 restart_sales_code_server
 
@@ -157,6 +200,7 @@ echo ""
 echo "Run 'make local-forward' to port-forward all services, then open:"
 echo ""
 echo "  Dagster UI:       http://localhost:3000"
+echo "  Superset UI:      http://localhost:8088  (admin / admin)"
 echo "  OpenMetadata UI:  http://localhost:8585  (admin@open-metadata.org / admin)"
 echo "  Trino UI:         http://localhost:8080"
 echo "  Polaris API:      http://localhost:8181/api/catalog"

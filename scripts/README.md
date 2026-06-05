@@ -14,5 +14,6 @@ contract.
 
 Local stack scripts under `scripts/local/` are thin wrappers around Terraform for
 the lakehouse deployment and around kind for cluster creation/destruction. The
-local kind cluster config lives under `infra/kind/local/`. The project-code
-image helper scripts build the local image and load it into kind.
+local kind cluster config lives under `infra/kind/local/`. The project-code and
+Superset image helper scripts build local images and load them into kind; the
+Superset report scripts deploy/export source-controlled report bundles.

@@ -1,0 +1,80 @@
+# Apache Superset BI service for the local kind cluster.
+# PostgreSQL is provided by the shared PostgreSQL module; Redis remains
+# chart-managed for local cache and worker support.
+
+runAsUser: 0
+
+bootstrapScript: |
+  #!/bin/bash
+  if [ ! -f ~/bootstrap ]; then echo "Running Superset with uid {{ .Values.runAsUser }}" > ~/bootstrap; fi
+
+extraEnv:
+  PYTHONPATH: /app/pythonpath
+
+postgresql:
+  enabled: false
+
+redis:
+  enabled: true
+  architecture: standalone
+  auth:
+    enabled: false
+  master:
+    persistence:
+      enabled: false
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        memory: 256Mi
+
+supersetNode:
+  replicas:
+    enabled: true
+    replicaCount: 1
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      memory: 1Gi
+
+supersetWorker:
+  replicas:
+    enabled: true
+    replicaCount: 1
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      memory: 1Gi
+
+supersetCeleryBeat:
+  enabled: false
+
+supersetCeleryFlower:
+  enabled: false
+
+supersetWebsockets:
+  enabled: false
+
+init:
+  enabled: true
+  loadExamples: false
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      memory: 1Gi
+
+service:
+  type: ClusterIP
+  port: 8088
+
+configOverrides:
+  openlakeforge_local: |
+    ENABLE_PROXY_FIX = True
+    WTF_CSRF_TIME_LIMIT = 60 * 60 * 24 * 365

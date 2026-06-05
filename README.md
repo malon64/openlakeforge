@@ -15,6 +15,7 @@ CSV examples
   -> Silver Iceberg tables through Polaris
   -> dbt-duckdb Gold marts
   -> Trino query
+  -> Superset reports
   -> Dagster asset graph
 ```
 
@@ -33,6 +34,7 @@ manifest-first Floe Silver materialization through Polaris.
 | Catalog | Apache Polaris | Iceberg REST catalog |
 | Object storage | SeaweedFS | Default local S3-compatible backend |
 | Query serving | Trino | Analytics query engine |
+| Reporting | Superset | BI reports over Gold marts |
 | Orchestration | Dagster | Asset graph and run orchestration |
 
 ## Repository Structure
@@ -57,6 +59,7 @@ domains/<domain>/
 ├── extract/dlt/
 ├── contracts/floe/
 ├── transformations/dbt/
+├── reports/superset/
 ├── pipelines/dagster/
 └── tests/
 ```
@@ -75,6 +78,11 @@ libraries. Terraform provisions the local SeaweedFS code bucket and passes a
 runner-facing Sales Floe manifest URI to Dagster; manifest publication for the
 separate Floe runner pod is handled by local/CD artifact upload.
 
+Sales Superset report assets are also treated as dynamic domain artifacts. Their
+source lives under `domains/sales/reports/superset/`; local/CD deployment zips
+the bundle, copies it into the Superset reports volume, and imports it into the
+running Superset instance.
+
 ## Roadmap
 
 - Iteration 0: repository skeleton, architecture documentation, and validation automation.
@@ -82,6 +90,8 @@ separate Floe runner pod is handled by local/CD artifact upload.
 - Iteration 2: project-code image and Dagster deployment with Kubernetes run launcher.
 - Iteration 3: Sales POC ingestion and Floe Silver materialization.
 - Iteration 4: dbt-duckdb Gold models and Dagster-dbt integration.
+- Iteration 5: OpenMetadata governance, catalog discovery, and OpenLineage ingestion.
+- Iteration 6: Superset reporting over Sales Gold marts.
 
 ## Local Validation
 
@@ -91,6 +101,8 @@ make local-cluster
 make floe-manifest
 make project-code-image
 make project-code-load
+make superset-image
+make superset-load
 make local-up
 ```
 
@@ -101,4 +113,5 @@ local code bucket after Terraform applies the stack. The Dagster UI is available
 at `http://localhost:3000` through `make local-forward`. Launch
 `sales_etl_pipeline` from Dagster to run the Sales `dlt -> Floe -> dbt-duckdb`
 pipeline. Trino is forwarded to `http://localhost:8080` for local SQL clients
-such as DBeaver.
+such as DBeaver. Superset is forwarded to `http://localhost:8088` with local
+credentials `admin / admin`.
