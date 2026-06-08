@@ -72,16 +72,17 @@ from zipfile import ZipFile
 
 from flask import g
 
-from superset import security_manager
 from superset.app import create_app
-from superset.commands.importers.v1.assets import ImportAssetsCommand
-from superset.commands.importers.v1.utils import get_contents_from_bundle
 
 bundle_path = sys.argv[1]
 username = sys.argv[2]
 
 app = create_app()
 with app.app_context():
+    from superset import security_manager
+    from superset.commands.importers.v1.assets import ImportAssetsCommand
+    from superset.commands.importers.v1.utils import get_contents_from_bundle
+
     user = security_manager.find_user(username=username)
     if user is None:
         raise SystemExit(f"Superset user '{username}' does not exist")

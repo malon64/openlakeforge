@@ -1,0 +1,59 @@
+slice_name: Revenue by Customer Segment
+description: null
+certified_by: null
+certification_details: null
+viz_type: pie
+params:
+  adhoc_filters: []
+  color_scheme: supersetColors
+  datasource: 2__table
+  donut: true
+  granularity_sqla: null
+  groupby:
+  - segment
+  innerRadius: 35
+  label_line: true
+  label_type: key_value
+  labels_outside: true
+  metric:
+    aggregate: SUM
+    column:
+      column_name: gross_revenue
+      expression: null
+      filterable: true
+      groupby: false
+      is_dttm: false
+      optionName: _col_gross_revenue
+      python_date_format: null
+      type: DOUBLE
+      verbose_name: Gross revenue
+    expressionType: SIMPLE
+    hasCustomLabel: true
+    isNew: false
+    label: Gross revenue
+    optionName: metric_gross_revenue
+    sqlExpression: null
+  number_format: SMART_NUMBER
+  outerRadius: 65
+  queryFields:
+    groupby: groupby
+    metric: metrics
+  row_limit: null
+  show_labels: true
+  show_labels_threshold: 2
+  show_legend: true
+  time_range: No filter
+  url_params: {}
+  viz_type: pie
+  annotation_layers: []
+query_context: '{"datasource":{"id":2,"type":"table"},"force":false,"queries":[{"time_range":"No
+  filter","granularity":null,"filters":[],"extras":{"having":"","where":""},"applied_time_extras":{},"columns":["segment"],"metrics":[{"aggregate":"SUM","column":{"column_name":"gross_revenue","expression":null,"filterable":true,"groupby":false,"is_dttm":false,"optionName":"_col_gross_revenue","python_date_format":null,"type":"DOUBLE","verbose_name":"Gross
+  revenue"},"expressionType":"SIMPLE","hasCustomLabel":true,"isNew":false,"label":"Gross
+  revenue","optionName":"metric_gross_revenue","sqlExpression":null}],"annotation_layers":[],"series_limit":0,"order_desc":true,"url_params":{},"custom_params":{},"custom_form_data":{}}],"form_data":{"adhoc_filters":[],"annotation_layers":[],"color_scheme":"supersetColors","datasource":"2__table","donut":true,"granularity_sqla":null,"groupby":["segment"],"innerRadius":35,"label_line":true,"label_type":"key_value","labels_outside":true,"metric":{"aggregate":"SUM","column":{"column_name":"gross_revenue","expression":null,"filterable":true,"groupby":false,"is_dttm":false,"optionName":"_col_gross_revenue","python_date_format":null,"type":"DOUBLE","verbose_name":"Gross
+  revenue"},"expressionType":"SIMPLE","hasCustomLabel":true,"isNew":false,"label":"Gross
+  revenue","optionName":"metric_gross_revenue","sqlExpression":null},"number_format":"SMART_NUMBER","outerRadius":65,"queryFields":{"groupby":"groupby","metric":"metrics"},"row_limit":null,"show_labels":true,"show_labels_threshold":2,"show_legend":true,"slice_id":3,"time_range":"No
+  filter","url_params":{},"viz_type":"pie","force":false,"result_format":"json","result_type":"full"},"result_format":"json","result_type":"full"}'
+cache_timeout: null
+uuid: 8962fe96-f1ac-5652-bfb9-b2b3ffe9a340
+version: 1.0.0
+dataset_uuid: e32ffaa0-ecb6-5900-b265-ea29aae118e2

@@ -81,3 +81,9 @@ variable "superset_image_pull_policy" {
   type        = string
   default     = "Never"
 }
+
+variable "trino_chart_package_path" {
+  description = "Optional local Trino Helm chart package used by local-up to avoid transient GitHub chart download failures."
+  type        = string
+  default     = null
+}

@@ -44,6 +44,10 @@ supersetWorker:
   replicas:
     enabled: true
     replicaCount: 1
+  command:
+    - /bin/sh
+    - -c
+    - ". /app/pythonpath/superset_bootstrap.sh; celery --app=superset.tasks.celery_app:app worker --pool=solo --concurrency=1"
   resources:
     requests:
       cpu: 250m

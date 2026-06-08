@@ -1,0 +1,144 @@
+table_name: mart_revenue_by_product
+main_dttm_col: null
+description: Sales gold mart with revenue, cost, and margin by product.
+default_endpoint: null
+offset: 0
+cache_timeout: null
+catalog: null
+schema: sales_gold
+sql: null
+params: {}
+template_params: null
+filter_select_enabled: true
+fetch_values_predicate: null
+extra: null
+normalize_columns: false
+always_filter_main_dttm: false
+uuid: 98f62c68-d375-541e-9c10-7b7c7084c22c
+metrics:
+- metric_name: sum__gross_margin
+  verbose_name: Gross margin
+  metric_type: sum
+  expression: SUM(gross_margin)
+  description: null
+  d3format: SMART_NUMBER
+  currency: null
+  extra: null
+  warning_text: null
+- metric_name: sum__gross_revenue
+  verbose_name: Gross revenue
+  metric_type: sum
+  expression: SUM(gross_revenue)
+  description: null
+  d3format: SMART_NUMBER
+  currency: null
+  extra: null
+  warning_text: null
+- metric_name: count
+  verbose_name: COUNT(*)
+  metric_type: count
+  expression: COUNT(*)
+  description: null
+  d3format: null
+  currency: null
+  extra: null
+  warning_text: null
+columns:
+- column_name: product_id
+  verbose_name: Product ID
+  is_dttm: false
+  is_active: true
+  type: VARCHAR
+  advanced_data_type: null
+  groupby: true
+  filterable: true
+  expression: null
+  description: null
+  python_date_format: null
+  extra: null
+- column_name: gross_margin
+  verbose_name: Gross margin
+  is_dttm: false
+  is_active: true
+  type: DOUBLE
+  advanced_data_type: null
+  groupby: false
+  filterable: true
+  expression: null
+  description: null
+  python_date_format: null
+  extra: null
+- column_name: gross_revenue
+  verbose_name: Gross revenue
+  is_dttm: false
+  is_active: true
+  type: DOUBLE
+  advanced_data_type: null
+  groupby: false
+  filterable: true
+  expression: null
+  description: null
+  python_date_format: null
+  extra: null
+- column_name: total_cost
+  verbose_name: Total cost
+  is_dttm: false
+  is_active: true
+  type: DOUBLE
+  advanced_data_type: null
+  groupby: false
+  filterable: true
+  expression: null
+  description: null
+  python_date_format: null
+  extra: null
+- column_name: order_count
+  verbose_name: Order count
+  is_dttm: false
+  is_active: true
+  type: BIGINT
+  advanced_data_type: null
+  groupby: false
+  filterable: true
+  expression: null
+  description: null
+  python_date_format: null
+  extra: null
+- column_name: units_sold
+  verbose_name: Units sold
+  is_dttm: false
+  is_active: true
+  type: BIGINT
+  advanced_data_type: null
+  groupby: false
+  filterable: true
+  expression: null
+  description: null
+  python_date_format: null
+  extra: null
+- column_name: category
+  verbose_name: Category
+  is_dttm: false
+  is_active: true
+  type: VARCHAR
+  advanced_data_type: null
+  groupby: true
+  filterable: true
+  expression: null
+  description: null
+  python_date_format: null
+  extra: null
+- column_name: product_name
+  verbose_name: Product
+  is_dttm: false
+  is_active: true
+  type: VARCHAR
+  advanced_data_type: null
+  groupby: true
+  filterable: true
+  expression: null
+  description: null
+  python_date_format: null
+  extra: null
+version: 1.0.0
+database_uuid: f15355b2-8b94-5294-a66e-22ff119b6f31

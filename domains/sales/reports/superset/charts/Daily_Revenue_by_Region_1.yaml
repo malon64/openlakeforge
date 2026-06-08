@@ -1,0 +1,86 @@
+slice_name: Daily Revenue by Region
+description: null
+certified_by: null
+certification_details: null
+viz_type: echarts_timeseries_bar
+params:
+  datasource: 3__table
+  viz_type: echarts_timeseries_bar
+  slice_id: 1
+  x_axis: sale_date
+  time_grain_sqla: P1D
+  x_axis_sort_asc: true
+  x_axis_sort_series: name
+  x_axis_sort_series_ascending: true
+  metrics:
+  - aggregate: SUM
+    column:
+      column_name: gross_revenue
+      expression: null
+      filterable: true
+      groupby: false
+      is_dttm: false
+      optionName: _col_gross_revenue
+      python_date_format: null
+      type: DOUBLE
+      verbose_name: Gross revenue
+    expressionType: SIMPLE
+    hasCustomLabel: true
+    isNew: false
+    label: Gross revenue
+    optionName: metric_gross_revenue
+    sqlExpression: null
+  groupby:
+  - region
+  adhoc_filters:
+  - clause: WHERE
+    subject: sale_date
+    operator: TEMPORAL_RANGE
+    comparator: No filter
+    expressionType: SIMPLE
+  row_limit: null
+  truncate_metric: true
+  show_empty_columns: true
+  rolling_type: null
+  comparison_type: values
+  annotation_layers: []
+  forecastPeriods: 10
+  forecastInterval: 0.8
+  orientation: vertical
+  x_axis_title_margin: 15
+  y_axis_title_margin: 30
+  y_axis_title_position: Left
+  sort_series_type: sum
+  color_scheme: supersetColors
+  time_shift_color: true
+  only_total: true
+  show_legend: true
+  legendType: scroll
+  legendOrientation: top
+  x_axis_time_format: smart_date
+  y_axis_format: SMART_NUMBER
+  y_axis_bounds:
+  - null
+  - null
+  truncateXAxis: true
+  rich_tooltip: true
+  showTooltipTotal: true
+  tooltipTimeFormat: smart_date
+  extra_form_data: {}
+  dashboards:
+  - 1
+query_context: '{"datasource":{"id":3,"type":"table"},"force":false,"queries":[{"filters":[{"col":"sale_date","op":"TEMPORAL_RANGE","val":"No
+  filter"}],"extras":{"time_grain_sqla":"P1D","having":"","where":""},"applied_time_extras":{},"columns":[{"timeGrain":"P1D","columnType":"BASE_AXIS","sqlExpression":"sale_date","label":"sale_date","expressionType":"SQL"},"region"],"metrics":[{"aggregate":"SUM","column":{"column_name":"gross_revenue","expression":null,"filterable":true,"groupby":false,"is_dttm":false,"optionName":"_col_gross_revenue","python_date_format":null,"type":"DOUBLE","verbose_name":"Gross
+  revenue"},"expressionType":"SIMPLE","hasCustomLabel":true,"isNew":false,"label":"Gross
+  revenue","optionName":"metric_gross_revenue","sqlExpression":null}],"orderby":[[{"aggregate":"SUM","column":{"column_name":"gross_revenue","expression":null,"filterable":true,"groupby":false,"is_dttm":false,"optionName":"_col_gross_revenue","python_date_format":null,"type":"DOUBLE","verbose_name":"Gross
+  revenue"},"expressionType":"SIMPLE","hasCustomLabel":true,"isNew":false,"label":"Gross
+  revenue","optionName":"metric_gross_revenue","sqlExpression":null},false]],"annotation_layers":[],"series_columns":["region"],"series_limit":0,"order_desc":true,"url_params":{},"custom_params":{},"custom_form_data":{},"time_offsets":[],"post_processing":[{"operation":"pivot","options":{"index":["sale_date"],"columns":["region"],"aggregates":{"Gross
+  revenue":{"operator":"mean"}},"drop_missing_columns":false}},{"operation":"rename","options":{"columns":{"Gross
+  revenue":null},"level":0,"inplace":true}},{"operation":"flatten"}]}],"form_data":{"datasource":"3__table","viz_type":"echarts_timeseries_bar","slice_id":1,"x_axis":"sale_date","time_grain_sqla":"P1D","x_axis_sort_asc":true,"x_axis_sort_series":"name","x_axis_sort_series_ascending":true,"metrics":[{"aggregate":"SUM","column":{"column_name":"gross_revenue","expression":null,"filterable":true,"groupby":false,"is_dttm":false,"optionName":"_col_gross_revenue","python_date_format":null,"type":"DOUBLE","verbose_name":"Gross
+  revenue"},"expressionType":"SIMPLE","hasCustomLabel":true,"isNew":false,"label":"Gross
+  revenue","optionName":"metric_gross_revenue","sqlExpression":null}],"groupby":["region"],"adhoc_filters":[{"clause":"WHERE","subject":"sale_date","operator":"TEMPORAL_RANGE","comparator":"No
+  filter","expressionType":"SIMPLE"}],"row_limit":null,"truncate_metric":true,"show_empty_columns":true,"rolling_type":null,"comparison_type":"values","annotation_layers":[],"forecastPeriods":10,"forecastInterval":0.8,"orientation":"vertical","x_axis_title_margin":15,"y_axis_title_margin":30,"y_axis_title_position":"Left","sort_series_type":"sum","color_scheme":"supersetColors","time_shift_color":true,"only_total":true,"show_legend":true,"legendType":"scroll","legendOrientation":"top","x_axis_time_format":"smart_date","y_axis_format":"SMART_NUMBER","y_axis_bounds":[null,null],"truncateXAxis":true,"rich_tooltip":true,"showTooltipTotal":true,"tooltipTimeFormat":"smart_date","extra_form_data":{},"dashboards":[1],"force":false,"result_format":"json","result_type":"full"},"result_format":"json","result_type":"full"}'
+cache_timeout: null
+uuid: 37989f70-c78d-5658-ae58-0348fcc5e189
+version: 1.0.0
+dataset_uuid: d86370ee-5681-52aa-bf13-dd6751d21b35

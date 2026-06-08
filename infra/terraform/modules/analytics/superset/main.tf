@@ -14,6 +14,8 @@ resource "random_password" "secret_key" {
 }
 
 resource "kubernetes_persistent_volume_claim_v1" "reports" {
+  wait_until_bound = false
+
   metadata {
     name      = local.reports_claim_name
     namespace = var.namespace

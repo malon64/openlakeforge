@@ -23,6 +23,9 @@ provider "kubernetes" {
 }
 
 provider "helm" {
+  repository_cache       = local.helm_repository_cache_path
+  repository_config_path = local.helm_repository_config_path
+
   kubernetes = {
     config_path    = local.kubeconfig_path
     config_context = var.kube_context
@@ -30,9 +33,11 @@ provider "helm" {
 }
 
 locals {
-  kubeconfig_path         = var.kubeconfig_path != null ? pathexpand(var.kubeconfig_path) : pathexpand("~/.kube/config")
-  sales_floe_manifest_uri = "s3://${var.code_bucket_name}/floe/sales/sales.manifest.json"
-  polaris_bootstrap_hash  = filesha256("${path.root}/../../modules/catalog/polaris/main.tf")
+  kubeconfig_path             = var.kubeconfig_path != null ? pathexpand(var.kubeconfig_path) : pathexpand("~/.kube/config")
+  helm_repository_cache_path  = abspath("${path.root}/../../../../.tmp/helm/repository-cache")
+  helm_repository_config_path = abspath("${path.root}/../../../../.tmp/helm/repositories.yaml")
+  sales_floe_manifest_uri     = "s3://${var.code_bucket_name}/floe/sales/sales.manifest.json"
+  polaris_bootstrap_hash      = filesha256("${path.root}/../../modules/catalog/polaris/main.tf")
 }
 
 resource "kubernetes_namespace_v1" "lakehouse" {
@@ -80,6 +85,7 @@ module "trino" {
 
   namespace                  = kubernetes_namespace_v1.lakehouse.metadata[0].name
   base_values_file           = "${path.root}/../../../helm/values/local/trino.yaml"
+  chart_package_path         = var.trino_chart_package_path
   storage_contract           = module.seaweedfs.contract
   catalog_contract           = module.polaris.contract
   catalog_bootstrap_revision = local.polaris_bootstrap_hash

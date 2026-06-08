@@ -21,6 +21,12 @@ variable "chart_version" {
   default     = "1.42.2"
 }
 
+variable "chart_package_path" {
+  description = "Optional local Trino Helm chart package path. When set, Terraform installs this package instead of downloading from chart_repository."
+  type        = string
+  default     = null
+}
+
 variable "base_values_file" {
   description = "Path to the non-secret base Helm values file."
   type        = string

@@ -46,11 +46,7 @@ from zipfile import ZIP_DEFLATED, ZipFile
 import yaml
 from flask import g
 
-from superset import security_manager
 from superset.app import create_app
-from superset.commands.dashboard.export import ExportDashboardsCommand
-from superset.extensions import db
-from superset.models.dashboard import Dashboard
 
 bundle_path = sys.argv[1]
 username = sys.argv[2]
@@ -59,6 +55,11 @@ bundle_root = sys.argv[4]
 
 app = create_app()
 with app.app_context():
+    from superset import security_manager
+    from superset.commands.dashboard.export import ExportDashboardsCommand
+    from superset.extensions import db
+    from superset.models.dashboard import Dashboard
+
     user = security_manager.find_user(username=username)
     if user is None:
         raise SystemExit(f"Superset user '{username}' does not exist")
