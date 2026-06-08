@@ -9,11 +9,19 @@ upstream Helm charts with local values.
 
 `check-project-code.sh` installs project-code dependencies into a local cache and
 verifies that the Sales Dagster pipeline definitions load.
-`scripts/local/floe-manifest.sh` generates the manifest-first Sales Floe
+`scripts/local/artifacts/floe-manifest.sh` generates the manifest-first Sales Floe
 contract.
 
-Local stack scripts under `scripts/local/` are thin wrappers around Terraform for
-the lakehouse deployment and around kind for cluster creation/destruction. The
-local kind cluster config lives under `infra/kind/local/`. The project-code and
-Superset image helper scripts build local images and load them into kind; the
-Superset report scripts deploy/export source-controlled report bundles.
+Local stack scripts under `scripts/local/` are grouped by lifecycle:
+
+- `stack/` contains the usual local orchestration entrypoints: infra up,
+  dynamic artifact deploy, full setup, and teardown.
+- `cluster/` contains kind lifecycle and image prefetch helpers.
+- `images/` contains local image build/load helpers for project-code and
+  Superset.
+- `artifacts/` contains local/CD-style domain artifact helpers: Floe manifest
+  generation/upload, dbt parse, Superset report deploy/export, and
+  OpenMetadata metadata deploy.
+
+The Makefile is the public interface for normal use. The shell scripts stay
+focused implementation details behind those targets.

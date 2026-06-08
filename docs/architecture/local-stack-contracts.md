@@ -89,12 +89,12 @@ The orchestration module owns:
 - the local project-code image reference `ghcr.io/openlakeforge/project-code:local`
 - the Sales Floe manifest URI `s3://openlakeforge-code/floe/sales/sales.manifest.json`
 
-Local development loads the image into kind and uses the Dagster UI to launch
-`sales_etl_pipeline` for the full Sales path. Dagster loads the Floe asset graph
-from the manifest baked into the project-code image. Terraform provisions the
-code bucket and passes the remote manifest URI to Dagster; `make local-up`
-publishes the same generated Sales Floe manifest to that URI after Terraform
-applies the stack so the separate Floe runner pod can read it. Dagster launches
-Floe Kubernetes jobs from `ghcr.io/malon64/floe:0.4.6`. dbt-duckdb runs inside
-Dagster Kubernetes run pods from the project-code image and writes Gold Iceberg
-marts to the `sales_gold` Polaris namespace.
+Local development uses `make local-infra-up` for Terraform-managed platform
+resources and `make local-artifacts-deploy` for dynamic domain artifacts.
+Dagster loads the Floe asset graph from the manifest baked into the project-code
+image. Terraform provisions the code bucket and passes the remote manifest URI
+to Dagster; the artifact deploy phase publishes the generated Sales Floe
+manifest to that URI so the separate Floe runner pod can read it. Dagster
+launches Floe Kubernetes jobs from `ghcr.io/malon64/floe:0.4.6`. dbt-duckdb
+runs inside Dagster Kubernetes run pods from the project-code image and writes
+Gold Iceberg marts to the `sales_gold` Polaris namespace.

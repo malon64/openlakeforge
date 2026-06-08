@@ -5,7 +5,9 @@ resource "helm_release" "dagster" {
   version    = var.chart_version
   namespace  = var.namespace
 
-  wait            = true
+  # Local project code is a dynamic artifact loaded after Terraform. Do not make
+  # static infra apply wait on pods that cannot start until that image exists.
+  wait            = false
   timeout         = 300
   cleanup_on_fail = true
 

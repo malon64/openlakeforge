@@ -13,13 +13,10 @@ locals {
   openlineage_proxy_labels = merge(local.labels, {
     "openlakeforge.io/service" = "openlineage-proxy"
   })
-  domain_configs_json           = jsonencode(var.domain_configs)
-  domain_configs_json_b64       = base64encode(local.domain_configs_json)
   catalog_schema_names_json     = jsonencode(var.catalog_schema_names)
   catalog_schema_names_json_b64 = base64encode(local.catalog_schema_names_json)
   bootstrap_annotations = {
     "openlakeforge.io/openmetadata-release-revision" = tostring(helm_release.openmetadata.metadata.revision)
-    "openlakeforge.io/static-domain-hash"            = sha256(local.domain_configs_json)
     "openlakeforge.io/catalog-schema-hash"           = sha256(local.catalog_schema_names_json)
   }
 }
@@ -91,12 +88,6 @@ resource "helm_release" "openmetadata" {
 resource "terraform_data" "openmetadata_release_revision" {
   triggers_replace = [
     helm_release.openmetadata.metadata.revision,
-  ]
-}
-
-resource "terraform_data" "openmetadata_static_domains" {
-  triggers_replace = [
-    sha256(local.domain_configs_json),
   ]
 }
 
@@ -483,74 +474,6 @@ resource "kubernetes_job_v1" "bootstrap" {
               -n "$NAMESPACE" \
               --from-literal="${var.ingestion_bot_jwt_key}=$BOT_JWT"
 
-            # Seed static data-domain configuration from Terraform inputs.
-            printf '%s' "${local.domain_configs_json_b64}" | base64 -d >/tmp/om-static-domains.json
-
-            jq -c '.[]' /tmp/om-static-domains.json | while IFS= read -r domain_json; do
-              domain_name="$(printf '%s' "$domain_json" | jq -r '.name // empty')"
-              if [ -z "$domain_name" ]; then
-                echo "Static domain entry is missing name" >&2
-                printf '%s\n' "$domain_json" >&2
-                exit 1
-              fi
-
-              domain_display_name="$(printf '%s' "$domain_json" | jq -r '
-                .displayName
-                // .display_name
-                // (
-                  .name
-                  | gsub("[-_]"; " ")
-                  | split(" ")
-                  | map(if length > 0 then (.[0:1] | ascii_upcase) + .[1:] else . end)
-                  | join(" ")
-                )
-              ')"
-              domain_type="$(printf '%s' "$domain_json" | jq -r '.domainType // .domain_type // "Source-aligned"')"
-              domain_description="$(printf '%s' "$domain_json" | jq -r '
-                [
-                  (.description // empty),
-                  (if .status then "" else empty end),
-                  (if .status then "Status: \(.status)" else empty end),
-                  (if .medallion then "" else empty end),
-                  (if .medallion then "Medallion layers:" else empty end),
-                  (
-                    if .medallion then
-                      .medallion
-                      | to_entries[]
-                      | "- \(.key): \(.value.description // "") Owner: \(.value.owner // "unknown")."
-                    else
-                      empty
-                    end
-                  )
-                ]
-                | join("\n")
-              ')"
-              domain_payload="$(jq -n \
-                --arg name "$domain_name" \
-                --arg displayName "$domain_display_name" \
-                --arg domainType "$domain_type" \
-                --arg description "$domain_description" \
-                '{
-                  name: $name,
-                  displayName: $displayName,
-                  domainType: $domainType,
-                  description: $description
-                }')"
-              domain_code="$(curl -sS -o /tmp/om-domain-body -w '%%{http_code}' \
-                -X PUT "$om_url/api/v1/domains" \
-                -H "Authorization: Bearer $ADMIN_JWT" \
-                -H "Content-Type: application/json" \
-                -d "$domain_payload")"
-              case " 200 201 " in
-                *" $domain_code "*) ;;
-                *)
-                  echo "Failed to create or update OpenMetadata domain '$domain_name' (HTTP $domain_code)" >&2
-                  cat /tmp/om-domain-body >&2
-                  exit 1
-                  ;;
-              esac
-            done
-
             # Create or update the Polaris Iceberg database service in OpenMetadata.
             svc_code="$(curl -sS -o /tmp/om-svc-body -w '%%{http_code}' \
               -X PUT "$om_url/api/v1/services/databaseServices" \
@@ -846,7 +769,6 @@ resource "kubernetes_job_v1" "bootstrap" {
   lifecycle {
     replace_triggered_by = [
       terraform_data.openmetadata_release_revision,
-      terraform_data.openmetadata_static_domains,
       terraform_data.openmetadata_catalog_schemas,
     ]
   }

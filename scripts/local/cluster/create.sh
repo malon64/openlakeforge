@@ -3,14 +3,14 @@
 # Run from WSL with kind, docker, and kubectl on the PATH.
 #
 # Usage:
-#   bash scripts/local/create-cluster.sh [--reset]
+#   bash scripts/local/cluster/create.sh [--reset]
 #
 #   --reset  Delete an existing cluster with the same name before creating.
 set -euo pipefail
 
 CLUSTER_NAME="openlakeforge-local"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CLUSTER_CONFIG="${SCRIPT_DIR}/../../infra/kind/local/kind-cluster.yaml"
+CLUSTER_CONFIG="${SCRIPT_DIR}/../../../infra/kind/local/kind-cluster.yaml"
 
 RESET=false
 for arg in "$@"; do

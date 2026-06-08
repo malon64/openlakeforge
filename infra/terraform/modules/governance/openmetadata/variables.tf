@@ -110,12 +110,6 @@ variable "storage_contract" {
   })
 }
 
-variable "domain_configs" {
-  description = "Static OpenMetadata domain definitions to seed during bootstrap. Intended to be sourced from domain.yaml files."
-  type        = list(any)
-  default     = []
-}
-
 variable "catalog_database_name" {
   description = "OpenMetadata database name to seed under the Polaris database service before OpenLineage events arrive."
   type        = string

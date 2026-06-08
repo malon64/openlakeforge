@@ -60,6 +60,7 @@ domains/<domain>/
 ├── contracts/floe/
 ├── transformations/dbt/
 ├── reports/superset/
+├── governance/openmetadata/
 ├── pipelines/dagster/
 └── tests/
 ```
@@ -83,6 +84,11 @@ source lives under `domains/sales/reports/superset/`; local/CD deployment zips
 the bundle, copies it into the Superset reports volume, and imports it into the
 running Superset instance.
 
+OpenMetadata domain and data-product assets follow the same boundary. Terraform
+creates OpenMetadata and the platform services it needs; source-controlled
+metadata under `domains/sales/governance/openmetadata/` is deployed by the
+local/CD artifact phase.
+
 ## Roadmap
 
 - Iteration 0: repository skeleton, architecture documentation, and validation automation.
@@ -98,19 +104,16 @@ running Superset instance.
 ```sh
 make check-structure
 make local-cluster
-make floe-manifest
-make project-code-image
-make project-code-load
-make superset-image
-make superset-load
 make local-up
 ```
 
 The local shell must have Docker, kind, kubectl, Terraform, Helm, and Python.
 The `floe` CLI is optional locally because `make floe-manifest` falls back to
-the Floe runner image. `make local-up` uploads the generated manifest to the
-local code bucket after Terraform applies the stack. The Dagster UI is available
-at `http://localhost:3000` through `make local-forward`. Launch
+the Floe runner image. `make local-up` runs two phases: `make local-infra-up`
+for static Terraform infrastructure, then `make local-artifacts-deploy` for the
+project-code image, Floe manifest upload, Superset report import, and
+OpenMetadata governance metadata deployment. The Dagster UI is available at
+`http://localhost:3000` through `make local-forward`. Launch
 `sales_etl_pipeline` from Dagster to run the Sales `dlt -> Floe -> dbt-duckdb`
 pipeline. Trino is forwarded to `http://localhost:8080` for local SQL clients
 such as DBeaver. Superset is forwarded to `http://localhost:8088` with local

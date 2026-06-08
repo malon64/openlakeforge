@@ -104,9 +104,6 @@ module "openmetadata" {
   catalog_contract    = module.polaris.contract
   storage_contract    = module.seaweedfs.contract
   postgresql_contract = module.postgresql.contract
-  domain_configs = [
-    yamldecode(file("${path.root}/../../../../domains/sales/domain.yaml")),
-  ]
 
   depends_on = [
     module.polaris,

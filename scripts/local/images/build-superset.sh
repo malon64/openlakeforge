@@ -15,6 +15,6 @@ echo "==> Building Superset image: ${IMAGE}"
 docker build \
   --file images/superset/Dockerfile \
   --tag "${IMAGE}" \
-  .
+  images/superset
 
 echo "Built ${IMAGE}"

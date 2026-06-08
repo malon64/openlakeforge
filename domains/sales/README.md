@@ -16,6 +16,7 @@ domains/sales/
 ├── contracts/floe/
 ├── transformations/dbt/
 ├── reports/superset/
+├── governance/openmetadata/
 ├── pipelines/dagster/
 └── tests/
 ```
@@ -46,3 +47,5 @@ Iteration 6 adds:
 - source-controlled Superset report assets under `reports/superset`
 - the `Sales Gold Mart Overview` dashboard over the Sales Gold marts
 - local report deployment with `make superset-reports-deploy`
+- source-controlled OpenMetadata domain/data-product assets under
+  `governance/openmetadata`

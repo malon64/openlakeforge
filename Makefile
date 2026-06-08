@@ -1,4 +1,4 @@
-.PHONY: help tree check-structure check-infra check-project-code check-dbt floe-manifest floe-manifest-upload dbt-parse project-code-image project-code-load superset-image superset-load superset-reports-deploy superset-reports-export local-cluster local-destroy-cluster local-up local-down local-status local-forward local-prefetch
+.PHONY: help tree check-structure check-infra check-project-code check-dbt floe-manifest floe-manifest-upload dbt-parse project-code-image project-code-load superset-image superset-load superset-reports-deploy superset-reports-export openmetadata-metadata-deploy local-cluster local-destroy-cluster local-infra-up local-artifacts-deploy local-up local-down local-status local-forward local-prefetch
 
 NAMESPACE ?= lakehouse
 PROJECT_CODE_IMAGE_REPOSITORY ?= ghcr.io/openlakeforge/project-code
@@ -20,6 +20,7 @@ help:
 	@printf '%s\n' '  make dbt-parse       Generate the Sales dbt manifest'
 	@printf '%s\n' '  make superset-reports-deploy  Deploy Sales Superset report assets'
 	@printf '%s\n' '  make superset-reports-export  Export edited Sales Superset report assets'
+	@printf '%s\n' '  make openmetadata-metadata-deploy  Deploy OpenMetadata domain/data-product assets'
 	@printf '%s\n' ''
 	@printf '%s\n' 'Local stack:'
 	@printf '%s\n' '  make local-cluster    Create the kind cluster (WSL + kind required)'
@@ -29,7 +30,9 @@ help:
 	@printf '%s\n' '  make superset-load    Load the Superset image into kind'
 	@printf '%s\n' '  make local-destroy-cluster  Delete the local kind cluster'
 	@printf '%s\n' '  make local-prefetch    Pre-pull heavy images (OpenSearch, OM ingestion, Superset helpers) into kind'
-	@printf '%s\n' '  make local-up         Terraform-apply SeaweedFS + Polaris + Trino + OpenMetadata + Superset + Dagster'
+	@printf '%s\n' '  make local-infra-up   Apply static Terraform infrastructure only'
+	@printf '%s\n' '  make local-artifacts-deploy  Deploy dynamic local/CD artifacts'
+	@printf '%s\n' '  make local-up         Run local-infra-up, then local-artifacts-deploy'
 	@printf '%s\n' '  make local-down       Terraform-destroy the local stack'
 	@printf '%s\n' '  make local-status     Show pod and service status in the configured namespace'
 	@printf '%s\n' '  make local-forward    Port-forward all services to localhost (Dagster :3000, Superset :8088, OpenMetadata :8585, Trino :8080, Polaris :8181, S3 :9000)'
@@ -50,43 +53,52 @@ check-dbt:
 	@bash scripts/test/check-dbt.sh
 
 floe-manifest:
-	@NAMESPACE=$(NAMESPACE) bash scripts/local/floe-manifest.sh
+	@NAMESPACE=$(NAMESPACE) bash scripts/local/artifacts/floe-manifest.sh
 
 floe-manifest-upload:
-	@NAMESPACE=$(NAMESPACE) bash scripts/local/upload-floe-manifest.sh
+	@NAMESPACE=$(NAMESPACE) bash scripts/local/artifacts/upload-floe-manifest.sh
 
 dbt-parse:
-	@bash scripts/local/dbt-parse.sh
+	@bash scripts/local/artifacts/dbt-parse.sh
 
 project-code-image:
-	@PROJECT_CODE_IMAGE_REPOSITORY=$(PROJECT_CODE_IMAGE_REPOSITORY) PROJECT_CODE_IMAGE_TAG=$(PROJECT_CODE_IMAGE_TAG) bash scripts/local/build-project-code-image.sh
+	@PROJECT_CODE_IMAGE_REPOSITORY=$(PROJECT_CODE_IMAGE_REPOSITORY) PROJECT_CODE_IMAGE_TAG=$(PROJECT_CODE_IMAGE_TAG) bash scripts/local/images/build-project-code.sh
 
 project-code-load:
-	@PROJECT_CODE_IMAGE_REPOSITORY=$(PROJECT_CODE_IMAGE_REPOSITORY) PROJECT_CODE_IMAGE_TAG=$(PROJECT_CODE_IMAGE_TAG) bash scripts/local/load-project-code-image.sh
+	@PROJECT_CODE_IMAGE_REPOSITORY=$(PROJECT_CODE_IMAGE_REPOSITORY) PROJECT_CODE_IMAGE_TAG=$(PROJECT_CODE_IMAGE_TAG) bash scripts/local/images/load-project-code.sh
 
 superset-image:
-	@SUPERSET_IMAGE_REPOSITORY=$(SUPERSET_IMAGE_REPOSITORY) SUPERSET_IMAGE_TAG=$(SUPERSET_IMAGE_TAG) bash scripts/local/build-superset-image.sh
+	@SUPERSET_IMAGE_REPOSITORY=$(SUPERSET_IMAGE_REPOSITORY) SUPERSET_IMAGE_TAG=$(SUPERSET_IMAGE_TAG) bash scripts/local/images/build-superset.sh
 
 superset-load:
-	@SUPERSET_IMAGE_REPOSITORY=$(SUPERSET_IMAGE_REPOSITORY) SUPERSET_IMAGE_TAG=$(SUPERSET_IMAGE_TAG) bash scripts/local/load-superset-image.sh
+	@SUPERSET_IMAGE_REPOSITORY=$(SUPERSET_IMAGE_REPOSITORY) SUPERSET_IMAGE_TAG=$(SUPERSET_IMAGE_TAG) bash scripts/local/images/load-superset.sh
 
 superset-reports-deploy:
-	@NAMESPACE=$(NAMESPACE) bash scripts/local/superset-reports-deploy.sh
+	@NAMESPACE=$(NAMESPACE) bash scripts/local/artifacts/superset-reports-deploy.sh
 
 superset-reports-export:
-	@NAMESPACE=$(NAMESPACE) bash scripts/local/superset-reports-export.sh
+	@NAMESPACE=$(NAMESPACE) bash scripts/local/artifacts/superset-reports-export.sh
+
+openmetadata-metadata-deploy:
+	@NAMESPACE=$(NAMESPACE) bash scripts/local/artifacts/openmetadata-metadata-deploy.sh
 
 local-cluster:
-	@bash scripts/local/create-cluster.sh
+	@bash scripts/local/cluster/create.sh
 
 local-destroy-cluster:
-	@bash scripts/local/destroy-cluster.sh
+	@bash scripts/local/cluster/destroy.sh
+
+local-infra-up:
+	@NAMESPACE=$(NAMESPACE) PROJECT_CODE_IMAGE_REPOSITORY=$(PROJECT_CODE_IMAGE_REPOSITORY) PROJECT_CODE_IMAGE_TAG=$(PROJECT_CODE_IMAGE_TAG) PROJECT_CODE_IMAGE_PULL_POLICY=$(PROJECT_CODE_IMAGE_PULL_POLICY) SUPERSET_IMAGE_REPOSITORY=$(SUPERSET_IMAGE_REPOSITORY) SUPERSET_IMAGE_TAG=$(SUPERSET_IMAGE_TAG) SUPERSET_IMAGE_PULL_POLICY=$(SUPERSET_IMAGE_PULL_POLICY) bash scripts/local/stack/infra-up.sh
+
+local-artifacts-deploy:
+	@NAMESPACE=$(NAMESPACE) PROJECT_CODE_IMAGE_REPOSITORY=$(PROJECT_CODE_IMAGE_REPOSITORY) PROJECT_CODE_IMAGE_TAG=$(PROJECT_CODE_IMAGE_TAG) bash scripts/local/stack/deploy-artifacts.sh
 
 local-up:
-	@NAMESPACE=$(NAMESPACE) PROJECT_CODE_IMAGE_REPOSITORY=$(PROJECT_CODE_IMAGE_REPOSITORY) PROJECT_CODE_IMAGE_TAG=$(PROJECT_CODE_IMAGE_TAG) PROJECT_CODE_IMAGE_PULL_POLICY=$(PROJECT_CODE_IMAGE_PULL_POLICY) SUPERSET_IMAGE_REPOSITORY=$(SUPERSET_IMAGE_REPOSITORY) SUPERSET_IMAGE_TAG=$(SUPERSET_IMAGE_TAG) SUPERSET_IMAGE_PULL_POLICY=$(SUPERSET_IMAGE_PULL_POLICY) bash scripts/local/setup.sh
+	@NAMESPACE=$(NAMESPACE) PROJECT_CODE_IMAGE_REPOSITORY=$(PROJECT_CODE_IMAGE_REPOSITORY) PROJECT_CODE_IMAGE_TAG=$(PROJECT_CODE_IMAGE_TAG) PROJECT_CODE_IMAGE_PULL_POLICY=$(PROJECT_CODE_IMAGE_PULL_POLICY) SUPERSET_IMAGE_REPOSITORY=$(SUPERSET_IMAGE_REPOSITORY) SUPERSET_IMAGE_TAG=$(SUPERSET_IMAGE_TAG) SUPERSET_IMAGE_PULL_POLICY=$(SUPERSET_IMAGE_PULL_POLICY) bash scripts/local/stack/setup.sh
 
 local-down:
-	@NAMESPACE=$(NAMESPACE) bash scripts/local/teardown.sh
+	@NAMESPACE=$(NAMESPACE) bash scripts/local/stack/teardown.sh
 
 local-status:
 	@echo "=== Pods ===" && kubectl get pods -n $(NAMESPACE)
@@ -95,7 +107,7 @@ local-status:
 
 local-prefetch:
 	@echo "Pre-pulling heavy images into kind to avoid Helm timeouts..."
-	@bash scripts/local/prefetch-images.sh
+	@bash scripts/local/cluster/prefetch-images.sh
 
 local-forward:
 	@echo "Starting port-forwards (Ctrl-C to stop all)..."
