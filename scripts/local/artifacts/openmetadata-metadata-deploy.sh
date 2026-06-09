@@ -320,6 +320,66 @@ def data_product_asset_ref(table_ref):
     }
 
 
+def table_files(metadata_dir):
+    tables_dir = metadata_dir / "tables"
+    if not tables_dir.exists():
+        return []
+    return sorted(
+        path
+        for path in tables_dir.iterdir()
+        if path.is_file() and path.suffix.lower() in {".yaml", ".yml"}
+    )
+
+
+def ensure_storage_service(token, name, display_name, endpoint, region):
+    payload = {
+        "name": name,
+        "displayName": display_name,
+        "serviceType": "S3",
+        "connection": {
+            "config": {
+                "type": "S3",
+                "awsConfig": {
+                    "awsRegion": region,
+                    "endPointURL": endpoint,
+                },
+            }
+        },
+    }
+    request("PUT", "/api/v1/services/storageServices", token=token, payload=payload, ok_statuses=(200, 201))
+    print(f"Upserted OpenMetadata storage service: {name}")
+
+
+def ensure_container(token, service, name, parent_fqn, full_path, description):
+    payload = {
+        "name": name,
+        "service": service,
+        "fullPath": full_path,
+        "description": description,
+    }
+    if parent_fqn:
+        encoded = urllib.parse.quote(parent_fqn, safe="")
+        parent = request("GET", f"/api/v1/containers/name/{encoded}", token=token)
+        parent_id = parent.get("id")
+        if not parent_id:
+            raise OpenMetadataError(f"OpenMetadata container lookup for '{parent_fqn}' did not return an id: {parent}")
+        payload["parent"] = {"id": parent_id, "type": "container"}
+    request("PUT", "/api/v1/containers", token=token, payload=payload, ok_statuses=(200, 201))
+    print(f"Upserted OpenMetadata container: {full_path}")
+
+
+def ensure_table_stub(token, schema_fqn, name, description):
+    payload = {
+        "name": name,
+        "databaseSchema": schema_fqn,
+        "columns": [],
+    }
+    if description:
+        payload["description"] = description
+    request("PUT", "/api/v1/tables", token=token, payload=payload, ok_statuses=(200, 201))
+    print(f"Upserted OpenMetadata table stub: {schema_fqn}.{name}")
+
+
 def deploy():
     wait_for_openmetadata()
     token = login()
@@ -330,6 +390,31 @@ def deploy():
             f"No OpenMetadata metadata directories found under {METADATA_ROOT}/<domain>/governance/openmetadata"
         )
 
+    # Phase A+B: SeaweedFS Object Store service and Bronze CSV source containers.
+    # The seeding gives browse-level visibility in OM's Storage section immediately.
+    # Lineage from these containers to Silver tables will appear once OM implements
+    # entity auto-creation from OpenLineage events (see upstream issue).
+    ensure_storage_service(token, "seaweedfs", "SeaweedFS S3", "http://seaweedfs-s3:8333", "us-east-1")
+    ensure_container(token, "seaweedfs", "iceberg-data", None, "s3://iceberg-data", "Main Iceberg data bucket.")
+    for cname, cpath, cdesc in [
+        ("bronze-sales-sales",     "s3://iceberg-data/bronze/sales/sales",     "Raw CSV sales transactions."),
+        ("bronze-sales-customers", "s3://iceberg-data/bronze/sales/customers", "Raw CSV customer records."),
+        ("bronze-sales-products",  "s3://iceberg-data/bronze/sales/products",  "Raw CSV product catalog."),
+    ]:
+        ensure_container(token, "seaweedfs", cname, "seaweedfs.iceberg-data", cpath, cdesc)
+
+    # Phase C: Pre-seed Iceberg table stubs so OL lineage events have existing entities to
+    # attach to at startup, before the hourly Polaris crawler runs.
+    for metadata_dir in dirs:
+        for tfile in table_files(metadata_dir):
+            tspec = load_yaml(tfile)
+            schema_fqn = tspec.get("schema")
+            if not schema_fqn:
+                raise OpenMetadataError(f"Table seed file '{tfile}' is missing required 'schema' field.")
+            for tbl in tspec.get("tables", []):
+                ensure_table_stub(token, schema_fqn, tbl["name"], tbl.get("description", ""))
+
+    # Phase D: Upsert domains and data products from governance YAML.
     missing_assets = []
     for metadata_dir in dirs:
         domain = load_yaml(metadata_dir / "domain.yaml")

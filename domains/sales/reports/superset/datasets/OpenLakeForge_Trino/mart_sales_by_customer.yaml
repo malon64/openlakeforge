@@ -5,7 +5,7 @@ default_endpoint: null
 offset: 0
 cache_timeout: null
 catalog: null
-schema: sales_gold
+schema: gold
 sql: null
 params: {}
 template_params: null

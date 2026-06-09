@@ -130,6 +130,10 @@ resource "helm_release" "dagster" {
                   }
                 }
               },
+              {
+                name  = "OPENLINEAGE_NAMESPACE"
+                value = var.catalog_contract.rest_uri
+              },
             ]
             envSecrets = [
               {
@@ -261,6 +265,10 @@ resource "helm_release" "dagster" {
                         key  = var.governance_contract.ingestion_bot_jwt_key
                       }
                     }
+                  },
+                  {
+                    name  = "OPENLINEAGE_NAMESPACE"
+                    value = var.catalog_contract.rest_uri
                   },
                 ]
                 envFrom = [

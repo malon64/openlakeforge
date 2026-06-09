@@ -31,7 +31,7 @@ entities:
         storage: "lakehouse_s3"
         iceberg:
           catalog: "polaris"
-          namespace: "sales"
+          namespace: "silver"
           table: "sales"
       rejected:
         format: "csv"
@@ -73,7 +73,7 @@ entities:
         storage: "lakehouse_s3"
         iceberg:
           catalog: "polaris"
-          namespace: "sales"
+          namespace: "silver"
           table: "customers"
       rejected:
         format: "csv"
@@ -113,7 +113,7 @@ entities:
         storage: "lakehouse_s3"
         iceberg:
           catalog: "polaris"
-          namespace: "sales"
+          namespace: "silver"
           table: "products"
       rejected:
         format: "csv"

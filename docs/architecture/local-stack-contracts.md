@@ -34,7 +34,7 @@ http://polaris:8181/api/catalog
 The catalog module owns:
 
 - root bootstrap credentials in `polaris-bootstrap-credentials`
-- the `lakehouse` catalog
+- the `sales_dev` warehouse
 - the Trino service principal and role grants
 - Trino OAuth credentials in `polaris-trino-creds`
 - the Floe service principal and role grants
@@ -97,4 +97,4 @@ to Dagster; the artifact deploy phase publishes the generated Sales Floe
 manifest to that URI so the separate Floe runner pod can read it. Dagster
 launches Floe Kubernetes jobs from `ghcr.io/malon64/floe:0.4.6`. dbt-duckdb
 runs inside Dagster Kubernetes run pods from the project-code image and writes
-Gold Iceberg marts to the `sales_gold` Polaris namespace.
+Gold Iceberg marts to the `gold` namespace of the `sales_dev` Polaris warehouse.

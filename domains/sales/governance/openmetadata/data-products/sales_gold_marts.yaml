@@ -4,8 +4,8 @@ description: Curated Sales Gold marts for reporting and analytics.
 domain: sales
 assets:
   - type: table
-    fqn: polaris-lakehouse.default.sales_gold.mart_sales_by_day
+    fqn: polaris.sales_dev.gold.mart_sales_by_day
   - type: table
-    fqn: polaris-lakehouse.default.sales_gold.mart_revenue_by_product
+    fqn: polaris.sales_dev.gold.mart_revenue_by_product
   - type: table
-    fqn: polaris-lakehouse.default.sales_gold.mart_sales_by_customer
+    fqn: polaris.sales_dev.gold.mart_sales_by_customer

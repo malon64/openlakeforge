@@ -43,7 +43,7 @@ A Kubernetes bootstrap Job runs after the Helm release is ready. It:
 - Provisions the Polaris catalog service in OpenMetadata by minting a short-lived
   Polaris OAuth token at bootstrap time and injecting it into the service connection.
   This works around the PyIceberg 0.5.1 OAuth scope incompatibility with Polaris.
-- Pre-seeds the `default` database and `sales` / `sales_gold` schemas so that lineage
+- Pre-seeds the `sales_dev` database and `silver` / `gold` schemas so that lineage
   asset references have a home before the first pipeline run.
 - Registers the OpenLineage pipeline service and the dbt pipeline entity.
 - Optionally schedules an hourly Polaris catalog crawl for table schema refresh.

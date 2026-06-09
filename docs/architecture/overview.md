@@ -95,7 +95,7 @@ kind cluster and uses it for both the Sales code server and isolated Dagster run
 pods. The durable Sales job is `sales_etl_pipeline` under
 `domains/sales/pipelines/dagster`. It materializes Sales Bronze source assets,
 executes manifest-loaded Floe assets for `sales`, `customers`, and `products`,
-then runs dbt-duckdb Gold marts in the `sales_gold` Polaris namespace.
+then runs dbt-duckdb Gold marts in the `gold` Polaris namespace of the `sales_dev` warehouse.
 
 Superset is deployed as a BI consumer of those Gold marts through Trino. Sales
 Superset reports are dynamic domain artifacts under

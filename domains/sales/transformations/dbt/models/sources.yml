@@ -2,8 +2,8 @@ version: 2
 
 sources:
   - name: silver
-    database: polaris
-    schema: sales
+    database: sales_dev
+    schema: silver
     description: Floe-owned Sales Silver Iceberg tables.
     tables:
       - name: sales

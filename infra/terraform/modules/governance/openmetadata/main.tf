@@ -209,7 +209,8 @@ resource "kubernetes_deployment_v1" "openlineage_proxy" {
       metadata {
         labels = local.openlineage_proxy_labels
         annotations = {
-          "openlakeforge.io/config-hash" = sha256(kubernetes_config_map_v1.openlineage_proxy.data["proxy.py"])
+          "openlakeforge.io/config-hash"           = sha256(kubernetes_config_map_v1.openlineage_proxy.data["proxy.py"])
+          "openlakeforge.io/om-bootstrap-revision" = tostring(helm_release.openmetadata.metadata.revision)
         }
       }
 
@@ -480,7 +481,7 @@ resource "kubernetes_job_v1" "bootstrap" {
               -H "Authorization: Bearer $ADMIN_JWT" \
               -H "Content-Type: application/json" \
               -d "{
-                \"name\": \"polaris-lakehouse\",
+                \"name\": \"polaris\",
                 \"displayName\": \"Polaris Iceberg Catalog\",
                 \"serviceType\": \"Iceberg\",
                 \"connection\": {
@@ -488,6 +489,7 @@ resource "kubernetes_job_v1" "bootstrap" {
                     \"type\": \"Iceberg\",
                     \"catalog\": {
                       \"name\": \"${var.catalog_contract.warehouse}\",
+                      \"databaseName\": \"${var.catalog_database_name}\",
                       \"warehouseLocation\": \"${var.catalog_contract.warehouse}\",
                       \"connection\": {
                         \"uri\": \"${var.catalog_contract.rest_uri}\",
@@ -518,16 +520,16 @@ resource "kubernetes_job_v1" "bootstrap" {
             svc_id="$(echo "$svc_resp" | jq -r '.id // empty')"
 
             if [ -z "$svc_id" ]; then
-              echo "Failed to retrieve polaris-lakehouse service id" >&2
+              echo "Failed to retrieve polaris service id" >&2
               echo "$svc_resp" >&2
               exit 1
             fi
 
             catalog_database="${var.catalog_database_name}"
-            catalog_database_fqn="polaris-lakehouse.$catalog_database"
+            catalog_database_fqn="polaris.$catalog_database"
             db_payload="$(jq -n \
               --arg name "$catalog_database" \
-              --arg service "polaris-lakehouse" \
+              --arg service "polaris" \
               '{
                 name: $name,
                 service: $service
@@ -618,7 +620,7 @@ resource "kubernetes_job_v1" "bootstrap" {
             esac
 
             # Create or reuse the metadata ingestion pipeline.
-            pipeline_fqn="polaris-lakehouse.polaris-metadata-ingestion"
+            pipeline_fqn="polaris.polaris-metadata-ingestion"
             pipeline_code="$(curl -sS -o /tmp/om-pipeline-body -w '%%{http_code}' \
               "$om_url/api/v1/services/ingestionPipelines/name/$pipeline_fqn" \
               -H "Authorization: Bearer $ADMIN_JWT")"
@@ -859,7 +861,7 @@ resource "kubernetes_cron_job_v1" "catalog_refresh" {
                   -H "Authorization: Bearer $ADMIN_JWT" \
                   -H "Content-Type: application/json" \
                   -d "{
-                    \"name\": \"polaris-lakehouse\",
+                    \"name\": \"polaris\",
                     \"displayName\": \"Polaris Iceberg Catalog\",
                     \"serviceType\": \"Iceberg\",
                     \"connection\": {
@@ -894,10 +896,10 @@ resource "kubernetes_cron_job_v1" "catalog_refresh" {
                 esac
 
                 catalog_database="${var.catalog_database_name}"
-                catalog_database_fqn="polaris-lakehouse.$catalog_database"
+                catalog_database_fqn="polaris.$catalog_database"
                 db_payload="$(jq -n \
                   --arg name "$catalog_database" \
-                  --arg service "polaris-lakehouse" \
+                  --arg service "polaris" \
                   '{name: $name, service: $service}')"
                 db_code="$(curl -sS -o /tmp/om-db-body -w '%%{http_code}' \
                   -X PUT "$om_url/api/v1/databases" \
@@ -981,7 +983,7 @@ resource "kubernetes_cron_job_v1" "catalog_refresh" {
                     ;;
                 esac
 
-                pipeline_fqn="polaris-lakehouse.polaris-metadata-ingestion"
+                pipeline_fqn="polaris.polaris-metadata-ingestion"
                 pipeline_resp="$(curl -sS "$om_url/api/v1/services/ingestionPipelines/name/$pipeline_fqn" \
                   -H "Authorization: Bearer $ADMIN_JWT")"
                 pipeline_id="$(echo "$pipeline_resp" | jq -r '.id // empty')"

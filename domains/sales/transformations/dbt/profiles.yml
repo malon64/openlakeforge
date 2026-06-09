@@ -33,8 +33,8 @@ sales_poc:
           oauth2_server_uri: "{{ env_var('POLARIS_TOKEN_URI') }}"
           oauth2_scope: "{{ env_var('POLARIS_OAUTH_SCOPE', 'PRINCIPAL_ROLE:ALL') }}"
       attach:
-        - path: "{{ env_var('POLARIS_WAREHOUSE', 'lakehouse') }}"
-          alias: polaris
+        - path: "{{ env_var('POLARIS_WAREHOUSE', 'sales_dev') }}"
+          alias: sales_dev
           options:
             type: iceberg
             secret: openlakeforge_polaris_secret

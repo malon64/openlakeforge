@@ -113,13 +113,13 @@ variable "storage_contract" {
 variable "catalog_database_name" {
   description = "OpenMetadata database name to seed under the Polaris database service before OpenLineage events arrive."
   type        = string
-  default     = "default"
+  default     = "sales_dev"
 }
 
 variable "catalog_schema_names" {
   description = "OpenMetadata database schema names to seed before OpenLineage events arrive."
   type        = list(string)
-  default     = ["sales", "sales_gold"]
+  default     = ["silver", "gold"]
 }
 
 variable "catalog_refresh_schedule" {

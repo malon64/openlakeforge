@@ -18,7 +18,7 @@ catalogs:
       type: "rest"
       uri: "http://polaris:8181/api/catalog"
       credential: "client_credentials:${POLARIS_FLOE_CLIENT_ID}:${POLARIS_FLOE_CLIENT_SECRET}"
-      warehouse: "lakehouse"
+      warehouse: "sales_dev"
       oauth2_server_uri: "http://polaris:8181/api/catalog/v1/oauth/tokens"
       scope: "PRINCIPAL_ROLE:ALL"
       warehouse_storage: "lakehouse_s3"
@@ -60,7 +60,7 @@ execution:
         key: OPENMETADATA_INGESTION_BOT_JWT
 lineage:
   url: "http://openmetadata-openlineage:5000"
-  namespace: "openlakeforge"
+  namespace: "http://polaris:8181/api/catalog"
   api_key: "{{OPENLINEAGE_API_KEY}}"
   timeout_secs: 10
 validation:

@@ -202,6 +202,34 @@ resource "kubernetes_job_v1" "bootstrap" {
               exit 1
             }
 
+            catalog_request() {
+              method="$1"
+              path="$2"
+              expected_codes="$3"
+              data="$${4:-}"
+
+              if [ -n "$data" ]; then
+                code="$(curl -sS -o /tmp/polaris-body -w '%%{http_code}' \
+                  -X "$method" "$polaris_url/api/catalog/v1$path" \
+                  -H "Authorization: Bearer $POLARIS_TOKEN" \
+                  -H "Content-Type: application/json" \
+                  -d "$data")"
+              else
+                code="$(curl -sS -o /tmp/polaris-body -w '%%{http_code}' \
+                  -X "$method" "$polaris_url/api/catalog/v1$path" \
+                  -H "Authorization: Bearer $POLARIS_TOKEN" \
+                  -H "Content-Type: application/json")"
+              fi
+
+              case " $expected_codes " in
+                *" $code "*) return 0 ;;
+              esac
+
+              echo "Polaris catalog $method $path returned HTTP $code" >&2
+              cat /tmp/polaris-body >&2 || true
+              exit 1
+            }
+
             token_response=""
             attempt=1
             while [ "$attempt" -le 60 ]; do
@@ -236,6 +264,9 @@ resource "kubernetes_job_v1" "bootstrap" {
                 "stsUnavailable": true
               }
             }'
+
+            catalog_request POST "/${var.catalog_name}/namespaces" "200 409" '{"namespace": ["silver"], "properties": {}}'
+            catalog_request POST "/${var.catalog_name}/namespaces" "200 409" '{"namespace": ["gold"], "properties": {}}'
 
             create_principal_secret() {
               principal_name="$1"
