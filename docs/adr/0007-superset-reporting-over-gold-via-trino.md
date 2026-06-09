@@ -8,16 +8,14 @@ Accepted
 
 Iteration 6 closes the v1 batch lakehouse path by adding a BI layer over the dbt Gold
 Iceberg marts produced in Iteration 4. The architecture overview identifies Superset as
-the reporting target and Trino as the query engine. The implementation must keep reports
-source-controlled and deployable without manual UI work so the local stack can be torn
-down and rebuilt reproducibly.
+the reporting target and Trino as the query engine.
 
 Two constraints shaped the deployment model:
 
 - The upstream Apache Superset Helm chart does not include Trino or PostgreSQL drivers.
   A custom image is required to avoid runtime driver installation.
 - Superset's native export format (YAML bundles) is human-readable and diff-friendly,
-  making it a viable source-control artifact for charts, datasets, and dashboards.
+  making it a viable source-control artifact for seeding a reproducible demo environment.
 
 ## Decision
 
@@ -34,18 +32,22 @@ read-only (`allow_dml: false`) and targets the `iceberg` Trino catalog at
 `trino://superset@trino:8080/iceberg`. Superset does not hold a copy of the data; all
 queries execute against the Gold Iceberg tables through Trino and Polaris.
 
-Sales reports are source-controlled as YAML bundles under
-`domains/sales/reports/superset/`. The bundle covers databases, datasets, charts, and
-dashboards. The v1 Sales dashboard (`Sales_Gold_Mart_Overview_1`) contains three charts
-built over three Gold marts: `mart_revenue_by_product`, `mart_sales_by_customer`, and
-`mart_sales_by_day` in the `sales_gold` Polaris namespace.
+The intended production workflow for Superset reports is UI-first: report authors
+create and iterate on dashboards freely in the Superset UI. When a report is considered
+stable and ready to be versioned, it is exported to source control using
+`make superset-reports-export`. The repo is the export destination for durable reports,
+not the authoritative source for day-to-day authoring.
 
-Report bundles are not seeded by Terraform bootstrap. They are deployed separately via
-`make local-artifacts-deploy`, which copies the bundle into the Superset reports PVC at
-`/app/openlakeforge/reports` and imports it through the Superset API. UI edits can be
-exported back to source control with `make superset-reports-export`. This separation
-keeps Terraform responsible for infrastructure lifetime and the artifact deploy step
-responsible for dynamic domain content — the same split used for the Floe manifest.
+The v1 POC reverses this direction for demonstration purposes. A seed Sales dashboard
+(`Sales_Gold_Mart_Overview_1`) with three charts over `mart_revenue_by_product`,
+`mart_sales_by_customer`, and `mart_sales_by_day` is source-controlled under
+`domains/sales/reports/superset/` and imported into a freshly deployed stack via
+`make local-artifacts-deploy`. This makes the local demo reproducible after a teardown
+without requiring manual UI work. It is not a production data management pattern.
+
+Report bundles are not seeded by Terraform. They are imported separately through the
+Superset API, keeping Terraform responsible for infrastructure lifetime and the artifact
+deploy step responsible for dynamic domain content.
 
 ## Consequences
 

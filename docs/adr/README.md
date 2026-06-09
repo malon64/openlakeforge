@@ -22,3 +22,7 @@ Polaris bootstrap workaround.
 
 `0007-superset-reporting-over-gold-via-trino.md` records the Iteration 6
 Superset deployment model, custom image, and YAML-based report bundle lifecycle.
+
+`0008-two-phase-deploy-infra-and-artifacts.md` records the split between
+Terraform-owned static infrastructure (Phase 1) and domain artifact deployment
+(Phase 2), and defines the CD boundary.

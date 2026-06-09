@@ -22,6 +22,12 @@ check_prereqs() {
 echo "==> Checking prerequisites..."
 check_prereqs
 
+echo "==> Releasing PVC protection finalizers to allow clean Terraform destroy..."
+for pvc in $(kubectl get pvc -n "${NAMESPACE}" -o name 2>/dev/null); do
+  kubectl patch "${pvc}" -n "${NAMESPACE}" \
+    -p '{"metadata":{"finalizers":null}}' --type=merge 2>/dev/null || true
+done
+
 echo "==> Destroying Terraform local stack..."
 terraform -chdir="${TERRAFORM_DIR}" init
 terraform -chdir="${TERRAFORM_DIR}" destroy \
