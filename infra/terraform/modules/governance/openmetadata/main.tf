@@ -355,54 +355,168 @@ resource "kubernetes_job_v1" "bootstrap" {
               esac
             done
 
-            pipeline_service_code="$(curl -sS -o /tmp/om-pipeline-service-body -w '%%{http_code}' \
+            # Register Dagster as a Pipeline Service and trigger metadata ingestion.
+            dagster_svc_code="$(curl -sS -o /tmp/om-dagster-svc-body -w '%%{http_code}' \
               -X PUT "$om_url/api/v1/services/pipelineServices" \
               -H "Authorization: Bearer $ADMIN_JWT" \
               -H "Content-Type: application/json" \
               -d "{
-                \"name\": \"openlineage\",
-                \"displayName\": \"OpenLineage Events\",
-                \"serviceType\": \"CustomPipeline\",
+                \"name\": \"dagster\",
+                \"displayName\": \"Dagster Orchestrator\",
+                \"serviceType\": \"Dagster\",
                 \"connection\": {
                   \"config\": {
-                    \"type\": \"CustomPipeline\"
+                    \"type\": \"Dagster\",
+                    \"host\": \"${var.dagster_webserver_url}\",
+                    \"timeout\": 1000
                   }
                 }
               }")"
             case " 200 201 " in
-              *" $pipeline_service_code "*) ;;
+              *" $dagster_svc_code "*) dagster_svc_id="$(jq -r '.id // empty' /tmp/om-dagster-svc-body)" ;;
               *)
-                echo "Failed to create or update OpenLineage pipeline service (HTTP $pipeline_service_code)" >&2
-                cat /tmp/om-pipeline-service-body >&2
+                echo "Failed to create Dagster pipeline service (HTTP $dagster_svc_code)" >&2
+                cat /tmp/om-dagster-svc-body >&2
                 exit 1
                 ;;
             esac
 
-            dbt_pipeline_code="$(curl -sS -o /tmp/om-dbt-pipeline-body -w '%%{http_code}' \
-              -X PUT "$om_url/api/v1/pipelines" \
+            dagster_pipeline_fqn="dagster.dagster-metadata-ingestion"
+            dagster_check_code="$(curl -sS -o /tmp/om-dagster-pipeline-body -w '%%{http_code}' \
+              "$om_url/api/v1/services/ingestionPipelines/name/$dagster_pipeline_fqn" \
+              -H "Authorization: Bearer $ADMIN_JWT")"
+            if [ "$dagster_check_code" = "200" ]; then
+              dagster_pipeline_id="$(jq -r '.id // empty' /tmp/om-dagster-pipeline-body)"
+            elif [ "$dagster_check_code" = "404" ]; then
+              dagster_create_code="$(curl -sS -o /tmp/om-dagster-pipeline-body -w '%%{http_code}' \
+                -X POST "$om_url/api/v1/services/ingestionPipelines" \
+                -H "Authorization: Bearer $ADMIN_JWT" \
+                -H "Content-Type: application/json" \
+                -d "{
+                  \"name\": \"dagster-metadata-ingestion\",
+                  \"displayName\": \"Dagster Pipeline Metadata\",
+                  \"pipelineType\": \"metadata\",
+                  \"sourceConfig\": {
+                    \"config\": {
+                      \"type\": \"PipelineMetadata\",
+                      \"includeLineage\": true
+                    }
+                  },
+                  \"airflowConfig\": {
+                    \"startDate\": \"2025-01-01T00:00:00.000Z\",
+                    \"retries\": 1,
+                    \"pausePipeline\": true
+                  },
+                  \"service\": {
+                    \"id\": \"$dagster_svc_id\",
+                    \"type\": \"pipelineService\"
+                  }
+                }")"
+              case " 200 201 " in
+                *" $dagster_create_code "*) dagster_pipeline_id="$(jq -r '.id // empty' /tmp/om-dagster-pipeline-body)" ;;
+                *)
+                  echo "Failed to create Dagster ingestion pipeline (HTTP $dagster_create_code)" >&2
+                  cat /tmp/om-dagster-pipeline-body >&2
+                  exit 1
+                  ;;
+              esac
+            else
+              echo "Failed to inspect Dagster ingestion pipeline (HTTP $dagster_check_code)" >&2
+              exit 1
+            fi
+
+            curl -sS -o /tmp/om-dagster-deploy-body -X POST \
+              "$om_url/api/v1/services/ingestionPipelines/deploy/$dagster_pipeline_id" \
+              -H "Authorization: Bearer $ADMIN_JWT" || true
+            curl -sS -o /tmp/om-dagster-trigger-body -X POST \
+              "$om_url/api/v1/services/ingestionPipelines/trigger/$dagster_pipeline_id" \
+              -H "Authorization: Bearer $ADMIN_JWT" || true
+            echo "Dagster pipeline service registered."
+
+            # Register Superset as a Dashboard Service and trigger metadata ingestion.
+            superset_svc_code="$(curl -sS -o /tmp/om-superset-svc-body -w '%%{http_code}' \
+              -X PUT "$om_url/api/v1/services/dashboardServices" \
               -H "Authorization: Bearer $ADMIN_JWT" \
               -H "Content-Type: application/json" \
               -d "{
-                \"name\": \"dbt-dbt-run-sales_poc\",
-                \"displayName\": \"dbt Sales POC\",
-                \"service\": \"openlineage\",
-                \"scheduleInterval\": \"manual\",
-                \"tasks\": [
-                  {
-                    \"name\": \"dbt-build\"
+                \"name\": \"superset\",
+                \"displayName\": \"Superset Reporting\",
+                \"serviceType\": \"Superset\",
+                \"connection\": {
+                  \"config\": {
+                    \"type\": \"Superset\",
+                    \"hostPort\": \"${var.superset_url}\",
+                    \"connection\": {
+                      \"type\": \"UsernamePasswordConnection\",
+                      \"username\": \"${var.superset_admin_username}\",
+                      \"password\": \"$SUPERSET_ADMIN_PASSWORD\"
+                    },
+                    \"provider\": \"db\"
                   }
-                ]
+                }
               }")"
             case " 200 201 " in
-              *" $dbt_pipeline_code "*) ;;
+              *" $superset_svc_code "*) superset_svc_id="$(jq -r '.id // empty' /tmp/om-superset-svc-body)" ;;
               *)
-                echo "Failed to create or update dbt OpenLineage pipeline (HTTP $dbt_pipeline_code)" >&2
-                cat /tmp/om-dbt-pipeline-body >&2
+                echo "Failed to create Superset dashboard service (HTTP $superset_svc_code)" >&2
+                cat /tmp/om-superset-svc-body >&2
                 exit 1
                 ;;
             esac
 
-            # Create or reuse the metadata ingestion pipeline.
+            superset_pipeline_fqn="superset.superset-metadata-ingestion"
+            superset_check_code="$(curl -sS -o /tmp/om-superset-pipeline-body -w '%%{http_code}' \
+              "$om_url/api/v1/services/ingestionPipelines/name/$superset_pipeline_fqn" \
+              -H "Authorization: Bearer $ADMIN_JWT")"
+            if [ "$superset_check_code" = "200" ]; then
+              superset_pipeline_id="$(jq -r '.id // empty' /tmp/om-superset-pipeline-body)"
+            elif [ "$superset_check_code" = "404" ]; then
+              superset_create_code="$(curl -sS -o /tmp/om-superset-pipeline-body -w '%%{http_code}' \
+                -X POST "$om_url/api/v1/services/ingestionPipelines" \
+                -H "Authorization: Bearer $ADMIN_JWT" \
+                -H "Content-Type: application/json" \
+                -d "{
+                  \"name\": \"superset-metadata-ingestion\",
+                  \"displayName\": \"Superset Dashboard Metadata\",
+                  \"pipelineType\": \"metadata\",
+                  \"sourceConfig\": {
+                    \"config\": {
+                      \"type\": \"DashboardMetadata\",
+                      \"includeDataModels\": true
+                    }
+                  },
+                  \"airflowConfig\": {
+                    \"startDate\": \"2025-01-01T00:00:00.000Z\",
+                    \"retries\": 1,
+                    \"pausePipeline\": true
+                  },
+                  \"service\": {
+                    \"id\": \"$superset_svc_id\",
+                    \"type\": \"dashboardService\"
+                  }
+                }")"
+              case " 200 201 " in
+                *" $superset_create_code "*) superset_pipeline_id="$(jq -r '.id // empty' /tmp/om-superset-pipeline-body)" ;;
+                *)
+                  echo "Failed to create Superset ingestion pipeline (HTTP $superset_create_code)" >&2
+                  cat /tmp/om-superset-pipeline-body >&2
+                  exit 1
+                  ;;
+              esac
+            else
+              echo "Failed to inspect Superset ingestion pipeline (HTTP $superset_check_code)" >&2
+              exit 1
+            fi
+
+            curl -sS -o /tmp/om-superset-deploy-body -X POST \
+              "$om_url/api/v1/services/ingestionPipelines/deploy/$superset_pipeline_id" \
+              -H "Authorization: Bearer $ADMIN_JWT" || true
+            curl -sS -o /tmp/om-superset-trigger-body -X POST \
+              "$om_url/api/v1/services/ingestionPipelines/trigger/$superset_pipeline_id" \
+              -H "Authorization: Bearer $ADMIN_JWT" || true
+            echo "Superset dashboard service registered."
+
+            # Create or reuse the Polaris metadata ingestion pipeline.
             pipeline_fqn="polaris.polaris-metadata-ingestion"
             pipeline_code="$(curl -sS -o /tmp/om-pipeline-body -w '%%{http_code}' \
               "$om_url/api/v1/services/ingestionPipelines/name/$pipeline_fqn" \
@@ -513,6 +627,11 @@ resource "kubernetes_job_v1" "bootstrap" {
                 key  = var.catalog_contract.om_client_secret_key
               }
             }
+          }
+
+          env {
+            name  = "SUPERSET_ADMIN_PASSWORD"
+            value = var.superset_admin_password
           }
 
           env {

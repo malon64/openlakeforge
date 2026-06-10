@@ -133,3 +133,28 @@ variable "catalog_refresh_enabled" {
   type        = bool
   default     = true
 }
+
+variable "dagster_webserver_url" {
+  description = "Cluster-internal URL of the Dagster webserver for OM pipeline metadata ingestion."
+  type        = string
+  default     = "http://dagster-dagster-webserver:80"
+}
+
+variable "superset_url" {
+  description = "Cluster-internal URL of the Superset instance for OM dashboard metadata ingestion."
+  type        = string
+  default     = "http://superset:8088"
+}
+
+variable "superset_admin_username" {
+  description = "Superset admin username used by OM to crawl dashboards."
+  type        = string
+  default     = "admin"
+}
+
+variable "superset_admin_password" {
+  description = "Superset admin password used by OM to crawl dashboards."
+  type        = string
+  sensitive   = true
+  default     = "admin"
+}
