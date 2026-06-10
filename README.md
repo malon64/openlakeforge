@@ -96,8 +96,8 @@ local/CD artifact phase.
 - Iteration 2: project-code image and Dagster deployment with Kubernetes run launcher.
 - Iteration 3: Sales POC ingestion and Floe Silver materialization.
 - Iteration 4: dbt-duckdb Gold models and Dagster-dbt integration.
-- Iteration 5: OpenMetadata governance, catalog discovery, and OpenLineage ingestion.
-- Iteration 6: Superset reporting over Sales Gold marts.
+- Iteration 5: OpenMetadata governance, catalog discovery, and OpenLineage ingestion (OL removed in Iteration 6 — see ADR 0009).
+- Iteration 6: Superset reporting over Sales Gold marts; OpenLineage integration deferred pending upstream connector fixes.
 
 ## Local Validation
 
