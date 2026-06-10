@@ -55,13 +55,5 @@ execution:
       - name: POLARIS_FLOE_CLIENT_SECRET
         secret_name: polaris-floe-creds
         key: POLARIS_FLOE_CLIENT_SECRET
-      - name: OPENLINEAGE_API_KEY
-        secret_name: openmetadata-ingestion-bot
-        key: OPENMETADATA_INGESTION_BOT_JWT
-lineage:
-  url: "http://openmetadata-openlineage:5000"
-  namespace: "http://polaris:8181/api/catalog"
-  api_key: "{{OPENLINEAGE_API_KEY}}"
-  timeout_secs: 10
 validation:
   strict: true

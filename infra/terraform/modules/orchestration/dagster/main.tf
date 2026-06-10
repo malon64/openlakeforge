@@ -48,6 +48,14 @@ resource "helm_release" "dagster" {
             includeConfigInLaunchedRuns = {
               enabled = true
             }
+            deploymentConfig = {
+              strategy = {
+                type = "Recreate"
+              }
+            }
+            podSpecConfig = {
+              terminationGracePeriodSeconds = 10
+            }
             env = [
               {
                 name  = "AWS_REGION"
@@ -112,27 +120,6 @@ resource "helm_release" "dagster" {
               {
                 name  = "OPENLAKEFORGE_DBT_ATTACH_POLARIS"
                 value = "true"
-              },
-              {
-                name  = "OPENLINEAGE_URL"
-                value = var.governance_contract.openlineage_url
-              },
-              {
-                name  = "OPENLINEAGE_ENDPOINT"
-                value = var.governance_contract.lineage_endpoint
-              },
-              {
-                name = "OPENLINEAGE_API_KEY"
-                valueFrom = {
-                  secretKeyRef = {
-                    name = var.governance_contract.ingestion_bot_secret_name
-                    key  = var.governance_contract.ingestion_bot_jwt_key
-                  }
-                }
-              },
-              {
-                name  = "OPENLINEAGE_NAMESPACE"
-                value = var.catalog_contract.rest_uri
               },
             ]
             envSecrets = [
@@ -248,27 +235,6 @@ resource "helm_release" "dagster" {
                   {
                     name  = "OPENLAKEFORGE_DBT_ATTACH_POLARIS"
                     value = "true"
-                  },
-                  {
-                    name  = "OPENLINEAGE_URL"
-                    value = var.governance_contract.openlineage_url
-                  },
-                  {
-                    name  = "OPENLINEAGE_ENDPOINT"
-                    value = var.governance_contract.lineage_endpoint
-                  },
-                  {
-                    name = "OPENLINEAGE_API_KEY"
-                    valueFrom = {
-                      secretKeyRef = {
-                        name = var.governance_contract.ingestion_bot_secret_name
-                        key  = var.governance_contract.ingestion_bot_jwt_key
-                      }
-                    }
-                  },
-                  {
-                    name  = "OPENLINEAGE_NAMESPACE"
-                    value = var.catalog_contract.rest_uri
                   },
                 ]
                 envFrom = [

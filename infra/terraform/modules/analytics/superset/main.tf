@@ -34,6 +34,21 @@ resource "kubernetes_persistent_volume_claim_v1" "reports" {
   }
 }
 
+resource "null_resource" "reports_pvc_finalizer_cleanup" {
+  triggers = {
+    namespace = var.namespace
+    pvc_name  = local.reports_claim_name
+  }
+
+  provisioner "local-exec" {
+    when        = destroy
+    interpreter = ["wsl", "bash", "-c"]
+    command     = "kubectl patch pvc ${self.triggers.pvc_name} -n ${self.triggers.namespace} -p '{\"metadata\":{\"finalizers\":null}}' --type=merge || true"
+  }
+
+  depends_on = [kubernetes_persistent_volume_claim_v1.reports]
+}
+
 resource "helm_release" "superset" {
   name       = var.release_name
   repository = var.chart_repository

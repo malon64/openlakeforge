@@ -23,7 +23,7 @@ export POLARIS_DBT_CLIENT_ID="${POLARIS_DBT_CLIENT_ID:-openlakeforge-dbt}"
 export POLARIS_DBT_CLIENT_SECRET="${POLARIS_DBT_CLIENT_SECRET:-openlakeforge-dbt}"
 export POLARIS_REST_URI="${POLARIS_REST_URI:-http://polaris:8181/api/catalog}"
 export POLARIS_TOKEN_URI="${POLARIS_TOKEN_URI:-http://polaris:8181/api/catalog/v1/oauth/tokens}"
-export POLARIS_WAREHOUSE="${POLARIS_WAREHOUSE:-lakehouse}"
+export POLARIS_WAREHOUSE="${POLARIS_WAREHOUSE:-sales_dev}"
 export POLARIS_OAUTH_SCOPE="${POLARIS_OAUTH_SCOPE:-PRINCIPAL_ROLE:ALL}"
 
 dbt parse \

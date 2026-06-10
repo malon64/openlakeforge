@@ -42,7 +42,7 @@ restart_if_exists() {
 
   echo "==> Restarting ${deployment} after dynamic artifact deployment..."
   kubectl rollout restart "deployment/${deployment}" -n "${NAMESPACE}"
-  kubectl rollout status "deployment/${deployment}" -n "${NAMESPACE}" --timeout=300s
+  kubectl rollout status "deployment/${deployment}" -n "${NAMESPACE}" --timeout=600s
 }
 
 restart_dagster_project_code_deployments() {
