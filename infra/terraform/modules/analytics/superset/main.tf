@@ -41,9 +41,8 @@ resource "null_resource" "reports_pvc_finalizer_cleanup" {
   }
 
   provisioner "local-exec" {
-    when        = destroy
-    interpreter = ["wsl", "bash", "-c"]
-    command     = "kubectl patch pvc ${self.triggers.pvc_name} -n ${self.triggers.namespace} -p '{\"metadata\":{\"finalizers\":null}}' --type=merge || true"
+    when    = destroy
+    command = "kubectl patch pvc ${self.triggers.pvc_name} -n ${self.triggers.namespace} -p '{\"metadata\":{\"finalizers\":null}}' --type=merge || true"
   }
 
   depends_on = [kubernetes_persistent_volume_claim_v1.reports]
