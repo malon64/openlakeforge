@@ -3,7 +3,7 @@ output "contract" {
   value = {
     service_name       = var.release_name
     http_port          = var.http_port
-    reports_claim_name = kubernetes_persistent_volume_claim_v1.reports.metadata[0].name
+    reports_claim_name = local.reports_claim_name
     reports_mount_path = var.reports_mount_path
   }
 

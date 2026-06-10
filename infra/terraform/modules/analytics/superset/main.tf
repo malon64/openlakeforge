@@ -13,41 +13,6 @@ resource "random_password" "secret_key" {
   special = false
 }
 
-resource "kubernetes_persistent_volume_claim_v1" "reports" {
-  wait_until_bound = false
-
-  metadata {
-    name      = local.reports_claim_name
-    namespace = var.namespace
-    labels    = local.labels
-  }
-
-  spec {
-    access_modes       = ["ReadWriteOnce"]
-    storage_class_name = var.reports_storage_class_name
-
-    resources {
-      requests = {
-        storage = var.reports_storage_size
-      }
-    }
-  }
-}
-
-resource "null_resource" "reports_pvc_finalizer_cleanup" {
-  triggers = {
-    namespace = var.namespace
-    pvc_name  = local.reports_claim_name
-  }
-
-  provisioner "local-exec" {
-    when    = destroy
-    command = "kubectl patch pvc ${self.triggers.pvc_name} -n ${self.triggers.namespace} -p '{\"metadata\":{\"finalizers\":null}}' --type=merge || true"
-  }
-
-  depends_on = [kubernetes_persistent_volume_claim_v1.reports]
-}
-
 resource "helm_release" "superset" {
   name       = var.release_name
   repository = var.chart_repository
@@ -116,11 +81,36 @@ resource "helm_release" "superset" {
         SUPERSET_SECRET_KEY = random_password.secret_key.result
       }
 
+      # The reports PVC is declared here as an extraObject so that Helm owns its
+      # full lifecycle. When `helm uninstall` runs, Helm deletes the pods and the
+      # PVC together; the pvc-protection finalizer is cleared by Kubernetes once
+      # the pods finish terminating, without Terraform ever blocking on it.
+      extraObjects = [
+        {
+          apiVersion = "v1"
+          kind       = "PersistentVolumeClaim"
+          metadata = {
+            name      = local.reports_claim_name
+            namespace = var.namespace
+            labels    = local.labels
+          }
+          spec = {
+            accessModes      = ["ReadWriteOnce"]
+            storageClassName = var.reports_storage_class_name
+            resources = {
+              requests = {
+                storage = var.reports_storage_size
+              }
+            }
+          }
+        },
+      ]
+
       extraVolumes = [
         {
           name = "superset-reports"
           persistentVolumeClaim = {
-            claimName = kubernetes_persistent_volume_claim_v1.reports.metadata[0].name
+            claimName = local.reports_claim_name
           }
         },
       ]
