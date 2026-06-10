@@ -450,8 +450,7 @@ resource "kubernetes_job_v1" "bootstrap" {
                       \"type\": \"UsernamePasswordConnection\",
                       \"username\": \"${var.superset_admin_username}\",
                       \"password\": \"$SUPERSET_ADMIN_PASSWORD\"
-                    },
-                    \"provider\": \"db\"
+                    }
                   }
                 }
               }")"
