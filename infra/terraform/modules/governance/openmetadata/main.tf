@@ -425,13 +425,14 @@ resource "kubernetes_job_v1" "bootstrap" {
               exit 1
             fi
 
+            # Deploy (register) the pipeline definition but do NOT trigger it.
+            # OM 1.12.x Dagster connector uses `... on PipelineRuns` which Dagster 1.x
+            # renamed to `Runs`; the test connection step crashes before indexing starts.
+            # Trigger manually once the connector is updated (see ADR 0009).
             curl -sS -o /tmp/om-dagster-deploy-body -X POST \
               "$om_url/api/v1/services/ingestionPipelines/deploy/$dagster_pipeline_id" \
               -H "Authorization: Bearer $ADMIN_JWT" || true
-            curl -sS -o /tmp/om-dagster-trigger-body -X POST \
-              "$om_url/api/v1/services/ingestionPipelines/trigger/$dagster_pipeline_id" \
-              -H "Authorization: Bearer $ADMIN_JWT" || true
-            echo "Dagster pipeline service registered."
+            echo "Dagster pipeline service registered (ingestion deferred — see ADR 0009)."
 
             # Register Superset as a Dashboard Service and trigger metadata ingestion.
             superset_svc_code="$(curl -sS -o /tmp/om-superset-svc-body -w '%%{http_code}' \
@@ -502,13 +503,15 @@ resource "kubernetes_job_v1" "bootstrap" {
               exit 1
             fi
 
+            # Deploy (register) the pipeline definition but do NOT trigger it.
+            # OM 1.12.x Superset connector: Java API rejects username/password in the
+            # service connection, but the Python ingestion SDK requires them — the
+            # connection can't be deserialized and the connector crashes (see ADR 0009).
+            # Trigger manually once the connector schema is aligned.
             curl -sS -o /tmp/om-superset-deploy-body -X POST \
               "$om_url/api/v1/services/ingestionPipelines/deploy/$superset_pipeline_id" \
               -H "Authorization: Bearer $ADMIN_JWT" || true
-            curl -sS -o /tmp/om-superset-trigger-body -X POST \
-              "$om_url/api/v1/services/ingestionPipelines/trigger/$superset_pipeline_id" \
-              -H "Authorization: Bearer $ADMIN_JWT" || true
-            echo "Superset dashboard service registered."
+            echo "Superset dashboard service registered (ingestion deferred — see ADR 0009)."
 
             # Create or reuse the Polaris metadata ingestion pipeline.
             pipeline_fqn="polaris.polaris-metadata-ingestion"

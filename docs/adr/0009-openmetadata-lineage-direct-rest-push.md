@@ -93,19 +93,54 @@ containers) via the bootstrap Job and the `openmetadata-metadata-deploy` artifac
 Lineage graphs in OM will remain empty until upstream fixes land and lineage is
 re-enabled.
 
+## Dagster and Superset metadata ingestion also deferred
+
+Beyond lineage, the metadata crawl for Dagster (pipeline metadata) and Superset (dashboard
+metadata) is also non-functional in OM 1.12.x due to connector bugs in the OM ingestion
+package.
+
+### Dagster connector — GraphQL type name mismatch
+
+The OM 1.12.x Dagster connector sends a test query using the fragment
+`... on PipelineRuns { results { ... } }`. Dagster 1.x renamed this union type from
+`PipelineRuns` to `Runs`. The fragment never matches, the test connection step crashes,
+and ingestion never starts. Both services and ingestion pipeline definitions are
+pre-registered in OM (visible in Settings → Services) but not triggered until the
+connector is updated.
+
+### Superset connector — Java API / Python SDK credential schema mismatch
+
+The OM 1.12.x REST API (`PUT /api/v1/services/dashboardServices`) accepts only `hostPort`
+in the `SupersetConnection` config; any `username` or `password` field at the same level
+returns HTTP 400 "unrecognized field". However, the OM Python ingestion SDK's
+`SupersetConnection` Pydantic model has `username` as a required field. When the ingestion
+job reads back the stored connection (which lacks `username`), the discriminated-union
+deserializer cannot construct a valid `SupersetConnection` object and
+`config.serviceConnection.root` is `None`, crashing the connector before any dashboards
+are indexed.
+
+The Superset service and ingestion pipeline definition are pre-registered in OM and will
+work once the credential schema is aligned between the Java and Python layers.
+
 ## Upstream issues to watch
 
 | Issue | Repository | What unblocks |
 |---|---|---|
 | malon64/floe#382 + comment | malon64/floe | All four Floe OL bugs (non-UUID run ID, empty inputs/outputs, malformed job name, S3 leading slash) |
 | duckdb/dbt-duckdb#764 | duckdb/dbt-duckdb | ATTACH endpoint exposed to openlineage-dbt so dataset namespace resolves to the catalog URI |
+| OM Dagster connector | open-metadata/OpenMetadata | `... on Runs` fragment instead of `... on PipelineRuns` for Dagster 1.x |
+| OM Superset connector | open-metadata/OpenMetadata | Align Java API schema to accept `username`/`password` OR make Python SDK not require them |
 
-When both issues are resolved, the expected path forward is:
+When lineage issues are resolved, the expected path forward is:
 
 1. Re-enable Floe OL by restoring the `lineage:` block in the Floe profile.
 2. Re-add `openlineage-dbt` and configure `OPENLINEAGE_*` env vars in Dagster.
 3. Remove the OL proxy entirely (it is already gone); route OL events directly to the OM
    native endpoint at `/api/v1/openlineage/lineage`.
+
+When Dagster/Superset connector bugs are resolved, trigger the pre-registered ingestion
+pipelines (`dagster.dagster-metadata-ingestion`, `superset.superset-metadata-ingestion`)
+from the OM UI or via the API.
 
 ## Consequences
 
@@ -113,5 +148,5 @@ OpenMetadata browse and search are fully functional. Domains, data products, tab
 and the SeaweedFS storage hierarchy are seeded at stack startup. The Polaris catalog
 crawler refreshes column metadata on an hourly schedule.
 
-Lineage graphs are empty. There is no Bronze→Silver or Silver→Gold lineage edge visible
-in OM until upstream connector bugs are fixed and the integration is re-enabled.
+Lineage graphs are empty. Dagster pipeline and Superset dashboard metadata is not imported.
+These are blocked by upstream connector bugs and will be unblocked when those bugs are fixed.
