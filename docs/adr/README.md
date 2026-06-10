@@ -26,3 +26,9 @@ Superset deployment model, custom image, and YAML-based report bundle lifecycle.
 `0008-two-phase-deploy-infra-and-artifacts.md` records the split between
 Terraform-owned static infrastructure (Phase 1) and domain artifact deployment
 (Phase 2), and defines the CD boundary.
+
+`0009-openmetadata-lineage-direct-rest-push.md` supersedes ADR 0006. It
+documents the upstream bugs in Floe and dbt-duckdb that prevent reliable
+OpenLineage emission, explains why both the proxy and a custom Dagster REST
+push were abandoned, and records the decision to defer all lineage integration
+until upstream connectors are fixed.
