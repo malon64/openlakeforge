@@ -445,9 +445,7 @@ resource "kubernetes_job_v1" "bootstrap" {
                 \"connection\": {
                   \"config\": {
                     \"type\": \"Superset\",
-                    \"hostPort\": \"${var.superset_url}\",
-                    \"username\": \"${var.superset_admin_username}\",
-                    \"password\": \"$SUPERSET_ADMIN_PASSWORD\"
+                    \"hostPort\": \"${var.superset_url}\"
                   }
                 }
               }")"
@@ -623,11 +621,6 @@ resource "kubernetes_job_v1" "bootstrap" {
                 key  = var.catalog_contract.om_client_secret_key
               }
             }
-          }
-
-          env {
-            name  = "SUPERSET_ADMIN_PASSWORD"
-            value = var.superset_admin_password
           }
 
           env {
@@ -833,53 +826,6 @@ resource "kubernetes_cron_job_v1" "catalog_refresh" {
                       ;;
                   esac
                 done
-
-                pipeline_service_code="$(curl -sS -o /tmp/om-pipeline-service-body -w '%%{http_code}' \
-                  -X PUT "$om_url/api/v1/services/pipelineServices" \
-                  -H "Authorization: Bearer $ADMIN_JWT" \
-                  -H "Content-Type: application/json" \
-                  -d "{
-                    \"name\": \"openlineage\",
-                    \"displayName\": \"OpenLineage Events\",
-                    \"serviceType\": \"CustomPipeline\",
-                    \"connection\": {
-                      \"config\": {
-                        \"type\": \"CustomPipeline\"
-                      }
-                    }
-                  }")"
-                case " 200 201 " in
-                  *" $pipeline_service_code "*) ;;
-                  *)
-                    echo "Failed to create or update OpenLineage pipeline service (HTTP $pipeline_service_code)" >&2
-                    cat /tmp/om-pipeline-service-body >&2
-                    exit 1
-                    ;;
-                esac
-
-                dbt_pipeline_code="$(curl -sS -o /tmp/om-dbt-pipeline-body -w '%%{http_code}' \
-                  -X PUT "$om_url/api/v1/pipelines" \
-                  -H "Authorization: Bearer $ADMIN_JWT" \
-                  -H "Content-Type: application/json" \
-                  -d "{
-                    \"name\": \"dbt-dbt-run-sales_poc\",
-                    \"displayName\": \"dbt Sales POC\",
-                    \"service\": \"openlineage\",
-                    \"scheduleInterval\": \"manual\",
-                    \"tasks\": [
-                      {
-                        \"name\": \"dbt-build\"
-                      }
-                    ]
-                  }")"
-                case " 200 201 " in
-                  *" $dbt_pipeline_code "*) ;;
-                  *)
-                    echo "Failed to create or update dbt OpenLineage pipeline (HTTP $dbt_pipeline_code)" >&2
-                    cat /tmp/om-dbt-pipeline-body >&2
-                    exit 1
-                    ;;
-                esac
 
                 pipeline_fqn="polaris.polaris-metadata-ingestion"
                 pipeline_resp="$(curl -sS "$om_url/api/v1/services/ingestionPipelines/name/$pipeline_fqn" \

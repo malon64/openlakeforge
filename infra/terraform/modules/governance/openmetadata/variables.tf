@@ -146,15 +146,3 @@ variable "superset_url" {
   default     = "http://superset:8088"
 }
 
-variable "superset_admin_username" {
-  description = "Superset admin username used by OM to crawl dashboards."
-  type        = string
-  default     = "admin"
-}
-
-variable "superset_admin_password" {
-  description = "Superset admin password used by OM to crawl dashboards."
-  type        = string
-  sensitive   = true
-  default     = "admin"
-}
