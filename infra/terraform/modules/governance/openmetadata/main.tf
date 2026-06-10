@@ -446,11 +446,8 @@ resource "kubernetes_job_v1" "bootstrap" {
                   \"config\": {
                     \"type\": \"Superset\",
                     \"hostPort\": \"${var.superset_url}\",
-                    \"connection\": {
-                      \"type\": \"UsernamePasswordConnection\",
-                      \"username\": \"${var.superset_admin_username}\",
-                      \"password\": \"$SUPERSET_ADMIN_PASSWORD\"
-                    }
+                    \"username\": \"${var.superset_admin_username}\",
+                    \"password\": \"$SUPERSET_ADMIN_PASSWORD\"
                   }
                 }
               }")"
