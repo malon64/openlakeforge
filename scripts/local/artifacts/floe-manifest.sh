@@ -68,7 +68,7 @@ payload = json.loads(manifest_path.read_text(encoding="utf-8"))
 base_args = payload["execution"]["base_args"]
 
 # Keep the Dagster run id in the manifest execution contract so Kubernetes
-# Floe runners can propagate lineage and report ids consistently.
+# Floe runners can propagate run and report ids consistently.
 if "--run-id" not in base_args:
     base_args.extend(["--run-id", "{run_id}"])
 

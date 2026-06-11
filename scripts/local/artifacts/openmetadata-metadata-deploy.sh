@@ -392,8 +392,7 @@ def deploy():
 
     # Phase A+B: SeaweedFS Object Store service and Bronze CSV source containers.
     # The seeding gives browse-level visibility in OM's Storage section immediately.
-    # Lineage from these containers to Silver tables will appear once OM implements
-    # entity auto-creation from OpenLineage events (see upstream issue).
+    # Lineage integration is intentionally deferred; see ADR 0009.
     ensure_storage_service(token, "seaweedfs", "SeaweedFS S3", "http://seaweedfs-s3:8333", "us-east-1")
     ensure_container(token, "seaweedfs", "iceberg-data", None, "s3://iceberg-data", "Main Iceberg data bucket.")
     for cname, cpath, cdesc in [
@@ -403,8 +402,8 @@ def deploy():
     ]:
         ensure_container(token, "seaweedfs", cname, "seaweedfs.iceberg-data", cpath, cdesc)
 
-    # Phase C: Pre-seed Iceberg table stubs so OL lineage events have existing entities to
-    # attach to at startup, before the hourly Polaris crawler runs.
+    # Phase C: Pre-seed Iceberg table stubs so governed assets are visible before
+    # the hourly Polaris crawler refreshes table metadata.
     for metadata_dir in dirs:
         for tfile in table_files(metadata_dir):
             tspec = load_yaml(tfile)

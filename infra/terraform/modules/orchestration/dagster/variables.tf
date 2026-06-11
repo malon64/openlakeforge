@@ -74,42 +74,66 @@ variable "floe_manifest_revision" {
 }
 
 variable "storage_contract" {
-  description = "Storage contract output from the SeaweedFS module."
+  description = "S3-compatible storage contract consumed by Dagster and run pods."
   type = object({
-    endpoint                = string
+    endpoint                = optional(string)
     region                  = string
     bucket_name             = string
-    path_style_access       = bool
-    credentials_secret_name = string
+    path_style_access       = optional(bool)
+    credentials_secret_name = optional(string)
     access_key_id_key       = string
     secret_access_key_key   = string
+    provider                = optional(string)
+    implementation          = optional(string)
+    auth_mode               = optional(string)
+    ssl_mode                = optional(string)
+    ingress_mode            = optional(string)
   })
 }
 
 variable "catalog_contract" {
-  description = "Polaris REST catalog contract output from the Polaris module."
+  description = "Iceberg catalog contract consumed by Dagster and run pods. Current local uses REST/Polaris; future provider profiles may use Glue."
   type = object({
-    rest_uri                     = string
-    token_uri                    = string
-    warehouse                    = string
-    oauth_scope                  = string
-    floe_credentials_secret_name = string
-    floe_client_id_key           = string
-    floe_client_secret_key       = string
-    dbt_credentials_secret_name  = string
-    dbt_client_id_key            = string
-    dbt_client_secret_key        = string
+    rest_uri                     = optional(string)
+    token_uri                    = optional(string)
+    warehouse                    = optional(string)
+    oauth_scope                  = optional(string)
+    floe_credentials_secret_name = optional(string)
+    floe_client_id_key           = optional(string)
+    floe_client_secret_key       = optional(string)
+    dbt_credentials_secret_name  = optional(string)
+    dbt_client_id_key            = optional(string)
+    dbt_client_secret_key        = optional(string)
+    catalog_type                 = optional(string)
+    catalog_provider             = optional(string)
+    catalog_name                 = optional(string)
+    runtime_profile              = optional(string)
+    trino_catalog_name           = optional(string)
+    default_warehouse_location   = optional(string)
+    glue_catalog_id              = optional(string)
+    glue_region                  = optional(string)
+    provider                     = optional(string)
+    implementation               = optional(string)
+    auth_mode                    = optional(string)
+    ssl_mode                     = optional(string)
+    endpoint                     = optional(string)
+    ingress_mode                 = optional(string)
   })
 }
 
 variable "postgresql_contract" {
-  description = "Shared PostgreSQL contract from the postgresql module."
+  description = "Metadata PostgreSQL contract consumed by Dagster."
   type = object({
     host                            = string
     port                            = number
     dagster_db_name                 = string
     dagster_db_user                 = string
     dagster_credentials_secret_name = string
+    provider                        = optional(string)
+    implementation                  = optional(string)
+    auth_mode                       = optional(string)
+    ssl_mode                        = optional(string)
+    endpoint                        = optional(string)
   })
 }
 
@@ -120,5 +144,10 @@ variable "governance_contract" {
     http_port                 = optional(number)
     ingestion_bot_secret_name = string
     ingestion_bot_jwt_key     = string
+    provider                  = optional(string)
+    implementation            = optional(string)
+    auth_mode                 = optional(string)
+    endpoint                  = optional(string)
+    ingress_mode              = optional(string)
   })
 }

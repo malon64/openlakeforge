@@ -1,5 +1,5 @@
 output "contract" {
-  description = "S3-compatible storage contract for local lakehouse services."
+  description = "S3-compatible storage contract implemented by local SeaweedFS."
   value = {
     endpoint                = "http://${local.s3_service_name}:${var.s3_port}"
     virtual_host_endpoint   = "http://${var.namespace}.svc.cluster.local:${var.s3_port}"

@@ -38,13 +38,18 @@ variable "deps_chart_version" {
 }
 
 variable "postgresql_contract" {
-  description = "Shared PostgreSQL contract from the postgresql module."
+  description = "Metadata PostgreSQL contract consumed by OpenMetadata."
   type = object({
     host                                 = string
     port                                 = number
     openmetadata_db_name                 = string
     openmetadata_db_user                 = string
     openmetadata_credentials_secret_name = string
+    provider                             = optional(string)
+    implementation                       = optional(string)
+    auth_mode                            = optional(string)
+    ssl_mode                             = optional(string)
+    endpoint                             = optional(string)
   })
 }
 
@@ -86,7 +91,7 @@ variable "ingestion_bot_jwt_key" {
 }
 
 variable "catalog_contract" {
-  description = "Polaris REST catalog contract from the Polaris module."
+  description = "Iceberg catalog contract consumed by OpenMetadata. This module currently uses the REST/Polaris fields for catalog discovery."
   type = object({
     rest_uri                   = string
     token_uri                  = string
@@ -95,11 +100,25 @@ variable "catalog_contract" {
     om_credentials_secret_name = string
     om_client_id_key           = string
     om_client_secret_key       = string
+    catalog_type               = optional(string)
+    catalog_provider           = optional(string)
+    catalog_name               = optional(string)
+    runtime_profile            = optional(string)
+    trino_catalog_name         = optional(string)
+    default_warehouse_location = optional(string)
+    glue_catalog_id            = optional(string)
+    glue_region                = optional(string)
+    provider                   = optional(string)
+    implementation             = optional(string)
+    auth_mode                  = optional(string)
+    ssl_mode                   = optional(string)
+    endpoint                   = optional(string)
+    ingress_mode               = optional(string)
   })
 }
 
 variable "storage_contract" {
-  description = "S3-compatible storage contract from the SeaweedFS module."
+  description = "S3-compatible storage contract consumed by OpenMetadata."
   type = object({
     virtual_host_endpoint   = string
     region                  = string
@@ -107,17 +126,24 @@ variable "storage_contract" {
     credentials_secret_name = string
     access_key_id_key       = string
     secret_access_key_key   = string
+    endpoint                = optional(string)
+    path_style_access       = optional(bool)
+    provider                = optional(string)
+    implementation          = optional(string)
+    auth_mode               = optional(string)
+    ssl_mode                = optional(string)
+    ingress_mode            = optional(string)
   })
 }
 
 variable "catalog_database_name" {
-  description = "OpenMetadata database name to seed under the Polaris database service before OpenLineage events arrive."
+  description = "OpenMetadata database name to seed under the Polaris database service before catalog refresh."
   type        = string
   default     = "sales_dev"
 }
 
 variable "catalog_schema_names" {
-  description = "OpenMetadata database schema names to seed before OpenLineage events arrive."
+  description = "OpenMetadata database schema names to seed before catalog refresh."
   type        = list(string)
   default     = ["silver", "gold"]
 }
@@ -145,4 +171,3 @@ variable "superset_url" {
   type        = string
   default     = "http://superset:8088"
 }
-

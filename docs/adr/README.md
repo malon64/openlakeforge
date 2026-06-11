@@ -32,3 +32,11 @@ documents the upstream bugs in Floe and dbt-duckdb that prevent reliable
 OpenLineage emission, explains why both the proxy and a custom Dagster REST
 push were abandoned, and records the decision to defer all lineage integration
 until upstream connectors are fixed.
+
+`0010-provider-contract-first-cloud-readiness.md` records the decision to make
+the local stack cloud-ready through provider-neutral contracts while keeping
+local as the only implemented environment for now.
+
+`0011-iceberg-catalog-contract-allows-glue.md` records the decision that the
+catalog contract describes the Iceberg catalog implementation, allowing a future
+AWS provider profile to use Glue instead of self-hosted Polaris.

@@ -2,29 +2,28 @@
 
 Terraform will own environment assembly and reusable platform modules.
 
-Implemented local structure:
+Implemented structure:
 
 ```text
 infra/terraform/
 ├── environments/
 │   └── local/
 └── modules/
-    ├── platform/
     ├── storage/seaweedfs/
+    ├── storage/postgresql/
     ├── catalog/polaris/
     ├── query/trino/
     ├── analytics/superset/
     ├── orchestration/dagster/
-    ├── database/postgres/
-    ├── security/
-    ├── governance/
-    └── observability/
+    └── governance/openmetadata/
 ```
 
 The local environment deploys into the active Kubernetes context. It does not
 create the kind cluster; use `make local-cluster` for that. Static, non-secret
 Helm chart values live in `../helm/values/local`; Terraform modules overlay the
-dynamic contract values and Secret references.
+dynamic contract values and Secret references. Local is the only implemented
+provider profile today, but its module outputs are shaped as provider contracts
+so a future cloud profile can swap implementations.
 
 ## Local workflow
 
@@ -55,7 +54,7 @@ make local-artifacts-deploy
 - shared local PostgreSQL for Dagster, OpenMetadata, and Superset metadata
 - Dagster webserver, daemon, sales code server, and Kubernetes run launcher
 - Superset webserver, worker, reports volume, and local report deploy path
-- OpenMetadata, OpenLineage proxy, Polaris service metadata, and catalog ingestion plumbing
+- OpenMetadata, Polaris service metadata, and catalog ingestion plumbing
 
 `make local-artifacts-deploy` owns the local/CD artifacts:
 
@@ -67,3 +66,6 @@ make local-artifacts-deploy
 
 Terraform state is local and contains generated development credentials. Treat
 state files as sensitive; they are gitignored.
+
+No AWS environment, AWS provider blocks, remote state backend, Keycloak, Vault,
+or cloud secret manager integration is implemented yet.

@@ -83,7 +83,7 @@ variable "dbt_catalog_role" {
 }
 
 variable "storage_contract" {
-  description = "Storage contract output from the SeaweedFS module."
+  description = "S3-compatible storage contract consumed by Polaris."
   type = object({
     endpoint                = string
     region                  = string
@@ -92,6 +92,11 @@ variable "storage_contract" {
     credentials_secret_name = string
     access_key_id_key       = string
     secret_access_key_key   = string
+    provider                = optional(string)
+    implementation          = optional(string)
+    auth_mode               = optional(string)
+    ssl_mode                = optional(string)
+    ingress_mode            = optional(string)
   })
 }
 

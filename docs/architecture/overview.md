@@ -24,9 +24,9 @@ sales code server, and Kubernetes run launcher. Iteration 3 adds the Sales dlt
 Bronze extract and manifest-first Floe Silver materialization. Iteration 4 adds
 Sales dbt-duckdb Gold marts and dagster-dbt orchestration in the same Kubernetes
 run-pod execution model.
-Iteration 5 adds OpenMetadata governance, catalog discovery, and OpenLineage
-ingestion. Iteration 6 adds Superset reporting over Sales Gold marts through
-Trino.
+Iteration 5 adds OpenMetadata governance and catalog discovery. Iteration 6 adds
+Superset reporting over Sales Gold marts through Trino. OpenLineage integration
+is deferred until upstream connector issues are fixed; see ADR 0009.
 
 ## Core Platform Decisions
 
@@ -36,16 +36,16 @@ Trino.
 | Portability | Cloud-agnostic across local, on-prem, and cloud Kubernetes |
 | Processing scope | Batch-first v1; streaming deferred |
 | Table format | Apache Iceberg |
-| Catalog | Apache Polaris REST catalog |
+| Catalog | Iceberg catalog contract; local uses Apache Polaris REST |
 | Local object storage | SeaweedFS |
 | Query layer | Trino for analytics queries only |
 | Reporting | Superset over Gold marts through Trino |
 | Orchestration | Dagster asset graph |
-| Lineage protocol | OpenLineage |
+| Lineage protocol | OpenLineage target, currently deferred |
 | Governance target | OpenMetadata |
-| IAM target | Keycloak |
-| Secret management target | Vault and External Secrets Operator |
-| Ingress and TLS target | Traefik and cert-manager |
+| IAM target | Keycloak later; local uses development credentials |
+| Secret management target | Vault / External Secrets later; local uses Kubernetes Secrets |
+| Ingress and TLS target | Traefik / cert-manager later; local uses port-forwarding |
 
 ## Medallion Ownership
 
@@ -87,7 +87,7 @@ Dagster webserver / daemon / code server
   -> dlt ingestion assets
   -> Floe assets through dagster-floe and the Floe runner image
   -> dbt assets through dagster-dbt
-  -> lineage and metadata emission
+  -> metadata catalog refresh
 ```
 
 The local stack loads `ghcr.io/openlakeforge/project-code:local` into the local

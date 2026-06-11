@@ -116,5 +116,5 @@ OpenMetadata governance metadata deployment. The Dagster UI is available at
 `http://localhost:3000` through `make local-forward`. Launch
 `sales_etl_pipeline` from Dagster to run the Sales `dlt -> Floe -> dbt-duckdb`
 pipeline. Trino is forwarded to `http://localhost:8080` for local SQL clients
-such as DBeaver. Superset is forwarded to `http://localhost:8088` with local
-credentials `admin / admin`.
+such as DBeaver. Superset is forwarded to `http://localhost:8088` with
+development-only local credentials `admin / admin`.

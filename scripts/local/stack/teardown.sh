@@ -22,11 +22,10 @@ check_prereqs() {
 echo "==> Checking prerequisites..."
 check_prereqs
 
-echo "==> Releasing PVC protection finalizers to allow clean Terraform destroy..."
-for pvc in $(kubectl get pvc -n "${NAMESPACE}" -o name 2>/dev/null); do
-  kubectl patch "${pvc}" -n "${NAMESPACE}" \
-    -p '{"metadata":{"finalizers":null}}' --type=merge 2>/dev/null || true
-done
+echo "==> Removing completed Superset init hook job if present..."
+kubectl delete job superset-init-db -n "${NAMESPACE}" \
+  --ignore-not-found \
+  --wait=true
 
 echo "==> Destroying Terraform local stack..."
 terraform -chdir="${TERRAFORM_DIR}" init

@@ -1,6 +1,12 @@
 output "contract" {
-  description = "Polaris REST catalog contract for Trino."
+  description = "Polaris REST catalog contract for platform consumers."
   value = {
+    catalog_type                  = "rest"
+    catalog_provider              = "polaris"
+    catalog_name                  = var.catalog_name
+    runtime_profile               = "polaris-rest"
+    trino_catalog_name            = "iceberg"
+    default_warehouse_location    = "s3://${var.storage_contract.bucket_name}"
     rest_uri                      = local.rest_uri
     token_uri                     = local.token_uri
     warehouse                     = var.catalog_name
