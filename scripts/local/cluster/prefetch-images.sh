@@ -9,6 +9,9 @@ IMAGES=(
   "opensearchproject/opensearch:2.11.0"
   "docker.getcollate.io/openmetadata/ingestion-base:1.12.10"
   "postgres:16-alpine"
+  "apache/superset:dockerize"
+  "apachesuperset.docker.scarf.sh/apache/superset:5.0.0"
+  "docker.io/bitnamilegacy/redis:7.0.10-debian-11-r4"
 )
 
 for image in "${IMAGES[@]}"; do

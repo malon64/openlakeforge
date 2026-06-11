@@ -19,7 +19,7 @@ variable "kube_context" {
 variable "catalog_name" {
   description = "Polaris catalog and Trino Iceberg warehouse name."
   type        = string
-  default     = "lakehouse"
+  default     = "sales_dev"
 }
 
 variable "iceberg_bucket_name" {
@@ -62,4 +62,28 @@ variable "project_code_image_revision" {
   description = "Local project-code image revision used to force Dagster pod rollouts when the tag is reused."
   type        = string
   default     = "manual"
+}
+
+variable "superset_image_repository" {
+  description = "Superset image repository used by the local Superset Helm release."
+  type        = string
+  default     = "ghcr.io/openlakeforge/superset"
+}
+
+variable "superset_image_tag" {
+  description = "Superset image tag used by the local Superset Helm release."
+  type        = string
+  default     = "local"
+}
+
+variable "superset_image_pull_policy" {
+  description = "Superset image pull policy used by the local Superset Helm release."
+  type        = string
+  default     = "Never"
+}
+
+variable "trino_chart_package_path" {
+  description = "Optional local Trino Helm chart package used by local-up to avoid transient GitHub chart download failures."
+  type        = string
+  default     = null
 }

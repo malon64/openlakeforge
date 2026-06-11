@@ -1,0 +1,77 @@
+version: 2
+
+models:
+  - name: mart_revenue_by_product
+    description: Gold mart — revenue metrics aggregated by product.
+    columns:
+      - name: product_id
+        description: Product identifier.
+        data_type: varchar
+      - name: product_name
+        description: Product display name.
+        data_type: varchar
+      - name: category
+        description: Product category.
+        data_type: varchar
+      - name: order_count
+        description: Number of orders containing this product.
+        data_type: bigint
+      - name: units_sold
+        description: Total units sold.
+        data_type: bigint
+      - name: gross_revenue
+        description: Total revenue before cost deductions.
+        data_type: double
+      - name: total_cost
+        description: Total cost of goods sold.
+        data_type: double
+      - name: gross_margin
+        description: Gross revenue minus total cost.
+        data_type: double
+
+  - name: mart_sales_by_customer
+    description: Gold mart — sales volume aggregated by customer.
+    columns:
+      - name: customer_id
+        description: Customer identifier.
+        data_type: varchar
+      - name: first_name
+        description: Customer first name.
+        data_type: varchar
+      - name: last_name
+        description: Customer last name.
+        data_type: varchar
+      - name: country
+        description: Customer country.
+        data_type: varchar
+      - name: segment
+        description: Customer segment.
+        data_type: varchar
+      - name: order_count
+        description: Number of orders placed by this customer.
+        data_type: bigint
+      - name: units_sold
+        description: Total units purchased.
+        data_type: bigint
+      - name: gross_revenue
+        description: Total revenue from this customer.
+        data_type: double
+
+  - name: mart_sales_by_day
+    description: Gold mart — daily sales time series.
+    columns:
+      - name: sale_date
+        description: Date of sales aggregation.
+        data_type: date
+      - name: region
+        description: Sales region.
+        data_type: varchar
+      - name: order_count
+        description: Number of orders on this day.
+        data_type: bigint
+      - name: units_sold
+        description: Total units sold on this day.
+        data_type: bigint
+      - name: gross_revenue
+        description: Total revenue on this day.
+        data_type: double

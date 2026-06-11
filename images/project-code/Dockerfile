@@ -16,6 +16,14 @@ COPY libs ./libs
 
 RUN pip install --no-cache-dir --no-deps .
 
+# Pre-generate the dbt manifest at build time using the local (no-Polaris) target so
+# that the code-server pod starts without running dbt parse on every rollout.
+RUN dbt parse \
+      --project-dir domains/sales/transformations/dbt \
+      --profiles-dir domains/sales/transformations/dbt \
+      --target local \
+    && echo "dbt manifest baked at domains/sales/transformations/dbt/target/manifest.json"
+
 RUN mkdir -p "${DAGSTER_HOME}"
 
 CMD ["dagster", "api", "grpc", "--module-name", "domains.sales.pipelines.dagster.definitions", "--host", "0.0.0.0", "--port", "3030"]

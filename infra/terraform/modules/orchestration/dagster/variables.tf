@@ -114,10 +114,10 @@ variable "postgresql_contract" {
 }
 
 variable "governance_contract" {
-  description = "OpenMetadata governance contract — provides the OpenLineage endpoint and ingestion-bot JWT for Floe and dbt run pods."
+  description = "OpenMetadata governance contract passed from the governance module."
   type = object({
-    openlineage_url           = string
-    lineage_endpoint          = string
+    service_name              = optional(string)
+    http_port                 = optional(number)
     ingestion_bot_secret_name = string
     ingestion_bot_jwt_key     = string
   })

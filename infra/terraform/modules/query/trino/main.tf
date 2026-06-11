@@ -1,8 +1,14 @@
+locals {
+  chart      = var.chart_package_path != null ? var.chart_package_path : "trino"
+  repository = var.chart_package_path != null ? null : var.chart_repository
+  version    = var.chart_package_path != null ? null : var.chart_version
+}
+
 resource "helm_release" "trino" {
   name       = var.release_name
-  repository = var.chart_repository
-  chart      = "trino"
-  version    = var.chart_version
+  repository = local.repository
+  chart      = local.chart
+  version    = local.version
   namespace  = var.namespace
 
   wait    = true

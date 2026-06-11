@@ -3,8 +3,8 @@
 The Sales domain is the first v1 proof-of-concept domain.
 
 It proves the path from example CSV data to Bronze landing, Floe-validated
-Silver Iceberg tables, dbt-duckdb Gold marts, Trino querying, and Dagster asset
-orchestration.
+Silver Iceberg tables, dbt-duckdb Gold marts, Trino querying, Superset
+reporting, and Dagster asset orchestration.
 
 ## Domain Contract
 
@@ -15,6 +15,8 @@ domains/sales/
 ├── extract/dlt/
 ├── contracts/floe/
 ├── transformations/dbt/
+├── reports/superset/
+├── governance/openmetadata/
 ├── pipelines/dagster/
 └── tests/
 ```
@@ -39,3 +41,11 @@ Iteration 4 adds:
 
 Run `make dbt-parse` before building the project-code image when you want the
 generated dbt manifest baked into the local image.
+
+Iteration 6 adds:
+
+- source-controlled Superset report assets under `reports/superset`
+- the `Sales Gold Mart Overview` dashboard over the Sales Gold marts
+- local report deployment with `make superset-reports-deploy`
+- source-controlled OpenMetadata domain/data-product assets under
+  `governance/openmetadata`

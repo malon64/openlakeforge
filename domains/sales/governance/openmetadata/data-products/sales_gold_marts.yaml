@@ -1,0 +1,11 @@
+name: sales_gold_marts
+displayName: Sales Gold Marts
+description: Curated Sales Gold marts for reporting and analytics.
+domain: sales
+assets:
+  - type: table
+    fqn: polaris.sales_dev.gold.mart_sales_by_day
+  - type: table
+    fqn: polaris.sales_dev.gold.mart_revenue_by_product
+  - type: table
+    fqn: polaris.sales_dev.gold.mart_sales_by_customer

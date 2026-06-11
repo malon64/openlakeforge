@@ -110,22 +110,16 @@ variable "storage_contract" {
   })
 }
 
-variable "domain_configs" {
-  description = "Static OpenMetadata domain definitions to seed during bootstrap. Intended to be sourced from domain.yaml files."
-  type        = list(any)
-  default     = []
-}
-
 variable "catalog_database_name" {
   description = "OpenMetadata database name to seed under the Polaris database service before OpenLineage events arrive."
   type        = string
-  default     = "default"
+  default     = "sales_dev"
 }
 
 variable "catalog_schema_names" {
   description = "OpenMetadata database schema names to seed before OpenLineage events arrive."
   type        = list(string)
-  default     = ["sales", "sales_gold"]
+  default     = ["silver", "gold"]
 }
 
 variable "catalog_refresh_schedule" {
@@ -139,3 +133,16 @@ variable "catalog_refresh_enabled" {
   type        = bool
   default     = true
 }
+
+variable "dagster_webserver_url" {
+  description = "Cluster-internal URL of the Dagster webserver for OM pipeline metadata ingestion."
+  type        = string
+  default     = "http://dagster-dagster-webserver:80"
+}
+
+variable "superset_url" {
+  description = "Cluster-internal URL of the Superset instance for OM dashboard metadata ingestion."
+  type        = string
+  default     = "http://superset:8088"
+}
+

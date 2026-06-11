@@ -1,0 +1,8 @@
+schema: polaris.sales_dev.silver
+tables:
+  - name: sales
+    description: Validated Silver sales transactions.
+  - name: customers
+    description: Validated Silver customer records.
+  - name: products
+    description: Validated Silver product catalog.

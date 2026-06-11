@@ -1,0 +1,8 @@
+schema: polaris.sales_dev.gold
+tables:
+  - name: mart_revenue_by_product
+    description: Gold mart — revenue metrics aggregated by product.
+  - name: mart_sales_by_customer
+    description: Gold mart — sales volume aggregated by customer.
+  - name: mart_sales_by_day
+    description: Gold mart — daily sales time series.

@@ -11,8 +11,8 @@ clean-targets: ["target", "dbt_packages"]
 
 models:
   sales_poc:
-    +database: polaris
-    +schema: sales_gold
+    +database: sales_dev
+    +schema: gold
     +materialized: iceberg_table
     +meta:
       dagster:

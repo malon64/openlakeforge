@@ -20,6 +20,7 @@ opensearch:
     opensearch.yml: |
       plugins.security.disabled: true
       indices.query.bool.max_clause_count: 4096
+      cluster.routing.allocation.disk.threshold_enabled: false
 
 airflow:
   enabled: false

@@ -5,7 +5,9 @@ resource "helm_release" "dagster" {
   version    = var.chart_version
   namespace  = var.namespace
 
-  wait            = true
+  # Local project code is a dynamic artifact loaded after Terraform. Do not make
+  # static infra apply wait on pods that cannot start until that image exists.
+  wait            = false
   timeout         = 300
   cleanup_on_fail = true
 
@@ -45,6 +47,14 @@ resource "helm_release" "dagster" {
             port = 3030
             includeConfigInLaunchedRuns = {
               enabled = true
+            }
+            deploymentConfig = {
+              strategy = {
+                type = "Recreate"
+              }
+            }
+            podSpecConfig = {
+              terminationGracePeriodSeconds = 10
             }
             env = [
               {
@@ -110,23 +120,6 @@ resource "helm_release" "dagster" {
               {
                 name  = "OPENLAKEFORGE_DBT_ATTACH_POLARIS"
                 value = "true"
-              },
-              {
-                name  = "OPENLINEAGE_URL"
-                value = var.governance_contract.openlineage_url
-              },
-              {
-                name  = "OPENLINEAGE_ENDPOINT"
-                value = var.governance_contract.lineage_endpoint
-              },
-              {
-                name = "OPENLINEAGE_API_KEY"
-                valueFrom = {
-                  secretKeyRef = {
-                    name = var.governance_contract.ingestion_bot_secret_name
-                    key  = var.governance_contract.ingestion_bot_jwt_key
-                  }
-                }
               },
             ]
             envSecrets = [
@@ -242,23 +235,6 @@ resource "helm_release" "dagster" {
                   {
                     name  = "OPENLAKEFORGE_DBT_ATTACH_POLARIS"
                     value = "true"
-                  },
-                  {
-                    name  = "OPENLINEAGE_URL"
-                    value = var.governance_contract.openlineage_url
-                  },
-                  {
-                    name  = "OPENLINEAGE_ENDPOINT"
-                    value = var.governance_contract.lineage_endpoint
-                  },
-                  {
-                    name = "OPENLINEAGE_API_KEY"
-                    valueFrom = {
-                      secretKeyRef = {
-                        name = var.governance_contract.ingestion_bot_secret_name
-                        key  = var.governance_contract.ingestion_bot_jwt_key
-                      }
-                    }
                   },
                 ]
                 envFrom = [

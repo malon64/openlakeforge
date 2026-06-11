@@ -32,7 +32,6 @@ _DBT_GOLD_ASSETS = (
     "mart_sales_by_customer",
 )
 _REMOTE_MANIFEST_ENV = "OPENLAKEFORGE_FLOE_MANIFEST_URI"
-_DBT_EXECUTABLE = "dbt-ol" if os.environ.get("OPENLINEAGE_URL") else "dbt"
 
 
 class SalesDbtTranslator(DagsterDbtTranslator):
@@ -85,7 +84,7 @@ def _ensure_dbt_manifest() -> Path:
     env.setdefault("POLARIS_DBT_CLIENT_SECRET", "openlakeforge-dbt")
     env.setdefault("POLARIS_REST_URI", "http://polaris:8181/api/catalog")
     env.setdefault("POLARIS_TOKEN_URI", "http://polaris:8181/api/catalog/v1/oauth/tokens")
-    env.setdefault("POLARIS_WAREHOUSE", "lakehouse")
+    env.setdefault("POLARIS_WAREHOUSE", "sales_dev")
     env.setdefault("POLARIS_OAUTH_SCOPE", "PRINCIPAL_ROLE:ALL")
 
     subprocess.run(
@@ -155,7 +154,6 @@ def _build_defs() -> Definitions:
                     project_dir=str(_DBT_PROJECT_DIR),
                     profiles_dir=str(_DBT_PROJECT_DIR),
                     target="local_runtime",
-                    dbt_executable=_DBT_EXECUTABLE,
                 ),
             },
         ),

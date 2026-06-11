@@ -2,13 +2,64 @@ version: 2
 
 sources:
   - name: silver
-    database: polaris
-    schema: sales
+    database: sales_dev
+    schema: silver
     description: Floe-owned Sales Silver Iceberg tables.
     tables:
       - name: sales
         description: Validated Sales transactions.
+        columns:
+          - name: sale_id
+            description: Unique sale identifier.
+            data_type: varchar
+          - name: customer_id
+            description: Foreign key to customers.
+            data_type: varchar
+          - name: product_id
+            description: Foreign key to products.
+            data_type: varchar
+          - name: sale_date
+            description: Date the sale was recorded.
+            data_type: date
+          - name: quantity
+            description: Number of units sold.
+            data_type: integer
+          - name: unit_price
+            description: Sale price per unit.
+            data_type: double
+          - name: region
+            description: Sales region.
+            data_type: varchar
       - name: customers
         description: Validated Sales customers.
+        columns:
+          - name: customer_id
+            description: Unique customer identifier.
+            data_type: varchar
+          - name: first_name
+            description: Customer first name.
+            data_type: varchar
+          - name: last_name
+            description: Customer last name.
+            data_type: varchar
+          - name: country
+            description: Customer country.
+            data_type: varchar
+          - name: segment
+            description: Customer segment.
+            data_type: varchar
       - name: products
         description: Validated Sales products.
+        columns:
+          - name: product_id
+            description: Unique product identifier.
+            data_type: varchar
+          - name: product_name
+            description: Product display name.
+            data_type: varchar
+          - name: category
+            description: Product category.
+            data_type: varchar
+          - name: unit_cost
+            description: Cost per unit.
+            data_type: double

@@ -5,21 +5,11 @@ locals {
     "openlakeforge.io/component"   = "governance"
   }
 
-  om_url                              = "http://${var.release_name}:${var.om_http_port}"
-  openlineage_proxy_name              = "openmetadata-openlineage"
-  openlineage_proxy_port              = 5000
-  openlineage_proxy_target_port       = 8080
-  openlineage_proxy_upstream_endpoint = "http://${var.release_name}:${var.om_http_port}/api/v1/openlineage/lineage"
-  openlineage_proxy_labels = merge(local.labels, {
-    "openlakeforge.io/service" = "openlineage-proxy"
-  })
-  domain_configs_json           = jsonencode(var.domain_configs)
-  domain_configs_json_b64       = base64encode(local.domain_configs_json)
+  om_url                        = "http://${var.release_name}:${var.om_http_port}"
   catalog_schema_names_json     = jsonencode(var.catalog_schema_names)
   catalog_schema_names_json_b64 = base64encode(local.catalog_schema_names_json)
   bootstrap_annotations = {
     "openlakeforge.io/openmetadata-release-revision" = tostring(helm_release.openmetadata.metadata.revision)
-    "openlakeforge.io/static-domain-hash"            = sha256(local.domain_configs_json)
     "openlakeforge.io/catalog-schema-hash"           = sha256(local.catalog_schema_names_json)
   }
 }
@@ -94,226 +84,11 @@ resource "terraform_data" "openmetadata_release_revision" {
   ]
 }
 
-resource "terraform_data" "openmetadata_static_domains" {
-  triggers_replace = [
-    sha256(local.domain_configs_json),
-  ]
-}
-
 resource "terraform_data" "openmetadata_catalog_schemas" {
   triggers_replace = [
     var.catalog_database_name,
     sha256(local.catalog_schema_names_json),
   ]
-}
-
-resource "kubernetes_config_map_v1" "openlineage_proxy" {
-  metadata {
-    name      = local.openlineage_proxy_name
-    namespace = var.namespace
-    labels    = local.openlineage_proxy_labels
-  }
-
-  data = {
-    "proxy.py" = <<-PY
-      from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-      import json
-      import os
-      import urllib.error
-      import urllib.request
-      import uuid
-
-      PORT = int(os.environ.get("PORT", "${local.openlineage_proxy_target_port}"))
-      UPSTREAM = os.environ["OPENMETADATA_OPENLINEAGE_URL"]
-      TOKEN = os.environ["OPENMETADATA_INGESTION_BOT_JWT"]
-
-
-      def normalize_openlineage_payload(raw):
-          try:
-              payload = json.loads(raw)
-          except json.JSONDecodeError:
-              return raw
-
-          run = payload.get("run")
-          run_id = run.get("runId") if isinstance(run, dict) else None
-          if isinstance(run_id, str):
-              try:
-                  uuid.UUID(run_id)
-              except ValueError:
-                  run["runId"] = str(uuid.uuid5(uuid.NAMESPACE_URL, f"openlakeforge:floe:{run_id}"))
-
-          return json.dumps(payload, separators=(",", ":")).encode("utf-8")
-
-
-      class Handler(BaseHTTPRequestHandler):
-          def do_GET(self):
-              if self.path == "/healthz":
-                  self.send_response(200)
-                  self.send_header("Content-Type", "text/plain")
-                  self.end_headers()
-                  self.wfile.write(b"ok\n")
-                  return
-              self.send_response(404)
-              self.end_headers()
-
-          def do_POST(self):
-              if self.path != "/api/v1/lineage":
-                  self.send_response(404)
-                  self.end_headers()
-                  return
-
-              length = int(self.headers.get("Content-Length", "0"))
-              body = normalize_openlineage_payload(self.rfile.read(length))
-              request = urllib.request.Request(
-                  UPSTREAM,
-                  data=body,
-                  method="POST",
-                  headers={
-                      "Authorization": f"Bearer {TOKEN}",
-                      "Content-Type": self.headers.get("Content-Type", "application/json"),
-                      "User-Agent": self.headers.get("User-Agent", ""),
-                  },
-              )
-
-              try:
-                  with urllib.request.urlopen(request, timeout=30) as response:
-                      status = response.status
-                      response_body = response.read()
-                      response_content_type = response.headers.get("Content-Type", "application/json")
-              except urllib.error.HTTPError as err:
-                  status = err.code
-                  response_body = err.read()
-                  response_content_type = err.headers.get("Content-Type", "application/json")
-
-              self.send_response(status)
-              self.send_header("Content-Type", response_content_type)
-              self.send_header("Content-Length", str(len(response_body)))
-              self.end_headers()
-              self.wfile.write(response_body)
-
-          def log_message(self, fmt, *args):
-              print("%s - %s" % (self.address_string(), fmt % args), flush=True)
-
-
-      ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
-    PY
-  }
-}
-
-resource "kubernetes_deployment_v1" "openlineage_proxy" {
-  metadata {
-    name      = local.openlineage_proxy_name
-    namespace = var.namespace
-    labels    = local.openlineage_proxy_labels
-  }
-
-  spec {
-    replicas = 1
-
-    selector {
-      match_labels = local.openlineage_proxy_labels
-    }
-
-    template {
-      metadata {
-        labels = local.openlineage_proxy_labels
-        annotations = {
-          "openlakeforge.io/config-hash" = sha256(kubernetes_config_map_v1.openlineage_proxy.data["proxy.py"])
-        }
-      }
-
-      spec {
-        container {
-          name  = "proxy"
-          image = "python:3.12-alpine"
-
-          command = ["python", "/app/proxy.py"]
-
-          port {
-            name           = "http"
-            container_port = local.openlineage_proxy_target_port
-          }
-
-          env {
-            name  = "OPENMETADATA_OPENLINEAGE_URL"
-            value = local.openlineage_proxy_upstream_endpoint
-          }
-
-          env {
-            name = "OPENMETADATA_INGESTION_BOT_JWT"
-            value_from {
-              secret_key_ref {
-                name = var.ingestion_bot_secret_name
-                key  = var.ingestion_bot_jwt_key
-              }
-            }
-          }
-
-          volume_mount {
-            name       = "config"
-            mount_path = "/app/proxy.py"
-            sub_path   = "proxy.py"
-            read_only  = true
-          }
-
-          readiness_probe {
-            http_get {
-              path = "/healthz"
-              port = "http"
-            }
-          }
-
-          liveness_probe {
-            http_get {
-              path = "/healthz"
-              port = "http"
-            }
-          }
-
-          resources {
-            requests = {
-              cpu    = "25m"
-              memory = "32Mi"
-            }
-            limits = {
-              memory = "64Mi"
-            }
-          }
-        }
-
-        volume {
-          name = "config"
-          config_map {
-            name = kubernetes_config_map_v1.openlineage_proxy.metadata[0].name
-          }
-        }
-      }
-    }
-  }
-
-  depends_on = [
-    kubernetes_job_v1.bootstrap,
-  ]
-}
-
-resource "kubernetes_service_v1" "openlineage_proxy" {
-  metadata {
-    name      = local.openlineage_proxy_name
-    namespace = var.namespace
-    labels    = local.openlineage_proxy_labels
-  }
-
-  spec {
-    selector = local.openlineage_proxy_labels
-
-    port {
-      name        = "http"
-      port        = local.openlineage_proxy_port
-      target_port = "http"
-    }
-
-    type = "ClusterIP"
-  }
 }
 
 # ServiceAccount + RBAC for the bootstrap job
@@ -483,81 +258,13 @@ resource "kubernetes_job_v1" "bootstrap" {
               -n "$NAMESPACE" \
               --from-literal="${var.ingestion_bot_jwt_key}=$BOT_JWT"
 
-            # Seed static data-domain configuration from Terraform inputs.
-            printf '%s' "${local.domain_configs_json_b64}" | base64 -d >/tmp/om-static-domains.json
-
-            jq -c '.[]' /tmp/om-static-domains.json | while IFS= read -r domain_json; do
-              domain_name="$(printf '%s' "$domain_json" | jq -r '.name // empty')"
-              if [ -z "$domain_name" ]; then
-                echo "Static domain entry is missing name" >&2
-                printf '%s\n' "$domain_json" >&2
-                exit 1
-              fi
-
-              domain_display_name="$(printf '%s' "$domain_json" | jq -r '
-                .displayName
-                // .display_name
-                // (
-                  .name
-                  | gsub("[-_]"; " ")
-                  | split(" ")
-                  | map(if length > 0 then (.[0:1] | ascii_upcase) + .[1:] else . end)
-                  | join(" ")
-                )
-              ')"
-              domain_type="$(printf '%s' "$domain_json" | jq -r '.domainType // .domain_type // "Source-aligned"')"
-              domain_description="$(printf '%s' "$domain_json" | jq -r '
-                [
-                  (.description // empty),
-                  (if .status then "" else empty end),
-                  (if .status then "Status: \(.status)" else empty end),
-                  (if .medallion then "" else empty end),
-                  (if .medallion then "Medallion layers:" else empty end),
-                  (
-                    if .medallion then
-                      .medallion
-                      | to_entries[]
-                      | "- \(.key): \(.value.description // "") Owner: \(.value.owner // "unknown")."
-                    else
-                      empty
-                    end
-                  )
-                ]
-                | join("\n")
-              ')"
-              domain_payload="$(jq -n \
-                --arg name "$domain_name" \
-                --arg displayName "$domain_display_name" \
-                --arg domainType "$domain_type" \
-                --arg description "$domain_description" \
-                '{
-                  name: $name,
-                  displayName: $displayName,
-                  domainType: $domainType,
-                  description: $description
-                }')"
-              domain_code="$(curl -sS -o /tmp/om-domain-body -w '%%{http_code}' \
-                -X PUT "$om_url/api/v1/domains" \
-                -H "Authorization: Bearer $ADMIN_JWT" \
-                -H "Content-Type: application/json" \
-                -d "$domain_payload")"
-              case " 200 201 " in
-                *" $domain_code "*) ;;
-                *)
-                  echo "Failed to create or update OpenMetadata domain '$domain_name' (HTTP $domain_code)" >&2
-                  cat /tmp/om-domain-body >&2
-                  exit 1
-                  ;;
-              esac
-            done
-
             # Create or update the Polaris Iceberg database service in OpenMetadata.
             svc_code="$(curl -sS -o /tmp/om-svc-body -w '%%{http_code}' \
               -X PUT "$om_url/api/v1/services/databaseServices" \
               -H "Authorization: Bearer $ADMIN_JWT" \
               -H "Content-Type: application/json" \
               -d "{
-                \"name\": \"polaris-lakehouse\",
+                \"name\": \"polaris\",
                 \"displayName\": \"Polaris Iceberg Catalog\",
                 \"serviceType\": \"Iceberg\",
                 \"connection\": {
@@ -565,6 +272,7 @@ resource "kubernetes_job_v1" "bootstrap" {
                     \"type\": \"Iceberg\",
                     \"catalog\": {
                       \"name\": \"${var.catalog_contract.warehouse}\",
+                      \"databaseName\": \"${var.catalog_database_name}\",
                       \"warehouseLocation\": \"${var.catalog_contract.warehouse}\",
                       \"connection\": {
                         \"uri\": \"${var.catalog_contract.rest_uri}\",
@@ -595,16 +303,16 @@ resource "kubernetes_job_v1" "bootstrap" {
             svc_id="$(echo "$svc_resp" | jq -r '.id // empty')"
 
             if [ -z "$svc_id" ]; then
-              echo "Failed to retrieve polaris-lakehouse service id" >&2
+              echo "Failed to retrieve polaris service id" >&2
               echo "$svc_resp" >&2
               exit 1
             fi
 
             catalog_database="${var.catalog_database_name}"
-            catalog_database_fqn="polaris-lakehouse.$catalog_database"
+            catalog_database_fqn="polaris.$catalog_database"
             db_payload="$(jq -n \
               --arg name "$catalog_database" \
-              --arg service "polaris-lakehouse" \
+              --arg service "polaris" \
               '{
                 name: $name,
                 service: $service
@@ -647,55 +355,166 @@ resource "kubernetes_job_v1" "bootstrap" {
               esac
             done
 
-            pipeline_service_code="$(curl -sS -o /tmp/om-pipeline-service-body -w '%%{http_code}' \
+            # Register Dagster as a Pipeline Service and trigger metadata ingestion.
+            dagster_svc_code="$(curl -sS -o /tmp/om-dagster-svc-body -w '%%{http_code}' \
               -X PUT "$om_url/api/v1/services/pipelineServices" \
               -H "Authorization: Bearer $ADMIN_JWT" \
               -H "Content-Type: application/json" \
               -d "{
-                \"name\": \"openlineage\",
-                \"displayName\": \"OpenLineage Events\",
-                \"serviceType\": \"CustomPipeline\",
+                \"name\": \"dagster\",
+                \"displayName\": \"Dagster Orchestrator\",
+                \"serviceType\": \"Dagster\",
                 \"connection\": {
                   \"config\": {
-                    \"type\": \"CustomPipeline\"
+                    \"type\": \"Dagster\",
+                    \"host\": \"${var.dagster_webserver_url}\",
+                    \"timeout\": 1000
                   }
                 }
               }")"
             case " 200 201 " in
-              *" $pipeline_service_code "*) ;;
+              *" $dagster_svc_code "*) dagster_svc_id="$(jq -r '.id // empty' /tmp/om-dagster-svc-body)" ;;
               *)
-                echo "Failed to create or update OpenLineage pipeline service (HTTP $pipeline_service_code)" >&2
-                cat /tmp/om-pipeline-service-body >&2
+                echo "Failed to create Dagster pipeline service (HTTP $dagster_svc_code)" >&2
+                cat /tmp/om-dagster-svc-body >&2
                 exit 1
                 ;;
             esac
 
-            dbt_pipeline_code="$(curl -sS -o /tmp/om-dbt-pipeline-body -w '%%{http_code}' \
-              -X PUT "$om_url/api/v1/pipelines" \
+            dagster_pipeline_fqn="dagster.dagster-metadata-ingestion"
+            dagster_check_code="$(curl -sS -o /tmp/om-dagster-pipeline-body -w '%%{http_code}' \
+              "$om_url/api/v1/services/ingestionPipelines/name/$dagster_pipeline_fqn" \
+              -H "Authorization: Bearer $ADMIN_JWT")"
+            if [ "$dagster_check_code" = "200" ]; then
+              dagster_pipeline_id="$(jq -r '.id // empty' /tmp/om-dagster-pipeline-body)"
+            elif [ "$dagster_check_code" = "404" ]; then
+              dagster_create_code="$(curl -sS -o /tmp/om-dagster-pipeline-body -w '%%{http_code}' \
+                -X POST "$om_url/api/v1/services/ingestionPipelines" \
+                -H "Authorization: Bearer $ADMIN_JWT" \
+                -H "Content-Type: application/json" \
+                -d "{
+                  \"name\": \"dagster-metadata-ingestion\",
+                  \"displayName\": \"Dagster Pipeline Metadata\",
+                  \"pipelineType\": \"metadata\",
+                  \"sourceConfig\": {
+                    \"config\": {
+                      \"type\": \"PipelineMetadata\",
+                      \"includeLineage\": true
+                    }
+                  },
+                  \"airflowConfig\": {
+                    \"startDate\": \"2025-01-01T00:00:00.000Z\",
+                    \"retries\": 1,
+                    \"pausePipeline\": true
+                  },
+                  \"service\": {
+                    \"id\": \"$dagster_svc_id\",
+                    \"type\": \"pipelineService\"
+                  }
+                }")"
+              case " 200 201 " in
+                *" $dagster_create_code "*) dagster_pipeline_id="$(jq -r '.id // empty' /tmp/om-dagster-pipeline-body)" ;;
+                *)
+                  echo "Failed to create Dagster ingestion pipeline (HTTP $dagster_create_code)" >&2
+                  cat /tmp/om-dagster-pipeline-body >&2
+                  exit 1
+                  ;;
+              esac
+            else
+              echo "Failed to inspect Dagster ingestion pipeline (HTTP $dagster_check_code)" >&2
+              exit 1
+            fi
+
+            # Deploy (register) the pipeline definition but do NOT trigger it.
+            # OM 1.12.x Dagster connector uses `... on PipelineRuns` which Dagster 1.x
+            # renamed to `Runs`; the test connection step crashes before indexing starts.
+            # Trigger manually once the connector is updated (see ADR 0009).
+            curl -sS -o /tmp/om-dagster-deploy-body -X POST \
+              "$om_url/api/v1/services/ingestionPipelines/deploy/$dagster_pipeline_id" \
+              -H "Authorization: Bearer $ADMIN_JWT" || true
+            echo "Dagster pipeline service registered (ingestion deferred — see ADR 0009)."
+
+            # Register Superset as a Dashboard Service and trigger metadata ingestion.
+            superset_svc_code="$(curl -sS -o /tmp/om-superset-svc-body -w '%%{http_code}' \
+              -X PUT "$om_url/api/v1/services/dashboardServices" \
               -H "Authorization: Bearer $ADMIN_JWT" \
               -H "Content-Type: application/json" \
               -d "{
-                \"name\": \"dbt-dbt-run-sales_poc\",
-                \"displayName\": \"dbt Sales POC\",
-                \"service\": \"openlineage\",
-                \"scheduleInterval\": \"manual\",
-                \"tasks\": [
-                  {
-                    \"name\": \"dbt-build\"
+                \"name\": \"superset\",
+                \"displayName\": \"Superset Reporting\",
+                \"serviceType\": \"Superset\",
+                \"connection\": {
+                  \"config\": {
+                    \"type\": \"Superset\",
+                    \"hostPort\": \"${var.superset_url}\"
                   }
-                ]
+                }
               }")"
             case " 200 201 " in
-              *" $dbt_pipeline_code "*) ;;
+              *" $superset_svc_code "*) superset_svc_id="$(jq -r '.id // empty' /tmp/om-superset-svc-body)" ;;
               *)
-                echo "Failed to create or update dbt OpenLineage pipeline (HTTP $dbt_pipeline_code)" >&2
-                cat /tmp/om-dbt-pipeline-body >&2
+                echo "Failed to create Superset dashboard service (HTTP $superset_svc_code)" >&2
+                cat /tmp/om-superset-svc-body >&2
                 exit 1
                 ;;
             esac
 
-            # Create or reuse the metadata ingestion pipeline.
-            pipeline_fqn="polaris-lakehouse.polaris-metadata-ingestion"
+            superset_pipeline_fqn="superset.superset-metadata-ingestion"
+            superset_check_code="$(curl -sS -o /tmp/om-superset-pipeline-body -w '%%{http_code}' \
+              "$om_url/api/v1/services/ingestionPipelines/name/$superset_pipeline_fqn" \
+              -H "Authorization: Bearer $ADMIN_JWT")"
+            if [ "$superset_check_code" = "200" ]; then
+              superset_pipeline_id="$(jq -r '.id // empty' /tmp/om-superset-pipeline-body)"
+            elif [ "$superset_check_code" = "404" ]; then
+              superset_create_code="$(curl -sS -o /tmp/om-superset-pipeline-body -w '%%{http_code}' \
+                -X POST "$om_url/api/v1/services/ingestionPipelines" \
+                -H "Authorization: Bearer $ADMIN_JWT" \
+                -H "Content-Type: application/json" \
+                -d "{
+                  \"name\": \"superset-metadata-ingestion\",
+                  \"displayName\": \"Superset Dashboard Metadata\",
+                  \"pipelineType\": \"metadata\",
+                  \"sourceConfig\": {
+                    \"config\": {
+                      \"type\": \"DashboardMetadata\",
+                      \"includeDataModels\": true
+                    }
+                  },
+                  \"airflowConfig\": {
+                    \"startDate\": \"2025-01-01T00:00:00.000Z\",
+                    \"retries\": 1,
+                    \"pausePipeline\": true
+                  },
+                  \"service\": {
+                    \"id\": \"$superset_svc_id\",
+                    \"type\": \"dashboardService\"
+                  }
+                }")"
+              case " 200 201 " in
+                *" $superset_create_code "*) superset_pipeline_id="$(jq -r '.id // empty' /tmp/om-superset-pipeline-body)" ;;
+                *)
+                  echo "Failed to create Superset ingestion pipeline (HTTP $superset_create_code)" >&2
+                  cat /tmp/om-superset-pipeline-body >&2
+                  exit 1
+                  ;;
+              esac
+            else
+              echo "Failed to inspect Superset ingestion pipeline (HTTP $superset_check_code)" >&2
+              exit 1
+            fi
+
+            # Deploy (register) the pipeline definition but do NOT trigger it.
+            # OM 1.12.x Superset connector: Java API rejects username/password in the
+            # service connection, but the Python ingestion SDK requires them — the
+            # connection can't be deserialized and the connector crashes (see ADR 0009).
+            # Trigger manually once the connector schema is aligned.
+            curl -sS -o /tmp/om-superset-deploy-body -X POST \
+              "$om_url/api/v1/services/ingestionPipelines/deploy/$superset_pipeline_id" \
+              -H "Authorization: Bearer $ADMIN_JWT" || true
+            echo "Superset dashboard service registered (ingestion deferred — see ADR 0009)."
+
+            # Create or reuse the Polaris metadata ingestion pipeline.
+            pipeline_fqn="polaris.polaris-metadata-ingestion"
             pipeline_code="$(curl -sS -o /tmp/om-pipeline-body -w '%%{http_code}' \
               "$om_url/api/v1/services/ingestionPipelines/name/$pipeline_fqn" \
               -H "Authorization: Bearer $ADMIN_JWT")"
@@ -846,7 +665,6 @@ resource "kubernetes_job_v1" "bootstrap" {
   lifecycle {
     replace_triggered_by = [
       terraform_data.openmetadata_release_revision,
-      terraform_data.openmetadata_static_domains,
       terraform_data.openmetadata_catalog_schemas,
     ]
   }
@@ -937,7 +755,7 @@ resource "kubernetes_cron_job_v1" "catalog_refresh" {
                   -H "Authorization: Bearer $ADMIN_JWT" \
                   -H "Content-Type: application/json" \
                   -d "{
-                    \"name\": \"polaris-lakehouse\",
+                    \"name\": \"polaris\",
                     \"displayName\": \"Polaris Iceberg Catalog\",
                     \"serviceType\": \"Iceberg\",
                     \"connection\": {
@@ -972,10 +790,10 @@ resource "kubernetes_cron_job_v1" "catalog_refresh" {
                 esac
 
                 catalog_database="${var.catalog_database_name}"
-                catalog_database_fqn="polaris-lakehouse.$catalog_database"
+                catalog_database_fqn="polaris.$catalog_database"
                 db_payload="$(jq -n \
                   --arg name "$catalog_database" \
-                  --arg service "polaris-lakehouse" \
+                  --arg service "polaris" \
                   '{name: $name, service: $service}')"
                 db_code="$(curl -sS -o /tmp/om-db-body -w '%%{http_code}' \
                   -X PUT "$om_url/api/v1/databases" \
@@ -1012,54 +830,7 @@ resource "kubernetes_cron_job_v1" "catalog_refresh" {
                   esac
                 done
 
-                pipeline_service_code="$(curl -sS -o /tmp/om-pipeline-service-body -w '%%{http_code}' \
-                  -X PUT "$om_url/api/v1/services/pipelineServices" \
-                  -H "Authorization: Bearer $ADMIN_JWT" \
-                  -H "Content-Type: application/json" \
-                  -d "{
-                    \"name\": \"openlineage\",
-                    \"displayName\": \"OpenLineage Events\",
-                    \"serviceType\": \"CustomPipeline\",
-                    \"connection\": {
-                      \"config\": {
-                        \"type\": \"CustomPipeline\"
-                      }
-                    }
-                  }")"
-                case " 200 201 " in
-                  *" $pipeline_service_code "*) ;;
-                  *)
-                    echo "Failed to create or update OpenLineage pipeline service (HTTP $pipeline_service_code)" >&2
-                    cat /tmp/om-pipeline-service-body >&2
-                    exit 1
-                    ;;
-                esac
-
-                dbt_pipeline_code="$(curl -sS -o /tmp/om-dbt-pipeline-body -w '%%{http_code}' \
-                  -X PUT "$om_url/api/v1/pipelines" \
-                  -H "Authorization: Bearer $ADMIN_JWT" \
-                  -H "Content-Type: application/json" \
-                  -d "{
-                    \"name\": \"dbt-dbt-run-sales_poc\",
-                    \"displayName\": \"dbt Sales POC\",
-                    \"service\": \"openlineage\",
-                    \"scheduleInterval\": \"manual\",
-                    \"tasks\": [
-                      {
-                        \"name\": \"dbt-build\"
-                      }
-                    ]
-                  }")"
-                case " 200 201 " in
-                  *" $dbt_pipeline_code "*) ;;
-                  *)
-                    echo "Failed to create or update dbt OpenLineage pipeline (HTTP $dbt_pipeline_code)" >&2
-                    cat /tmp/om-dbt-pipeline-body >&2
-                    exit 1
-                    ;;
-                esac
-
-                pipeline_fqn="polaris-lakehouse.polaris-metadata-ingestion"
+                pipeline_fqn="polaris.polaris-metadata-ingestion"
                 pipeline_resp="$(curl -sS "$om_url/api/v1/services/ingestionPipelines/name/$pipeline_fqn" \
                   -H "Authorization: Bearer $ADMIN_JWT")"
                 pipeline_id="$(echo "$pipeline_resp" | jq -r '.id // empty')"
