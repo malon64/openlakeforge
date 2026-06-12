@@ -1,0 +1,20 @@
+name: supply_chain_inventory_reliability
+version: "1.0.0"
+config-version: 2
+
+profile: supply_chain_inventory_reliability
+
+model-paths: ["models"]
+macro-paths: []
+target-path: "target"
+clean-targets: ["target", "dbt_packages"]
+
+models:
+  supply_chain_inventory_reliability:
+    +database: lakehouse_dev
+    +materialized: iceberg_table
+    +meta:
+      dagster:
+        group: supply_chain_inventory_reliability
+    gold:
+      +tags: ["supply_chain", "inventory_reliability", "gold"]

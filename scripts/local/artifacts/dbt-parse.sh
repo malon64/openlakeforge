@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-DBT_PROJECT_DIR="${DBT_PROJECT_DIR:-domains/sales/transformations/dbt}"
-
 require_cmd() {
   local cmd="$1"
   if ! command -v "${cmd}" &>/dev/null; then
@@ -23,10 +21,32 @@ export POLARIS_DBT_CLIENT_ID="${POLARIS_DBT_CLIENT_ID:-openlakeforge-dbt}"
 export POLARIS_DBT_CLIENT_SECRET="${POLARIS_DBT_CLIENT_SECRET:-openlakeforge-dbt}"
 export POLARIS_REST_URI="${POLARIS_REST_URI:-http://polaris:8181/api/catalog}"
 export POLARIS_TOKEN_URI="${POLARIS_TOKEN_URI:-http://polaris:8181/api/catalog/v1/oauth/tokens}"
-export POLARIS_WAREHOUSE="${POLARIS_WAREHOUSE:-sales_dev}"
+export POLARIS_WAREHOUSE="${POLARIS_WAREHOUSE:-lakehouse_dev}"
 export POLARIS_OAUTH_SCOPE="${POLARIS_OAUTH_SCOPE:-PRINCIPAL_ROLE:ALL}"
 
-dbt parse \
-  --project-dir "${DBT_PROJECT_DIR}" \
-  --profiles-dir "${DBT_PROJECT_DIR}" \
-  --target local
+discover_projects() {
+  if [[ -n "${DBT_PROJECT_DIR:-}" ]]; then
+    printf '%s\n' "${DBT_PROJECT_DIR}"
+    return
+  fi
+
+  find domains -path "*/transformations/dbt/*/dbt_project.yml" -type f \
+    -exec dirname {} \; | sort
+}
+
+mapfile -t projects < <(discover_projects)
+if [[ "${#projects[@]}" -eq 0 ]]; then
+  echo "ERROR: no product dbt projects found." >&2
+  exit 1
+fi
+
+for project_dir in "${projects[@]}"; do
+  echo "==> dbt deps: ${project_dir}"
+  dbt deps --project-dir "${project_dir}"
+
+  echo "==> dbt parse: ${project_dir}"
+  dbt parse \
+    --project-dir "${project_dir}" \
+    --profiles-dir "${project_dir}" \
+    --target local
+done

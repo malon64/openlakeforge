@@ -1,0 +1,563 @@
+{
+  "schema": "floe.manifest.v1",
+  "generated_at_ts_ms": 0,
+  "floe_version": "0.4.6",
+  "spec_version": "0.2",
+  "manifest_name": "sales.customer_health.local",
+  "manifest_id": "mfv1-e9772edd670213b3",
+  "manifest_revision": "sha256:dfc4b0ee65994e5f4d73708f11f820bf162c1d88e1d2fcad667cdf376be1185b",
+  "config_uri": "local:///work/domains/sales/contracts/floe/customer_health.yml",
+  "config_checksum": "sha256:8ea2d11edf547a216cd99563faac40be08c9158646b6477f83f0e529d70275f7",
+  "profile_uri": "local:///work/libs/floe/profiles/local-k8s.yml",
+  "profile_checksum": "sha256:b11af0aa9848907e3a7da131796a10eae03f7deb5650b99ba2412a8cbaeba093",
+  "report_base_uri": "s3://iceberg-data/floe/reports/sales/customer_health",
+  "domains": [],
+  "execution": {
+    "entrypoint": "floe",
+    "base_args": [
+      "run",
+      "--manifest",
+      "{manifest_uri}",
+      "--log-format",
+      "json",
+      "--quiet",
+      "--run-id",
+      "{run_id}"
+    ],
+    "per_entity_args": [
+      "--entities",
+      "{entity_name}"
+    ],
+    "log_format": "json",
+    "result_contract": {
+      "run_finished_event": true,
+      "summary_uri_field": "summary_uri",
+      "exit_codes": {
+        "0": "success_or_rejected",
+        "1": "technical_failure",
+        "2": "aborted"
+      }
+    },
+    "defaults": {
+      "env": {},
+      "workdir": null
+    },
+    "orchestration": {
+      "strategy": "sequential"
+    }
+  },
+  "runners": {
+    "default": "default",
+    "definitions": {
+      "default": {
+        "type": "kubernetes_job",
+        "command": null,
+        "args": null,
+        "timeout_seconds": 600,
+        "ttl_seconds_after_finished": 3600,
+        "poll_interval_seconds": 5,
+        "secrets": [
+          {
+            "name": "AWS_ACCESS_KEY_ID",
+            "secret_name": "seaweedfs-s3-creds",
+            "key": "AWS_ACCESS_KEY_ID"
+          },
+          {
+            "name": "AWS_SECRET_ACCESS_KEY",
+            "secret_name": "seaweedfs-s3-creds",
+            "key": "AWS_SECRET_ACCESS_KEY"
+          },
+          {
+            "name": "POLARIS_FLOE_CLIENT_ID",
+            "secret_name": "polaris-floe-creds",
+            "key": "POLARIS_FLOE_CLIENT_ID"
+          },
+          {
+            "name": "POLARIS_FLOE_CLIENT_SECRET",
+            "secret_name": "polaris-floe-creds",
+            "key": "POLARIS_FLOE_CLIENT_SECRET"
+          }
+        ],
+        "image": "ghcr.io/malon64/floe:0.4.6",
+        "namespace": "lakehouse",
+        "service_account": "dagster",
+        "resources": null,
+        "env": {
+          "AWS_ALLOW_HTTP": "true",
+          "AWS_DEFAULT_REGION": "us-east-1",
+          "AWS_EC2_METADATA_DISABLED": "true",
+          "AWS_ENDPOINT_URL": "http://seaweedfs-s3:8333",
+          "AWS_ENDPOINT_URL_S3": "http://lakehouse.svc.cluster.local:8333",
+          "AWS_REGION": "us-east-1",
+          "AWS_S3_FORCE_PATH_STYLE": "true"
+        },
+        "workspace_url": null,
+        "existing_cluster_id": null,
+        "config_uri": null,
+        "python_file_uri": null,
+        "job_name": null,
+        "auth": null,
+        "env_parameters": null
+      }
+    }
+  },
+  "entities": [
+    {
+      "name": "accounts",
+      "domain": "sales_customer_health",
+      "group_name": "sales_customer_health",
+      "asset_key": [
+        "sales_customer_health",
+        "accounts"
+      ],
+      "source_format": "csv",
+      "accepted_sink_uri": "s3://iceberg-data/silver/sales/customer_health/accounts",
+      "rejected_sink_uri": "s3://iceberg-data/floe/rejected/sales/customer_health/accounts",
+      "tags": null,
+      "source": {
+        "format": "csv",
+        "storage": "lakehouse_s3",
+        "uri": "s3://iceberg-data/bronze/sales/customer_health/accounts",
+        "path": "s3://iceberg-data/bronze/sales/customer_health/accounts",
+        "resolved": true,
+        "cast_mode": "strict",
+        "options": {
+          "data_row": null,
+          "encoding": "utf-8",
+          "glob": "*.csv",
+          "header": true,
+          "header_row": 1,
+          "json_mode": null,
+          "namespace": null,
+          "null_values": [
+            ""
+          ],
+          "recursive": false,
+          "row_tag": null,
+          "separator": ",",
+          "sheet": null,
+          "value_tag": null
+        }
+      },
+      "sinks": {
+        "accepted": {
+          "format": "iceberg",
+          "storage": "lakehouse_s3",
+          "uri": "s3://iceberg-data/silver/sales/customer_health/accounts",
+          "path": "s3://iceberg-data/silver/sales/customer_health/accounts",
+          "resolved": true,
+          "iceberg": {
+            "catalog": "polaris",
+            "location": null,
+            "namespace": "silver",
+            "table": "customer_health_accounts"
+          }
+        },
+        "rejected": {
+          "format": "csv",
+          "storage": "lakehouse_s3",
+          "uri": "s3://iceberg-data/floe/rejected/sales/customer_health/accounts",
+          "path": "s3://iceberg-data/floe/rejected/sales/customer_health/accounts",
+          "resolved": true
+        },
+        "archive": null
+      },
+      "runner": null,
+      "policy_severity": "reject",
+      "write_mode": "overwrite",
+      "incremental_mode": "none",
+      "schema": {
+        "columns": [
+          {
+            "name": "account_id",
+            "column_type": "string",
+            "nullable": false
+          },
+          {
+            "name": "account_name",
+            "column_type": "string",
+            "nullable": false
+          },
+          {
+            "name": "segment",
+            "column_type": "string",
+            "nullable": false
+          },
+          {
+            "name": "region",
+            "column_type": "string",
+            "nullable": false
+          },
+          {
+            "name": "signup_date",
+            "column_type": "date",
+            "nullable": false
+          },
+          {
+            "name": "arr",
+            "column_type": "number",
+            "nullable": false
+          }
+        ],
+        "primary_key": [
+          "account_id"
+        ],
+        "unique_keys": [],
+        "normalize_columns": {
+          "enabled": true,
+          "strategy": "snake_case"
+        }
+      }
+    },
+    {
+      "name": "nps_responses",
+      "domain": "sales_customer_health",
+      "group_name": "sales_customer_health",
+      "asset_key": [
+        "sales_customer_health",
+        "nps_responses"
+      ],
+      "source_format": "csv",
+      "accepted_sink_uri": "s3://iceberg-data/silver/sales/customer_health/nps_responses",
+      "rejected_sink_uri": "s3://iceberg-data/floe/rejected/sales/customer_health/nps_responses",
+      "tags": null,
+      "source": {
+        "format": "csv",
+        "storage": "lakehouse_s3",
+        "uri": "s3://iceberg-data/bronze/sales/customer_health/nps_responses",
+        "path": "s3://iceberg-data/bronze/sales/customer_health/nps_responses",
+        "resolved": true,
+        "cast_mode": "strict",
+        "options": {
+          "data_row": null,
+          "encoding": "utf-8",
+          "glob": "*.csv",
+          "header": true,
+          "header_row": 1,
+          "json_mode": null,
+          "namespace": null,
+          "null_values": [
+            ""
+          ],
+          "recursive": false,
+          "row_tag": null,
+          "separator": ",",
+          "sheet": null,
+          "value_tag": null
+        }
+      },
+      "sinks": {
+        "accepted": {
+          "format": "iceberg",
+          "storage": "lakehouse_s3",
+          "uri": "s3://iceberg-data/silver/sales/customer_health/nps_responses",
+          "path": "s3://iceberg-data/silver/sales/customer_health/nps_responses",
+          "resolved": true,
+          "iceberg": {
+            "catalog": "polaris",
+            "location": null,
+            "namespace": "silver",
+            "table": "customer_health_nps_responses"
+          }
+        },
+        "rejected": {
+          "format": "csv",
+          "storage": "lakehouse_s3",
+          "uri": "s3://iceberg-data/floe/rejected/sales/customer_health/nps_responses",
+          "path": "s3://iceberg-data/floe/rejected/sales/customer_health/nps_responses",
+          "resolved": true
+        },
+        "archive": null
+      },
+      "runner": null,
+      "policy_severity": "reject",
+      "write_mode": "overwrite",
+      "incremental_mode": "none",
+      "schema": {
+        "columns": [
+          {
+            "name": "response_id",
+            "column_type": "string",
+            "nullable": false
+          },
+          {
+            "name": "account_id",
+            "column_type": "string",
+            "nullable": false
+          },
+          {
+            "name": "response_date",
+            "column_type": "date",
+            "nullable": false
+          },
+          {
+            "name": "score",
+            "column_type": "integer",
+            "nullable": false
+          }
+        ],
+        "primary_key": [
+          "response_id"
+        ],
+        "unique_keys": [],
+        "normalize_columns": {
+          "enabled": true,
+          "strategy": "snake_case"
+        }
+      }
+    },
+    {
+      "name": "subscriptions",
+      "domain": "sales_customer_health",
+      "group_name": "sales_customer_health",
+      "asset_key": [
+        "sales_customer_health",
+        "subscriptions"
+      ],
+      "source_format": "csv",
+      "accepted_sink_uri": "s3://iceberg-data/silver/sales/customer_health/subscriptions",
+      "rejected_sink_uri": "s3://iceberg-data/floe/rejected/sales/customer_health/subscriptions",
+      "tags": null,
+      "source": {
+        "format": "csv",
+        "storage": "lakehouse_s3",
+        "uri": "s3://iceberg-data/bronze/sales/customer_health/subscriptions",
+        "path": "s3://iceberg-data/bronze/sales/customer_health/subscriptions",
+        "resolved": true,
+        "cast_mode": "strict",
+        "options": {
+          "data_row": null,
+          "encoding": "utf-8",
+          "glob": "*.csv",
+          "header": true,
+          "header_row": 1,
+          "json_mode": null,
+          "namespace": null,
+          "null_values": [
+            ""
+          ],
+          "recursive": false,
+          "row_tag": null,
+          "separator": ",",
+          "sheet": null,
+          "value_tag": null
+        }
+      },
+      "sinks": {
+        "accepted": {
+          "format": "iceberg",
+          "storage": "lakehouse_s3",
+          "uri": "s3://iceberg-data/silver/sales/customer_health/subscriptions",
+          "path": "s3://iceberg-data/silver/sales/customer_health/subscriptions",
+          "resolved": true,
+          "iceberg": {
+            "catalog": "polaris",
+            "location": null,
+            "namespace": "silver",
+            "table": "customer_health_subscriptions"
+          }
+        },
+        "rejected": {
+          "format": "csv",
+          "storage": "lakehouse_s3",
+          "uri": "s3://iceberg-data/floe/rejected/sales/customer_health/subscriptions",
+          "path": "s3://iceberg-data/floe/rejected/sales/customer_health/subscriptions",
+          "resolved": true
+        },
+        "archive": null
+      },
+      "runner": null,
+      "policy_severity": "reject",
+      "write_mode": "overwrite",
+      "incremental_mode": "none",
+      "schema": {
+        "columns": [
+          {
+            "name": "subscription_id",
+            "column_type": "string",
+            "nullable": false
+          },
+          {
+            "name": "account_id",
+            "column_type": "string",
+            "nullable": false
+          },
+          {
+            "name": "plan_name",
+            "column_type": "string",
+            "nullable": false
+          },
+          {
+            "name": "status",
+            "column_type": "string",
+            "nullable": false
+          },
+          {
+            "name": "start_date",
+            "column_type": "date",
+            "nullable": false
+          },
+          {
+            "name": "renewal_date",
+            "column_type": "date",
+            "nullable": false
+          },
+          {
+            "name": "monthly_recurring_revenue",
+            "column_type": "number",
+            "nullable": false
+          }
+        ],
+        "primary_key": [
+          "subscription_id"
+        ],
+        "unique_keys": [],
+        "normalize_columns": {
+          "enabled": true,
+          "strategy": "snake_case"
+        }
+      }
+    },
+    {
+      "name": "support_tickets",
+      "domain": "sales_customer_health",
+      "group_name": "sales_customer_health",
+      "asset_key": [
+        "sales_customer_health",
+        "support_tickets"
+      ],
+      "source_format": "csv",
+      "accepted_sink_uri": "s3://iceberg-data/silver/sales/customer_health/support_tickets",
+      "rejected_sink_uri": "s3://iceberg-data/floe/rejected/sales/customer_health/support_tickets",
+      "tags": null,
+      "source": {
+        "format": "csv",
+        "storage": "lakehouse_s3",
+        "uri": "s3://iceberg-data/bronze/sales/customer_health/support_tickets",
+        "path": "s3://iceberg-data/bronze/sales/customer_health/support_tickets",
+        "resolved": true,
+        "cast_mode": "strict",
+        "options": {
+          "data_row": null,
+          "encoding": "utf-8",
+          "glob": "*.csv",
+          "header": true,
+          "header_row": 1,
+          "json_mode": null,
+          "namespace": null,
+          "null_values": [
+            ""
+          ],
+          "recursive": false,
+          "row_tag": null,
+          "separator": ",",
+          "sheet": null,
+          "value_tag": null
+        }
+      },
+      "sinks": {
+        "accepted": {
+          "format": "iceberg",
+          "storage": "lakehouse_s3",
+          "uri": "s3://iceberg-data/silver/sales/customer_health/support_tickets",
+          "path": "s3://iceberg-data/silver/sales/customer_health/support_tickets",
+          "resolved": true,
+          "iceberg": {
+            "catalog": "polaris",
+            "location": null,
+            "namespace": "silver",
+            "table": "customer_health_support_tickets"
+          }
+        },
+        "rejected": {
+          "format": "csv",
+          "storage": "lakehouse_s3",
+          "uri": "s3://iceberg-data/floe/rejected/sales/customer_health/support_tickets",
+          "path": "s3://iceberg-data/floe/rejected/sales/customer_health/support_tickets",
+          "resolved": true
+        },
+        "archive": null
+      },
+      "runner": null,
+      "policy_severity": "reject",
+      "write_mode": "overwrite",
+      "incremental_mode": "none",
+      "schema": {
+        "columns": [
+          {
+            "name": "ticket_id",
+            "column_type": "string",
+            "nullable": false
+          },
+          {
+            "name": "account_id",
+            "column_type": "string",
+            "nullable": false
+          },
+          {
+            "name": "opened_date",
+            "column_type": "date",
+            "nullable": false
+          },
+          {
+            "name": "priority",
+            "column_type": "string",
+            "nullable": false
+          },
+          {
+            "name": "resolution_hours",
+            "column_type": "integer",
+            "nullable": false
+          },
+          {
+            "name": "sla_met",
+            "column_type": "boolean",
+            "nullable": false
+          }
+        ],
+        "primary_key": [
+          "ticket_id"
+        ],
+        "unique_keys": [],
+        "normalize_columns": {
+          "enabled": true,
+          "strategy": "snake_case"
+        }
+      }
+    }
+  ],
+  "storages": {
+    "default": "lakehouse_s3",
+    "definitions": [
+      {
+        "account": null,
+        "bucket": "iceberg-data",
+        "container": null,
+        "endpoint": null,
+        "fs_type": "s3",
+        "name": "lakehouse_s3",
+        "path_style_access": null,
+        "prefix": null,
+        "region": "us-east-1"
+      }
+    ]
+  },
+  "catalogs": {
+    "default": "polaris",
+    "definitions": [
+      {
+        "name": "polaris",
+        "type_config": {
+          "credential": "client_credentials:${POLARIS_FLOE_CLIENT_ID}:${POLARIS_FLOE_CLIENT_SECRET}",
+          "oauth2_server_uri": "http://polaris:8181/api/catalog/v1/oauth/tokens",
+          "scope": "PRINCIPAL_ROLE:ALL",
+          "type": "rest",
+          "uri": "http://polaris:8181/api/catalog",
+          "warehouse": "lakehouse_dev"
+        },
+        "warehouse_prefix": "s3://iceberg-data",
+        "warehouse_storage": "lakehouse_s3"
+      }
+    ]
+  }
+}

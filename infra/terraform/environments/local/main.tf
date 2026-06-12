@@ -36,8 +36,13 @@ locals {
   kubeconfig_path             = var.kubeconfig_path != null ? pathexpand(var.kubeconfig_path) : pathexpand("~/.kube/config")
   helm_repository_cache_path  = abspath("${path.root}/../../../../.tmp/helm/repository-cache")
   helm_repository_config_path = abspath("${path.root}/../../../../.tmp/helm/repositories.yaml")
-  sales_floe_manifest_uri     = "s3://${var.code_bucket_name}/floe/sales/sales.manifest.json"
-  polaris_bootstrap_hash      = filesha256("${path.root}/../../modules/catalog/polaris/main.tf")
+  floe_manifest_base_uri      = "s3://${var.code_bucket_name}/floe"
+  product_floe_manifest_uris = {
+    sales_order_revenue                = "${local.floe_manifest_base_uri}/sales/order_revenue/order_revenue.manifest.json"
+    sales_customer_health              = "${local.floe_manifest_base_uri}/sales/customer_health/customer_health.manifest.json"
+    supply_chain_inventory_reliability = "${local.floe_manifest_base_uri}/supply_chain/inventory_reliability/inventory_reliability.manifest.json"
+  }
+  polaris_bootstrap_hash = filesha256("${path.root}/../../modules/catalog/polaris/main.tf")
 }
 
 resource "kubernetes_namespace_v1" "lakehouse" {
@@ -129,7 +134,8 @@ locals {
     project_code_image_policy  = var.project_code_image_pull_policy
     superset_image             = "${var.superset_image_repository}:${var.superset_image_tag}"
     superset_image_policy      = var.superset_image_pull_policy
-    floe_manifest_uri          = local.sales_floe_manifest_uri
+    floe_manifest_base_uri     = local.floe_manifest_base_uri
+    floe_manifest_uris         = local.product_floe_manifest_uris
     floe_manifest_distribution = "seaweedfs-code-bucket"
   }
 
@@ -245,7 +251,7 @@ module "dagster" {
   catalog_contract               = local.catalog_contract
   governance_contract            = local.governance_contract
   postgresql_contract            = local.metadata_database_contract
-  floe_manifest_uri              = local.sales_floe_manifest_uri
+  floe_manifest_base_uri         = local.floe_manifest_base_uri
 
   depends_on = [
     module.trino,

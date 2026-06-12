@@ -1,0 +1,26 @@
+version: 2
+
+sources:
+  - name: silver
+    database: lakehouse_dev
+    schema: silver
+    description: Floe-owned Inventory Reliability Silver Iceberg tables.
+    tables:
+      - name: warehouses
+        identifier: inventory_reliability_warehouses
+        description: Validated warehouse dimension.
+      - name: suppliers
+        identifier: inventory_reliability_suppliers
+        description: Validated supplier dimension.
+      - name: inventory_snapshots
+        identifier: inventory_reliability_inventory_snapshots
+        description: Validated inventory snapshot facts.
+      - name: purchase_orders
+        identifier: inventory_reliability_purchase_orders
+        description: Validated purchase order facts.
+      - name: shipments
+        identifier: inventory_reliability_shipments
+        description: Validated shipment facts.
+      - name: stockout_events
+        identifier: inventory_reliability_stockout_events
+        description: Validated stockout event facts.

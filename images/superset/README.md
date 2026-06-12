@@ -16,7 +16,7 @@ make superset-load
 ```
 
 It extends the official Superset image with the Trino Python driver so Superset
-can query the Sales Gold Iceberg marts through Trino.
+can query product Gold Iceberg marts through Trino.
 
 The image also patches Superset's Trino engine spec for local Iceberg previews.
 Superset otherwise treats Trino Iceberg `$partitions` metadata columns as table

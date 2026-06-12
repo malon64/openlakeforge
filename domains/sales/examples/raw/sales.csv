@@ -1,4 +1,0 @@
-sale_id,customer_id,product_id,sale_date,quantity,unit_price,region
-S-1001,C-001,P-001,2026-01-05,2,19.99,EMEA
-S-1002,C-002,P-002,2026-01-06,1,199.00,NA
-S-1003,C-001,P-003,2026-01-07,3,7.50,EMEA

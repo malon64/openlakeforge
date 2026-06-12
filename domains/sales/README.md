@@ -1,6 +1,9 @@
 # Sales Domain
 
-The Sales domain is the first v1 proof-of-concept domain.
+The Sales domain contains two v1 proof-of-concept data products:
+
+- `order_revenue`
+- `customer_health`
 
 It proves the path from example CSV data to Bronze landing, Floe-validated
 Silver Iceberg tables, dbt-duckdb Gold marts, Trino querying, Superset
@@ -11,41 +14,24 @@ reporting, and Dagster asset orchestration.
 ```text
 domains/sales/
 ├── domain.yaml
+├── contracts/floe/
 ├── examples/raw/
 ├── extract/dlt/
-├── contracts/floe/
 ├── transformations/dbt/
-├── reports/superset/
-├── governance/openmetadata/
 ├── pipelines/dagster/
-└── tests/
+└── reports/superset/
 ```
 
-Iteration 3 adds:
+Each data product owns:
 
-- raw Sales POC CSV files for `sales`, `customers`, and `products`
-- dlt-backed Bronze source assets
-- Floe contracts and a generated `floe.manifest.v1` manifest
-- Dagster definitions under `pipelines/dagster/definitions.py`
-
-`sales_etl_pipeline` materializes Bronze source assets, then the manifest-loaded
-Floe assets write Silver Iceberg tables through Polaris. Query the local Silver
-tables from Trino with names such as `iceberg.sales.sales`,
-`iceberg.sales.customers`, and `iceberg.sales.products`.
-
-Iteration 4 adds:
-
-- dbt-duckdb Gold marts under `transformations/dbt/models/gold`
-- dagster-dbt assets in the existing `sales` asset group
-- the end-to-end `sales_etl_pipeline`
+- raw CSV examples under `examples/raw/<product>`
+- dlt-backed Bronze source assets under `extract/dlt/<product>.py`
+- Floe contracts and generated manifests under `contracts/floe`
+- dbt-duckdb Gold marts under `transformations/dbt/<product>/models/gold`
+- Dagster definitions under `pipelines/dagster/<product>.py`
+- Superset report assets under `reports/superset/<product>`
+- OpenMetadata product and table metadata nested in `domain.yaml`
 
 Run `make dbt-parse` before building the project-code image when you want the
-generated dbt manifest baked into the local image.
-
-Iteration 6 adds:
-
-- source-controlled Superset report assets under `reports/superset`
-- the `Sales Gold Mart Overview` dashboard over the Sales Gold marts
-- local report deployment with `make superset-reports-deploy`
-- source-controlled OpenMetadata domain/data-product assets under
-  `governance/openmetadata`
+generated dbt manifests baked into the local image. The product jobs are
+`sales_order_revenue_pipeline` and `sales_customer_health_pipeline`.

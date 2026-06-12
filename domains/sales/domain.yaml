@@ -1,4 +1,6 @@
 name: sales
+displayName: Sales
+domainType: Source-aligned
 description: Sales proof-of-concept domain for the OpenLakeForge v1 lakehouse path.
 status: planned
 owners: []
@@ -12,3 +14,101 @@ medallion:
   gold:
     owner: dbt
     description: Business-ready marts and analytics models.
+data_products:
+  - id: order_revenue
+    name: sales_order_revenue
+    displayName: Sales Order Revenue
+    description: Curated revenue, channel, discount, and product margin marts for Sales.
+    status: planned
+    asset_prefix: sales_order_revenue
+    bronze:
+      - name: orders
+        path: s3://iceberg-data/bronze/sales/order_revenue/orders
+        description: Raw CSV sales order headers.
+      - name: order_lines
+        path: s3://iceberg-data/bronze/sales/order_revenue/order_lines
+        description: Raw CSV sales order lines.
+      - name: products
+        path: s3://iceberg-data/bronze/sales/order_revenue/products
+        description: Raw CSV revenue product catalog.
+      - name: channels
+        path: s3://iceberg-data/bronze/sales/order_revenue/channels
+        description: Raw CSV sales channel dimension.
+      - name: promotions
+        path: s3://iceberg-data/bronze/sales/order_revenue/promotions
+        description: Raw CSV promotion dimension.
+    silver_tables:
+      schema: polaris.lakehouse_dev.silver
+      tables:
+        - name: order_revenue_orders
+          description: Validated sales order headers.
+        - name: order_revenue_order_lines
+          description: Validated sales order lines.
+        - name: order_revenue_products
+          description: Validated product dimension for revenue analytics.
+        - name: order_revenue_channels
+          description: Validated sales channel dimension.
+        - name: order_revenue_promotions
+          description: Validated promotion dimension.
+    gold_tables:
+      schema: polaris.lakehouse_dev.gold
+      tables:
+        - name: mart_order_revenue_by_day
+          description: Daily order revenue, units, and discount amount by region.
+        - name: mart_order_revenue_by_channel
+          description: Net revenue and discount amount by sales channel and promotion type.
+        - name: mart_order_revenue_margin_by_product
+          description: Product revenue, cost, and gross margin for fulfilled order lines.
+    assets:
+      - type: table
+        fqn: polaris.lakehouse_dev.gold.mart_order_revenue_by_day
+      - type: table
+        fqn: polaris.lakehouse_dev.gold.mart_order_revenue_by_channel
+      - type: table
+        fqn: polaris.lakehouse_dev.gold.mart_order_revenue_margin_by_product
+  - id: customer_health
+    name: sales_customer_health
+    displayName: Sales Customer Health
+    description: Curated customer health, churn risk, support SLA, and NPS marts for Sales.
+    status: planned
+    asset_prefix: sales_customer_health
+    bronze:
+      - name: accounts
+        path: s3://iceberg-data/bronze/sales/customer_health/accounts
+        description: Raw CSV customer accounts.
+      - name: subscriptions
+        path: s3://iceberg-data/bronze/sales/customer_health/subscriptions
+        description: Raw CSV subscriptions.
+      - name: support_tickets
+        path: s3://iceberg-data/bronze/sales/customer_health/support_tickets
+        description: Raw CSV support tickets.
+      - name: nps_responses
+        path: s3://iceberg-data/bronze/sales/customer_health/nps_responses
+        description: Raw CSV NPS responses.
+    silver_tables:
+      schema: polaris.lakehouse_dev.silver
+      tables:
+        - name: customer_health_accounts
+          description: Validated account dimension.
+        - name: customer_health_subscriptions
+          description: Validated subscription records.
+        - name: customer_health_support_tickets
+          description: Validated support ticket facts.
+        - name: customer_health_nps_responses
+          description: Validated NPS response facts.
+    gold_tables:
+      schema: polaris.lakehouse_dev.gold
+      tables:
+        - name: mart_customer_health_score
+          description: Account-level health score using subscription, support, and NPS signals.
+        - name: mart_churn_risk_by_segment
+          description: Churn risk and ARR exposure grouped by account segment and region.
+        - name: mart_support_sla_by_customer
+          description: Support volume, resolution hours, and SLA rate by customer and priority.
+    assets:
+      - type: table
+        fqn: polaris.lakehouse_dev.gold.mart_customer_health_score
+      - type: table
+        fqn: polaris.lakehouse_dev.gold.mart_churn_risk_by_segment
+      - type: table
+        fqn: polaris.lakehouse_dev.gold.mart_support_sla_by_customer

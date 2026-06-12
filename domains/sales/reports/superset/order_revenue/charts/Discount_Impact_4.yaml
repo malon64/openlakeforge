@@ -1,0 +1,19 @@
+slice_name: Discount Impact
+description: Discount amount by promotion discount type.
+viz_type: pie
+params:
+  datasource: null
+  viz_type: pie
+  groupby:
+    - discount_type
+  metric: sum__discount_amount
+  row_limit: 100
+  number_format: SMART_NUMBER
+  show_labels: true
+  show_legend: true
+  color_scheme: supersetColors
+query_context: null
+cache_timeout: null
+uuid: cca80e7b-82a1-55a2-8904-71ae41d84f26
+version: 1.0.0
+dataset_uuid: fb286620-a1f4-5be5-b74a-3347abcb5bd1

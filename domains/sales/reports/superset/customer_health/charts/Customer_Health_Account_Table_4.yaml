@@ -1,0 +1,22 @@
+slice_name: Customer Health Account Table
+description: Account-level ARR and customer health score.
+viz_type: table
+params:
+  datasource: null
+  viz_type: table
+  query_mode: aggregate
+  groupby:
+    - account_name
+    - segment
+  metrics:
+    - sum__arr
+    - avg__health_score
+  row_limit: 100
+  order_desc: true
+  show_cell_bars: true
+  table_timestamp_format: smart_date
+query_context: null
+cache_timeout: null
+uuid: 03b92363-482c-5094-b8e4-ff11fc5ef376
+version: 1.0.0
+dataset_uuid: 64386bcd-bccd-50d7-a96b-7c2f0c13b6f9

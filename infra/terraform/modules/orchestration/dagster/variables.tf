@@ -53,22 +53,22 @@ variable "project_code_image_revision" {
 variable "code_location_name" {
   description = "Dagster user-code deployment and code location name."
   type        = string
-  default     = "sales-dagster"
+  default     = "openlakeforge-dagster"
 }
 
 variable "definitions_module" {
   description = "Python module exposing Dagster Definitions."
   type        = string
-  default     = "domains.sales.pipelines.dagster.definitions"
+  default     = "domains.definitions"
 }
 
-variable "floe_manifest_uri" {
-  description = "S3 URI of the generated Floe manifest loaded by Dagster."
+variable "floe_manifest_base_uri" {
+  description = "S3 base URI containing generated product Floe manifests loaded by Dagster."
   type        = string
 }
 
 variable "floe_manifest_revision" {
-  description = "Content revision of the generated Floe manifest used to force Dagster code-server rollouts."
+  description = "Content revision of generated product Floe manifests used to force Dagster code-server rollouts."
   type        = string
   default     = "manual"
 }

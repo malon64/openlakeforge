@@ -8,9 +8,9 @@ contract. `check-infra.sh` runs Terraform formatting/validation and renders the
 upstream Helm charts with local values.
 
 `check-project-code.sh` installs project-code dependencies into a local cache and
-verifies that the Sales Dagster pipeline definitions load.
-`scripts/local/artifacts/floe-manifest.sh` generates the manifest-first Sales Floe
-contract.
+verifies that the aggregate product Dagster definitions load.
+`scripts/local/artifacts/floe-manifest.sh` generates manifest-first product Floe
+contracts from the shared profile in `libs/floe/profiles/`.
 
 Local stack scripts under `scripts/local/` are grouped by lifecycle:
 

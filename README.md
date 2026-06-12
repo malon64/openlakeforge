@@ -6,7 +6,8 @@ Terraform and Helm.
 
 ![OpenLakeForge Architecture](/docs/assets/openlakeforge_archi.png)
 
-The v1 proof of concept focuses on a local Kubernetes lakehouse path:
+The v1 proof of concept focuses on a local Kubernetes lakehouse path across
+multiple domain-owned data products:
 
 ```text
 CSV examples
@@ -19,9 +20,9 @@ CSV examples
   -> Dagster asset graph
 ```
 
-Iterations 1 and 2 established the local SeaweedFS, Polaris, Trino, Dagster, and
-project-code runtime baseline. Iteration 3 adds the Sales dlt Bronze extract and
-manifest-first Floe Silver materialization through Polaris.
+The current seed POC contains two Sales data products, `order_revenue` and
+`customer_health`, plus one Supply Chain data product,
+`inventory_reliability`.
 
 ## v1 Stack
 
@@ -46,7 +47,8 @@ openlakeforge/
 ├── images/project-code/
 ├── libs/
 ├── domains/
-│   └── sales/
+│   ├── sales/
+│   └── supply_chain/
 └── scripts/
 ```
 
@@ -55,14 +57,12 @@ Each domain follows this shape:
 ```text
 domains/<domain>/
 ├── domain.yaml
-├── examples/raw/
-├── extract/dlt/
 ├── contracts/floe/
-├── transformations/dbt/
-├── reports/superset/
-├── governance/openmetadata/
-├── pipelines/dagster/
-└── tests/
+├── examples/raw/<product>/
+├── extract/dlt/<product>.py
+├── transformations/dbt/<product>/
+├── reports/superset/<product>/
+└── pipelines/dagster/<product>.py
 ```
 
 ## Runtime Boundary
@@ -73,21 +73,22 @@ The project-code image is built as:
 ghcr.io/openlakeforge/project-code:<tag>
 ```
 
-It contains Dagster code, `dagster-floe`, Floe contracts, the generated Sales
-Floe manifest, dlt extract code, domain Python code, and shared OpenLakeForge
-libraries. Terraform provisions the local SeaweedFS code bucket and passes a
-runner-facing Sales Floe manifest URI to Dagster; manifest publication for the
-separate Floe runner pod is handled by local/CD artifact upload.
+It contains Dagster code, `dagster-floe`, product Floe contracts, generated
+product Floe manifests, dlt extract code, domain Python code, and shared
+OpenLakeForge libraries. Terraform provisions the local SeaweedFS code bucket
+and passes the runner-facing Floe manifest base URI to Dagster; manifest
+publication for the separate Floe runner pod is handled by local/CD artifact
+upload.
 
-Sales Superset report assets are also treated as dynamic domain artifacts. Their
-source lives under `domains/sales/reports/superset/`; local/CD deployment zips
-the bundle, copies it into the Superset reports volume, and imports it into the
-running Superset instance.
+Superset report assets are also treated as dynamic product artifacts. Their
+source lives under `domains/<domain>/reports/superset/<product>/`;
+local/CD deployment zips each bundle, copies it into the Superset reports
+volume, and imports it into the running Superset instance.
 
 OpenMetadata domain and data-product assets follow the same boundary. Terraform
 creates OpenMetadata and the platform services it needs; source-controlled
-metadata under `domains/sales/governance/openmetadata/` is deployed by the
-local/CD artifact phase.
+domain, data-product, Bronze, Silver, and Gold metadata in
+`domains/<domain>/domain.yaml` is deployed by the local/CD artifact phase.
 
 ## Roadmap
 
@@ -97,7 +98,8 @@ local/CD artifact phase.
 - Iteration 3: Sales POC ingestion and Floe Silver materialization.
 - Iteration 4: dbt-duckdb Gold models and Dagster-dbt integration.
 - Iteration 5: OpenMetadata governance, catalog discovery, and OpenLineage ingestion (OL removed in Iteration 6 — see ADR 0009).
-- Iteration 6: Superset reporting over Sales Gold marts; OpenLineage integration deferred pending upstream connector fixes.
+- Iteration 6: Superset reporting over Gold marts; OpenLineage integration deferred pending upstream connector fixes.
+- Iteration 7: multi-product seed POC with product-owned dlt, Floe, dbt, Dagster, Superset, and OpenMetadata artifacts.
 
 ## Local Validation
 
@@ -114,7 +116,9 @@ for static Terraform infrastructure, then `make local-artifacts-deploy` for the
 project-code image, Floe manifest upload, Superset report import, and
 OpenMetadata governance metadata deployment. The Dagster UI is available at
 `http://localhost:3000` through `make local-forward`. Launch
-`sales_etl_pipeline` from Dagster to run the Sales `dlt -> Floe -> dbt-duckdb`
-pipeline. Trino is forwarded to `http://localhost:8080` for local SQL clients
-such as DBeaver. Superset is forwarded to `http://localhost:8088` with
-development-only local credentials `admin / admin`.
+`sales_order_revenue_pipeline`, `sales_customer_health_pipeline`, or
+`supply_chain_inventory_reliability_pipeline` from Dagster to run product
+`dlt -> Floe -> dbt-duckdb` pipelines. Trino is forwarded to
+`http://localhost:8080` for local SQL clients such as DBeaver. Superset is
+forwarded to `http://localhost:8088` with development-only local credentials
+`admin / admin`.

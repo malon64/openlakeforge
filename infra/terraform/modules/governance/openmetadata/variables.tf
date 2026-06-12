@@ -139,7 +139,7 @@ variable "storage_contract" {
 variable "catalog_database_name" {
   description = "OpenMetadata database name to seed under the Polaris database service before catalog refresh."
   type        = string
-  default     = "sales_dev"
+  default     = "lakehouse_dev"
 }
 
 variable "catalog_schema_names" {

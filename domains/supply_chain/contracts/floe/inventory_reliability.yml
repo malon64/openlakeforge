@@ -1,0 +1,177 @@
+version: "0.2"
+
+metadata:
+  project: "openlakeforge"
+  owner: "supply-chain"
+  description: "Inventory Reliability Bronze to Silver Floe contracts."
+  tags: ["supply_chain", "inventory_reliability", "silver"]
+
+report:
+  path: "floe/reports/supply_chain/inventory_reliability"
+  storage: "lakehouse_s3"
+
+entities:
+  - name: "warehouses"
+    incremental_mode: "none"
+    source:
+      format: "csv"
+      path: "bronze/supply_chain/inventory_reliability/warehouses"
+      storage: "lakehouse_s3"
+      options: { header: true, separator: ",", encoding: "utf-8", glob: "*.csv" }
+      cast_mode: "strict"
+    sink:
+      write_mode: "overwrite"
+      accepted:
+        format: "iceberg"
+        path: "silver/supply_chain/inventory_reliability/warehouses"
+        storage: "lakehouse_s3"
+        iceberg: { catalog: "polaris", namespace: "silver", table: "inventory_reliability_warehouses" }
+      rejected: { format: "csv", path: "floe/rejected/supply_chain/inventory_reliability/warehouses", storage: "lakehouse_s3" }
+    policy: { severity: "reject" }
+    schema:
+      normalize_columns: { enabled: true, strategy: "snake_case" }
+      primary_key: ["warehouse_id"]
+      columns:
+        - { name: "warehouse_id", type: "string", nullable: false }
+        - { name: "warehouse_name", type: "string", nullable: false }
+        - { name: "region", type: "string", nullable: false }
+        - { name: "capacity_units", type: "integer", nullable: false }
+
+  - name: "suppliers"
+    incremental_mode: "none"
+    source:
+      format: "csv"
+      path: "bronze/supply_chain/inventory_reliability/suppliers"
+      storage: "lakehouse_s3"
+      options: { header: true, separator: ",", encoding: "utf-8", glob: "*.csv" }
+      cast_mode: "strict"
+    sink:
+      write_mode: "overwrite"
+      accepted:
+        format: "iceberg"
+        path: "silver/supply_chain/inventory_reliability/suppliers"
+        storage: "lakehouse_s3"
+        iceberg: { catalog: "polaris", namespace: "silver", table: "inventory_reliability_suppliers" }
+      rejected: { format: "csv", path: "floe/rejected/supply_chain/inventory_reliability/suppliers", storage: "lakehouse_s3" }
+    policy: { severity: "reject" }
+    schema:
+      normalize_columns: { enabled: true, strategy: "snake_case" }
+      primary_key: ["supplier_id"]
+      columns:
+        - { name: "supplier_id", type: "string", nullable: false }
+        - { name: "supplier_name", type: "string", nullable: false }
+        - { name: "country", type: "string", nullable: false }
+        - { name: "risk_tier", type: "string", nullable: false }
+
+  - name: "inventory_snapshots"
+    incremental_mode: "none"
+    source:
+      format: "csv"
+      path: "bronze/supply_chain/inventory_reliability/inventory_snapshots"
+      storage: "lakehouse_s3"
+      options: { header: true, separator: ",", encoding: "utf-8", glob: "*.csv" }
+      cast_mode: "strict"
+    sink:
+      write_mode: "overwrite"
+      accepted:
+        format: "iceberg"
+        path: "silver/supply_chain/inventory_reliability/inventory_snapshots"
+        storage: "lakehouse_s3"
+        iceberg: { catalog: "polaris", namespace: "silver", table: "inventory_reliability_inventory_snapshots" }
+      rejected: { format: "csv", path: "floe/rejected/supply_chain/inventory_reliability/inventory_snapshots", storage: "lakehouse_s3" }
+    policy: { severity: "reject" }
+    schema:
+      normalize_columns: { enabled: true, strategy: "snake_case" }
+      primary_key: ["snapshot_id"]
+      columns:
+        - { name: "snapshot_id", type: "string", nullable: false }
+        - { name: "snapshot_date", type: "date", nullable: false }
+        - { name: "warehouse_id", type: "string", nullable: false }
+        - { name: "product_id", type: "string", nullable: false }
+        - { name: "on_hand_units", type: "integer", nullable: false }
+        - { name: "allocated_units", type: "integer", nullable: false }
+        - { name: "reorder_point", type: "integer", nullable: false }
+
+  - name: "purchase_orders"
+    incremental_mode: "none"
+    source:
+      format: "csv"
+      path: "bronze/supply_chain/inventory_reliability/purchase_orders"
+      storage: "lakehouse_s3"
+      options: { header: true, separator: ",", encoding: "utf-8", glob: "*.csv" }
+      cast_mode: "strict"
+    sink:
+      write_mode: "overwrite"
+      accepted:
+        format: "iceberg"
+        path: "silver/supply_chain/inventory_reliability/purchase_orders"
+        storage: "lakehouse_s3"
+        iceberg: { catalog: "polaris", namespace: "silver", table: "inventory_reliability_purchase_orders" }
+      rejected: { format: "csv", path: "floe/rejected/supply_chain/inventory_reliability/purchase_orders", storage: "lakehouse_s3" }
+    policy: { severity: "reject" }
+    schema:
+      normalize_columns: { enabled: true, strategy: "snake_case" }
+      primary_key: ["purchase_order_id"]
+      columns:
+        - { name: "purchase_order_id", type: "string", nullable: false }
+        - { name: "supplier_id", type: "string", nullable: false }
+        - { name: "product_id", type: "string", nullable: false }
+        - { name: "warehouse_id", type: "string", nullable: false }
+        - { name: "order_date", type: "date", nullable: false }
+        - { name: "expected_date", type: "date", nullable: false }
+        - { name: "ordered_units", type: "integer", nullable: false }
+
+  - name: "shipments"
+    incremental_mode: "none"
+    source:
+      format: "csv"
+      path: "bronze/supply_chain/inventory_reliability/shipments"
+      storage: "lakehouse_s3"
+      options: { header: true, separator: ",", encoding: "utf-8", glob: "*.csv" }
+      cast_mode: "strict"
+    sink:
+      write_mode: "overwrite"
+      accepted:
+        format: "iceberg"
+        path: "silver/supply_chain/inventory_reliability/shipments"
+        storage: "lakehouse_s3"
+        iceberg: { catalog: "polaris", namespace: "silver", table: "inventory_reliability_shipments" }
+      rejected: { format: "csv", path: "floe/rejected/supply_chain/inventory_reliability/shipments", storage: "lakehouse_s3" }
+    policy: { severity: "reject" }
+    schema:
+      normalize_columns: { enabled: true, strategy: "snake_case" }
+      primary_key: ["shipment_id"]
+      columns:
+        - { name: "shipment_id", type: "string", nullable: false }
+        - { name: "purchase_order_id", type: "string", nullable: false }
+        - { name: "ship_date", type: "date", nullable: false }
+        - { name: "delivered_date", type: "date", nullable: false }
+        - { name: "received_units", type: "integer", nullable: false }
+
+  - name: "stockout_events"
+    incremental_mode: "none"
+    source:
+      format: "csv"
+      path: "bronze/supply_chain/inventory_reliability/stockout_events"
+      storage: "lakehouse_s3"
+      options: { header: true, separator: ",", encoding: "utf-8", glob: "*.csv" }
+      cast_mode: "strict"
+    sink:
+      write_mode: "overwrite"
+      accepted:
+        format: "iceberg"
+        path: "silver/supply_chain/inventory_reliability/stockout_events"
+        storage: "lakehouse_s3"
+        iceberg: { catalog: "polaris", namespace: "silver", table: "inventory_reliability_stockout_events" }
+      rejected: { format: "csv", path: "floe/rejected/supply_chain/inventory_reliability/stockout_events", storage: "lakehouse_s3" }
+    policy: { severity: "reject" }
+    schema:
+      normalize_columns: { enabled: true, strategy: "snake_case" }
+      primary_key: ["event_id"]
+      columns:
+        - { name: "event_id", type: "string", nullable: false }
+        - { name: "event_date", type: "date", nullable: false }
+        - { name: "warehouse_id", type: "string", nullable: false }
+        - { name: "product_id", type: "string", nullable: false }
+        - { name: "lost_units", type: "integer", nullable: false }
+        - { name: "root_cause", type: "string", nullable: false }

@@ -59,7 +59,7 @@ The catalog module owns:
 - local catalog type `rest`
 - local catalog provider `polaris`
 - root bootstrap credentials in `polaris-bootstrap-credentials`
-- the `sales_dev` warehouse
+- the `lakehouse_dev` warehouse
 - the Trino service principal and role grants
 - Trino OAuth credentials in `polaris-trino-creds`
 - the Floe service principal and role grants
@@ -94,11 +94,11 @@ http://superset:8088
 ```
 
 Superset uses the shared PostgreSQL service for metadata and chart-managed Redis
-for local cache and worker support. Sales report assets are not seeded by
+for local cache and worker support. Product report assets are not seeded by
 Terraform bootstrap. They are source-controlled under
-`domains/sales/reports/superset/`, copied into the Superset reports PVC at
-`/app/openlakeforge/reports`, and imported by the local/CD report deployment
-step.
+`domains/<domain>/reports/superset/<product>/`, copied into the
+Superset reports PVC at `/app/openlakeforge/reports`, and imported by the
+local/CD report deployment step.
 
 Superset uses local development credentials by default. A future identity
 provider implementation should replace this through an identity contract rather
@@ -116,20 +116,21 @@ The orchestration module owns:
 
 - the Dagster Helm release
 - shared PostgreSQL credentials for Dagster metadata
-- the Sales code server loading `domains.sales.pipelines.dagster.definitions`
+- the aggregate product code server loading `domains.definitions`
 - the Kubernetes run launcher
 - the local project-code image reference `ghcr.io/openlakeforge/project-code:local`
-- the Sales Floe manifest URI `s3://openlakeforge-code/floe/sales/sales.manifest.json`
+- the product Floe manifest base URI `s3://openlakeforge-code/floe`
 
 Local development uses `make local-infra-up` for Terraform-managed platform
 resources and `make local-artifacts-deploy` for dynamic domain artifacts.
-Dagster loads the Floe asset graph from the manifest baked into the project-code
-image. Terraform provisions the code bucket and passes the remote manifest URI
-to Dagster; the artifact deploy phase publishes the generated Sales Floe
-manifest to that URI so the separate Floe runner pod can read it. Dagster
-launches Floe Kubernetes jobs from `ghcr.io/malon64/floe:0.4.6`. dbt-duckdb
-runs inside Dagster Kubernetes run pods from the project-code image and writes
-Gold Iceberg marts to the `gold` namespace of the `sales_dev` Polaris warehouse.
+Dagster loads the Floe asset graphs from manifests baked into the project-code
+image. Terraform provisions the code bucket and passes the remote manifest base
+URI to Dagster; the artifact deploy phase publishes generated product Floe
+manifests under that base URI so the separate Floe runner pod can read them.
+Dagster launches Floe Kubernetes jobs from `ghcr.io/malon64/floe:0.4.6`.
+dbt-duckdb runs inside Dagster Kubernetes run pods from the project-code image
+and writes Gold Iceberg marts to the `gold` namespace of the `lakehouse_dev`
+Polaris warehouse.
 
 ## Secrets, Identity, and Access Contracts
 

@@ -1,0 +1,41 @@
+table_name: mart_churn_risk_by_segment
+main_dttm_col: null
+description: Churn risk and ARR exposure grouped by account segment and region.
+schema: gold
+uuid: 7ae9d43a-0c52-514a-83bf-afa2a5757a51
+metrics:
+  - metric_name: sum__arr_at_risk
+    verbose_name: ARR at risk
+    metric_type: sum
+    expression: SUM(arr_at_risk)
+  - metric_name: sum__account_count
+    verbose_name: Account count
+    metric_type: sum
+    expression: SUM(account_count)
+columns:
+  - column_name: segment
+    type: VARCHAR
+    groupby: true
+    filterable: true
+  - column_name: region
+    type: VARCHAR
+    groupby: true
+    filterable: true
+  - column_name: churn_risk
+    type: VARCHAR
+    groupby: true
+    filterable: true
+  - column_name: account_count
+    type: BIGINT
+    groupby: false
+    filterable: true
+  - column_name: arr_at_risk
+    type: DOUBLE
+    groupby: false
+    filterable: true
+  - column_name: avg_health_score
+    type: DOUBLE
+    groupby: false
+    filterable: true
+version: 1.0.0
+database_uuid: 8a87434c-559e-545d-badd-3575affe0185

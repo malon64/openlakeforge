@@ -196,32 +196,39 @@ def product_payload(product):
     return payload
 
 
-def metadata_dirs():
+def domain_files():
     if METADATA_SOURCE_DIR:
         path = Path(METADATA_SOURCE_DIR)
         if not path.exists():
             raise OpenMetadataError(f"OpenMetadata metadata source does not exist: {path}")
-        return [path]
+        if path.is_file():
+            return [path]
+        if (path / "domain.yaml").is_file():
+            return [path / "domain.yaml"]
+        return sorted(path.glob("*/domain.yaml"))
 
     if not METADATA_ROOT.exists():
         raise OpenMetadataError(f"OpenMetadata metadata root does not exist: {METADATA_ROOT}")
 
     return sorted(
         path
-        for path in METADATA_ROOT.glob("*/governance/openmetadata")
-        if (path / "domain.yaml").is_file()
+        for path in METADATA_ROOT.glob("*/domain.yaml")
+        if path.is_file()
     )
 
 
-def product_files(metadata_dir):
-    product_dir = metadata_dir / "data-products"
-    if not product_dir.exists():
-        return []
-    return sorted(
-        path
-        for path in product_dir.iterdir()
-        if path.is_file() and path.suffix.lower() in {".yaml", ".yml"}
-    )
+def product_entries(domain):
+    products = domain.get("data_products") or []
+    if not isinstance(products, list):
+        raise OpenMetadataError(f"Domain '{domain.get('name', '<unknown>')}' data_products must be a list.")
+    for product in products:
+        if not isinstance(product, dict):
+            raise OpenMetadataError(f"Unsupported data product entry in domain '{domain.get('name')}': {product!r}")
+        if not product.get("name"):
+            product["name"] = f"{domain['name']}_{product.get('id', '')}".rstrip("_")
+        if not product.get("domain") and not product.get("domains"):
+            product["domain"] = domain["name"]
+        yield product
 
 
 def resolve_table_asset(token, asset):
@@ -320,15 +327,33 @@ def data_product_asset_ref(table_ref):
     }
 
 
-def table_files(metadata_dir):
-    tables_dir = metadata_dir / "tables"
-    if not tables_dir.exists():
-        return []
-    return sorted(
-        path
-        for path in tables_dir.iterdir()
-        if path.is_file() and path.suffix.lower() in {".yaml", ".yml"}
-    )
+def product_table_specs(product):
+    for key in ["silver_tables", "gold_tables"]:
+        spec = product.get(key)
+        if not spec:
+            continue
+        schema_fqn = spec.get("schema")
+        if not schema_fqn:
+            raise OpenMetadataError(
+                f"Data product '{product.get('name')}' table group '{key}' is missing required 'schema'."
+            )
+        for table in spec.get("tables", []):
+            yield schema_fqn, table
+
+
+def product_bronze_containers(domain, product):
+    domain_name = domain["name"]
+    product_id = product.get("id") or product["name"]
+    for container in product.get("bronze") or []:
+        if not container.get("path"):
+            raise OpenMetadataError(f"Data product '{product['name']}' Bronze entry is missing required 'path'.")
+        entity_name = container.get("name") or Path(container["path"].rstrip("/")).name
+        default_name = f"bronze-{domain_name}-{product_id}-{entity_name}".replace("_", "-")
+        yield {
+            "name": container.get("container_name") or default_name,
+            "path": container["path"],
+            "description": container.get("description") or f"Raw Bronze data for {domain_name}/{product_id}/{entity_name}.",
+        }
 
 
 def ensure_storage_service(token, name, display_name, endpoint, region):
@@ -384,10 +409,10 @@ def deploy():
     wait_for_openmetadata()
     token = login()
 
-    dirs = metadata_dirs()
-    if not dirs:
+    domain_specs = [(path, load_yaml(path)) for path in domain_files()]
+    if not domain_specs:
         raise OpenMetadataError(
-            f"No OpenMetadata metadata directories found under {METADATA_ROOT}/<domain>/governance/openmetadata"
+            f"No OpenMetadata domain metadata files found under {METADATA_ROOT}/<domain>/domain.yaml"
         )
 
     # Phase A+B: SeaweedFS Object Store service and Bronze CSV source containers.
@@ -395,34 +420,33 @@ def deploy():
     # Lineage integration is intentionally deferred; see ADR 0009.
     ensure_storage_service(token, "seaweedfs", "SeaweedFS S3", "http://seaweedfs-s3:8333", "us-east-1")
     ensure_container(token, "seaweedfs", "iceberg-data", None, "s3://iceberg-data", "Main Iceberg data bucket.")
-    for cname, cpath, cdesc in [
-        ("bronze-sales-sales",     "s3://iceberg-data/bronze/sales/sales",     "Raw CSV sales transactions."),
-        ("bronze-sales-customers", "s3://iceberg-data/bronze/sales/customers", "Raw CSV customer records."),
-        ("bronze-sales-products",  "s3://iceberg-data/bronze/sales/products",  "Raw CSV product catalog."),
-    ]:
-        ensure_container(token, "seaweedfs", cname, "seaweedfs.iceberg-data", cpath, cdesc)
+    for _, domain in domain_specs:
+        for product in product_entries(domain):
+            for container in product_bronze_containers(domain, product):
+                ensure_container(
+                    token,
+                    "seaweedfs",
+                    container["name"],
+                    "seaweedfs.iceberg-data",
+                    container["path"],
+                    container["description"],
+                )
 
     # Phase C: Pre-seed Iceberg table stubs so governed assets are visible before
     # the hourly Polaris crawler refreshes table metadata.
-    for metadata_dir in dirs:
-        for tfile in table_files(metadata_dir):
-            tspec = load_yaml(tfile)
-            schema_fqn = tspec.get("schema")
-            if not schema_fqn:
-                raise OpenMetadataError(f"Table seed file '{tfile}' is missing required 'schema' field.")
-            for tbl in tspec.get("tables", []):
-                ensure_table_stub(token, schema_fqn, tbl["name"], tbl.get("description", ""))
+    for _, domain in domain_specs:
+        for product in product_entries(domain):
+            for schema_fqn, table in product_table_specs(product):
+                ensure_table_stub(token, schema_fqn, table["name"], table.get("description", ""))
 
     # Phase D: Upsert domains and data products from governance YAML.
     missing_assets = []
-    for metadata_dir in dirs:
-        domain = load_yaml(metadata_dir / "domain.yaml")
+    for _, domain in domain_specs:
         domain_body = domain_payload(domain)
         request("PUT", "/api/v1/domains", token=token, payload=domain_body, ok_statuses=(200, 201))
         print(f"Upserted OpenMetadata domain: {domain_body['name']}")
 
-        for product_path in product_files(metadata_dir):
-            product = load_yaml(product_path)
+        for product in product_entries(domain):
             product_body = product_payload(product)
             request("PUT", "/api/v1/dataProducts", token=token, payload=product_body, ok_statuses=(200, 201))
             print(f"Upserted OpenMetadata data product: {product_body['name']}")
@@ -453,7 +477,7 @@ def deploy():
         guidance = (
             "OpenMetadata table assets are not available yet:\n"
             f"{message}\n"
-            "Run the Sales ETL in Dagster, wait for the Polaris metadata ingestion to crawl the catalog, "
+            "Run the product ETL jobs in Dagster, wait for the Polaris metadata ingestion to crawl the catalog, "
             "then rerun 'make openmetadata-metadata-deploy'."
         )
         if ALLOW_MISSING_ASSETS:

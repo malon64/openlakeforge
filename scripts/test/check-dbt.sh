@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PROJECT_DIR="domains/sales/transformations/dbt"
-
 require_cmd() {
   local cmd="$1"
   if ! command -v "${cmd}" &>/dev/null; then
@@ -21,7 +19,6 @@ PY
 )"
 dependency_hash="$(python3 - <<'PY'
 import hashlib
-from pathlib import Path
 payload = "\n".join([
     "dbt-duckdb>=1.9.6,<1.10",
     "duckdb>=1.4.1,<1.5",
@@ -62,11 +59,58 @@ export POLARIS_DBT_CLIENT_ID="${POLARIS_DBT_CLIENT_ID:-openlakeforge-dbt}"
 export POLARIS_DBT_CLIENT_SECRET="${POLARIS_DBT_CLIENT_SECRET:-openlakeforge-dbt}"
 export POLARIS_REST_URI="${POLARIS_REST_URI:-http://polaris:8181/api/catalog}"
 export POLARIS_TOKEN_URI="${POLARIS_TOKEN_URI:-http://polaris:8181/api/catalog/v1/oauth/tokens}"
-export POLARIS_WAREHOUSE="${POLARIS_WAREHOUSE:-lakehouse}"
+export POLARIS_WAREHOUSE="${POLARIS_WAREHOUSE:-lakehouse_dev}"
 export POLARIS_OAUTH_SCOPE="${POLARIS_OAUTH_SCOPE:-PRINCIPAL_ROLE:ALL}"
+export OPENLAKEFORGE_DBT_SCHEMA="${OPENLAKEFORGE_DBT_SCHEMA:-gold}"
 
-echo "==> dbt parse"
-dbt parse --project-dir "${PROJECT_DIR}" --profiles-dir "${PROJECT_DIR}" --target local
+mapfile -t projects < <(
+  find domains -path "*/transformations/dbt/*/dbt_project.yml" -type f \
+    -exec dirname {} \; | sort
+)
 
-echo "==> dbt compile"
-dbt compile --project-dir "${PROJECT_DIR}" --profiles-dir "${PROJECT_DIR}" --target local
+if [[ "${#projects[@]}" -eq 0 ]]; then
+  echo "ERROR: no product dbt projects found." >&2
+  exit 1
+fi
+
+for project_dir in "${projects[@]}"; do
+  echo "==> dbt deps: ${project_dir}"
+  dbt deps --project-dir "${project_dir}"
+
+  echo "==> dbt parse: ${project_dir}"
+  dbt parse --project-dir "${project_dir}" --profiles-dir "${project_dir}" --target local
+
+  echo "==> dbt compile: ${project_dir}"
+  dbt compile --project-dir "${project_dir}" --profiles-dir "${project_dir}" --target local
+
+  echo "==> dbt relation contract: ${project_dir}"
+  python3 - "${project_dir}" <<'PY'
+import json
+import os
+import sys
+from pathlib import Path
+
+project_dir = Path(sys.argv[1])
+manifest_path = project_dir / "target" / "manifest.json"
+expected_database = os.environ["POLARIS_WAREHOUSE"]
+expected_schema = os.environ["OPENLAKEFORGE_DBT_SCHEMA"]
+
+manifest = json.loads(manifest_path.read_text())
+violations = []
+for node in manifest["nodes"].values():
+    if node.get("resource_type") != "model":
+        continue
+    database = node.get("database")
+    schema = node.get("schema")
+    name = node.get("name")
+    if database != expected_database or schema != expected_schema:
+        violations.append(f"{name}: {database}.{schema}")
+
+if violations:
+    joined = ", ".join(violations)
+    raise SystemExit(
+        f"{project_dir} dbt models must compile to "
+        f"{expected_database}.{expected_schema}.*; got {joined}"
+    )
+PY
+done

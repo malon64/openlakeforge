@@ -56,7 +56,7 @@ jobs:
         run: make project-code-image
 
   dbt:
-    name: Validate Sales dbt project
+    name: Validate product dbt projects
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -67,5 +67,5 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Check Sales dbt project
+      - name: Check product dbt projects
         run: make check-dbt

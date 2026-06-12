@@ -19,7 +19,7 @@ variable "kube_context" {
 variable "catalog_name" {
   description = "Polaris catalog and Trino Iceberg warehouse name."
   type        = string
-  default     = "sales_dev"
+  default     = "lakehouse_dev"
 }
 
 variable "iceberg_bucket_name" {

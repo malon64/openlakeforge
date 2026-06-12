@@ -48,9 +48,11 @@ restart_if_exists() {
 restart_dagster_project_code_deployments() {
   restart_if_exists "dagster-dagster-webserver"
   restart_if_exists "dagster-dagster-daemon"
+  restart_if_exists "dagster-dagster-user-deployments-openlakeforge-dagster"
   restart_if_exists "dagster-dagster-user-deployments-sales-dagster"
   restart_if_exists "dagster-webserver"
   restart_if_exists "dagster-daemon"
+  restart_if_exists "dagster-user-deployments-openlakeforge-dagster"
   restart_if_exists "dagster-user-deployments-sales-dagster"
 }
 
@@ -59,13 +61,13 @@ require_cmd python3
 
 prepare_local_project_code_image
 
-echo "==> Generating local Floe manifest for namespace '${NAMESPACE}'..."
+echo "==> Generating local product Floe manifests for namespace '${NAMESPACE}'..."
 NAMESPACE="${NAMESPACE}" bash "${SCRIPT_DIR}/../artifacts/floe-manifest.sh"
 
-echo "==> Publishing Sales Floe manifest to local code bucket..."
+echo "==> Publishing product Floe manifests to local code bucket..."
 NAMESPACE="${NAMESPACE}" bash "${SCRIPT_DIR}/../artifacts/upload-floe-manifest.sh"
 
-echo "==> Deploying Sales Superset report assets..."
+echo "==> Deploying product Superset report assets..."
 NAMESPACE="${NAMESPACE}" bash "${SCRIPT_DIR}/../artifacts/superset-reports-deploy.sh"
 
 echo "==> Deploying OpenMetadata governance metadata..."

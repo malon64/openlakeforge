@@ -79,8 +79,8 @@ duplicates logic already present in the upstream connectors is not justified.
 All lineage integration with OpenMetadata is removed for the current iteration.
 
 - The OpenLineage proxy (`openmetadata-openlineage` Kubernetes deployment) is removed.
-- Floe OL emission is disabled by removing the `lineage:` block from the Floe profile
-  (`domains/sales/contracts/floe/profiles/local-k8s.yml`).
+- Floe OL emission is disabled by keeping lineage out of the shared Floe profile
+  (`libs/floe/profiles/local-k8s.yml`).
 - The `openlineage-dbt` package is removed from `images/project-code/pyproject.toml`.
 - The custom `om_lineage.py` Dagster module is deleted.
 - Dagster receives no `OPENMETADATA_URL`, `OPENMETADATA_TOKEN`, or `OPENLINEAGE_*`

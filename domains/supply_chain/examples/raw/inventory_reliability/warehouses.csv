@@ -1,0 +1,6 @@
+warehouse_id,warehouse_name,region,capacity_units
+W-NA-01,Phoenix Fulfillment,NA,12000
+W-NA-02,Newark Forward,NA,9000
+W-EMEA-01,Rotterdam Hub,EMEA,11000
+W-EMEA-02,Dublin Microhub,EMEA,6000
+W-APAC-01,Singapore Hub,APAC,8000

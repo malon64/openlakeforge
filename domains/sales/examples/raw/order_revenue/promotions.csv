@@ -1,0 +1,5 @@
+promotion_id,promotion_name,discount_type
+PR-NONE,No Promotion,none
+PR-NEWYEAR,New Year Launch,seasonal
+PR-BUNDLE,Bundle Discount,bundle
+PR-LOYALTY,Loyalty Reward,retention

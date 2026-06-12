@@ -1,0 +1,23 @@
+slice_name: Stockout Risk by Warehouse Product
+description: Stockout events and lost units by warehouse, product, and risk tier.
+viz_type: table
+params:
+  datasource: null
+  viz_type: table
+  query_mode: aggregate
+  groupby:
+    - warehouse_name
+    - product_id
+    - stockout_risk
+  metrics:
+    - sum__stockout_event_count
+    - sum__lost_units
+  row_limit: 100
+  order_desc: true
+  show_cell_bars: true
+  table_timestamp_format: smart_date
+query_context: null
+cache_timeout: null
+uuid: 53bfdece-635f-5d57-8cce-3576133b7706
+version: 1.0.0
+dataset_uuid: 9874e97a-2409-5b09-a330-26c3bc3014e1

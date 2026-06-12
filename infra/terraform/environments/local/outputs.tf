@@ -3,9 +3,14 @@ output "storage_contract" {
   value       = local.storage_contract
 }
 
-output "sales_floe_manifest_uri" {
-  description = "S3 URI of the Sales Floe manifest consumed by Dagster and Floe."
-  value       = local.sales_floe_manifest_uri
+output "floe_manifest_base_uri" {
+  description = "S3 base URI of product Floe manifests consumed by Dagster and Floe."
+  value       = local.floe_manifest_base_uri
+}
+
+output "product_floe_manifest_uris" {
+  description = "S3 URIs of product Floe manifests consumed by Dagster and Floe."
+  value       = local.product_floe_manifest_uris
 }
 
 output "catalog_contract" {

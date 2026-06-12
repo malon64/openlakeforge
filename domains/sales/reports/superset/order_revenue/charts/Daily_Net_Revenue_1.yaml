@@ -1,0 +1,30 @@
+slice_name: Daily Net Revenue
+description: Net revenue trend by order date and region.
+viz_type: echarts_timeseries_line
+params:
+  datasource: null
+  viz_type: echarts_timeseries_line
+  x_axis: order_date
+  time_grain_sqla: P1D
+  metrics:
+    - sum__net_revenue
+  groupby:
+    - region
+  adhoc_filters:
+    - clause: WHERE
+      subject: order_date
+      operator: TEMPORAL_RANGE
+      comparator: No filter
+      expressionType: SIMPLE
+  row_limit: 1000
+  color_scheme: supersetColors
+  show_legend: true
+  legendType: scroll
+  legendOrientation: top
+  x_axis_time_format: smart_date
+  y_axis_format: SMART_NUMBER
+query_context: null
+cache_timeout: null
+uuid: 967135cd-a1e8-54e1-b41e-5f20177689d0
+version: 1.0.0
+dataset_uuid: f4c88b9c-6880-51f0-8672-04ada7010901

@@ -1,0 +1,65 @@
+table_name: mart_customer_health_score
+main_dttm_col: null
+description: Account-level health score using subscription, support, and NPS signals.
+schema: gold
+uuid: 64386bcd-bccd-50d7-a96b-7c2f0c13b6f9
+metrics:
+  - metric_name: avg__health_score
+    verbose_name: Average health score
+    metric_type: avg
+    expression: AVG(health_score)
+  - metric_name: sum__arr
+    verbose_name: ARR
+    metric_type: sum
+    expression: SUM(arr)
+columns:
+  - column_name: account_id
+    type: VARCHAR
+    groupby: true
+    filterable: true
+  - column_name: account_name
+    type: VARCHAR
+    groupby: true
+    filterable: true
+  - column_name: segment
+    type: VARCHAR
+    groupby: true
+    filterable: true
+  - column_name: region
+    type: VARCHAR
+    groupby: true
+    filterable: true
+  - column_name: arr
+    type: DOUBLE
+    groupby: false
+    filterable: true
+  - column_name: subscription_status
+    type: VARCHAR
+    groupby: true
+    filterable: true
+  - column_name: monthly_recurring_revenue
+    type: DOUBLE
+    groupby: false
+    filterable: true
+  - column_name: ticket_count
+    type: BIGINT
+    groupby: false
+    filterable: true
+  - column_name: avg_resolution_hours
+    type: DOUBLE
+    groupby: false
+    filterable: true
+  - column_name: sla_rate
+    type: DOUBLE
+    groupby: false
+    filterable: true
+  - column_name: avg_nps
+    type: DOUBLE
+    groupby: false
+    filterable: true
+  - column_name: health_score
+    type: DOUBLE
+    groupby: false
+    filterable: true
+version: 1.0.0
+database_uuid: 8a87434c-559e-545d-badd-3575affe0185

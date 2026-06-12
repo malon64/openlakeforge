@@ -1,0 +1,20 @@
+slice_name: Available Inventory by Status
+description: Available units by inventory status and region.
+viz_type: echarts_timeseries_bar
+params:
+  datasource: null
+  viz_type: echarts_timeseries_bar
+  x_axis: inventory_status
+  metrics:
+    - sum__available_units
+  groupby:
+    - region
+  row_limit: 100
+  color_scheme: supersetColors
+  show_legend: true
+  y_axis_format: SMART_NUMBER
+query_context: null
+cache_timeout: null
+uuid: 94aeb5f6-966f-5f9e-b7eb-8c8d393ab0fe
+version: 1.0.0
+dataset_uuid: 4d13cf4f-36f3-58b7-9608-e9da2ed26d1b

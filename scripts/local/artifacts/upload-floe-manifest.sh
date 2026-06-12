@@ -1,17 +1,10 @@
 #!/usr/bin/env bash
-# Publish the generated Sales Floe manifest to the local code bucket.
+# Publish generated product Floe manifests to the local code bucket.
 set -euo pipefail
 
 NAMESPACE="${NAMESPACE:-lakehouse}"
 BUCKET="${CODE_BUCKET_NAME:-openlakeforge-code}"
-MANIFEST_PATH="${FLOE_MANIFEST_PATH:-domains/sales/contracts/floe/manifests/sales.manifest.json}"
-MANIFEST_KEY="${FLOE_MANIFEST_KEY:-floe/sales/sales.manifest.json}"
 S3_PORT="${SEAWEEDFS_LOCAL_S3_PORT:-19000}"
-
-if [[ ! -f "${MANIFEST_PATH}" ]]; then
-  echo "ERROR: missing Floe manifest at ${MANIFEST_PATH}. Run 'make floe-manifest' first." >&2
-  exit 1
-fi
 
 for cmd in kubectl base64; do
   if ! command -v "${cmd}" &>/dev/null; then
@@ -35,7 +28,7 @@ elif command -v docker &>/dev/null; then
     amazon/aws-cli:2.17.63
   )
 else
-  echo "ERROR: either 'aws' or Docker is required to upload the Floe manifest." >&2
+  echo "ERROR: either 'aws' or Docker is required to upload Floe manifests." >&2
   exit 1
 fi
 
@@ -52,6 +45,43 @@ export AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-${AWS_REGION}}"
 export AWS_EC2_METADATA_DISABLED=true
 AWS_ACCESS_KEY_ID="$(secret_value AWS_ACCESS_KEY_ID)"
 AWS_SECRET_ACCESS_KEY="$(secret_value AWS_SECRET_ACCESS_KEY)"
+
+discover_manifests() {
+  if [[ -n "${FLOE_MANIFEST_PATH:-}" ]]; then
+    printf '%s\n' "${FLOE_MANIFEST_PATH}"
+    return
+  fi
+
+  find domains -path "*/contracts/floe/manifests/*.manifest.json" -type f | sort
+}
+
+manifest_key() {
+  local manifest_path="$1"
+  if [[ -n "${FLOE_MANIFEST_KEY:-}" ]]; then
+    printf '%s\n' "${FLOE_MANIFEST_KEY}"
+    return
+  fi
+
+  local domain_dir="${manifest_path%/contracts/floe/manifests/*}"
+  local product
+  local domain
+  product="$(basename "${manifest_path}" .manifest.json)"
+  domain="$(basename "${domain_dir}")"
+  printf 'floe/%s/%s/%s.manifest.json\n' "${domain}" "${product}" "${product}"
+}
+
+mapfile -t manifests < <(discover_manifests)
+if [[ "${#manifests[@]}" -eq 0 ]]; then
+  echo "ERROR: no generated product Floe manifests found. Run 'make floe-manifest' first." >&2
+  exit 1
+fi
+
+for manifest_path in "${manifests[@]}"; do
+  if [[ ! -f "${manifest_path}" ]]; then
+    echo "ERROR: missing Floe manifest at ${manifest_path}. Run 'make floe-manifest' first." >&2
+    exit 1
+  fi
+done
 
 kubectl port-forward "svc/seaweedfs-s3" "${S3_PORT}:8333" -n "${NAMESPACE}" >/tmp/openlakeforge-seaweedfs-port-forward.log 2>&1 &
 port_forward_pid="$!"
@@ -72,10 +102,13 @@ for attempt in $(seq 1 60); do
   sleep 2
 done
 
-"${AWS_CMD[@]}" --endpoint-url "${endpoint}" s3api put-object \
-  --bucket "${BUCKET}" \
-  --key "${MANIFEST_KEY}" \
-  --body "${MANIFEST_PATH}" \
-  --content-type application/json
+for manifest_path in "${manifests[@]}"; do
+  key="$(manifest_key "${manifest_path}")"
+  "${AWS_CMD[@]}" --endpoint-url "${endpoint}" s3api put-object \
+    --bucket "${BUCKET}" \
+    --key "${key}" \
+    --body "${manifest_path}" \
+    --content-type application/json
 
-echo "Published ${MANIFEST_PATH} to s3://${BUCKET}/${MANIFEST_KEY}"
+  echo "Published ${manifest_path} to s3://${BUCKET}/${key}"
+done

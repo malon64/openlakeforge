@@ -17,10 +17,12 @@ make project-code-image
 make project-code-load
 ```
 
-The image contains Dagster, `dagster-floe`, dlt extract code, Floe contracts,
-the generated Sales Floe manifest, domain Python code, and shared OpenLakeForge
-libraries. It intentionally does not install the Floe CLI. Iteration 3 generates
-the Sales Floe manifest locally, bakes it into this image for Dagster asset
-loading, publishes it to SeaweedFS outside Terraform for the separate runner pod,
-then Dagster uses `dagster-floe` to launch Floe Kubernetes jobs from the
+The image contains Dagster, `dagster-floe`, dlt extract code, domain-owned
+product Floe contracts, generated product Floe manifests, product dbt projects,
+domain Python code, and shared OpenLakeForge libraries. It intentionally does
+not install the Floe CLI.
+`make floe-manifest` generates the product manifests locally, bakes them into
+this image for Dagster asset loading, publishes them to SeaweedFS outside
+Terraform for the separate runner pod, then Dagster uses `dagster-floe` to
+launch Floe Kubernetes jobs from the
 manifest-declared `ghcr.io/malon64/floe:0.4.6` runner image.

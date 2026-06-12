@@ -4,6 +4,10 @@
 
 Accepted
 
+Current implementation note: the Sales-first dbt pattern has been generalized to
+product-owned dbt projects. Product Gold marts now write into the `gold`
+namespace of the shared `lakehouse_dev` warehouse.
+
 ## Context
 
 Iteration 4 must extend the Sales POC from Floe-owned Silver Iceberg tables to
@@ -19,16 +23,18 @@ through the existing `K8sRunLauncher`; Iteration 4 does not introduce a separate
 dbt runner image.
 
 DuckDB attaches Polaris at runtime and transforms Silver Iceberg tables into
-Gold Iceberg tables through the Polaris REST catalog. Silver resides in the `silver` namespace of the `sales_dev` warehouse, while Gold
+Gold Iceberg tables through the Polaris REST catalog. Silver resides in the `silver` namespace of the `lakehouse_dev` warehouse, while Gold
 marts are written to the `gold` namespace of the same warehouse.
 
 Polaris owns a dedicated dbt service principal and Kubernetes Secret
 `polaris-dbt-creds`, separate from Floe and Trino credentials.
 
-The durable Sales end-to-end job is `sales_etl_pipeline`. It materializes
-Bronze source assets, Floe Silver assets, and dbt Gold assets in the Dagster
-`sales` asset group. Trino remains the SQL query engine for inspecting and
-validating the resulting Iceberg tables.
+The durable end-to-end jobs are product-scoped, such as
+`sales_order_revenue_pipeline`, `sales_customer_health_pipeline`, and
+`supply_chain_inventory_reliability_pipeline`. They materialize Bronze source
+assets, Floe Silver assets, and dbt Gold assets in product-specific Dagster
+asset groups. Trino remains the SQL query engine for inspecting and validating
+the resulting Iceberg tables.
 
 ## Consequences
 

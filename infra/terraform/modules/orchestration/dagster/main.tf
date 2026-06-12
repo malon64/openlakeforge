@@ -1,7 +1,7 @@
 locals {
   catalog_type     = coalesce(try(var.catalog_contract.catalog_type, null), "rest")
   catalog_provider = coalesce(try(var.catalog_contract.catalog_provider, null), "polaris")
-  catalog_name     = coalesce(try(var.catalog_contract.catalog_name, null), try(var.catalog_contract.warehouse, null), "sales_dev")
+  catalog_name     = coalesce(try(var.catalog_contract.catalog_name, null), try(var.catalog_contract.warehouse, null), "lakehouse_dev")
   runtime_profile  = coalesce(try(var.catalog_contract.runtime_profile, null), "polaris-rest")
 
   storage_env = concat(
@@ -47,8 +47,8 @@ locals {
 
   artifact_env = [
     {
-      name  = "OPENLAKEFORGE_FLOE_MANIFEST_URI"
-      value = var.floe_manifest_uri
+      name  = "OPENLAKEFORGE_FLOE_MANIFEST_BASE_URI"
+      value = var.floe_manifest_base_uri
     },
     {
       name  = "OPENLAKEFORGE_FLOE_MANIFEST_REVISION"
@@ -101,7 +101,7 @@ locals {
   dbt_env = [
     {
       name  = "DBT_PROFILES_DIR"
-      value = "/opt/openlakeforge/domains/sales/transformations/dbt"
+      value = "/opt/openlakeforge/domains"
     },
     {
       name  = "OPENLAKEFORGE_DBT_ATTACH_POLARIS"
