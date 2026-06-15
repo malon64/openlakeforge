@@ -763,6 +763,7 @@ resource "kubernetes_cron_job_v1" "catalog_refresh" {
                         \"type\": \"Iceberg\",
                         \"catalog\": {
                           \"name\": \"${var.catalog_contract.warehouse}\",
+                          \"databaseName\": \"${var.catalog_database_name}\",
                           \"warehouseLocation\": \"${var.catalog_contract.warehouse}\",
                           \"connection\": {
                             \"uri\": \"${var.catalog_contract.rest_uri}\",

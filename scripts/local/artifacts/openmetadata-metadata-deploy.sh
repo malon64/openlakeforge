@@ -11,6 +11,9 @@ OPENMETADATA_ADMIN_PASSWORD="${OPENMETADATA_ADMIN_PASSWORD:-admin}"
 OPENMETADATA_METADATA_ROOT="${OPENMETADATA_METADATA_ROOT:-domains}"
 OPENMETADATA_METADATA_SOURCE_DIR="${OPENMETADATA_METADATA_SOURCE_DIR:-}"
 OPENMETADATA_ALLOW_MISSING_ASSETS="${OPENMETADATA_ALLOW_MISSING_ASSETS:-false}"
+OPENMETADATA_CATALOG_SERVICE="${OPENMETADATA_CATALOG_SERVICE:-polaris}"
+OPENMETADATA_CATALOG_DATABASE="${OPENMETADATA_CATALOG_DATABASE:-lakehouse_dev}"
+OPENMETADATA_CLEANUP_LEGACY_DEFAULT_DATABASE="${OPENMETADATA_CLEANUP_LEGACY_DEFAULT_DATABASE:-true}"
 
 for cmd in kubectl python3; do
   if ! command -v "${cmd}" &>/dev/null; then
@@ -44,7 +47,10 @@ python3 - \
   "${OPENMETADATA_ADMIN_PASSWORD}" \
   "${OPENMETADATA_METADATA_ROOT}" \
   "${OPENMETADATA_METADATA_SOURCE_DIR}" \
-  "${OPENMETADATA_ALLOW_MISSING_ASSETS}" <<'PY'
+  "${OPENMETADATA_ALLOW_MISSING_ASSETS}" \
+  "${OPENMETADATA_CATALOG_SERVICE}" \
+  "${OPENMETADATA_CATALOG_DATABASE}" \
+  "${OPENMETADATA_CLEANUP_LEGACY_DEFAULT_DATABASE}" <<'PY'
 import base64
 import json
 import sys
@@ -62,6 +68,9 @@ ADMIN_PASSWORD = sys.argv[3]
 METADATA_ROOT = Path(sys.argv[4])
 METADATA_SOURCE_DIR = sys.argv[5]
 ALLOW_MISSING_ASSETS = sys.argv[6].lower() in {"1", "true", "yes", "y"}
+CATALOG_SERVICE = sys.argv[7]
+CATALOG_DATABASE = sys.argv[8]
+CLEANUP_LEGACY_DEFAULT_DATABASE = sys.argv[9].lower() in {"1", "true", "yes", "y"}
 
 
 class OpenMetadataError(RuntimeError):
@@ -327,6 +336,30 @@ def data_product_asset_ref(table_ref):
     }
 
 
+def product_asset_entries(product):
+    seen = set()
+    for schema_fqn, table in product_table_specs(product):
+        fqn = f"{schema_fqn}.{table['name']}"
+        if fqn in seen:
+            continue
+        seen.add(fqn)
+        yield {"type": "table", "fqn": fqn}
+
+    for asset in product.get("assets", []):
+        if isinstance(asset, str):
+            fqn = asset
+        elif isinstance(asset, dict):
+            fqn = asset.get("fqn") or asset.get("fullyQualifiedName")
+        else:
+            fqn = None
+
+        if fqn and fqn in seen:
+            continue
+        if fqn:
+            seen.add(fqn)
+        yield asset
+
+
 def product_table_specs(product):
     for key in ["silver_tables", "gold_tables"]:
         spec = product.get(key)
@@ -405,6 +438,47 @@ def ensure_table_stub(token, schema_fqn, name, description):
     print(f"Upserted OpenMetadata table stub: {schema_fqn}.{name}")
 
 
+def cleanup_legacy_default_database(token):
+    if not CLEANUP_LEGACY_DEFAULT_DATABASE or CATALOG_DATABASE == "default":
+        return
+
+    target_fqn = f"{CATALOG_SERVICE}.{CATALOG_DATABASE}"
+    legacy_fqn = f"{CATALOG_SERVICE}.default"
+    encoded_target = urllib.parse.quote(target_fqn, safe="")
+    encoded_legacy = urllib.parse.quote(legacy_fqn, safe="")
+
+    try:
+        request("GET", f"/api/v1/databases/name/{encoded_target}", token=token)
+    except OpenMetadataError as exc:
+        if "HTTP 404" in str(exc):
+            print(
+                f"WARN: Skipping legacy OpenMetadata database cleanup because "
+                f"target database is missing: {target_fqn}",
+                file=sys.stderr,
+            )
+            return
+        raise
+
+    try:
+        legacy = request("GET", f"/api/v1/databases/name/{encoded_legacy}", token=token)
+    except OpenMetadataError as exc:
+        if "HTTP 404" in str(exc):
+            return
+        raise
+
+    legacy_id = legacy.get("id")
+    if not legacy_id:
+        raise OpenMetadataError(f"OpenMetadata database lookup for '{legacy_fqn}' did not return an id: {legacy}")
+
+    request(
+        "DELETE",
+        f"/api/v1/databases/{legacy_id}?recursive=true&hardDelete=true",
+        token=token,
+        ok_statuses=(200, 202, 204),
+    )
+    print(f"Deleted legacy OpenMetadata database metadata: {legacy_fqn}")
+
+
 def deploy():
     wait_for_openmetadata()
     token = login()
@@ -438,6 +512,7 @@ def deploy():
         for product in product_entries(domain):
             for schema_fqn, table in product_table_specs(product):
                 ensure_table_stub(token, schema_fqn, table["name"], table.get("description", ""))
+    cleanup_legacy_default_database(token)
 
     # Phase D: Upsert domains and data products from governance YAML.
     missing_assets = []
@@ -453,7 +528,7 @@ def deploy():
             domain_refs = [resolve_domain_ref(token, domain_name) for domain_name in product_body["domains"]]
 
             refs = []
-            for asset in product.get("assets", []):
+            for asset in product_asset_entries(product):
                 ref, missing_fqn = resolve_table_asset(token, asset)
                 if missing_fqn:
                     missing_assets.append(missing_fqn)

@@ -4,7 +4,7 @@ set -euo pipefail
 
 PROFILE_PATH="${FLOE_PROFILE_PATH:-libs/floe/profiles/local-k8s.yml}"
 NAMESPACE="${NAMESPACE:-lakehouse}"
-FLOE_VERSION="${FLOE_VERSION:-0.4.6}"
+FLOE_VERSION="${FLOE_VERSION:-0.5.4}"
 FLOE_IMAGE="${FLOE_IMAGE:-ghcr.io/malon64/floe:${FLOE_VERSION}}"
 
 if command -v docker &>/dev/null; then

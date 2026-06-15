@@ -26,7 +26,7 @@ code, and the generated Sales Floe manifest used to load the Dagster asset
 graph. It does not install the Floe CLI. Local developer workflows run
 `floe manifest generate` before building the image. Local/CD artifact upload
 publishes the same generated Sales manifest to the SeaweedFS code bucket for the
-separate Kubernetes runner using `ghcr.io/malon64/floe:0.4.6`.
+separate Kubernetes runner using `ghcr.io/malon64/floe:0.5.4`.
 
 Polaris owns separate service principals for Trino and Floe. Floe credentials
 are stored in `polaris-floe-creds`.

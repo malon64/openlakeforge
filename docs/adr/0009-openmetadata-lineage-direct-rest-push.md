@@ -14,7 +14,7 @@ despite the proxy running successfully.
 
 ### Problems found with direct OpenLineage emission
 
-#### Floe 0.4.6 — four bugs in OL emission
+#### Originally observed with Floe 0.4.6 — four bugs in OL emission
 
 **1. Non-UUID run IDs**
 Floe generates run IDs like `mfv1-78d9d79c2db585a7-customers-001`. The OpenLineage spec

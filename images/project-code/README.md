@@ -25,4 +25,4 @@ not install the Floe CLI.
 this image for Dagster asset loading, publishes them to SeaweedFS outside
 Terraform for the separate runner pod, then Dagster uses `dagster-floe` to
 launch Floe Kubernetes jobs from the
-manifest-declared `ghcr.io/malon64/floe:0.4.6` runner image.
+manifest-declared `ghcr.io/malon64/floe:0.5.4` runner image.
