@@ -6,6 +6,8 @@ Implemented structure:
 
 ```text
 infra/terraform/
+├── foundations/
+│   └── local-kind/
 ├── environments/
 │   └── local/
 └── modules/
@@ -18,21 +20,28 @@ infra/terraform/
     └── governance/openmetadata/
 ```
 
-The local environment deploys into the active Kubernetes context. It does not
-create the kind cluster; use `make local-cluster` for that. Static, non-secret
-Helm chart values live in `../helm/values/local`; Terraform modules overlay the
-dynamic contract values and Secret references. Local is the only implemented
-provider profile today, but its module outputs are shaped as provider contracts
-so a future cloud profile can swap implementations.
+The local foundation root creates the kind cluster. The local environment root
+then deploys OpenLakeForge into that cluster through the Kubernetes and Helm
+providers. Static, non-secret Helm chart values live in `../helm/values/local`;
+Terraform modules overlay the dynamic contract values and Secret references.
+Local is the only implemented provider profile today, but its module outputs
+are shaped as provider contracts so a future cloud profile can swap
+implementations.
 
 ## Local workflow
 
 ```bash
+make local-foundation-up
 make local-up
 make local-down
+make local-foundation-down
 ```
 
-`make local-up` runs two phases:
+`make local-foundation-up` runs `terraform init` and `terraform apply` in
+`infra/terraform/foundations/local-kind`. Terraform owns the local kind cluster
+lifecycle while the cluster definition remains in `infra/kind/local`.
+
+`make local-up` runs two platform phases:
 
 ```bash
 make local-infra-up

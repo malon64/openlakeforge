@@ -17,9 +17,10 @@ OpenLakeForge has two deployment phases:
 2. Platform apply deploys the lakehouse services into that cluster with
    Terraform, Helm, and Kubernetes resources.
 
-Local implements the cluster foundation with `kind` through `make local-cluster`.
-The local platform apply then uses the active kubeconfig through
-`make local-infra-up`.
+Local implements the cluster foundation with `kind` through the Terraform root
+`infra/terraform/foundations/local-kind`, exposed as `make local-foundation-up`.
+The local platform apply then uses the resulting `kind-openlakeforge-local`
+kubeconfig context through `make local-infra-up`.
 
 A future AWS implementation should keep the same split. The AWS cluster
 foundation would create the VPC, subnets, routes, EKS control plane, node
@@ -31,7 +32,7 @@ CNI model, pods consume VPC-routable IPs from those subnet ranges.
 
 | Contract | Local implementation now | Future cloud implementation shape |
 | --- | --- | --- |
-| Cluster | kind cluster selected by kubeconfig | Provider-managed Kubernetes cluster plus network foundation |
+| Cluster | kind cluster managed by the local foundation Terraform root | Provider-managed Kubernetes cluster plus network foundation |
 | Storage | SeaweedFS S3-compatible endpoint | S3-compatible object storage contract such as AWS S3 |
 | Metadata database | In-cluster PostgreSQL | Managed PostgreSQL-compatible database such as RDS |
 | Catalog | Polaris REST catalog through `catalog_type = "rest"` | Iceberg catalog contract, including AWS Glue through `catalog_type = "glue"` |
@@ -79,7 +80,8 @@ branch on `catalog_type`.
 
 The local provider profile remains intentionally lightweight:
 
-- kind is the cluster foundation.
+- kind is the cluster foundation, managed by Terraform in a separate local
+  foundation root.
 - SeaweedFS implements the object storage contract.
 - PostgreSQL runs in the cluster for Dagster, OpenMetadata, and Superset
   metadata.
@@ -97,7 +99,7 @@ Do not add AWS resources in the current refactor. When AWS is implemented later,
 use separate Terraform roots for the cluster foundation and platform apply:
 
 - the AWS cluster root creates VPC, subnets, routing, EKS, node groups, and
-  required add-ons;
+  required add-ons, mirroring the local foundation root boundary;
 - the AWS platform root consumes the EKS kubeconfig/cluster outputs and deploys
   the OpenLakeForge service modules;
 - AWS storage, database, registry, secrets, identity, access, and catalog

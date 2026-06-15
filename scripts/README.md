@@ -16,7 +16,8 @@ Local stack scripts under `scripts/local/` are grouped by lifecycle:
 
 - `stack/` contains the usual local orchestration entrypoints: infra up,
   dynamic artifact deploy, full setup, and teardown.
-- `cluster/` contains kind lifecycle and image prefetch helpers.
+- `foundation/` contains Terraform wrappers for the local kind foundation.
+- `cluster/` contains kind image prefetch helpers.
 - `images/` contains local image build/load helpers for project-code and
   Superset.
 - `artifacts/` contains local/CD-style domain artifact helpers: Floe manifest

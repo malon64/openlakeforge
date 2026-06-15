@@ -11,9 +11,9 @@ variable "kubeconfig_path" {
 }
 
 variable "kube_context" {
-  description = "Optional kubeconfig context. Defaults to the active kubectl context."
+  description = "Kubeconfig context for the local foundation cluster."
   type        = string
-  default     = null
+  default     = "kind-openlakeforge-local"
 }
 
 variable "catalog_name" {

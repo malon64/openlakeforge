@@ -4,6 +4,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 NAMESPACE="${NAMESPACE:-lakehouse}"
+CLUSTER_NAME="${CLUSTER_NAME:-openlakeforge-local}"
+KUBE_CONTEXT="${KUBE_CONTEXT:-kind-${CLUSTER_NAME}}"
 PROJECT_CODE_IMAGE_REPOSITORY="${PROJECT_CODE_IMAGE_REPOSITORY:-ghcr.io/openlakeforge/project-code}"
 PROJECT_CODE_IMAGE_TAG="${PROJECT_CODE_IMAGE_TAG:-local}"
 
@@ -28,6 +30,7 @@ prepare_local_project_code_image() {
     bash "${SCRIPT_DIR}/../images/build-project-code.sh"
 
   echo "==> Ensuring local project-code image is available to kind..."
+  CLUSTER_NAME="${CLUSTER_NAME}" \
   PROJECT_CODE_IMAGE_REPOSITORY="${PROJECT_CODE_IMAGE_REPOSITORY}" \
     PROJECT_CODE_IMAGE_TAG="${PROJECT_CODE_IMAGE_TAG}" \
     bash "${SCRIPT_DIR}/../images/load-project-code.sh"
@@ -58,6 +61,13 @@ restart_dagster_project_code_deployments() {
 
 require_cmd kubectl
 require_cmd python3
+
+if ! kubectl cluster-info --context "${KUBE_CONTEXT}" >/dev/null 2>&1; then
+  echo "ERROR: Kubernetes context '${KUBE_CONTEXT}' is not reachable." >&2
+  echo "Run 'make local-foundation-up' before deploying local artifacts." >&2
+  exit 1
+fi
+kubectl config use-context "${KUBE_CONTEXT}" >/dev/null
 
 prepare_local_project_code_image
 

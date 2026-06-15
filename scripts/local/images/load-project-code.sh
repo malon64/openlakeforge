@@ -23,7 +23,7 @@ fi
 if command -v kind &>/dev/null; then
   if ! kind get clusters 2>/dev/null | grep -qx "${CLUSTER_NAME}"; then
     echo "ERROR: kind cluster '${CLUSTER_NAME}' does not exist." >&2
-    echo "Run 'make local-cluster' first." >&2
+    echo "Run 'make local-foundation-up' first." >&2
     exit 1
   fi
 
@@ -35,7 +35,7 @@ else
 
   if [[ "${#nodes[@]}" -eq 0 ]]; then
     echo "ERROR: kind is not installed and no Docker node containers were found for '${CLUSTER_NAME}'." >&2
-    echo "Install kind or run 'make local-cluster' first." >&2
+    echo "Install kind or run 'make local-foundation-up' first." >&2
     exit 1
   fi
 

@@ -105,7 +105,7 @@ domain, data-product, Bronze, Silver, and Gold metadata in
 
 ```sh
 make check-structure
-make local-cluster
+make local-foundation-up
 make local-up
 ```
 

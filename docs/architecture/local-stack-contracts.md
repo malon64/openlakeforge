@@ -11,11 +11,13 @@ controls.
 
 ## Cluster Contract
 
-Local uses a kind cluster created outside Terraform by `make local-cluster`.
-Terraform then applies the platform into the active Kubernetes context. A future
-cloud implementation should keep the same two-phase model, but its cluster
-foundation would create provider networking and a managed Kubernetes cluster
-before the platform phase runs.
+Local uses a kind cluster created by the Terraform root
+`infra/terraform/foundations/local-kind`, exposed as
+`make local-foundation-up`. The platform Terraform root
+`infra/terraform/environments/local` then applies OpenLakeForge into the
+`kind-openlakeforge-local` Kubernetes context. A future cloud implementation
+should keep the same two-root model, but its foundation would create provider
+networking and a managed Kubernetes cluster before the platform phase runs.
 
 ## Storage Contract
 

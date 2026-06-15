@@ -17,6 +17,9 @@ required_paths=(
   "docs/adr/0011-iceberg-catalog-contract-allows-glue.md"
   "infra/README.md"
   "infra/terraform/README.md"
+  "infra/terraform/foundations/local-kind/main.tf"
+  "infra/terraform/foundations/local-kind/variables.tf"
+  "infra/terraform/foundations/local-kind/outputs.tf"
   "infra/helm/README.md"
   "infra/helm/values/local/dagster.yaml"
   "infra/helm/values/local/superset.yaml"
@@ -79,8 +82,8 @@ required_paths=(
   "scripts/local/stack/infra-up.sh"
   "scripts/local/stack/deploy-artifacts.sh"
   "scripts/local/stack/teardown.sh"
-  "scripts/local/cluster/create.sh"
-  "scripts/local/cluster/destroy.sh"
+  "scripts/local/foundation/up.sh"
+  "scripts/local/foundation/down.sh"
   "scripts/local/cluster/prefetch-images.sh"
   "scripts/local/artifacts/floe-manifest.sh"
   "scripts/local/artifacts/upload-floe-manifest.sh"
@@ -100,6 +103,8 @@ forbidden_paths=(
   "domains/sales/governance/openmetadata"
   "domains/supply_chain/data_products"
   "domains/supply_chain/governance/openmetadata"
+  "scripts/local/cluster/create.sh"
+  "scripts/local/cluster/destroy.sh"
 )
 
 missing=0

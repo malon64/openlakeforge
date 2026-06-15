@@ -42,7 +42,8 @@ access before platform modules consume them.
 
 ## Consequences
 
-The current local developer workflow remains unchanged.
+The local developer workflow now makes the foundation boundary explicit through
+`make local-foundation-up` before `make local-up`.
 
 Terraform modules can start receiving provider-neutral contract fields such as
 implementation, auth mode, SSL mode, endpoint, and access mode without requiring
