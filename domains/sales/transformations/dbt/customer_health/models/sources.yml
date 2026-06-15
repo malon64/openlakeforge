@@ -1,0 +1,20 @@
+version: 2
+
+sources:
+  - name: silver
+    database: "{{ env_var('OPENLAKEFORGE_CATALOG_WAREHOUSE', 'lakehouse_dev') }}"
+    schema: "{{ env_var('OPENLAKEFORGE_CATALOG_SILVER_NAMESPACE', 'silver') }}"
+    description: Floe-owned Customer Health Silver Iceberg tables.
+    tables:
+      - name: accounts
+        identifier: customer_health_accounts
+        description: Validated account dimension.
+      - name: subscriptions
+        identifier: customer_health_subscriptions
+        description: Validated subscription records.
+      - name: support_tickets
+        identifier: customer_health_support_tickets
+        description: Validated support ticket facts.
+      - name: nps_responses
+        identifier: customer_health_nps_responses
+        description: Validated NPS response facts.

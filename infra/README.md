@@ -1,7 +1,10 @@
 # Infrastructure
 
-Infrastructure definitions live under `terraform/` and `helm/`.
+Infrastructure definitions live under `terraform/`, `helm/`, and `kind/`.
 
-Terraform owns the local lakehouse assembly for SeaweedFS, Polaris, Trino,
-OpenMetadata, Superset, and Dagster. Local kind cluster configuration lives
-under `kind/local/`; lifecycle scripts live under `../scripts/local/`.
+Terraform owns both local lifecycle phases:
+
+- `terraform/foundations/local-kind/` creates and destroys the local kind
+  cluster from the configuration in `kind/local/`.
+- `terraform/environments/local/` assembles SeaweedFS, Polaris, Trino,
+  OpenMetadata, Superset, and Dagster on that cluster.

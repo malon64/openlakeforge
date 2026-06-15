@@ -1,0 +1,20 @@
+slice_name: ARR at Risk by Churn Risk
+description: ARR at risk by customer segment and churn risk tier.
+viz_type: echarts_timeseries_bar
+params:
+  datasource: null
+  viz_type: echarts_timeseries_bar
+  x_axis: segment
+  metrics:
+    - sum__arr_at_risk
+  groupby:
+    - churn_risk
+  row_limit: 100
+  color_scheme: supersetColors
+  show_legend: true
+  y_axis_format: SMART_NUMBER
+query_context: null
+cache_timeout: null
+uuid: 4de12098-a2c4-5e5f-b655-e23aadbb769c
+version: 1.0.0
+dataset_uuid: 7ae9d43a-0c52-514a-83bf-afa2a5757a51

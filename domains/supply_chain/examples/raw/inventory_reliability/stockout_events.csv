@@ -1,0 +1,8 @@
+event_id,event_date,warehouse_id,product_id,lost_units,root_cause
+SO-1001,2026-01-21,W-NA-02,P-002,18,supplier_delay
+SO-1002,2026-01-30,W-EMEA-02,P-004,32,forecast_miss
+SO-1003,2026-02-09,W-APAC-01,P-008,14,demand_spike
+SO-1004,2026-02-26,W-NA-02,P-002,22,supplier_delay
+SO-1005,2026-03-06,W-EMEA-01,P-003,41,demand_spike
+SO-1006,2026-03-10,W-EMEA-02,P-004,28,supplier_delay
+SO-1007,2026-03-14,W-APAC-01,P-008,16,forecast_miss

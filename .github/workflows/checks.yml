@@ -37,6 +37,16 @@ jobs:
       - name: Check Terraform and Helm
         run: make check-infra
 
+  contracts:
+    name: Validate provider contracts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check provider contract compatibility
+        run: make check-contracts
+
   project-code:
     name: Validate project-code runtime
     runs-on: ubuntu-latest
@@ -54,3 +64,18 @@ jobs:
 
       - name: Build project-code image
         run: make project-code-image
+
+  dbt:
+    name: Validate product dbt projects
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Check product dbt projects
+        run: make check-dbt

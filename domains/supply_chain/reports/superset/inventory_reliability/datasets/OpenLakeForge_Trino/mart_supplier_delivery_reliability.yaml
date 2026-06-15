@@ -1,0 +1,53 @@
+table_name: mart_supplier_delivery_reliability
+main_dttm_col: null
+description: Supplier delivery lateness, fill rate, and on-time performance.
+schema: gold
+uuid: 1f094833-0374-574d-b3a0-98b1435b7b01
+metrics:
+  - metric_name: avg__on_time_rate
+    verbose_name: On-time rate
+    metric_type: avg
+    expression: AVG(on_time_rate)
+  - metric_name: avg__days_late
+    verbose_name: Average days late
+    metric_type: avg
+    expression: AVG(avg_days_late)
+columns:
+  - column_name: supplier_id
+    type: VARCHAR
+    groupby: true
+    filterable: true
+  - column_name: supplier_name
+    type: VARCHAR
+    groupby: true
+    filterable: true
+  - column_name: country
+    type: VARCHAR
+    groupby: true
+    filterable: true
+  - column_name: risk_tier
+    type: VARCHAR
+    groupby: true
+    filterable: true
+  - column_name: purchase_order_count
+    type: BIGINT
+    groupby: false
+    filterable: true
+  - column_name: ordered_units
+    type: BIGINT
+    groupby: false
+    filterable: true
+  - column_name: received_units
+    type: BIGINT
+    groupby: false
+    filterable: true
+  - column_name: avg_days_late
+    type: DOUBLE
+    groupby: false
+    filterable: true
+  - column_name: on_time_rate
+    type: DOUBLE
+    groupby: false
+    filterable: true
+version: 1.0.0
+database_uuid: 8a87434c-559e-545d-badd-3575affe0185

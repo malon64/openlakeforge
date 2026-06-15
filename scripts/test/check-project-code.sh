@@ -54,35 +54,64 @@ else
   echo "==> Reusing project-code dependency cache ${site_dir}"
 fi
 
-echo "==> Loading Sales Dagster pipeline definitions"
+echo "==> Loading aggregate Dagster product definitions"
 PATH="${site_dir}/bin:${PATH}" PYTHONPATH="${site_dir}:${PWD}" python3 - <<'PY'
 from pathlib import Path
 
+from dagster import AssetKey
+from dagster._core.workspace.autodiscovery import loadable_targets_from_python_module
 from floe_dagster.manifest import load_manifest
 
-from domains.sales.extract.dlt.sales_poc import SALES_POC_ENTITIES
-from domains.sales.pipelines.dagster.definitions import defs
+from domains.definitions import defs
+from domains.sales.extract.dlt.customer_health import CUSTOMER_HEALTH_ENTITIES
+from domains.sales.extract.dlt.order_revenue import ORDER_REVENUE_ENTITIES
+from domains.supply_chain.extract.dlt.inventory_reliability import (
+    INVENTORY_RELIABILITY_ENTITIES,
+)
 
-manifest = load_manifest(Path("domains/sales/contracts/floe/manifests/sales.manifest.json"))
-if manifest.execution.base_args != [
-    "run",
-    "--manifest",
-    "{manifest_uri}",
-    "--log-format",
-    "json",
-    "--quiet",
-    "--run-id",
-    "{run_id}",
-]:
-    raise SystemExit("Sales Floe manifest does not use the runtime manifest_uri placeholder")
-if manifest.execution.orchestration is None:
-    raise SystemExit("Sales Floe manifest is missing execution.orchestration")
-if manifest.execution.orchestration.strategy != "sequential":
-    raise SystemExit("Sales Floe manifest should use sequential orchestration locally")
+PRODUCTS = [
+    {
+        "prefix": "sales_order_revenue",
+        "job": "sales_order_revenue_pipeline",
+        "manifest": Path("domains/sales/contracts/floe/manifests/order_revenue.manifest.json"),
+        "entities": ORDER_REVENUE_ENTITIES,
+        "gold": {
+            "mart_order_revenue_by_day",
+            "mart_order_revenue_by_channel",
+            "mart_order_revenue_margin_by_product",
+        },
+    },
+    {
+        "prefix": "sales_customer_health",
+        "job": "sales_customer_health_pipeline",
+        "manifest": Path("domains/sales/contracts/floe/manifests/customer_health.manifest.json"),
+        "entities": CUSTOMER_HEALTH_ENTITIES,
+        "gold": {
+            "mart_customer_health_score",
+            "mart_churn_risk_by_segment",
+            "mart_support_sla_by_customer",
+        },
+    },
+    {
+        "prefix": "supply_chain_inventory_reliability",
+        "job": "supply_chain_inventory_reliability_pipeline",
+        "manifest": Path(
+            "domains/supply_chain/contracts/floe/manifests/inventory_reliability.manifest.json"
+        ),
+        "entities": INVENTORY_RELIABILITY_ENTITIES,
+        "gold": {
+            "mart_inventory_position",
+            "mart_supplier_delivery_reliability",
+            "mart_stockout_risk",
+        },
+    },
+]
 
-job = defs.resolve_job_def("sales_etl_pipeline")
-if job.run_config["execution"]["config"]["multiprocess"]["max_concurrent"] != 1:
-    raise SystemExit("Sales Dagster job did not inherit Floe orchestration concurrency")
+targets = loadable_targets_from_python_module("domains.definitions", ".")
+if len(targets) != 1:
+    raise SystemExit(f"domains.definitions should expose exactly one Dagster target, found {len(targets)}")
+if targets[0].attribute != "defs":
+    raise SystemExit(f"domains.definitions should expose defs, found {targets[0].attribute}")
 
 asset_keys = {
     tuple(key.path)
@@ -93,26 +122,54 @@ asset_keys = {
 source_asset_keys = {
     tuple(asset.key.path) for asset in defs.assets if not hasattr(asset, "keys")
 }
-for entity in SALES_POC_ENTITIES:
-    if ("sales", f"{entity}_source") not in asset_keys:
-        raise SystemExit(f"missing Bronze source asset for {entity}")
-    if ("sales", entity) not in asset_keys:
-        raise SystemExit(f"missing Floe Silver asset for {entity}")
-    if ("sales", f"{entity}_source") in source_asset_keys:
-        raise SystemExit(f"Floe registered a duplicate source asset for {entity}")
-    matching_entities = [item for item in manifest.entities if item.name == entity]
-    if not matching_entities:
-        raise SystemExit(f"missing Floe manifest entity for {entity}")
-    if matching_entities[0].group_name != "sales":
-        raise SystemExit(f"Floe manifest entity {entity} is not in the sales group")
 
-for asset_name in [
-    "mart_sales_by_day",
-    "mart_revenue_by_product",
-    "mart_sales_by_customer",
-]:
-    if ("sales", asset_name) not in asset_keys:
-        raise SystemExit(f"missing dbt Gold asset {asset_name}")
+for product in PRODUCTS:
+    prefix = product["prefix"]
+    manifest = load_manifest(product["manifest"])
+    if manifest.execution.base_args != [
+        "run",
+        "--manifest",
+        "{manifest_uri}",
+        "--log-format",
+        "json",
+        "--quiet",
+        "--run-id",
+        "{run_id}",
+    ]:
+        raise SystemExit(f"{prefix} Floe manifest does not use the runtime manifest_uri placeholder")
+    if manifest.execution.orchestration is None or manifest.execution.orchestration.strategy != "sequential":
+        raise SystemExit(f"{prefix} Floe manifest should use sequential orchestration locally")
+    if {entity.name for entity in manifest.entities} != set(product["entities"]):
+        raise SystemExit(f"{prefix} Floe manifest entities do not match product entities")
 
-print("Project-code Sales pipeline definitions loaded.")
+    job = defs.resolve_job_def(product["job"])
+    if job.name != product["job"]:
+        raise SystemExit(f"missing Dagster job {product['job']}")
+    if job.run_config["execution"]["config"]["multiprocess"]["max_concurrent"] != 1:
+        raise SystemExit(f"{product['job']} did not inherit Floe orchestration concurrency")
+
+    for entity in product["entities"]:
+        if (prefix, f"{entity}_source") not in asset_keys:
+            raise SystemExit(f"missing Bronze source asset for {prefix}/{entity}")
+        if (prefix, entity) not in asset_keys:
+            raise SystemExit(f"missing Floe Silver asset for {prefix}/{entity}")
+        if (prefix, f"{entity}_source") in source_asset_keys:
+            raise SystemExit(f"Floe registered a duplicate source asset for {prefix}/{entity}")
+
+        matching_entities = [item for item in manifest.entities if item.name == entity]
+        if not matching_entities:
+            raise SystemExit(f"missing Floe manifest entity for {prefix}/{entity}")
+        if matching_entities[0].group_name != prefix:
+            raise SystemExit(f"Floe manifest entity {entity} is not in group {prefix}")
+        if matching_entities[0].asset_key != [prefix, entity]:
+            raise SystemExit(f"Floe manifest entity {entity} has wrong asset key")
+
+    for asset_name in product["gold"]:
+        if (prefix, asset_name) not in asset_keys:
+            raise SystemExit(f"missing dbt Gold asset {prefix}/{asset_name}")
+
+if len(asset_keys) != len(set(asset_keys)):
+    raise SystemExit("duplicate Dagster asset keys found")
+
+print("Aggregate product Dagster definitions loaded.")
 PY

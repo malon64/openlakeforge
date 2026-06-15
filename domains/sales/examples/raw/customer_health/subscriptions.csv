@@ -1,0 +1,9 @@
+subscription_id,account_id,plan_name,status,start_date,renewal_date,monthly_recurring_revenue
+SUB-001,A-001,Enterprise,active,2025-04-12,2026-04-12,12000.00
+SUB-002,A-002,Team,active,2025-09-20,2026-09-20,6000.00
+SUB-003,A-003,Enterprise,active,2025-11-05,2026-11-05,15000.00
+SUB-004,A-004,Starter,active,2025-03-15,2026-03-15,2000.00
+SUB-005,A-005,Team,active,2025-06-22,2026-06-22,7000.00
+SUB-006,A-006,Starter,trialing,2026-01-10,2026-04-10,2500.00
+SUB-007,A-007,Enterprise,active,2025-05-19,2026-05-19,17500.00
+SUB-008,A-008,Team,past_due,2025-12-03,2026-12-03,5500.00

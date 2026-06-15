@@ -1,0 +1,20 @@
+slice_name: Health Score by Segment
+description: Average customer health score by segment and region.
+viz_type: echarts_timeseries_bar
+params:
+  datasource: null
+  viz_type: echarts_timeseries_bar
+  x_axis: segment
+  metrics:
+    - avg__health_score
+  groupby:
+    - region
+  row_limit: 100
+  color_scheme: supersetColors
+  show_legend: true
+  y_axis_format: SMART_NUMBER
+query_context: null
+cache_timeout: null
+uuid: 12341d43-752d-507c-b95a-b9bc9b59d618
+version: 1.0.0
+dataset_uuid: 64386bcd-bccd-50d7-a96b-7c2f0c13b6f9

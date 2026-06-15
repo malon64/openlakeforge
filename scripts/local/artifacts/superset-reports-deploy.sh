@@ -2,13 +2,15 @@
 # Deploy source-controlled Superset report assets into the local Superset instance.
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 NAMESPACE="${NAMESPACE:-lakehouse}"
-REPORT_SOURCE_DIR="${SUPERSET_REPORT_SOURCE_DIR:-domains/sales/reports/superset}"
 REPORT_WORK_DIR="${SUPERSET_REPORT_WORK_DIR:-.tmp/superset-reports}"
-REPORT_BUNDLE_ROOT="${SUPERSET_REPORT_BUNDLE_ROOT:-sales_superset_bundle}"
-REPORT_BUNDLE_NAME="${SUPERSET_REPORT_BUNDLE_NAME:-sales_superset_assets.zip}"
 REPORTS_MOUNT_PATH="${SUPERSET_REPORTS_MOUNT_PATH:-/app/openlakeforge/reports}"
 SUPERSET_ADMIN_USERNAME="${SUPERSET_ADMIN_USERNAME:-admin}"
+
+# shellcheck source=/dev/null
+source "${REPO_ROOT}/scripts/local/contracts/load-runtime-env.sh"
 
 for cmd in kubectl python3; do
   if ! command -v "${cmd}" &>/dev/null; then
@@ -17,30 +19,15 @@ for cmd in kubectl python3; do
   fi
 done
 
-if [[ ! -f "${REPORT_SOURCE_DIR}/metadata.yaml" ]]; then
-  echo "ERROR: missing Superset report metadata at ${REPORT_SOURCE_DIR}/metadata.yaml" >&2
-  exit 1
-fi
+discover_report_dirs() {
+  if [[ -n "${SUPERSET_REPORT_SOURCE_DIR:-}" ]]; then
+    printf '%s\n' "${SUPERSET_REPORT_SOURCE_DIR}"
+    return
+  fi
 
-mkdir -p "${REPORT_WORK_DIR}"
-bundle_path="${REPORT_WORK_DIR}/${REPORT_BUNDLE_NAME}"
-
-python3 - "${REPORT_SOURCE_DIR}" "${bundle_path}" "${REPORT_BUNDLE_ROOT}" <<'PY'
-import sys
-from pathlib import Path, PurePosixPath
-from zipfile import ZIP_DEFLATED, ZipFile
-
-source_dir = Path(sys.argv[1])
-bundle_path = Path(sys.argv[2])
-bundle_root = sys.argv[3]
-
-with ZipFile(bundle_path, "w", ZIP_DEFLATED) as bundle:
-    for path in sorted(source_dir.rglob("*")):
-        if not path.is_file() or path.suffix.lower() not in {".yaml", ".yml"}:
-            continue
-        relative = path.relative_to(source_dir).as_posix()
-        bundle.write(path, PurePosixPath(bundle_root, relative).as_posix())
-PY
+  find domains -path "*/reports/superset/*/metadata.yaml" -type f \
+    -exec dirname {} \; | sort
+}
 
 echo "==> Waiting for Superset web deployment..."
 kubectl rollout status deployment/superset -n "${NAMESPACE}" --timeout=300s
@@ -57,16 +44,58 @@ if [[ -z "${superset_pod}" ]]; then
   exit 1
 fi
 
-remote_bundle="${REPORTS_MOUNT_PATH}/${REPORT_BUNDLE_NAME}"
+deploy_report_dir() {
+  local report_source_dir="$1"
+  local bundle_root
+  local bundle_name
+  local bundle_path
+  local remote_bundle
 
-echo "==> Copying ${bundle_path} to ${superset_pod}:${remote_bundle}"
-kubectl exec -i "${superset_pod}" -c superset -n "${NAMESPACE}" -- \
-  /bin/sh -ec "mkdir -p '${REPORTS_MOUNT_PATH}' && cat > '${remote_bundle}'" \
-  < "${bundle_path}"
+  if [[ ! -f "${report_source_dir}/metadata.yaml" ]]; then
+    echo "ERROR: missing Superset report metadata at ${report_source_dir}/metadata.yaml" >&2
+    exit 1
+  fi
 
-echo "==> Importing Superset report assets from ${remote_bundle}"
-kubectl exec -i "${superset_pod}" -c superset -n "${NAMESPACE}" -- \
-  /bin/sh -ec ". /app/pythonpath/superset_bootstrap.sh; python - '${remote_bundle}' '${SUPERSET_ADMIN_USERNAME}'" <<'PY'
+  bundle_root="$(echo "${report_source_dir}" | sed -E 's|^domains/||; s|/reports/superset/|_|; s|/|_|g')_superset_bundle"
+  bundle_name="${bundle_root}.zip"
+  bundle_path="${REPORT_WORK_DIR}/${bundle_name}"
+  remote_bundle="${REPORTS_MOUNT_PATH}/${bundle_name}"
+
+  mkdir -p "${REPORT_WORK_DIR}"
+
+  python3 - "${report_source_dir}" "${bundle_path}" "${bundle_root}" "${OPENLAKEFORGE_QUERY_SQLALCHEMY_URI}" <<'PY'
+import re
+import sys
+from pathlib import Path, PurePosixPath
+from zipfile import ZIP_DEFLATED, ZipFile
+
+source_dir = Path(sys.argv[1])
+bundle_path = Path(sys.argv[2])
+bundle_root = sys.argv[3]
+sqlalchemy_uri = sys.argv[4]
+
+with ZipFile(bundle_path, "w", ZIP_DEFLATED) as bundle:
+    for path in sorted(source_dir.rglob("*")):
+        if not path.is_file() or path.suffix.lower() not in {".yaml", ".yml"}:
+            continue
+        relative = path.relative_to(source_dir).as_posix()
+        archive_name = PurePosixPath(bundle_root, relative).as_posix()
+        if relative.startswith("databases/"):
+            text = path.read_text(encoding="utf-8")
+            text = re.sub(r"^sqlalchemy_uri:\s*.+$", f"sqlalchemy_uri: {sqlalchemy_uri}", text, flags=re.MULTILINE)
+            bundle.writestr(archive_name, text)
+        else:
+            bundle.write(path, archive_name)
+PY
+
+  echo "==> Copying ${bundle_path} to ${superset_pod}:${remote_bundle}"
+  kubectl exec -i "${superset_pod}" -c superset -n "${NAMESPACE}" -- \
+    /bin/sh -ec "mkdir -p '${REPORTS_MOUNT_PATH}' && cat > '${remote_bundle}'" \
+    < "${bundle_path}"
+
+  echo "==> Importing Superset report assets from ${remote_bundle}"
+  kubectl exec -i "${superset_pod}" -c superset -n "${NAMESPACE}" -- \
+    /bin/sh -ec ". /app/pythonpath/superset_bootstrap.sh; python - '${remote_bundle}' '${SUPERSET_ADMIN_USERNAME}'" <<'PY'
 import sys
 from zipfile import ZipFile
 
@@ -93,4 +122,15 @@ with app.app_context():
     ImportAssetsCommand(contents).run()
 PY
 
-echo "Deployed Superset report assets from ${REPORT_SOURCE_DIR}"
+  echo "Deployed Superset report assets from ${report_source_dir}"
+}
+
+mapfile -t report_dirs < <(discover_report_dirs)
+if [[ "${#report_dirs[@]}" -eq 0 ]]; then
+  echo "ERROR: no product Superset report assets found." >&2
+  exit 1
+fi
+
+for report_dir in "${report_dirs[@]}"; do
+  deploy_report_dir "${report_dir}"
+done

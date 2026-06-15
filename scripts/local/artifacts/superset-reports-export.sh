@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# Export the local Sales Superset dashboard back into the source-controlled bundle.
+# Export a local Superset dashboard back into a source-controlled product bundle.
 set -euo pipefail
 
 NAMESPACE="${NAMESPACE:-lakehouse}"
-REPORT_SOURCE_DIR="${SUPERSET_REPORT_SOURCE_DIR:-domains/sales/reports/superset}"
+REPORT_SOURCE_DIR="${SUPERSET_REPORT_SOURCE_DIR:-domains/sales/reports/superset/order_revenue}"
 REPORT_WORK_DIR="${SUPERSET_REPORT_WORK_DIR:-.tmp/superset-reports}"
-REPORT_BUNDLE_ROOT="${SUPERSET_REPORT_BUNDLE_ROOT:-sales_superset_bundle}"
-REPORT_BUNDLE_NAME="${SUPERSET_REPORT_EXPORT_BUNDLE_NAME:-sales_superset_assets_export.zip}"
+REPORT_BUNDLE_ROOT="${SUPERSET_REPORT_BUNDLE_ROOT:-sales_order_revenue_superset_bundle}"
+REPORT_BUNDLE_NAME="${SUPERSET_REPORT_EXPORT_BUNDLE_NAME:-sales_order_revenue_superset_assets_export.zip}"
 REPORTS_MOUNT_PATH="${SUPERSET_REPORTS_MOUNT_PATH:-/app/openlakeforge/reports}"
 SUPERSET_ADMIN_USERNAME="${SUPERSET_ADMIN_USERNAME:-admin}"
-SUPERSET_DASHBOARD_TITLE="${SUPERSET_DASHBOARD_TITLE:-Sales Gold Mart Overview}"
+SUPERSET_DASHBOARD_TITLE="${SUPERSET_DASHBOARD_TITLE:-Sales Order Revenue}"
 
 for cmd in kubectl python3; do
   if ! command -v "${cmd}" &>/dev/null; then

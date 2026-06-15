@@ -2,38 +2,51 @@
 
 Terraform will own environment assembly and reusable platform modules.
 
-Implemented local structure:
+Implemented structure:
 
 ```text
 infra/terraform/
+├── foundations/
+│   └── local-kind/
 ├── environments/
 │   └── local/
 └── modules/
-    ├── platform/
     ├── storage/seaweedfs/
+    ├── storage/postgresql/
     ├── catalog/polaris/
     ├── query/trino/
     ├── analytics/superset/
     ├── orchestration/dagster/
-    ├── database/postgres/
-    ├── security/
-    ├── governance/
-    └── observability/
+    └── governance/openmetadata/
 ```
 
-The local environment deploys into the active Kubernetes context. It does not
-create the kind cluster; use `make local-cluster` for that. Static, non-secret
-Helm chart values live in `../helm/values/local`; Terraform modules overlay the
-dynamic contract values and Secret references.
+The local foundation root creates the kind cluster. The local environment root
+then deploys OpenLakeForge into that cluster through the Kubernetes and Helm
+providers. Static, non-secret Helm chart values live in `../helm/values/local`;
+Terraform modules overlay the dynamic contract values and Secret references.
+Local is the only implemented provider profile today, but its module outputs
+are shaped as provider contracts so a future cloud profile can swap
+implementations.
+
+The local environment root normalizes its provider contracts in `contracts.tf`.
+Those typed contract objects are the source of truth for storage, catalog,
+metadata database, artifacts, secrets, identity, access, observability, query,
+orchestration, reporting, and governance boundaries.
 
 ## Local workflow
 
 ```bash
+make local-foundation-up
 make local-up
 make local-down
+make local-foundation-down
 ```
 
-`make local-up` runs two phases:
+`make local-foundation-up` runs `terraform init` and `terraform apply` in
+`infra/terraform/foundations/local-kind`. Terraform owns the local kind cluster
+lifecycle while the cluster definition remains in `infra/kind/local`.
+
+`make local-up` runs two platform phases:
 
 ```bash
 make local-infra-up
@@ -53,17 +66,20 @@ make local-artifacts-deploy
 - Polaris catalog and Trino principal bootstrap jobs
 - Polaris Floe principal bootstrap credentials for manifest-driven Floe jobs
 - shared local PostgreSQL for Dagster, OpenMetadata, and Superset metadata
-- Dagster webserver, daemon, sales code server, and Kubernetes run launcher
+- Dagster webserver, daemon, aggregate product code server, and Kubernetes run launcher
 - Superset webserver, worker, reports volume, and local report deploy path
-- OpenMetadata, OpenLineage proxy, Polaris service metadata, and catalog ingestion plumbing
+- OpenMetadata, Polaris service metadata, and catalog ingestion plumbing
 
 `make local-artifacts-deploy` owns the local/CD artifacts:
 
 - project-code image build/load
-- Sales Floe manifest generation and upload to the local code bucket
-- Sales Superset report import
-- OpenMetadata domain and data-product metadata from domain YAML files
+- product Floe manifest generation and upload to the local code bucket
+- product Superset report import
+- OpenMetadata domain, data-product, Bronze, Silver, and Gold metadata from domain YAML files
 - Dagster rollout after dynamic artifacts are available
 
 Terraform state is local and contains generated development credentials. Treat
 state files as sensitive; they are gitignored.
+
+No AWS environment, AWS provider blocks, remote state backend, Keycloak, Vault,
+or cloud secret manager integration is implemented yet.

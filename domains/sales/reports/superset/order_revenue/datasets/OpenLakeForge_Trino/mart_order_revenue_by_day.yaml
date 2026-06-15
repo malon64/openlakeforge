@@ -1,0 +1,46 @@
+table_name: mart_order_revenue_by_day
+main_dttm_col: order_date
+description: Daily order revenue, units, and discount amount by region.
+schema: gold
+uuid: f4c88b9c-6880-51f0-8672-04ada7010901
+metrics:
+  - metric_name: sum__net_revenue
+    verbose_name: Net revenue
+    metric_type: sum
+    expression: SUM(net_revenue)
+  - metric_name: sum__units_sold
+    verbose_name: Units sold
+    metric_type: sum
+    expression: SUM(units_sold)
+columns:
+  - column_name: order_date
+    type: DATE
+    is_dttm: true
+    groupby: true
+    filterable: true
+  - column_name: region
+    type: VARCHAR
+    groupby: true
+    filterable: true
+  - column_name: order_count
+    type: BIGINT
+    groupby: false
+    filterable: true
+  - column_name: units_sold
+    type: BIGINT
+    groupby: false
+    filterable: true
+  - column_name: gross_revenue
+    type: DOUBLE
+    groupby: false
+    filterable: true
+  - column_name: discount_amount
+    type: DOUBLE
+    groupby: false
+    filterable: true
+  - column_name: net_revenue
+    type: DOUBLE
+    groupby: false
+    filterable: true
+version: 1.0.0
+database_uuid: 8a87434c-559e-545d-badd-3575affe0185

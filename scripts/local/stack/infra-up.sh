@@ -5,7 +5,11 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 TERRAFORM_DIR="${REPO_ROOT}/infra/terraform/environments/local"
+FOUNDATION_TERRAFORM_DIR="${REPO_ROOT}/infra/terraform/foundations/local-kind"
+FOUNDATION_STATE_PATH="${FOUNDATION_STATE_PATH:-${FOUNDATION_TERRAFORM_DIR}/terraform.tfstate}"
 NAMESPACE="${NAMESPACE:-lakehouse}"
+CLUSTER_NAME="${CLUSTER_NAME:-openlakeforge-local}"
+KUBE_CONTEXT="${KUBE_CONTEXT:-kind-${CLUSTER_NAME}}"
 PROJECT_CODE_IMAGE_REPOSITORY="${PROJECT_CODE_IMAGE_REPOSITORY:-ghcr.io/openlakeforge/project-code}"
 PROJECT_CODE_IMAGE_TAG="${PROJECT_CODE_IMAGE_TAG:-local}"
 PROJECT_CODE_IMAGE_PULL_POLICY="${PROJECT_CODE_IMAGE_PULL_POLICY:-Never}"
@@ -29,6 +33,20 @@ check_prereqs() {
     fi
   done
   [[ "${missing}" -eq 0 ]] || exit 1
+}
+
+check_cluster() {
+  if [[ ! -f "${FOUNDATION_STATE_PATH}" ]]; then
+    echo "ERROR: local foundation Terraform state is missing: ${FOUNDATION_STATE_PATH}" >&2
+    echo "Run 'make local-foundation-up' before applying the local platform." >&2
+    exit 1
+  fi
+
+  if ! kubectl cluster-info --context "${KUBE_CONTEXT}" >/dev/null 2>&1; then
+    echo "ERROR: Kubernetes context '${KUBE_CONTEXT}' is not reachable." >&2
+    echo "Run 'make local-foundation-up' before applying the local platform." >&2
+    exit 1
+  fi
 }
 
 run_with_retry() {
@@ -108,6 +126,8 @@ terraform_apply_with_retry() {
   run_with_retry "Terraform apply" \
     terraform -chdir="${TERRAFORM_DIR}" apply -auto-approve \
       -var="namespace=${NAMESPACE}" \
+      -var="kube_context=${KUBE_CONTEXT}" \
+      -var="foundation_state_path=${FOUNDATION_STATE_PATH}" \
       -var="project_code_image_repository=${PROJECT_CODE_IMAGE_REPOSITORY}" \
       -var="project_code_image_tag=${PROJECT_CODE_IMAGE_TAG}" \
       -var="project_code_image_pull_policy=${PROJECT_CODE_IMAGE_PULL_POLICY}" \
@@ -120,6 +140,8 @@ terraform_apply_with_retry() {
 
 echo "==> Checking static infrastructure prerequisites..."
 check_prereqs
+check_cluster
+kubectl config use-context "${KUBE_CONTEXT}" >/dev/null
 
 prepare_local_superset_image
 prepare_local_helm_chart_cache

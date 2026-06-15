@@ -1,0 +1,9 @@
+version: 2
+
+models:
+  - name: mart_inventory_position
+    description: Latest inventory position and reorder status by product and warehouse.
+  - name: mart_supplier_delivery_reliability
+    description: Supplier delivery lateness, fill rate, and on-time performance.
+  - name: mart_stockout_risk
+    description: Stockout risk by product and warehouse using current inventory and stockout history.

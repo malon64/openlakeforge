@@ -44,8 +44,8 @@ A shell deploy step owns all artifacts that have a domain code lifetime:
 
 - Build and kind-load the `project-code` image (contains domain code, dlt, dbt, Dagster
   definitions)
-- Generate the Sales Floe manifest and publish it to the SeaweedFS code bucket
-- Import the Sales Superset report bundle (dashboards, datasets, charts) via the
+- Generate product Floe manifests and publish them to the SeaweedFS code bucket
+- Import product Superset report bundles via the
   Superset API
 - Seed OpenMetadata with domain and data-product entities
 - Rolling-restart Dagster deployments so they pick up the new `project-code` image
@@ -62,8 +62,8 @@ scratch.
 The CD boundary is explicit: only `deploy-artifacts.sh` runs in CI for domain commits.
 Terraform runs are a deliberate platform-level action, not an automatic CI side-effect.
 
-The Floe manifest is generated from domain contracts and is always deployed from the
-repo — it is a build output, not a hand-authored artifact.
+Floe manifests are generated from product contracts and are always deployed from
+the repo. They are build outputs, not hand-authored artifacts.
 
 Superset dashboards and OpenMetadata entities follow a different ownership model.
 The intended production workflow is UI-first: authors work freely in the Superset and

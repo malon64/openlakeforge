@@ -4,7 +4,8 @@ OpenLakeForge is a cloud-agnostic, self-hostable lakehouse platform built from o
 
 ## v1 Product Shape
 
-The v1 proof of concept proves the complete batch lakehouse path for one domain:
+The v1 proof of concept proves the complete batch lakehouse path for multiple
+domain-owned data products:
 
 ```text
 CSV examples
@@ -17,16 +18,13 @@ CSV examples
   -> Dagster asset graph
 ```
 
-The first local infrastructure target is kind. Iteration 1 stands up the local
-Kubernetes foundation before introducing Dagster runs and domain pipelines.
-Iteration 2 adds the project-code image, Dagster webserver, Dagster daemon,
-sales code server, and Kubernetes run launcher. Iteration 3 adds the Sales dlt
-Bronze extract and manifest-first Floe Silver materialization. Iteration 4 adds
-Sales dbt-duckdb Gold marts and dagster-dbt orchestration in the same Kubernetes
-run-pod execution model.
-Iteration 5 adds OpenMetadata governance, catalog discovery, and OpenLineage
-ingestion. Iteration 6 adds Superset reporting over Sales Gold marts through
-Trino.
+The first local infrastructure target is kind. The current seed POC contains
+`sales/order_revenue`, `sales/customer_health`, and
+`supply_chain/inventory_reliability`. Each product has side-by-side assets under
+domain capability folders: raw CSV examples, dlt Bronze loader, Floe contract
+and manifest, dbt Gold models, Dagster job, Superset report bundle, and
+OpenMetadata metadata nested in `domain.yaml`. OpenLineage integration is
+deferred until upstream connector issues are fixed; see ADR 0009.
 
 ## Core Platform Decisions
 
@@ -36,16 +34,16 @@ Trino.
 | Portability | Cloud-agnostic across local, on-prem, and cloud Kubernetes |
 | Processing scope | Batch-first v1; streaming deferred |
 | Table format | Apache Iceberg |
-| Catalog | Apache Polaris REST catalog |
+| Catalog | Iceberg catalog contract; local uses Apache Polaris REST |
 | Local object storage | SeaweedFS |
 | Query layer | Trino for analytics queries only |
 | Reporting | Superset over Gold marts through Trino |
 | Orchestration | Dagster asset graph |
-| Lineage protocol | OpenLineage |
+| Lineage protocol | OpenLineage target, currently deferred |
 | Governance target | OpenMetadata |
-| IAM target | Keycloak |
-| Secret management target | Vault and External Secrets Operator |
-| Ingress and TLS target | Traefik and cert-manager |
+| IAM target | Keycloak later; local uses development credentials |
+| Secret management target | Vault / External Secrets later; local uses Kubernetes Secrets |
+| Ingress and TLS target | Traefik / cert-manager later; local uses port-forwarding |
 
 ## Medallion Ownership
 
@@ -72,11 +70,11 @@ The image contains:
 - domain Python code
 - shared OpenLakeForge libraries
 
-The project-code image does not install the Floe CLI. It includes the generated
-Sales Floe manifest so the Dagster code server can load the asset graph from the
-image. Because Floe work runs in a separate manifest-declared
-`ghcr.io/malon64/floe:0.4.6` Kubernetes runner image, local/CD artifact upload
-also publishes the generated Sales manifest to SeaweedFS for the runner pod.
+The project-code image does not install the Floe CLI. It includes generated
+product Floe manifests so the Dagster code server can load the asset graph from
+the image. Because Floe work runs in a separate manifest-declared
+`ghcr.io/malon64/floe:0.5.4` Kubernetes runner image, local/CD artifact upload
+also publishes the generated product manifests to SeaweedFS for the runner pod.
 
 The expected runtime flow is:
 
@@ -87,18 +85,20 @@ Dagster webserver / daemon / code server
   -> dlt ingestion assets
   -> Floe assets through dagster-floe and the Floe runner image
   -> dbt assets through dagster-dbt
-  -> lineage and metadata emission
+  -> metadata catalog refresh
 ```
 
 The local stack loads `ghcr.io/openlakeforge/project-code:local` into the local
-kind cluster and uses it for both the Sales code server and isolated Dagster run
-pods. The durable Sales job is `sales_etl_pipeline` under
-`domains/sales/pipelines/dagster`. It materializes Sales Bronze source assets,
-executes manifest-loaded Floe assets for `sales`, `customers`, and `products`,
-then runs dbt-duckdb Gold marts in the `gold` Polaris namespace of the `sales_dev` warehouse.
+kind cluster and uses it for both the aggregate product code server and isolated
+Dagster run pods. Durable product jobs are loaded from `domains.definitions`:
+`sales_order_revenue_pipeline`, `sales_customer_health_pipeline`, and
+`supply_chain_inventory_reliability_pipeline`. Each job materializes product
+Bronze source assets, executes manifest-loaded Floe assets, then runs
+dbt-duckdb Gold marts in the `gold` Polaris namespace of the `lakehouse_dev`
+warehouse.
 
-Superset is deployed as a BI consumer of those Gold marts through Trino. Sales
-Superset reports are dynamic domain artifacts under
-`domains/sales/reports/superset/` and are deployed separately from Terraform
-bootstrap so UI edits can be exported back to source control when they become
-durable report changes.
+Superset is deployed as a BI consumer of those Gold marts through Trino.
+Superset reports are dynamic product artifacts under each
+`domains/<domain>/reports/superset/<product>/` folder and are
+deployed separately from Terraform bootstrap so UI edits can be exported back to
+source control when they become durable report changes.

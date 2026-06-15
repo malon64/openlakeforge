@@ -1,0 +1,9 @@
+account_id,account_name,segment,region,signup_date,arr
+A-001,Aster Analytics,enterprise,NA,2024-04-12,144000.00
+A-002,Boreal Office,midmarket,EMEA,2024-09-20,72000.00
+A-003,Cascade Labs,enterprise,NA,2023-11-05,180000.00
+A-004,Delta Workspace,smb,APAC,2025-03-15,24000.00
+A-005,Evergreen Systems,midmarket,EMEA,2024-06-22,84000.00
+A-006,Fjord Retail,smb,NA,2025-08-01,30000.00
+A-007,Granite Partners,enterprise,EMEA,2023-05-19,210000.00
+A-008,Harbor Design,midmarket,APAC,2024-12-03,66000.00

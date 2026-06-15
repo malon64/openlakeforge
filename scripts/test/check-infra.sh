@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-TERRAFORM_DIR="infra/terraform/environments/local"
+TERRAFORM_DIRS=(
+  "infra/terraform/foundations/local-kind"
+  "infra/terraform/environments/local"
+)
 
 require_cmd() {
   local cmd="$1"
@@ -17,11 +20,13 @@ require_cmd helm
 echo "==> Terraform fmt"
 terraform fmt -check -recursive infra/terraform
 
-echo "==> Terraform init"
-terraform -chdir="${TERRAFORM_DIR}" init -backend=false
+for terraform_dir in "${TERRAFORM_DIRS[@]}"; do
+  echo "==> Terraform init: ${terraform_dir}"
+  terraform -chdir="${terraform_dir}" init -backend=false
 
-echo "==> Terraform validate"
-terraform -chdir="${TERRAFORM_DIR}" validate
+  echo "==> Terraform validate: ${terraform_dir}"
+  terraform -chdir="${terraform_dir}" validate
+done
 
 echo "==> Helm repo setup"
 helm repo add seaweedfs https://seaweedfs.github.io/seaweedfs/helm --force-update >/dev/null

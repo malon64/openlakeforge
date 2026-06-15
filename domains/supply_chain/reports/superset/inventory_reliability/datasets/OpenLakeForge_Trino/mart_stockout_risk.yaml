@@ -1,0 +1,57 @@
+table_name: mart_stockout_risk
+main_dttm_col: null
+description: Stockout risk by product and warehouse using current inventory and stockout history.
+schema: gold
+uuid: 9874e97a-2409-5b09-a330-26c3bc3014e1
+metrics:
+  - metric_name: sum__lost_units
+    verbose_name: Lost units
+    metric_type: sum
+    expression: SUM(lost_units)
+  - metric_name: sum__stockout_event_count
+    verbose_name: Stockout events
+    metric_type: sum
+    expression: SUM(stockout_event_count)
+columns:
+  - column_name: product_id
+    type: VARCHAR
+    groupby: true
+    filterable: true
+  - column_name: warehouse_id
+    type: VARCHAR
+    groupby: true
+    filterable: true
+  - column_name: warehouse_name
+    type: VARCHAR
+    groupby: true
+    filterable: true
+  - column_name: region
+    type: VARCHAR
+    groupby: true
+    filterable: true
+  - column_name: available_units
+    type: INTEGER
+    groupby: false
+    filterable: true
+  - column_name: reorder_point
+    type: INTEGER
+    groupby: false
+    filterable: true
+  - column_name: inventory_status
+    type: VARCHAR
+    groupby: true
+    filterable: true
+  - column_name: stockout_risk
+    type: VARCHAR
+    groupby: true
+    filterable: true
+  - column_name: stockout_event_count
+    type: BIGINT
+    groupby: false
+    filterable: true
+  - column_name: lost_units
+    type: BIGINT
+    groupby: false
+    filterable: true
+version: 1.0.0
+database_uuid: 8a87434c-559e-545d-badd-3575affe0185

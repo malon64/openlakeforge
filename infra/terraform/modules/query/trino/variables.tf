@@ -33,24 +33,45 @@ variable "base_values_file" {
 }
 
 variable "storage_contract" {
-  description = "Storage contract output from the SeaweedFS module."
+  description = "S3-compatible storage contract consumed by Trino."
   type = object({
-    endpoint                = string
+    endpoint                = optional(string)
     region                  = string
-    path_style_access       = bool
-    credentials_secret_name = string
+    path_style_access       = optional(bool)
+    credentials_secret_name = optional(string)
+    provider                = optional(string)
+    implementation          = optional(string)
+    auth_mode               = optional(string)
+    ssl_mode                = optional(string)
+    ingress_mode            = optional(string)
   })
 }
 
 variable "catalog_contract" {
-  description = "Catalog contract output from the Polaris module."
+  description = "Iceberg catalog contract consumed by Trino. Current local uses REST/Polaris; future provider profiles may use Glue."
   type = object({
-    rest_uri                      = string
-    token_uri                     = string
-    warehouse                     = string
-    oauth_scope                   = string
-    trino_credentials_secret_name = string
-    bootstrap_run_id              = string
+    rest_uri                      = optional(string)
+    token_uri                     = optional(string)
+    warehouse                     = optional(string)
+    oauth_scope                   = optional(string)
+    trino_credentials_secret_name = optional(string)
+    trino_client_id_key           = optional(string)
+    trino_client_secret_key       = optional(string)
+    bootstrap_run_id              = optional(string)
+    catalog_type                  = optional(string)
+    catalog_provider              = optional(string)
+    catalog_name                  = optional(string)
+    runtime_profile               = optional(string)
+    trino_catalog_name            = optional(string)
+    default_warehouse_location    = optional(string)
+    glue_catalog_id               = optional(string)
+    glue_region                   = optional(string)
+    provider                      = optional(string)
+    implementation                = optional(string)
+    auth_mode                     = optional(string)
+    ssl_mode                      = optional(string)
+    endpoint                      = optional(string)
+    ingress_mode                  = optional(string)
   })
 }
 

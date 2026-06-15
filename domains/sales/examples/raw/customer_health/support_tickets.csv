@@ -1,0 +1,13 @@
+ticket_id,account_id,opened_date,priority,resolution_hours,sla_met
+T-1001,A-001,2026-01-04,high,9,true
+T-1002,A-001,2026-01-21,medium,18,true
+T-1003,A-002,2026-01-09,medium,30,false
+T-1004,A-003,2026-01-12,high,6,true
+T-1005,A-004,2026-01-17,low,16,true
+T-1006,A-005,2026-01-29,high,28,false
+T-1007,A-006,2026-02-02,medium,20,true
+T-1008,A-007,2026-02-08,critical,36,false
+T-1009,A-008,2026-02-15,medium,26,false
+T-1010,A-003,2026-02-18,low,11,true
+T-1011,A-005,2026-03-03,medium,14,true
+T-1012,A-007,2026-03-07,high,22,false

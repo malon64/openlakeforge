@@ -42,10 +42,8 @@ resource "helm_release" "superset" {
   namespace  = var.namespace
 
   # wait = true causes the provider to pass --wait to both helm install and
-  # helm uninstall. On destroy this means Helm waits for all pods to fully
-  # terminate before returning. Once pods are gone Kubernetes removes the
-  # pvc-protection finalizer automatically, so the PVC deletion below
-  # succeeds without any additional workarounds.
+  # helm uninstall. The init hook also deletes itself after success so its
+  # completed pod does not keep the reports PVC under pvc-protection.
   wait            = true
   timeout         = 900
   cleanup_on_fail = true
@@ -82,6 +80,10 @@ resource "helm_release" "superset" {
 
       init = {
         createAdmin = true
+        jobAnnotations = {
+          "helm.sh/hook"               = "post-install,post-upgrade"
+          "helm.sh/hook-delete-policy" = "before-hook-creation,hook-succeeded"
+        }
         adminUser = {
           username  = var.admin_username
           firstname = "OpenLakeForge"

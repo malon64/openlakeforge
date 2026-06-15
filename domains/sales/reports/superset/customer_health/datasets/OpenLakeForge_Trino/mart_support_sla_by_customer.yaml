@@ -1,0 +1,53 @@
+table_name: mart_support_sla_by_customer
+main_dttm_col: null
+description: Support volume, resolution hours, and SLA rate by customer and priority.
+schema: gold
+uuid: 9910a74d-6dc4-5a99-acbc-e6ce7e3d2350
+metrics:
+  - metric_name: avg__sla_rate
+    verbose_name: SLA rate
+    metric_type: avg
+    expression: AVG(sla_rate)
+  - metric_name: sum__ticket_count
+    verbose_name: Ticket count
+    metric_type: sum
+    expression: SUM(ticket_count)
+columns:
+  - column_name: account_id
+    type: VARCHAR
+    groupby: true
+    filterable: true
+  - column_name: account_name
+    type: VARCHAR
+    groupby: true
+    filterable: true
+  - column_name: segment
+    type: VARCHAR
+    groupby: true
+    filterable: true
+  - column_name: region
+    type: VARCHAR
+    groupby: true
+    filterable: true
+  - column_name: priority
+    type: VARCHAR
+    groupby: true
+    filterable: true
+  - column_name: ticket_count
+    type: BIGINT
+    groupby: false
+    filterable: true
+  - column_name: avg_resolution_hours
+    type: DOUBLE
+    groupby: false
+    filterable: true
+  - column_name: tickets_met_sla
+    type: BIGINT
+    groupby: false
+    filterable: true
+  - column_name: sla_rate
+    type: DOUBLE
+    groupby: false
+    filterable: true
+version: 1.0.0
+database_uuid: 8a87434c-559e-545d-badd-3575affe0185

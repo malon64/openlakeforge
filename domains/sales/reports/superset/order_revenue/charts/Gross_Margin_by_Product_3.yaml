@@ -1,0 +1,22 @@
+slice_name: Gross Margin by Product
+description: Product net revenue and gross margin.
+viz_type: table
+params:
+  datasource: null
+  viz_type: table
+  query_mode: aggregate
+  groupby:
+    - category
+    - product_name
+  metrics:
+    - sum__net_revenue
+    - sum__gross_margin
+  row_limit: 100
+  order_desc: true
+  show_cell_bars: true
+  table_timestamp_format: smart_date
+query_context: null
+cache_timeout: null
+uuid: 71cfdbb0-0c6f-5cde-a8ad-db222c71188d
+version: 1.0.0
+dataset_uuid: df90d282-37d0-5df6-b81b-460892968ed1

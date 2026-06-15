@@ -1,5 +1,5 @@
 output "contract" {
-  description = "Shared PostgreSQL contract consumed by local platform modules."
+  description = "Metadata PostgreSQL contract implemented by the local in-cluster database."
   value = {
     host = local.host
     port = local.port

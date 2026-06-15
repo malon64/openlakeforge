@@ -34,11 +34,11 @@ infra/helm/
 ## Workflow
 
 ```bash
-make local-cluster
+make local-foundation-up
 make local-infra-up
 make local-artifacts-deploy
 make local-up
 make local-forward
 make local-down
-make local-destroy-cluster
+make local-foundation-down
 ```

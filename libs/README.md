@@ -5,9 +5,12 @@
 Appropriate examples include:
 
 - config loading
+- shared dbt packages and macros
+- shared Floe runtime profiles
 - storage path conventions
 - Dagster resource helpers
 - OpenLineage naming conventions
 - logging and observability helpers
 
-Runtime library APIs will be introduced when Iteration 2 starts the project-code image and Dagster integration.
+Domain business logic stays under `domains/`; `libs/` contains reusable platform
+glue shared by those domains.

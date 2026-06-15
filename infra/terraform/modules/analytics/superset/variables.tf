@@ -88,12 +88,17 @@ variable "reports_storage_class_name" {
 }
 
 variable "postgresql_contract" {
-  description = "Shared PostgreSQL contract from the postgresql module."
+  description = "Metadata PostgreSQL contract consumed by Superset."
   type = object({
     host                             = string
     port                             = number
     superset_db_name                 = string
     superset_db_user                 = string
     superset_credentials_secret_name = string
+    provider                         = optional(string)
+    implementation                   = optional(string)
+    auth_mode                        = optional(string)
+    ssl_mode                         = optional(string)
+    endpoint                         = optional(string)
   })
 }

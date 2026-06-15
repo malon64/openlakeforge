@@ -1,0 +1,49 @@
+table_name: mart_order_revenue_margin_by_product
+main_dttm_col: null
+description: Product revenue, cost, and gross margin for fulfilled order lines.
+schema: gold
+uuid: df90d282-37d0-5df6-b81b-460892968ed1
+metrics:
+  - metric_name: sum__net_revenue
+    verbose_name: Net revenue
+    metric_type: sum
+    expression: SUM(net_revenue)
+  - metric_name: sum__gross_margin
+    verbose_name: Gross margin
+    metric_type: sum
+    expression: SUM(gross_margin)
+columns:
+  - column_name: product_id
+    type: VARCHAR
+    groupby: true
+    filterable: true
+  - column_name: product_name
+    type: VARCHAR
+    groupby: true
+    filterable: true
+  - column_name: category
+    type: VARCHAR
+    groupby: true
+    filterable: true
+  - column_name: line_count
+    type: BIGINT
+    groupby: false
+    filterable: true
+  - column_name: units_sold
+    type: BIGINT
+    groupby: false
+    filterable: true
+  - column_name: net_revenue
+    type: DOUBLE
+    groupby: false
+    filterable: true
+  - column_name: total_cost
+    type: DOUBLE
+    groupby: false
+    filterable: true
+  - column_name: gross_margin
+    type: DOUBLE
+    groupby: false
+    filterable: true
+version: 1.0.0
+database_uuid: 8a87434c-559e-545d-badd-3575affe0185

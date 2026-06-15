@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-DBT_PROJECT_DIR="${DBT_PROJECT_DIR:-domains/sales/transformations/dbt}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 
 require_cmd() {
   local cmd="$1"
@@ -13,20 +14,41 @@ require_cmd() {
 
 require_cmd dbt
 
+# shellcheck source=/dev/null
+source "${REPO_ROOT}/scripts/local/contracts/load-runtime-env.sh"
+
 export AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID:-openlakeforge}"
 export AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY:-openlakeforge}"
-export AWS_REGION="${AWS_REGION:-us-east-1}"
+export AWS_REGION="${AWS_REGION:-${OPENLAKEFORGE_STORAGE_REGION}}"
 export AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-${AWS_REGION}}"
-export AWS_ENDPOINT_URL_S3="${AWS_ENDPOINT_URL_S3:-http://seaweedfs-s3:8333}"
-export OPENLAKEFORGE_DUCKDB_S3_ENDPOINT="${OPENLAKEFORGE_DUCKDB_S3_ENDPOINT:-seaweedfs-s3:8333}"
-export POLARIS_DBT_CLIENT_ID="${POLARIS_DBT_CLIENT_ID:-openlakeforge-dbt}"
-export POLARIS_DBT_CLIENT_SECRET="${POLARIS_DBT_CLIENT_SECRET:-openlakeforge-dbt}"
-export POLARIS_REST_URI="${POLARIS_REST_URI:-http://polaris:8181/api/catalog}"
-export POLARIS_TOKEN_URI="${POLARIS_TOKEN_URI:-http://polaris:8181/api/catalog/v1/oauth/tokens}"
-export POLARIS_WAREHOUSE="${POLARIS_WAREHOUSE:-sales_dev}"
-export POLARIS_OAUTH_SCOPE="${POLARIS_OAUTH_SCOPE:-PRINCIPAL_ROLE:ALL}"
+export AWS_ENDPOINT_URL_S3="${AWS_ENDPOINT_URL_S3:-${OPENLAKEFORGE_STORAGE_ENDPOINT}}"
+export OPENLAKEFORGE_DUCKDB_S3_ENDPOINT="${OPENLAKEFORGE_DUCKDB_S3_ENDPOINT:-${OPENLAKEFORGE_STORAGE_ENDPOINT#http://}}"
+export OPENLAKEFORGE_CATALOG_DBT_CLIENT_ID="${OPENLAKEFORGE_CATALOG_DBT_CLIENT_ID:-openlakeforge-dbt}"
+export OPENLAKEFORGE_CATALOG_DBT_CLIENT_SECRET="${OPENLAKEFORGE_CATALOG_DBT_CLIENT_SECRET:-openlakeforge-dbt}"
 
-dbt parse \
-  --project-dir "${DBT_PROJECT_DIR}" \
-  --profiles-dir "${DBT_PROJECT_DIR}" \
-  --target local
+discover_projects() {
+  if [[ -n "${DBT_PROJECT_DIR:-}" ]]; then
+    printf '%s\n' "${DBT_PROJECT_DIR}"
+    return
+  fi
+
+  find domains -path "*/transformations/dbt/*/dbt_project.yml" -type f \
+    -exec dirname {} \; | sort
+}
+
+mapfile -t projects < <(discover_projects)
+if [[ "${#projects[@]}" -eq 0 ]]; then
+  echo "ERROR: no product dbt projects found." >&2
+  exit 1
+fi
+
+for project_dir in "${projects[@]}"; do
+  echo "==> dbt deps: ${project_dir}"
+  dbt deps --project-dir "${project_dir}"
+
+  echo "==> dbt parse: ${project_dir}"
+  dbt parse \
+    --project-dir "${project_dir}" \
+    --profiles-dir "${project_dir}" \
+    --target local
+done

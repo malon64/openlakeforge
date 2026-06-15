@@ -1,0 +1,6 @@
+supplier_id,supplier_name,country,risk_tier
+SUP-001,Northstar Components,United States,low
+SUP-002,Baltic Office Works,Poland,medium
+SUP-003,Pacific Ergonomics,Vietnam,medium
+SUP-004,Atlas Electronics,Taiwan,low
+SUP-005,Metro Fixtures,Germany,high

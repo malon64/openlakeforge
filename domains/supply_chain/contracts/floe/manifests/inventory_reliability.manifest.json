@@ -1,0 +1,767 @@
+{
+  "schema": "floe.manifest.v1",
+  "generated_at_ts_ms": 0,
+  "floe_version": "0.5.4",
+  "spec_version": "0.2",
+  "manifest_name": "supply_chain.inventory_reliability.local",
+  "manifest_id": "mfv1-1f42a765664b91f7",
+  "manifest_revision": "sha256:d9661c366c3d79453ba1dc2dca29ac0dddc27d838dfef3e1950784c33c938c36",
+  "config_uri": "local:///work/domains/supply_chain/contracts/floe/inventory_reliability.yml",
+  "config_checksum": "sha256:bfbbe97e4c5fd241047d2c52e29c096f6550071c4605da3b092b2591fb863cb9",
+  "profile_uri": "local:///work/.tmp/floe-profile.BcWfOs/local-k8s.yml",
+  "profile_checksum": "sha256:79470177f6e16951bcaefb70dd9d80b7ba59ae042ff7f5b38be54c07bce944df",
+  "report_base_uri": "s3://iceberg-data/floe/reports/supply_chain/inventory_reliability",
+  "domains": [],
+  "execution": {
+    "entrypoint": "floe",
+    "base_args": [
+      "run",
+      "--manifest",
+      "{manifest_uri}",
+      "--log-format",
+      "json",
+      "--quiet",
+      "--run-id",
+      "{run_id}"
+    ],
+    "per_entity_args": [
+      "--entities",
+      "{entity_name}"
+    ],
+    "log_format": "json",
+    "result_contract": {
+      "run_finished_event": true,
+      "summary_uri_field": "summary_uri",
+      "exit_codes": {
+        "0": "success_or_rejected",
+        "1": "technical_failure",
+        "2": "aborted"
+      }
+    },
+    "defaults": {
+      "env": {},
+      "workdir": null
+    },
+    "orchestration": {
+      "strategy": "sequential"
+    }
+  },
+  "runners": {
+    "default": "default",
+    "definitions": {
+      "default": {
+        "type": "kubernetes_job",
+        "command": null,
+        "args": null,
+        "timeout_seconds": 600,
+        "ttl_seconds_after_finished": 3600,
+        "poll_interval_seconds": 5,
+        "secrets": [
+          {
+            "name": "AWS_ACCESS_KEY_ID",
+            "secret_name": "seaweedfs-s3-creds",
+            "key": "AWS_ACCESS_KEY_ID"
+          },
+          {
+            "name": "AWS_SECRET_ACCESS_KEY",
+            "secret_name": "seaweedfs-s3-creds",
+            "key": "AWS_SECRET_ACCESS_KEY"
+          },
+          {
+            "name": "OPENLAKEFORGE_CATALOG_FLOE_CLIENT_ID",
+            "secret_name": "polaris-floe-creds",
+            "key": "POLARIS_FLOE_CLIENT_ID"
+          },
+          {
+            "name": "OPENLAKEFORGE_CATALOG_FLOE_CLIENT_SECRET",
+            "secret_name": "polaris-floe-creds",
+            "key": "POLARIS_FLOE_CLIENT_SECRET"
+          }
+        ],
+        "image": "ghcr.io/malon64/floe:0.5.4",
+        "namespace": "lakehouse",
+        "service_account": "dagster",
+        "resources": null,
+        "env": {
+          "AWS_ALLOW_HTTP": "true",
+          "AWS_DEFAULT_REGION": "us-east-1",
+          "AWS_EC2_METADATA_DISABLED": "true",
+          "AWS_ENDPOINT_URL": "http://seaweedfs-s3:8333",
+          "AWS_ENDPOINT_URL_S3": "http://lakehouse.svc.cluster.local:8333",
+          "AWS_REGION": "us-east-1",
+          "AWS_S3_FORCE_PATH_STYLE": "true"
+        },
+        "workspace_url": null,
+        "existing_cluster_id": null,
+        "config_uri": null,
+        "python_file_uri": null,
+        "job_name": null,
+        "auth": null,
+        "env_parameters": null
+      }
+    }
+  },
+  "entities": [
+    {
+      "name": "inventory_snapshots",
+      "domain": "supply_chain_inventory_reliability",
+      "group_name": "supply_chain_inventory_reliability",
+      "asset_key": [
+        "supply_chain_inventory_reliability",
+        "inventory_snapshots"
+      ],
+      "source_format": "csv",
+      "accepted_sink_uri": "s3://iceberg-data/silver/supply_chain/inventory_reliability/inventory_snapshots",
+      "rejected_sink_uri": "s3://iceberg-data/floe/rejected/supply_chain/inventory_reliability/inventory_snapshots",
+      "tags": null,
+      "source": {
+        "format": "csv",
+        "storage": "lakehouse_storage",
+        "uri": "s3://iceberg-data/bronze/supply_chain/inventory_reliability/inventory_snapshots",
+        "path": "s3://iceberg-data/bronze/supply_chain/inventory_reliability/inventory_snapshots",
+        "resolved": true,
+        "cast_mode": "strict",
+        "options": {
+          "data_row": null,
+          "encoding": "utf-8",
+          "glob": "*.csv",
+          "header": true,
+          "header_row": 1,
+          "json_mode": null,
+          "namespace": null,
+          "null_values": [
+            ""
+          ],
+          "recursive": false,
+          "row_tag": null,
+          "separator": ",",
+          "sheet": null,
+          "value_tag": null
+        }
+      },
+      "sinks": {
+        "accepted": {
+          "format": "iceberg",
+          "storage": "lakehouse_storage",
+          "uri": "s3://iceberg-data/silver/supply_chain/inventory_reliability/inventory_snapshots",
+          "path": "s3://iceberg-data/silver/supply_chain/inventory_reliability/inventory_snapshots",
+          "resolved": true,
+          "iceberg": {
+            "catalog": "iceberg_catalog",
+            "location": null,
+            "namespace": "silver",
+            "table": "inventory_reliability_inventory_snapshots"
+          }
+        },
+        "rejected": {
+          "format": "csv",
+          "storage": "lakehouse_storage",
+          "uri": "s3://iceberg-data/floe/rejected/supply_chain/inventory_reliability/inventory_snapshots",
+          "path": "s3://iceberg-data/floe/rejected/supply_chain/inventory_reliability/inventory_snapshots",
+          "resolved": true
+        },
+        "archive": null
+      },
+      "runner": null,
+      "policy_severity": "reject",
+      "write_mode": "overwrite",
+      "incremental_mode": "none",
+      "schema": {
+        "columns": [
+          {
+            "name": "snapshot_id",
+            "column_type": "string",
+            "nullable": false
+          },
+          {
+            "name": "snapshot_date",
+            "column_type": "date",
+            "nullable": false
+          },
+          {
+            "name": "warehouse_id",
+            "column_type": "string",
+            "nullable": false
+          },
+          {
+            "name": "product_id",
+            "column_type": "string",
+            "nullable": false
+          },
+          {
+            "name": "on_hand_units",
+            "column_type": "integer",
+            "nullable": false
+          },
+          {
+            "name": "allocated_units",
+            "column_type": "integer",
+            "nullable": false
+          },
+          {
+            "name": "reorder_point",
+            "column_type": "integer",
+            "nullable": false
+          }
+        ],
+        "primary_key": [
+          "snapshot_id"
+        ],
+        "unique_keys": [],
+        "normalize_columns": {
+          "enabled": true,
+          "strategy": "snake_case"
+        }
+      }
+    },
+    {
+      "name": "purchase_orders",
+      "domain": "supply_chain_inventory_reliability",
+      "group_name": "supply_chain_inventory_reliability",
+      "asset_key": [
+        "supply_chain_inventory_reliability",
+        "purchase_orders"
+      ],
+      "source_format": "csv",
+      "accepted_sink_uri": "s3://iceberg-data/silver/supply_chain/inventory_reliability/purchase_orders",
+      "rejected_sink_uri": "s3://iceberg-data/floe/rejected/supply_chain/inventory_reliability/purchase_orders",
+      "tags": null,
+      "source": {
+        "format": "csv",
+        "storage": "lakehouse_storage",
+        "uri": "s3://iceberg-data/bronze/supply_chain/inventory_reliability/purchase_orders",
+        "path": "s3://iceberg-data/bronze/supply_chain/inventory_reliability/purchase_orders",
+        "resolved": true,
+        "cast_mode": "strict",
+        "options": {
+          "data_row": null,
+          "encoding": "utf-8",
+          "glob": "*.csv",
+          "header": true,
+          "header_row": 1,
+          "json_mode": null,
+          "namespace": null,
+          "null_values": [
+            ""
+          ],
+          "recursive": false,
+          "row_tag": null,
+          "separator": ",",
+          "sheet": null,
+          "value_tag": null
+        }
+      },
+      "sinks": {
+        "accepted": {
+          "format": "iceberg",
+          "storage": "lakehouse_storage",
+          "uri": "s3://iceberg-data/silver/supply_chain/inventory_reliability/purchase_orders",
+          "path": "s3://iceberg-data/silver/supply_chain/inventory_reliability/purchase_orders",
+          "resolved": true,
+          "iceberg": {
+            "catalog": "iceberg_catalog",
+            "location": null,
+            "namespace": "silver",
+            "table": "inventory_reliability_purchase_orders"
+          }
+        },
+        "rejected": {
+          "format": "csv",
+          "storage": "lakehouse_storage",
+          "uri": "s3://iceberg-data/floe/rejected/supply_chain/inventory_reliability/purchase_orders",
+          "path": "s3://iceberg-data/floe/rejected/supply_chain/inventory_reliability/purchase_orders",
+          "resolved": true
+        },
+        "archive": null
+      },
+      "runner": null,
+      "policy_severity": "reject",
+      "write_mode": "overwrite",
+      "incremental_mode": "none",
+      "schema": {
+        "columns": [
+          {
+            "name": "purchase_order_id",
+            "column_type": "string",
+            "nullable": false
+          },
+          {
+            "name": "supplier_id",
+            "column_type": "string",
+            "nullable": false
+          },
+          {
+            "name": "product_id",
+            "column_type": "string",
+            "nullable": false
+          },
+          {
+            "name": "warehouse_id",
+            "column_type": "string",
+            "nullable": false
+          },
+          {
+            "name": "order_date",
+            "column_type": "date",
+            "nullable": false
+          },
+          {
+            "name": "expected_date",
+            "column_type": "date",
+            "nullable": false
+          },
+          {
+            "name": "ordered_units",
+            "column_type": "integer",
+            "nullable": false
+          }
+        ],
+        "primary_key": [
+          "purchase_order_id"
+        ],
+        "unique_keys": [],
+        "normalize_columns": {
+          "enabled": true,
+          "strategy": "snake_case"
+        }
+      }
+    },
+    {
+      "name": "shipments",
+      "domain": "supply_chain_inventory_reliability",
+      "group_name": "supply_chain_inventory_reliability",
+      "asset_key": [
+        "supply_chain_inventory_reliability",
+        "shipments"
+      ],
+      "source_format": "csv",
+      "accepted_sink_uri": "s3://iceberg-data/silver/supply_chain/inventory_reliability/shipments",
+      "rejected_sink_uri": "s3://iceberg-data/floe/rejected/supply_chain/inventory_reliability/shipments",
+      "tags": null,
+      "source": {
+        "format": "csv",
+        "storage": "lakehouse_storage",
+        "uri": "s3://iceberg-data/bronze/supply_chain/inventory_reliability/shipments",
+        "path": "s3://iceberg-data/bronze/supply_chain/inventory_reliability/shipments",
+        "resolved": true,
+        "cast_mode": "strict",
+        "options": {
+          "data_row": null,
+          "encoding": "utf-8",
+          "glob": "*.csv",
+          "header": true,
+          "header_row": 1,
+          "json_mode": null,
+          "namespace": null,
+          "null_values": [
+            ""
+          ],
+          "recursive": false,
+          "row_tag": null,
+          "separator": ",",
+          "sheet": null,
+          "value_tag": null
+        }
+      },
+      "sinks": {
+        "accepted": {
+          "format": "iceberg",
+          "storage": "lakehouse_storage",
+          "uri": "s3://iceberg-data/silver/supply_chain/inventory_reliability/shipments",
+          "path": "s3://iceberg-data/silver/supply_chain/inventory_reliability/shipments",
+          "resolved": true,
+          "iceberg": {
+            "catalog": "iceberg_catalog",
+            "location": null,
+            "namespace": "silver",
+            "table": "inventory_reliability_shipments"
+          }
+        },
+        "rejected": {
+          "format": "csv",
+          "storage": "lakehouse_storage",
+          "uri": "s3://iceberg-data/floe/rejected/supply_chain/inventory_reliability/shipments",
+          "path": "s3://iceberg-data/floe/rejected/supply_chain/inventory_reliability/shipments",
+          "resolved": true
+        },
+        "archive": null
+      },
+      "runner": null,
+      "policy_severity": "reject",
+      "write_mode": "overwrite",
+      "incremental_mode": "none",
+      "schema": {
+        "columns": [
+          {
+            "name": "shipment_id",
+            "column_type": "string",
+            "nullable": false
+          },
+          {
+            "name": "purchase_order_id",
+            "column_type": "string",
+            "nullable": false
+          },
+          {
+            "name": "ship_date",
+            "column_type": "date",
+            "nullable": false
+          },
+          {
+            "name": "delivered_date",
+            "column_type": "date",
+            "nullable": false
+          },
+          {
+            "name": "received_units",
+            "column_type": "integer",
+            "nullable": false
+          }
+        ],
+        "primary_key": [
+          "shipment_id"
+        ],
+        "unique_keys": [],
+        "normalize_columns": {
+          "enabled": true,
+          "strategy": "snake_case"
+        }
+      }
+    },
+    {
+      "name": "stockout_events",
+      "domain": "supply_chain_inventory_reliability",
+      "group_name": "supply_chain_inventory_reliability",
+      "asset_key": [
+        "supply_chain_inventory_reliability",
+        "stockout_events"
+      ],
+      "source_format": "csv",
+      "accepted_sink_uri": "s3://iceberg-data/silver/supply_chain/inventory_reliability/stockout_events",
+      "rejected_sink_uri": "s3://iceberg-data/floe/rejected/supply_chain/inventory_reliability/stockout_events",
+      "tags": null,
+      "source": {
+        "format": "csv",
+        "storage": "lakehouse_storage",
+        "uri": "s3://iceberg-data/bronze/supply_chain/inventory_reliability/stockout_events",
+        "path": "s3://iceberg-data/bronze/supply_chain/inventory_reliability/stockout_events",
+        "resolved": true,
+        "cast_mode": "strict",
+        "options": {
+          "data_row": null,
+          "encoding": "utf-8",
+          "glob": "*.csv",
+          "header": true,
+          "header_row": 1,
+          "json_mode": null,
+          "namespace": null,
+          "null_values": [
+            ""
+          ],
+          "recursive": false,
+          "row_tag": null,
+          "separator": ",",
+          "sheet": null,
+          "value_tag": null
+        }
+      },
+      "sinks": {
+        "accepted": {
+          "format": "iceberg",
+          "storage": "lakehouse_storage",
+          "uri": "s3://iceberg-data/silver/supply_chain/inventory_reliability/stockout_events",
+          "path": "s3://iceberg-data/silver/supply_chain/inventory_reliability/stockout_events",
+          "resolved": true,
+          "iceberg": {
+            "catalog": "iceberg_catalog",
+            "location": null,
+            "namespace": "silver",
+            "table": "inventory_reliability_stockout_events"
+          }
+        },
+        "rejected": {
+          "format": "csv",
+          "storage": "lakehouse_storage",
+          "uri": "s3://iceberg-data/floe/rejected/supply_chain/inventory_reliability/stockout_events",
+          "path": "s3://iceberg-data/floe/rejected/supply_chain/inventory_reliability/stockout_events",
+          "resolved": true
+        },
+        "archive": null
+      },
+      "runner": null,
+      "policy_severity": "reject",
+      "write_mode": "overwrite",
+      "incremental_mode": "none",
+      "schema": {
+        "columns": [
+          {
+            "name": "event_id",
+            "column_type": "string",
+            "nullable": false
+          },
+          {
+            "name": "event_date",
+            "column_type": "date",
+            "nullable": false
+          },
+          {
+            "name": "warehouse_id",
+            "column_type": "string",
+            "nullable": false
+          },
+          {
+            "name": "product_id",
+            "column_type": "string",
+            "nullable": false
+          },
+          {
+            "name": "lost_units",
+            "column_type": "integer",
+            "nullable": false
+          },
+          {
+            "name": "root_cause",
+            "column_type": "string",
+            "nullable": false
+          }
+        ],
+        "primary_key": [
+          "event_id"
+        ],
+        "unique_keys": [],
+        "normalize_columns": {
+          "enabled": true,
+          "strategy": "snake_case"
+        }
+      }
+    },
+    {
+      "name": "suppliers",
+      "domain": "supply_chain_inventory_reliability",
+      "group_name": "supply_chain_inventory_reliability",
+      "asset_key": [
+        "supply_chain_inventory_reliability",
+        "suppliers"
+      ],
+      "source_format": "csv",
+      "accepted_sink_uri": "s3://iceberg-data/silver/supply_chain/inventory_reliability/suppliers",
+      "rejected_sink_uri": "s3://iceberg-data/floe/rejected/supply_chain/inventory_reliability/suppliers",
+      "tags": null,
+      "source": {
+        "format": "csv",
+        "storage": "lakehouse_storage",
+        "uri": "s3://iceberg-data/bronze/supply_chain/inventory_reliability/suppliers",
+        "path": "s3://iceberg-data/bronze/supply_chain/inventory_reliability/suppliers",
+        "resolved": true,
+        "cast_mode": "strict",
+        "options": {
+          "data_row": null,
+          "encoding": "utf-8",
+          "glob": "*.csv",
+          "header": true,
+          "header_row": 1,
+          "json_mode": null,
+          "namespace": null,
+          "null_values": [
+            ""
+          ],
+          "recursive": false,
+          "row_tag": null,
+          "separator": ",",
+          "sheet": null,
+          "value_tag": null
+        }
+      },
+      "sinks": {
+        "accepted": {
+          "format": "iceberg",
+          "storage": "lakehouse_storage",
+          "uri": "s3://iceberg-data/silver/supply_chain/inventory_reliability/suppliers",
+          "path": "s3://iceberg-data/silver/supply_chain/inventory_reliability/suppliers",
+          "resolved": true,
+          "iceberg": {
+            "catalog": "iceberg_catalog",
+            "location": null,
+            "namespace": "silver",
+            "table": "inventory_reliability_suppliers"
+          }
+        },
+        "rejected": {
+          "format": "csv",
+          "storage": "lakehouse_storage",
+          "uri": "s3://iceberg-data/floe/rejected/supply_chain/inventory_reliability/suppliers",
+          "path": "s3://iceberg-data/floe/rejected/supply_chain/inventory_reliability/suppliers",
+          "resolved": true
+        },
+        "archive": null
+      },
+      "runner": null,
+      "policy_severity": "reject",
+      "write_mode": "overwrite",
+      "incremental_mode": "none",
+      "schema": {
+        "columns": [
+          {
+            "name": "supplier_id",
+            "column_type": "string",
+            "nullable": false
+          },
+          {
+            "name": "supplier_name",
+            "column_type": "string",
+            "nullable": false
+          },
+          {
+            "name": "country",
+            "column_type": "string",
+            "nullable": false
+          },
+          {
+            "name": "risk_tier",
+            "column_type": "string",
+            "nullable": false
+          }
+        ],
+        "primary_key": [
+          "supplier_id"
+        ],
+        "unique_keys": [],
+        "normalize_columns": {
+          "enabled": true,
+          "strategy": "snake_case"
+        }
+      }
+    },
+    {
+      "name": "warehouses",
+      "domain": "supply_chain_inventory_reliability",
+      "group_name": "supply_chain_inventory_reliability",
+      "asset_key": [
+        "supply_chain_inventory_reliability",
+        "warehouses"
+      ],
+      "source_format": "csv",
+      "accepted_sink_uri": "s3://iceberg-data/silver/supply_chain/inventory_reliability/warehouses",
+      "rejected_sink_uri": "s3://iceberg-data/floe/rejected/supply_chain/inventory_reliability/warehouses",
+      "tags": null,
+      "source": {
+        "format": "csv",
+        "storage": "lakehouse_storage",
+        "uri": "s3://iceberg-data/bronze/supply_chain/inventory_reliability/warehouses",
+        "path": "s3://iceberg-data/bronze/supply_chain/inventory_reliability/warehouses",
+        "resolved": true,
+        "cast_mode": "strict",
+        "options": {
+          "data_row": null,
+          "encoding": "utf-8",
+          "glob": "*.csv",
+          "header": true,
+          "header_row": 1,
+          "json_mode": null,
+          "namespace": null,
+          "null_values": [
+            ""
+          ],
+          "recursive": false,
+          "row_tag": null,
+          "separator": ",",
+          "sheet": null,
+          "value_tag": null
+        }
+      },
+      "sinks": {
+        "accepted": {
+          "format": "iceberg",
+          "storage": "lakehouse_storage",
+          "uri": "s3://iceberg-data/silver/supply_chain/inventory_reliability/warehouses",
+          "path": "s3://iceberg-data/silver/supply_chain/inventory_reliability/warehouses",
+          "resolved": true,
+          "iceberg": {
+            "catalog": "iceberg_catalog",
+            "location": null,
+            "namespace": "silver",
+            "table": "inventory_reliability_warehouses"
+          }
+        },
+        "rejected": {
+          "format": "csv",
+          "storage": "lakehouse_storage",
+          "uri": "s3://iceberg-data/floe/rejected/supply_chain/inventory_reliability/warehouses",
+          "path": "s3://iceberg-data/floe/rejected/supply_chain/inventory_reliability/warehouses",
+          "resolved": true
+        },
+        "archive": null
+      },
+      "runner": null,
+      "policy_severity": "reject",
+      "write_mode": "overwrite",
+      "incremental_mode": "none",
+      "schema": {
+        "columns": [
+          {
+            "name": "warehouse_id",
+            "column_type": "string",
+            "nullable": false
+          },
+          {
+            "name": "warehouse_name",
+            "column_type": "string",
+            "nullable": false
+          },
+          {
+            "name": "region",
+            "column_type": "string",
+            "nullable": false
+          },
+          {
+            "name": "capacity_units",
+            "column_type": "integer",
+            "nullable": false
+          }
+        ],
+        "primary_key": [
+          "warehouse_id"
+        ],
+        "unique_keys": [],
+        "normalize_columns": {
+          "enabled": true,
+          "strategy": "snake_case"
+        }
+      }
+    }
+  ],
+  "storages": {
+    "default": "lakehouse_storage",
+    "definitions": [
+      {
+        "account": null,
+        "bucket": "iceberg-data",
+        "container": null,
+        "endpoint": null,
+        "fs_type": "s3",
+        "name": "lakehouse_storage",
+        "path_style_access": null,
+        "prefix": null,
+        "region": "us-east-1"
+      }
+    ]
+  },
+  "catalogs": {
+    "default": "iceberg_catalog",
+    "definitions": [
+      {
+        "name": "iceberg_catalog",
+        "type_config": {
+          "credential": "client_credentials:${OPENLAKEFORGE_CATALOG_FLOE_CLIENT_ID}:${OPENLAKEFORGE_CATALOG_FLOE_CLIENT_SECRET}",
+          "oauth2_server_uri": "http://polaris:8181/api/catalog/v1/oauth/tokens",
+          "scope": "PRINCIPAL_ROLE:ALL",
+          "type": "rest",
+          "uri": "http://polaris:8181/api/catalog",
+          "warehouse": "lakehouse_dev"
+        },
+        "warehouse_prefix": "s3://iceberg-data",
+        "warehouse_storage": "lakehouse_storage"
+      }
+    ]
+  }
+}

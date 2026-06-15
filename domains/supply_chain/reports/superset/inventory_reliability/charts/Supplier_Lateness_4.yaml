@@ -1,0 +1,20 @@
+slice_name: Supplier Lateness
+description: Average delivery lateness by supplier and risk tier.
+viz_type: echarts_timeseries_bar
+params:
+  datasource: null
+  viz_type: echarts_timeseries_bar
+  x_axis: supplier_name
+  metrics:
+    - avg__days_late
+  groupby:
+    - risk_tier
+  row_limit: 100
+  color_scheme: supersetColors
+  show_legend: true
+  y_axis_format: SMART_NUMBER
+query_context: null
+cache_timeout: null
+uuid: 00a7ca6c-d162-52ec-b64c-b18e5ddca3fe
+version: 1.0.0
+dataset_uuid: 1f094833-0374-574d-b3a0-98b1435b7b01

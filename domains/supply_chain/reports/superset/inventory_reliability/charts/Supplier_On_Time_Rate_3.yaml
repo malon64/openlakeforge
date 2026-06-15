@@ -1,0 +1,20 @@
+slice_name: Supplier On-Time Rate
+description: Average on-time delivery rate by supplier and risk tier.
+viz_type: echarts_timeseries_bar
+params:
+  datasource: null
+  viz_type: echarts_timeseries_bar
+  x_axis: supplier_name
+  metrics:
+    - avg__on_time_rate
+  groupby:
+    - risk_tier
+  row_limit: 100
+  color_scheme: supersetColors
+  show_legend: true
+  y_axis_format: PERCENT_1_POINT
+query_context: null
+cache_timeout: null
+uuid: 29da5d4f-ef80-5625-b47c-46ce91dfb902
+version: 1.0.0
+dataset_uuid: 1f094833-0374-574d-b3a0-98b1435b7b01

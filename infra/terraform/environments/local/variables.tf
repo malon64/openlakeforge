@@ -11,7 +11,13 @@ variable "kubeconfig_path" {
 }
 
 variable "kube_context" {
-  description = "Optional kubeconfig context. Defaults to the active kubectl context."
+  description = "Fallback kubeconfig context for the local foundation cluster when the foundation state is not inspected by wrapper scripts."
+  type        = string
+  default     = "kind-openlakeforge-local"
+}
+
+variable "foundation_state_path" {
+  description = "Local Terraform state path for the local cluster foundation root."
   type        = string
   default     = null
 }
@@ -19,7 +25,7 @@ variable "kube_context" {
 variable "catalog_name" {
   description = "Polaris catalog and Trino Iceberg warehouse name."
   type        = string
-  default     = "sales_dev"
+  default     = "lakehouse_dev"
 }
 
 variable "iceberg_bucket_name" {

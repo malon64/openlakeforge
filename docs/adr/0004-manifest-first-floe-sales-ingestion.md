@@ -4,6 +4,11 @@
 
 Accepted
 
+Current implementation note: this Sales-first decision has been generalized to
+domain-owned product Floe contracts and manifests under
+`domains/<domain>/contracts/floe/`, generated with the shared infrastructure
+profile at `libs/floe/profiles/local-k8s.yml`.
+
 ## Context
 
 Iteration 3 needs to prove that a domain-owned ingestion path can land Bronze
@@ -21,23 +26,23 @@ code, and the generated Sales Floe manifest used to load the Dagster asset
 graph. It does not install the Floe CLI. Local developer workflows run
 `floe manifest generate` before building the image. Local/CD artifact upload
 publishes the same generated Sales manifest to the SeaweedFS code bucket for the
-separate Kubernetes runner using `ghcr.io/malon64/floe:0.4.6`.
+separate Kubernetes runner using `ghcr.io/malon64/floe:0.5.4`.
 
 Polaris owns separate service principals for Trino and Floe. Floe credentials
 are stored in `polaris-floe-creds`.
 
 The Iteration 3 Dagster milestone materialized Bronze and Silver Sales assets.
-Iteration 4 folds that path into the durable `sales_etl_pipeline` job, which
-developers launch from the Dagster UI after deploying the stack and forwarding
-the webserver.
+The current implementation generalizes that path into durable product jobs such
+as `sales_order_revenue_pipeline`, `sales_customer_health_pipeline`, and
+`supply_chain_inventory_reliability_pipeline`.
 
 ## Consequences
 
 - Dagster parses a generated Floe manifest instead of Floe YAML at runtime.
-- Dagster loads the Sales Floe asset graph from the manifest baked into the
+- Dagster loads product Floe asset graphs from manifests baked into the
   project-code image.
-- The separate Floe runner expects the same manifest at
-  `s3://openlakeforge-code/floe/sales/sales.manifest.json`.
+- The separate Floe runner expects the same product manifests under
+  `s3://openlakeforge-code/floe/<domain>/<product>/<product>.manifest.json`.
 - Floe execution is isolated in Kubernetes jobs from the Floe runner image.
 - Artifact publication is a CD concern and is not modeled as a Terraform
   resource.

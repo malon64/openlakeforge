@@ -1,0 +1,9 @@
+version: 2
+
+models:
+  - name: mart_customer_health_score
+    description: Account-level health score using subscription, support, and NPS signals.
+  - name: mart_churn_risk_by_segment
+    description: Churn risk and ARR exposure grouped by account segment and region.
+  - name: mart_support_sla_by_customer
+    description: Support volume, resolution hours, and SLA rate by customer and priority.

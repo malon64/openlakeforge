@@ -1,0 +1,81 @@
+dashboard_title: Sales Order Revenue
+description: Revenue, channel, margin, and discount dashboard for the Sales Order Revenue data product.
+css: ''
+slug: sales-order-revenue
+published: true
+uuid: c05e9431-56ca-5308-8070-d118de63639f
+position:
+  DASHBOARD_VERSION_KEY: v2
+  ROOT_ID: { children: [GRID_ID], id: ROOT_ID, type: ROOT }
+  GRID_ID:
+    children: [ROW-ORDER-REVENUE-1, ROW-ORDER-REVENUE-2]
+    id: GRID_ID
+    parents: [ROOT_ID]
+    type: GRID
+  ROW-ORDER-REVENUE-1:
+    children: [CHART-DAILY-NET-REVENUE]
+    id: ROW-ORDER-REVENUE-1
+    meta: { background: BACKGROUND_TRANSPARENT }
+    parents: [ROOT_ID, GRID_ID]
+    type: ROW
+  ROW-ORDER-REVENUE-2:
+    children: [CHART-REVENUE-BY-CHANNEL, CHART-GROSS-MARGIN-BY-PRODUCT, CHART-DISCOUNT-IMPACT]
+    id: ROW-ORDER-REVENUE-2
+    meta: { background: BACKGROUND_TRANSPARENT }
+    parents: [ROOT_ID, GRID_ID]
+    type: ROW
+  CHART-DAILY-NET-REVENUE:
+    children: []
+    id: CHART-DAILY-NET-REVENUE
+    meta:
+      chartId: 1
+      height: 50
+      sliceName: Daily Net Revenue
+      uuid: 967135cd-a1e8-54e1-b41e-5f20177689d0
+      width: 12
+    parents: [ROOT_ID, GRID_ID, ROW-ORDER-REVENUE-1]
+    type: CHART
+  CHART-REVENUE-BY-CHANNEL:
+    children: []
+    id: CHART-REVENUE-BY-CHANNEL
+    meta:
+      chartId: 2
+      height: 50
+      sliceName: Revenue by Channel
+      uuid: a1009abd-7414-5b0f-b984-1e2514dad5b3
+      width: 4
+    parents: [ROOT_ID, GRID_ID, ROW-ORDER-REVENUE-2]
+    type: CHART
+  CHART-GROSS-MARGIN-BY-PRODUCT:
+    children: []
+    id: CHART-GROSS-MARGIN-BY-PRODUCT
+    meta:
+      chartId: 3
+      height: 50
+      sliceName: Gross Margin by Product
+      uuid: 71cfdbb0-0c6f-5cde-a8ad-db222c71188d
+      width: 5
+    parents: [ROOT_ID, GRID_ID, ROW-ORDER-REVENUE-2]
+    type: CHART
+  CHART-DISCOUNT-IMPACT:
+    children: []
+    id: CHART-DISCOUNT-IMPACT
+    meta:
+      chartId: 4
+      height: 50
+      sliceName: Discount Impact
+      uuid: cca80e7b-82a1-55a2-8904-71ae41d84f26
+      width: 3
+    parents: [ROOT_ID, GRID_ID, ROW-ORDER-REVENUE-2]
+    type: CHART
+metadata:
+  timed_refresh_immune_slices: []
+  expanded_slices: {}
+  refresh_frequency: 0
+  color_scheme: supersetColors
+  label_colors: {}
+  shared_label_colors: []
+  map_label_colors: {}
+  cross_filters_enabled: true
+  native_filter_configuration: []
+version: 1.0.0

@@ -1,0 +1,21 @@
+slice_name: Revenue by Channel
+description: Net revenue by sales channel and channel type.
+viz_type: echarts_timeseries_bar
+params:
+  datasource: null
+  viz_type: echarts_timeseries_bar
+  x_axis: channel_name
+  metrics:
+    - sum__net_revenue
+  groupby:
+    - channel_type
+  row_limit: 100
+  order_desc: true
+  color_scheme: supersetColors
+  show_legend: true
+  y_axis_format: SMART_NUMBER
+query_context: null
+cache_timeout: null
+uuid: a1009abd-7414-5b0f-b984-1e2514dad5b3
+version: 1.0.0
+dataset_uuid: fb286620-a1f4-5be5-b74a-3347abcb5bd1
