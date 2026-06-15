@@ -19,8 +19,9 @@ Two constraints shaped the deployment model:
 
 ## Decision
 
-Apache Superset 5.0.0 is deployed via the upstream Helm chart using a custom image that
-extends `apache/superset:5.0.0` with the `trino` and `psycopg2-binary` drivers. The
+Apache Superset is deployed via the upstream Helm chart using a custom image that
+extends the official `apache/superset` release image with the `trino` and
+`psycopg2-binary` drivers. The
 custom image also carries a patch for Trino Iceberg partition discovery.
 
 Superset uses the shared PostgreSQL instance for its metadata store and a chart-managed

@@ -7,8 +7,6 @@ source = TRINO_ENGINE_SPEC.read_text()
 
 class_marker = """\
     allows_alias_to_source_column = False
-
-    # OAuth 2.0
 """
 
 class_patch = """\
