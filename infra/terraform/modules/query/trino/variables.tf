@@ -55,6 +55,8 @@ variable "catalog_contract" {
     warehouse                     = optional(string)
     oauth_scope                   = optional(string)
     trino_credentials_secret_name = optional(string)
+    trino_client_id_key           = optional(string)
+    trino_client_secret_key       = optional(string)
     bootstrap_run_id              = optional(string)
     catalog_type                  = optional(string)
     catalog_provider              = optional(string)

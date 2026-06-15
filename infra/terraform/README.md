@@ -28,6 +28,11 @@ Local is the only implemented provider profile today, but its module outputs
 are shaped as provider contracts so a future cloud profile can swap
 implementations.
 
+The local environment root normalizes its provider contracts in `contracts.tf`.
+Those typed contract objects are the source of truth for storage, catalog,
+metadata database, artifacts, secrets, identity, access, observability, query,
+orchestration, reporting, and governance boundaries.
+
 ## Local workflow
 
 ```bash

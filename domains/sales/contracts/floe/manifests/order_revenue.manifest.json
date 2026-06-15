@@ -4,12 +4,12 @@
   "floe_version": "0.5.4",
   "spec_version": "0.2",
   "manifest_name": "sales.order_revenue.local",
-  "manifest_id": "mfv1-aeffa021b054eb9e",
-  "manifest_revision": "sha256:d7dfac3d4b7c712b8f61f93c8498ea6f42f53a94e1ac21740820d0b629a3a07c",
+  "manifest_id": "mfv1-76cebe508e90f0e9",
+  "manifest_revision": "sha256:6a2ec97f838e25213bd1d6dcac26e98e57b11d3438ac1d3fb1e474935310fe4d",
   "config_uri": "local:///work/domains/sales/contracts/floe/order_revenue.yml",
-  "config_checksum": "sha256:6f336fd13fcd682d0be56508e60ae77d494e42f3a4f4333589af88066a63d21a",
-  "profile_uri": "local:///work/libs/floe/profiles/local-k8s.yml",
-  "profile_checksum": "sha256:e639975bed287aeaf601d0eb6bf6588c380baa9bb54433c019c10e113bc0ca73",
+  "config_checksum": "sha256:e9ee4d21e71dd0bb6a284e0419e5ce86fdc73ff9e0b0219256128d403e605e69",
+  "profile_uri": "local:///work/.tmp/floe-profile.BcWfOs/local-k8s.yml",
+  "profile_checksum": "sha256:79470177f6e16951bcaefb70dd9d80b7ba59ae042ff7f5b38be54c07bce944df",
   "report_base_uri": "s3://iceberg-data/floe/reports/sales/order_revenue",
   "domains": [],
   "execution": {
@@ -68,12 +68,12 @@
             "key": "AWS_SECRET_ACCESS_KEY"
           },
           {
-            "name": "POLARIS_FLOE_CLIENT_ID",
+            "name": "OPENLAKEFORGE_CATALOG_FLOE_CLIENT_ID",
             "secret_name": "polaris-floe-creds",
             "key": "POLARIS_FLOE_CLIENT_ID"
           },
           {
-            "name": "POLARIS_FLOE_CLIENT_SECRET",
+            "name": "OPENLAKEFORGE_CATALOG_FLOE_CLIENT_SECRET",
             "secret_name": "polaris-floe-creds",
             "key": "POLARIS_FLOE_CLIENT_SECRET"
           }
@@ -116,7 +116,7 @@
       "tags": null,
       "source": {
         "format": "csv",
-        "storage": "lakehouse_s3",
+        "storage": "lakehouse_storage",
         "uri": "s3://iceberg-data/bronze/sales/order_revenue/channels",
         "path": "s3://iceberg-data/bronze/sales/order_revenue/channels",
         "resolved": true,
@@ -142,12 +142,12 @@
       "sinks": {
         "accepted": {
           "format": "iceberg",
-          "storage": "lakehouse_s3",
+          "storage": "lakehouse_storage",
           "uri": "s3://iceberg-data/silver/sales/order_revenue/channels",
           "path": "s3://iceberg-data/silver/sales/order_revenue/channels",
           "resolved": true,
           "iceberg": {
-            "catalog": "polaris",
+            "catalog": "iceberg_catalog",
             "location": null,
             "namespace": "silver",
             "table": "order_revenue_channels"
@@ -155,7 +155,7 @@
         },
         "rejected": {
           "format": "csv",
-          "storage": "lakehouse_s3",
+          "storage": "lakehouse_storage",
           "uri": "s3://iceberg-data/floe/rejected/sales/order_revenue/channels",
           "path": "s3://iceberg-data/floe/rejected/sales/order_revenue/channels",
           "resolved": true
@@ -208,7 +208,7 @@
       "tags": null,
       "source": {
         "format": "csv",
-        "storage": "lakehouse_s3",
+        "storage": "lakehouse_storage",
         "uri": "s3://iceberg-data/bronze/sales/order_revenue/order_lines",
         "path": "s3://iceberg-data/bronze/sales/order_revenue/order_lines",
         "resolved": true,
@@ -234,12 +234,12 @@
       "sinks": {
         "accepted": {
           "format": "iceberg",
-          "storage": "lakehouse_s3",
+          "storage": "lakehouse_storage",
           "uri": "s3://iceberg-data/silver/sales/order_revenue/order_lines",
           "path": "s3://iceberg-data/silver/sales/order_revenue/order_lines",
           "resolved": true,
           "iceberg": {
-            "catalog": "polaris",
+            "catalog": "iceberg_catalog",
             "location": null,
             "namespace": "silver",
             "table": "order_revenue_order_lines"
@@ -247,7 +247,7 @@
         },
         "rejected": {
           "format": "csv",
-          "storage": "lakehouse_s3",
+          "storage": "lakehouse_storage",
           "uri": "s3://iceberg-data/floe/rejected/sales/order_revenue/order_lines",
           "path": "s3://iceberg-data/floe/rejected/sales/order_revenue/order_lines",
           "resolved": true
@@ -315,7 +315,7 @@
       "tags": null,
       "source": {
         "format": "csv",
-        "storage": "lakehouse_s3",
+        "storage": "lakehouse_storage",
         "uri": "s3://iceberg-data/bronze/sales/order_revenue/orders",
         "path": "s3://iceberg-data/bronze/sales/order_revenue/orders",
         "resolved": true,
@@ -341,12 +341,12 @@
       "sinks": {
         "accepted": {
           "format": "iceberg",
-          "storage": "lakehouse_s3",
+          "storage": "lakehouse_storage",
           "uri": "s3://iceberg-data/silver/sales/order_revenue/orders",
           "path": "s3://iceberg-data/silver/sales/order_revenue/orders",
           "resolved": true,
           "iceberg": {
-            "catalog": "polaris",
+            "catalog": "iceberg_catalog",
             "location": null,
             "namespace": "silver",
             "table": "order_revenue_orders"
@@ -354,7 +354,7 @@
         },
         "rejected": {
           "format": "csv",
-          "storage": "lakehouse_s3",
+          "storage": "lakehouse_storage",
           "uri": "s3://iceberg-data/floe/rejected/sales/order_revenue/orders",
           "path": "s3://iceberg-data/floe/rejected/sales/order_revenue/orders",
           "resolved": true
@@ -427,7 +427,7 @@
       "tags": null,
       "source": {
         "format": "csv",
-        "storage": "lakehouse_s3",
+        "storage": "lakehouse_storage",
         "uri": "s3://iceberg-data/bronze/sales/order_revenue/products",
         "path": "s3://iceberg-data/bronze/sales/order_revenue/products",
         "resolved": true,
@@ -453,12 +453,12 @@
       "sinks": {
         "accepted": {
           "format": "iceberg",
-          "storage": "lakehouse_s3",
+          "storage": "lakehouse_storage",
           "uri": "s3://iceberg-data/silver/sales/order_revenue/products",
           "path": "s3://iceberg-data/silver/sales/order_revenue/products",
           "resolved": true,
           "iceberg": {
-            "catalog": "polaris",
+            "catalog": "iceberg_catalog",
             "location": null,
             "namespace": "silver",
             "table": "order_revenue_products"
@@ -466,7 +466,7 @@
         },
         "rejected": {
           "format": "csv",
-          "storage": "lakehouse_s3",
+          "storage": "lakehouse_storage",
           "uri": "s3://iceberg-data/floe/rejected/sales/order_revenue/products",
           "path": "s3://iceberg-data/floe/rejected/sales/order_revenue/products",
           "resolved": true
@@ -524,7 +524,7 @@
       "tags": null,
       "source": {
         "format": "csv",
-        "storage": "lakehouse_s3",
+        "storage": "lakehouse_storage",
         "uri": "s3://iceberg-data/bronze/sales/order_revenue/promotions",
         "path": "s3://iceberg-data/bronze/sales/order_revenue/promotions",
         "resolved": true,
@@ -550,12 +550,12 @@
       "sinks": {
         "accepted": {
           "format": "iceberg",
-          "storage": "lakehouse_s3",
+          "storage": "lakehouse_storage",
           "uri": "s3://iceberg-data/silver/sales/order_revenue/promotions",
           "path": "s3://iceberg-data/silver/sales/order_revenue/promotions",
           "resolved": true,
           "iceberg": {
-            "catalog": "polaris",
+            "catalog": "iceberg_catalog",
             "location": null,
             "namespace": "silver",
             "table": "order_revenue_promotions"
@@ -563,7 +563,7 @@
         },
         "rejected": {
           "format": "csv",
-          "storage": "lakehouse_s3",
+          "storage": "lakehouse_storage",
           "uri": "s3://iceberg-data/floe/rejected/sales/order_revenue/promotions",
           "path": "s3://iceberg-data/floe/rejected/sales/order_revenue/promotions",
           "resolved": true
@@ -604,7 +604,7 @@
     }
   ],
   "storages": {
-    "default": "lakehouse_s3",
+    "default": "lakehouse_storage",
     "definitions": [
       {
         "account": null,
@@ -612,7 +612,7 @@
         "container": null,
         "endpoint": null,
         "fs_type": "s3",
-        "name": "lakehouse_s3",
+        "name": "lakehouse_storage",
         "path_style_access": null,
         "prefix": null,
         "region": "us-east-1"
@@ -620,12 +620,12 @@
     ]
   },
   "catalogs": {
-    "default": "polaris",
+    "default": "iceberg_catalog",
     "definitions": [
       {
-        "name": "polaris",
+        "name": "iceberg_catalog",
         "type_config": {
-          "credential": "client_credentials:${POLARIS_FLOE_CLIENT_ID}:${POLARIS_FLOE_CLIENT_SECRET}",
+          "credential": "client_credentials:${OPENLAKEFORGE_CATALOG_FLOE_CLIENT_ID}:${OPENLAKEFORGE_CATALOG_FLOE_CLIENT_SECRET}",
           "oauth2_server_uri": "http://polaris:8181/api/catalog/v1/oauth/tokens",
           "scope": "PRINCIPAL_ROLE:ALL",
           "type": "rest",
@@ -633,7 +633,7 @@
           "warehouse": "lakehouse_dev"
         },
         "warehouse_prefix": "s3://iceberg-data",
-        "warehouse_storage": "lakehouse_s3"
+        "warehouse_storage": "lakehouse_storage"
       }
     ]
   }

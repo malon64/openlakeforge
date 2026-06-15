@@ -19,7 +19,7 @@ terraform {
 
 provider "kubernetes" {
   config_path    = local.kubeconfig_path
-  config_context = var.kube_context
+  config_context = local.kubernetes_platform_contract.kube_context
 }
 
 provider "helm" {
@@ -28,7 +28,7 @@ provider "helm" {
 
   kubernetes = {
     config_path    = local.kubeconfig_path
-    config_context = var.kube_context
+    config_context = local.kubernetes_platform_contract.kube_context
   }
 }
 
@@ -67,111 +67,6 @@ module "seaweedfs" {
     var.code_bucket_name,
   ]
   region = var.s3_region
-}
-
-locals {
-  local_provider_name = "local"
-
-  cluster_contract = {
-    provider             = local.local_provider_name
-    implementation       = "kind"
-    namespace            = var.namespace
-    kubeconfig_path      = local.kubeconfig_path
-    platform_apply_model = "active-kubernetes-context"
-  }
-
-  storage_contract = merge(module.seaweedfs.contract, {
-    provider       = local.local_provider_name
-    implementation = "seaweedfs"
-    auth_mode      = "static-access-key-secret"
-    ssl_mode       = "disabled"
-    ingress_mode   = "cluster-internal"
-  })
-
-  metadata_database_contract = merge(module.postgresql.contract, {
-    provider       = local.local_provider_name
-    implementation = "in-cluster-postgresql"
-    auth_mode      = "static-password-secret"
-    ssl_mode       = "disabled"
-    endpoint       = "${module.postgresql.contract.host}:${module.postgresql.contract.port}"
-  })
-
-  catalog_contract = merge(module.polaris.contract, {
-    provider                   = local.local_provider_name
-    implementation             = "polaris"
-    catalog_provider           = "polaris"
-    catalog_type               = "rest"
-    catalog_name               = var.catalog_name
-    runtime_profile            = "polaris-rest"
-    trino_catalog_name         = "iceberg"
-    default_warehouse_location = "s3://${local.storage_contract.bucket_name}"
-    auth_mode                  = "oauth-client-secret"
-    ssl_mode                   = "disabled"
-    endpoint                   = module.polaris.contract.rest_uri
-    ingress_mode               = "cluster-internal"
-  })
-
-  governance_contract = merge(module.openmetadata.contract, {
-    provider       = local.local_provider_name
-    implementation = "openmetadata"
-    auth_mode      = "local-development"
-    endpoint       = "http://${module.openmetadata.contract.service_name}:${module.openmetadata.contract.http_port}"
-    ingress_mode   = "cluster-internal"
-  })
-
-  reporting_contract = merge(module.superset.contract, {
-    provider       = local.local_provider_name
-    implementation = "superset"
-    auth_mode      = "local-development"
-    endpoint       = "http://${module.superset.contract.service_name}:${module.superset.contract.http_port}"
-    ingress_mode   = "cluster-internal"
-  })
-
-  artifact_contract = {
-    provider                   = local.local_provider_name
-    implementation             = "local-build-kind-load-and-s3-upload"
-    project_code_image         = "${var.project_code_image_repository}:${var.project_code_image_tag}"
-    project_code_image_policy  = var.project_code_image_pull_policy
-    superset_image             = "${var.superset_image_repository}:${var.superset_image_tag}"
-    superset_image_policy      = var.superset_image_pull_policy
-    floe_manifest_base_uri     = local.floe_manifest_base_uri
-    floe_manifest_uris         = local.product_floe_manifest_uris
-    floe_manifest_distribution = "seaweedfs-code-bucket"
-  }
-
-  secrets_contract = {
-    provider       = local.local_provider_name
-    implementation = "kubernetes-secrets"
-    backend        = "kubernetes"
-    rotation_mode  = "manual-development"
-  }
-
-  identity_contract = {
-    provider       = local.local_provider_name
-    implementation = "local-development-credentials"
-    auth_mode      = "basic-local"
-    oidc_enabled   = false
-  }
-
-  access_contract = {
-    provider       = local.local_provider_name
-    implementation = "kubectl-port-forward"
-    ingress_mode   = "port-forward"
-    tls_mode       = "none-development"
-  }
-
-  provider_contracts = {
-    cluster           = local.cluster_contract
-    storage           = local.storage_contract
-    metadata_database = local.metadata_database_contract
-    catalog           = local.catalog_contract
-    governance        = local.governance_contract
-    reporting         = local.reporting_contract
-    artifacts         = local.artifact_contract
-    secrets           = local.secrets_contract
-    identity          = local.identity_contract
-    access            = local.access_contract
-  }
 }
 
 module "polaris" {
@@ -251,7 +146,7 @@ module "dagster" {
   catalog_contract               = local.catalog_contract
   governance_contract            = local.governance_contract
   postgresql_contract            = local.metadata_database_contract
-  floe_manifest_base_uri         = local.floe_manifest_base_uri
+  floe_manifest_base_uri         = local.artifact_bucket_contract.base_uri
 
   depends_on = [
     module.trino,

@@ -2,8 +2,8 @@ version: 2
 
 sources:
   - name: silver
-    database: lakehouse_dev
-    schema: silver
+    database: "{{ env_var('OPENLAKEFORGE_CATALOG_WAREHOUSE', 'lakehouse_dev') }}"
+    schema: "{{ env_var('OPENLAKEFORGE_CATALOG_SILVER_NAMESPACE', 'silver') }}"
     description: Floe-owned Customer Health Silver Iceberg tables.
     tables:
       - name: accounts

@@ -4,12 +4,12 @@
   "floe_version": "0.5.4",
   "spec_version": "0.2",
   "manifest_name": "sales.customer_health.local",
-  "manifest_id": "mfv1-e9772edd670213b3",
-  "manifest_revision": "sha256:c9331ffa2c1acaec8d6d9c4d771227af4f02cc40d92c2aa1d6cce2dcf21f14f4",
+  "manifest_id": "mfv1-6c2213877c95d799",
+  "manifest_revision": "sha256:793e21e6b377f2f06a7e307b2ff523795fee7ab425029564f4ac4fd900e17177",
   "config_uri": "local:///work/domains/sales/contracts/floe/customer_health.yml",
-  "config_checksum": "sha256:8ea2d11edf547a216cd99563faac40be08c9158646b6477f83f0e529d70275f7",
-  "profile_uri": "local:///work/libs/floe/profiles/local-k8s.yml",
-  "profile_checksum": "sha256:e639975bed287aeaf601d0eb6bf6588c380baa9bb54433c019c10e113bc0ca73",
+  "config_checksum": "sha256:5667f933f9f338fcc94829a370a8dcdeeb35917886c8a2614342050a35d3af55",
+  "profile_uri": "local:///work/.tmp/floe-profile.BcWfOs/local-k8s.yml",
+  "profile_checksum": "sha256:79470177f6e16951bcaefb70dd9d80b7ba59ae042ff7f5b38be54c07bce944df",
   "report_base_uri": "s3://iceberg-data/floe/reports/sales/customer_health",
   "domains": [],
   "execution": {
@@ -68,12 +68,12 @@
             "key": "AWS_SECRET_ACCESS_KEY"
           },
           {
-            "name": "POLARIS_FLOE_CLIENT_ID",
+            "name": "OPENLAKEFORGE_CATALOG_FLOE_CLIENT_ID",
             "secret_name": "polaris-floe-creds",
             "key": "POLARIS_FLOE_CLIENT_ID"
           },
           {
-            "name": "POLARIS_FLOE_CLIENT_SECRET",
+            "name": "OPENLAKEFORGE_CATALOG_FLOE_CLIENT_SECRET",
             "secret_name": "polaris-floe-creds",
             "key": "POLARIS_FLOE_CLIENT_SECRET"
           }
@@ -116,7 +116,7 @@
       "tags": null,
       "source": {
         "format": "csv",
-        "storage": "lakehouse_s3",
+        "storage": "lakehouse_storage",
         "uri": "s3://iceberg-data/bronze/sales/customer_health/accounts",
         "path": "s3://iceberg-data/bronze/sales/customer_health/accounts",
         "resolved": true,
@@ -142,12 +142,12 @@
       "sinks": {
         "accepted": {
           "format": "iceberg",
-          "storage": "lakehouse_s3",
+          "storage": "lakehouse_storage",
           "uri": "s3://iceberg-data/silver/sales/customer_health/accounts",
           "path": "s3://iceberg-data/silver/sales/customer_health/accounts",
           "resolved": true,
           "iceberg": {
-            "catalog": "polaris",
+            "catalog": "iceberg_catalog",
             "location": null,
             "namespace": "silver",
             "table": "customer_health_accounts"
@@ -155,7 +155,7 @@
         },
         "rejected": {
           "format": "csv",
-          "storage": "lakehouse_s3",
+          "storage": "lakehouse_storage",
           "uri": "s3://iceberg-data/floe/rejected/sales/customer_health/accounts",
           "path": "s3://iceberg-data/floe/rejected/sales/customer_health/accounts",
           "resolved": true
@@ -223,7 +223,7 @@
       "tags": null,
       "source": {
         "format": "csv",
-        "storage": "lakehouse_s3",
+        "storage": "lakehouse_storage",
         "uri": "s3://iceberg-data/bronze/sales/customer_health/nps_responses",
         "path": "s3://iceberg-data/bronze/sales/customer_health/nps_responses",
         "resolved": true,
@@ -249,12 +249,12 @@
       "sinks": {
         "accepted": {
           "format": "iceberg",
-          "storage": "lakehouse_s3",
+          "storage": "lakehouse_storage",
           "uri": "s3://iceberg-data/silver/sales/customer_health/nps_responses",
           "path": "s3://iceberg-data/silver/sales/customer_health/nps_responses",
           "resolved": true,
           "iceberg": {
-            "catalog": "polaris",
+            "catalog": "iceberg_catalog",
             "location": null,
             "namespace": "silver",
             "table": "customer_health_nps_responses"
@@ -262,7 +262,7 @@
         },
         "rejected": {
           "format": "csv",
-          "storage": "lakehouse_s3",
+          "storage": "lakehouse_storage",
           "uri": "s3://iceberg-data/floe/rejected/sales/customer_health/nps_responses",
           "path": "s3://iceberg-data/floe/rejected/sales/customer_health/nps_responses",
           "resolved": true
@@ -320,7 +320,7 @@
       "tags": null,
       "source": {
         "format": "csv",
-        "storage": "lakehouse_s3",
+        "storage": "lakehouse_storage",
         "uri": "s3://iceberg-data/bronze/sales/customer_health/subscriptions",
         "path": "s3://iceberg-data/bronze/sales/customer_health/subscriptions",
         "resolved": true,
@@ -346,12 +346,12 @@
       "sinks": {
         "accepted": {
           "format": "iceberg",
-          "storage": "lakehouse_s3",
+          "storage": "lakehouse_storage",
           "uri": "s3://iceberg-data/silver/sales/customer_health/subscriptions",
           "path": "s3://iceberg-data/silver/sales/customer_health/subscriptions",
           "resolved": true,
           "iceberg": {
-            "catalog": "polaris",
+            "catalog": "iceberg_catalog",
             "location": null,
             "namespace": "silver",
             "table": "customer_health_subscriptions"
@@ -359,7 +359,7 @@
         },
         "rejected": {
           "format": "csv",
-          "storage": "lakehouse_s3",
+          "storage": "lakehouse_storage",
           "uri": "s3://iceberg-data/floe/rejected/sales/customer_health/subscriptions",
           "path": "s3://iceberg-data/floe/rejected/sales/customer_health/subscriptions",
           "resolved": true
@@ -432,7 +432,7 @@
       "tags": null,
       "source": {
         "format": "csv",
-        "storage": "lakehouse_s3",
+        "storage": "lakehouse_storage",
         "uri": "s3://iceberg-data/bronze/sales/customer_health/support_tickets",
         "path": "s3://iceberg-data/bronze/sales/customer_health/support_tickets",
         "resolved": true,
@@ -458,12 +458,12 @@
       "sinks": {
         "accepted": {
           "format": "iceberg",
-          "storage": "lakehouse_s3",
+          "storage": "lakehouse_storage",
           "uri": "s3://iceberg-data/silver/sales/customer_health/support_tickets",
           "path": "s3://iceberg-data/silver/sales/customer_health/support_tickets",
           "resolved": true,
           "iceberg": {
-            "catalog": "polaris",
+            "catalog": "iceberg_catalog",
             "location": null,
             "namespace": "silver",
             "table": "customer_health_support_tickets"
@@ -471,7 +471,7 @@
         },
         "rejected": {
           "format": "csv",
-          "storage": "lakehouse_s3",
+          "storage": "lakehouse_storage",
           "uri": "s3://iceberg-data/floe/rejected/sales/customer_health/support_tickets",
           "path": "s3://iceberg-data/floe/rejected/sales/customer_health/support_tickets",
           "resolved": true
@@ -527,7 +527,7 @@
     }
   ],
   "storages": {
-    "default": "lakehouse_s3",
+    "default": "lakehouse_storage",
     "definitions": [
       {
         "account": null,
@@ -535,7 +535,7 @@
         "container": null,
         "endpoint": null,
         "fs_type": "s3",
-        "name": "lakehouse_s3",
+        "name": "lakehouse_storage",
         "path_style_access": null,
         "prefix": null,
         "region": "us-east-1"
@@ -543,12 +543,12 @@
     ]
   },
   "catalogs": {
-    "default": "polaris",
+    "default": "iceberg_catalog",
     "definitions": [
       {
-        "name": "polaris",
+        "name": "iceberg_catalog",
         "type_config": {
-          "credential": "client_credentials:${POLARIS_FLOE_CLIENT_ID}:${POLARIS_FLOE_CLIENT_SECRET}",
+          "credential": "client_credentials:${OPENLAKEFORGE_CATALOG_FLOE_CLIENT_ID}:${OPENLAKEFORGE_CATALOG_FLOE_CLIENT_SECRET}",
           "oauth2_server_uri": "http://polaris:8181/api/catalog/v1/oauth/tokens",
           "scope": "PRINCIPAL_ROLE:ALL",
           "type": "rest",
@@ -556,7 +556,7 @@
           "warehouse": "lakehouse_dev"
         },
         "warehouse_prefix": "s3://iceberg-data",
-        "warehouse_storage": "lakehouse_s3"
+        "warehouse_storage": "lakehouse_storage"
       }
     ]
   }

@@ -8,7 +8,7 @@ metadata:
 
 report:
   path: "floe/reports/sales/order_revenue"
-  storage: "lakehouse_s3"
+  storage: "lakehouse_storage"
 
 entities:
   - name: "orders"
@@ -16,7 +16,7 @@ entities:
     source:
       format: "csv"
       path: "bronze/sales/order_revenue/orders"
-      storage: "lakehouse_s3"
+      storage: "lakehouse_storage"
       options: { header: true, separator: ",", encoding: "utf-8", glob: "*.csv" }
       cast_mode: "strict"
     sink:
@@ -24,9 +24,9 @@ entities:
       accepted:
         format: "iceberg"
         path: "silver/sales/order_revenue/orders"
-        storage: "lakehouse_s3"
-        iceberg: { catalog: "polaris", namespace: "silver", table: "order_revenue_orders" }
-      rejected: { format: "csv", path: "floe/rejected/sales/order_revenue/orders", storage: "lakehouse_s3" }
+        storage: "lakehouse_storage"
+        iceberg: { catalog: "iceberg_catalog", namespace: "silver", table: "order_revenue_orders" }
+      rejected: { format: "csv", path: "floe/rejected/sales/order_revenue/orders", storage: "lakehouse_storage" }
     policy: { severity: "reject" }
     schema:
       normalize_columns: { enabled: true, strategy: "snake_case" }
@@ -45,7 +45,7 @@ entities:
     source:
       format: "csv"
       path: "bronze/sales/order_revenue/order_lines"
-      storage: "lakehouse_s3"
+      storage: "lakehouse_storage"
       options: { header: true, separator: ",", encoding: "utf-8", glob: "*.csv" }
       cast_mode: "strict"
     sink:
@@ -53,9 +53,9 @@ entities:
       accepted:
         format: "iceberg"
         path: "silver/sales/order_revenue/order_lines"
-        storage: "lakehouse_s3"
-        iceberg: { catalog: "polaris", namespace: "silver", table: "order_revenue_order_lines" }
-      rejected: { format: "csv", path: "floe/rejected/sales/order_revenue/order_lines", storage: "lakehouse_s3" }
+        storage: "lakehouse_storage"
+        iceberg: { catalog: "iceberg_catalog", namespace: "silver", table: "order_revenue_order_lines" }
+      rejected: { format: "csv", path: "floe/rejected/sales/order_revenue/order_lines", storage: "lakehouse_storage" }
     policy: { severity: "reject" }
     schema:
       normalize_columns: { enabled: true, strategy: "snake_case" }
@@ -73,7 +73,7 @@ entities:
     source:
       format: "csv"
       path: "bronze/sales/order_revenue/products"
-      storage: "lakehouse_s3"
+      storage: "lakehouse_storage"
       options: { header: true, separator: ",", encoding: "utf-8", glob: "*.csv" }
       cast_mode: "strict"
     sink:
@@ -81,9 +81,9 @@ entities:
       accepted:
         format: "iceberg"
         path: "silver/sales/order_revenue/products"
-        storage: "lakehouse_s3"
-        iceberg: { catalog: "polaris", namespace: "silver", table: "order_revenue_products" }
-      rejected: { format: "csv", path: "floe/rejected/sales/order_revenue/products", storage: "lakehouse_s3" }
+        storage: "lakehouse_storage"
+        iceberg: { catalog: "iceberg_catalog", namespace: "silver", table: "order_revenue_products" }
+      rejected: { format: "csv", path: "floe/rejected/sales/order_revenue/products", storage: "lakehouse_storage" }
     policy: { severity: "reject" }
     schema:
       normalize_columns: { enabled: true, strategy: "snake_case" }
@@ -99,7 +99,7 @@ entities:
     source:
       format: "csv"
       path: "bronze/sales/order_revenue/channels"
-      storage: "lakehouse_s3"
+      storage: "lakehouse_storage"
       options: { header: true, separator: ",", encoding: "utf-8", glob: "*.csv" }
       cast_mode: "strict"
     sink:
@@ -107,9 +107,9 @@ entities:
       accepted:
         format: "iceberg"
         path: "silver/sales/order_revenue/channels"
-        storage: "lakehouse_s3"
-        iceberg: { catalog: "polaris", namespace: "silver", table: "order_revenue_channels" }
-      rejected: { format: "csv", path: "floe/rejected/sales/order_revenue/channels", storage: "lakehouse_s3" }
+        storage: "lakehouse_storage"
+        iceberg: { catalog: "iceberg_catalog", namespace: "silver", table: "order_revenue_channels" }
+      rejected: { format: "csv", path: "floe/rejected/sales/order_revenue/channels", storage: "lakehouse_storage" }
     policy: { severity: "reject" }
     schema:
       normalize_columns: { enabled: true, strategy: "snake_case" }
@@ -124,7 +124,7 @@ entities:
     source:
       format: "csv"
       path: "bronze/sales/order_revenue/promotions"
-      storage: "lakehouse_s3"
+      storage: "lakehouse_storage"
       options: { header: true, separator: ",", encoding: "utf-8", glob: "*.csv" }
       cast_mode: "strict"
     sink:
@@ -132,9 +132,9 @@ entities:
       accepted:
         format: "iceberg"
         path: "silver/sales/order_revenue/promotions"
-        storage: "lakehouse_s3"
-        iceberg: { catalog: "polaris", namespace: "silver", table: "order_revenue_promotions" }
-      rejected: { format: "csv", path: "floe/rejected/sales/order_revenue/promotions", storage: "lakehouse_s3" }
+        storage: "lakehouse_storage"
+        iceberg: { catalog: "iceberg_catalog", namespace: "silver", table: "order_revenue_promotions" }
+      rejected: { format: "csv", path: "floe/rejected/sales/order_revenue/promotions", storage: "lakehouse_storage" }
     policy: { severity: "reject" }
     schema:
       normalize_columns: { enabled: true, strategy: "snake_case" }

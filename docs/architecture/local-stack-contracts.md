@@ -5,6 +5,11 @@ described in `provider-contracts.md`. It is assembled by Terraform in
 `infra/terraform/environments/local`. Service modules exchange contracts through
 Kubernetes service DNS names and Kubernetes Secrets, not generated files.
 
+The local root normalizes provider contracts in `contracts.tf`. The foundation
+contract is read from the local kind foundation Terraform state, and runtime
+scripts load contract-derived defaults through
+`scripts/local/contracts/load-runtime-env.sh`.
+
 Local remains the only runnable environment today. Its credentials, basic app
 auth, and port-forwarded access are development-only choices, not production
 controls.
@@ -38,6 +43,9 @@ The storage module owns:
 Downstream services consume only the endpoint, bucket name, region, and Secret
 key references. They should not assume SeaweedFS beyond the local provider
 profile.
+
+Product Floe contracts refer to this implementation through the logical
+`lakehouse_storage` alias.
 
 ## Metadata Database Contract
 
@@ -74,6 +82,11 @@ local Polaris REST URI, token URI, warehouse name, OAuth scope, and Secret key
 references. Future provider profiles can satisfy the same catalog contract with
 another Iceberg catalog implementation, such as AWS Glue, without requiring
 local to stop using Polaris.
+
+Product Floe contracts refer to this implementation through the logical
+`iceberg_catalog` alias. dbt runtime profiles consume
+`OPENLAKEFORGE_CATALOG_*` environment variables instead of Polaris-specific
+runtime variable names.
 
 ## Query Contract
 

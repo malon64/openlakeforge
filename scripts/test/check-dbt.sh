@@ -11,6 +11,9 @@ require_cmd() {
 
 require_cmd python3
 
+# shellcheck source=/dev/null
+source "scripts/local/contracts/load-runtime-env.sh"
+
 CACHE_ROOT="${DBT_CHECK_CACHE_DIR:-.cache/dbt-check}"
 python_tag="$(python3 - <<'PY'
 import sys
@@ -51,16 +54,12 @@ export PATH="${site_dir}/bin:${PATH}"
 
 export AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID:-openlakeforge}"
 export AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY:-openlakeforge}"
-export AWS_REGION="${AWS_REGION:-us-east-1}"
+export AWS_REGION="${AWS_REGION:-${OPENLAKEFORGE_STORAGE_REGION}}"
 export AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-${AWS_REGION}}"
-export AWS_ENDPOINT_URL_S3="${AWS_ENDPOINT_URL_S3:-http://seaweedfs-s3:8333}"
-export OPENLAKEFORGE_DUCKDB_S3_ENDPOINT="${OPENLAKEFORGE_DUCKDB_S3_ENDPOINT:-seaweedfs-s3:8333}"
-export POLARIS_DBT_CLIENT_ID="${POLARIS_DBT_CLIENT_ID:-openlakeforge-dbt}"
-export POLARIS_DBT_CLIENT_SECRET="${POLARIS_DBT_CLIENT_SECRET:-openlakeforge-dbt}"
-export POLARIS_REST_URI="${POLARIS_REST_URI:-http://polaris:8181/api/catalog}"
-export POLARIS_TOKEN_URI="${POLARIS_TOKEN_URI:-http://polaris:8181/api/catalog/v1/oauth/tokens}"
-export POLARIS_WAREHOUSE="${POLARIS_WAREHOUSE:-lakehouse_dev}"
-export POLARIS_OAUTH_SCOPE="${POLARIS_OAUTH_SCOPE:-PRINCIPAL_ROLE:ALL}"
+export AWS_ENDPOINT_URL_S3="${AWS_ENDPOINT_URL_S3:-${OPENLAKEFORGE_STORAGE_ENDPOINT}}"
+export OPENLAKEFORGE_DUCKDB_S3_ENDPOINT="${OPENLAKEFORGE_DUCKDB_S3_ENDPOINT:-${OPENLAKEFORGE_STORAGE_ENDPOINT#http://}}"
+export OPENLAKEFORGE_CATALOG_DBT_CLIENT_ID="${OPENLAKEFORGE_CATALOG_DBT_CLIENT_ID:-openlakeforge-dbt}"
+export OPENLAKEFORGE_CATALOG_DBT_CLIENT_SECRET="${OPENLAKEFORGE_CATALOG_DBT_CLIENT_SECRET:-openlakeforge-dbt}"
 export OPENLAKEFORGE_DBT_SCHEMA="${OPENLAKEFORGE_DBT_SCHEMA:-gold}"
 
 mapfile -t projects < <(
@@ -92,7 +91,7 @@ from pathlib import Path
 
 project_dir = Path(sys.argv[1])
 manifest_path = project_dir / "target" / "manifest.json"
-expected_database = os.environ["POLARIS_WAREHOUSE"]
+expected_database = os.environ["OPENLAKEFORGE_CATALOG_WAREHOUSE"]
 expected_schema = os.environ["OPENLAKEFORGE_DBT_SCHEMA"]
 
 manifest = json.loads(manifest_path.read_text())

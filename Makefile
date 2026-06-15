@@ -1,4 +1,4 @@
-.PHONY: help tree check-structure check-infra check-project-code check-dbt floe-manifest floe-manifest-upload dbt-parse project-code-image project-code-load superset-image superset-load superset-reports-deploy superset-reports-export openmetadata-metadata-deploy local-foundation-up local-foundation-down local-infra-up local-artifacts-deploy local-up local-down local-status local-forward local-prefetch
+.PHONY: help tree check-structure check-contracts check-infra check-project-code check-dbt floe-manifest floe-manifest-upload dbt-parse project-code-image project-code-load superset-image superset-load superset-reports-deploy superset-reports-export openmetadata-metadata-deploy local-foundation-up local-foundation-down local-infra-up local-artifacts-deploy local-up local-down local-status local-forward local-prefetch
 
 NAMESPACE ?= lakehouse
 CLUSTER_NAME ?= openlakeforge-local
@@ -14,6 +14,7 @@ help:
 	@printf '%s\n' 'OpenLakeForge bootstrap targets:'
 	@printf '%s\n' '  make tree             Show the repository structure'
 	@printf '%s\n' '  make check-structure  Validate the Iteration 0 repository contract'
+	@printf '%s\n' '  make check-contracts  Validate provider contract compatibility'
 	@printf '%s\n' '  make check-infra      Validate Terraform and render Helm values'
 	@printf '%s\n' '  make check-project-code  Validate the project-code Dagster package'
 	@printf '%s\n' '  make check-dbt        Validate all product dbt-duckdb projects'
@@ -44,6 +45,9 @@ tree:
 
 check-structure:
 	@bash scripts/test/check-structure.sh
+
+check-contracts:
+	@bash scripts/test/check-contracts.sh
 
 check-infra:
 	@bash scripts/test/check-infra.sh

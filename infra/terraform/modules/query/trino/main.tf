@@ -22,6 +22,27 @@ locals {
     },
   ]
 
+  catalog_secret_env = try(var.catalog_contract.trino_credentials_secret_name, null) == null ? [] : [
+    {
+      name = "OPENLAKEFORGE_CATALOG_TRINO_CLIENT_ID"
+      valueFrom = {
+        secretKeyRef = {
+          name = var.catalog_contract.trino_credentials_secret_name
+          key  = coalesce(try(var.catalog_contract.trino_client_id_key, null), "POLARIS_TRINO_CLIENT_ID")
+        }
+      }
+    },
+    {
+      name = "OPENLAKEFORGE_CATALOG_TRINO_CLIENT_SECRET"
+      valueFrom = {
+        secretKeyRef = {
+          name = var.catalog_contract.trino_credentials_secret_name
+          key  = coalesce(try(var.catalog_contract.trino_client_secret_key, null), "POLARIS_TRINO_CLIENT_SECRET")
+        }
+      }
+    },
+  ]
+
   s3_catalog_properties = join("\n", compact([
     "fs.native-s3.enabled=true",
     var.storage_contract.endpoint == null ? "" : "s3.endpoint=${var.storage_contract.endpoint}",
@@ -40,7 +61,7 @@ locals {
     iceberg.rest-catalog.uri=${coalesce(try(var.catalog_contract.rest_uri, null), "")}
     iceberg.rest-catalog.warehouse=${coalesce(try(var.catalog_contract.warehouse, null), "")}
     iceberg.rest-catalog.security=OAUTH2
-    iceberg.rest-catalog.oauth2.credential=$${ENV:POLARIS_TRINO_CLIENT_ID}:$${ENV:POLARIS_TRINO_CLIENT_SECRET}
+    iceberg.rest-catalog.oauth2.credential=$${ENV:OPENLAKEFORGE_CATALOG_TRINO_CLIENT_ID}:$${ENV:OPENLAKEFORGE_CATALOG_TRINO_CLIENT_SECRET}
     iceberg.rest-catalog.oauth2.server-uri=${coalesce(try(var.catalog_contract.token_uri, null), "")}
     iceberg.rest-catalog.oauth2.scope=${coalesce(try(var.catalog_contract.oauth_scope, null), "")}
     iceberg.rest-catalog.vended-credentials-enabled=false
@@ -73,6 +94,7 @@ resource "helm_release" "trino" {
     file(var.base_values_file),
     yamlencode({
       envFrom = concat(local.storage_secret_env_from, local.catalog_secret_env_from)
+      env     = local.catalog_secret_env
 
       catalogs = {
         (local.trino_catalog_name) = local.iceberg_catalog_properties

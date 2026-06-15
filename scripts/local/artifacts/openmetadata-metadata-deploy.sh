@@ -2,7 +2,13 @@
 # Deploy source-controlled OpenMetadata domain and data-product assets.
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 NAMESPACE="${NAMESPACE:-lakehouse}"
+
+# shellcheck source=/dev/null
+source "${REPO_ROOT}/scripts/local/contracts/load-runtime-env.sh"
+
 OPENMETADATA_SERVICE="${OPENMETADATA_SERVICE:-openmetadata}"
 OPENMETADATA_SERVICE_PORT="${OPENMETADATA_SERVICE_PORT:-8585}"
 OPENMETADATA_LOCAL_PORT="${OPENMETADATA_LOCAL_PORT:-18585}"
@@ -11,8 +17,8 @@ OPENMETADATA_ADMIN_PASSWORD="${OPENMETADATA_ADMIN_PASSWORD:-admin}"
 OPENMETADATA_METADATA_ROOT="${OPENMETADATA_METADATA_ROOT:-domains}"
 OPENMETADATA_METADATA_SOURCE_DIR="${OPENMETADATA_METADATA_SOURCE_DIR:-}"
 OPENMETADATA_ALLOW_MISSING_ASSETS="${OPENMETADATA_ALLOW_MISSING_ASSETS:-false}"
-OPENMETADATA_CATALOG_SERVICE="${OPENMETADATA_CATALOG_SERVICE:-polaris}"
-OPENMETADATA_CATALOG_DATABASE="${OPENMETADATA_CATALOG_DATABASE:-lakehouse_dev}"
+OPENMETADATA_CATALOG_SERVICE="${OPENMETADATA_CATALOG_SERVICE:-${OPENLAKEFORGE_CATALOG_PROVIDER}}"
+OPENMETADATA_CATALOG_DATABASE="${OPENMETADATA_CATALOG_DATABASE:-${OPENLAKEFORGE_CATALOG_NAME}}"
 OPENMETADATA_CLEANUP_LEGACY_DEFAULT_DATABASE="${OPENMETADATA_CLEANUP_LEGACY_DEFAULT_DATABASE:-true}"
 
 for cmd in kubectl python3; do
@@ -53,6 +59,7 @@ python3 - \
   "${OPENMETADATA_CLEANUP_LEGACY_DEFAULT_DATABASE}" <<'PY'
 import base64
 import json
+import os
 import sys
 import time
 import urllib.error
@@ -71,6 +78,11 @@ ALLOW_MISSING_ASSETS = sys.argv[6].lower() in {"1", "true", "yes", "y"}
 CATALOG_SERVICE = sys.argv[7]
 CATALOG_DATABASE = sys.argv[8]
 CLEANUP_LEGACY_DEFAULT_DATABASE = sys.argv[9].lower() in {"1", "true", "yes", "y"}
+STORAGE_SERVICE = os.environ.get("OPENLAKEFORGE_STORAGE_OM_SERVICE", "seaweedfs")
+STORAGE_DISPLAY_NAME = os.environ.get("OPENLAKEFORGE_STORAGE_DISPLAY_NAME", "SeaweedFS S3")
+STORAGE_ENDPOINT = os.environ.get("OPENLAKEFORGE_STORAGE_ENDPOINT", "http://seaweedfs-s3:8333")
+STORAGE_REGION = os.environ.get("OPENLAKEFORGE_STORAGE_REGION", "us-east-1")
+STORAGE_BUCKET = os.environ.get("OPENLAKEFORGE_STORAGE_BUCKET", "iceberg-data")
 
 
 class OpenMetadataError(RuntimeError):
@@ -489,19 +501,19 @@ def deploy():
             f"No OpenMetadata domain metadata files found under {METADATA_ROOT}/<domain>/domain.yaml"
         )
 
-    # Phase A+B: SeaweedFS Object Store service and Bronze CSV source containers.
+    # Phase A+B: Object Store service and Bronze CSV source containers.
     # The seeding gives browse-level visibility in OM's Storage section immediately.
     # Lineage integration is intentionally deferred; see ADR 0009.
-    ensure_storage_service(token, "seaweedfs", "SeaweedFS S3", "http://seaweedfs-s3:8333", "us-east-1")
-    ensure_container(token, "seaweedfs", "iceberg-data", None, "s3://iceberg-data", "Main Iceberg data bucket.")
+    ensure_storage_service(token, STORAGE_SERVICE, STORAGE_DISPLAY_NAME, STORAGE_ENDPOINT, STORAGE_REGION)
+    ensure_container(token, STORAGE_SERVICE, STORAGE_BUCKET, None, f"s3://{STORAGE_BUCKET}", "Main Iceberg data bucket.")
     for _, domain in domain_specs:
         for product in product_entries(domain):
             for container in product_bronze_containers(domain, product):
                 ensure_container(
                     token,
-                    "seaweedfs",
+                    STORAGE_SERVICE,
                     container["name"],
-                    "seaweedfs.iceberg-data",
+                    f"{STORAGE_SERVICE}.{STORAGE_BUCKET}",
                     container["path"],
                     container["description"],
                 )

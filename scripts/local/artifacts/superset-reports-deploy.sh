@@ -2,10 +2,15 @@
 # Deploy source-controlled Superset report assets into the local Superset instance.
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 NAMESPACE="${NAMESPACE:-lakehouse}"
 REPORT_WORK_DIR="${SUPERSET_REPORT_WORK_DIR:-.tmp/superset-reports}"
 REPORTS_MOUNT_PATH="${SUPERSET_REPORTS_MOUNT_PATH:-/app/openlakeforge/reports}"
 SUPERSET_ADMIN_USERNAME="${SUPERSET_ADMIN_USERNAME:-admin}"
+
+# shellcheck source=/dev/null
+source "${REPO_ROOT}/scripts/local/contracts/load-runtime-env.sh"
 
 for cmd in kubectl python3; do
   if ! command -v "${cmd}" &>/dev/null; then
@@ -58,7 +63,8 @@ deploy_report_dir() {
 
   mkdir -p "${REPORT_WORK_DIR}"
 
-  python3 - "${report_source_dir}" "${bundle_path}" "${bundle_root}" <<'PY'
+  python3 - "${report_source_dir}" "${bundle_path}" "${bundle_root}" "${OPENLAKEFORGE_QUERY_SQLALCHEMY_URI}" <<'PY'
+import re
 import sys
 from pathlib import Path, PurePosixPath
 from zipfile import ZIP_DEFLATED, ZipFile
@@ -66,13 +72,20 @@ from zipfile import ZIP_DEFLATED, ZipFile
 source_dir = Path(sys.argv[1])
 bundle_path = Path(sys.argv[2])
 bundle_root = sys.argv[3]
+sqlalchemy_uri = sys.argv[4]
 
 with ZipFile(bundle_path, "w", ZIP_DEFLATED) as bundle:
     for path in sorted(source_dir.rglob("*")):
         if not path.is_file() or path.suffix.lower() not in {".yaml", ".yml"}:
             continue
         relative = path.relative_to(source_dir).as_posix()
-        bundle.write(path, PurePosixPath(bundle_root, relative).as_posix())
+        archive_name = PurePosixPath(bundle_root, relative).as_posix()
+        if relative.startswith("databases/"):
+            text = path.read_text(encoding="utf-8")
+            text = re.sub(r"^sqlalchemy_uri:\s*.+$", f"sqlalchemy_uri: {sqlalchemy_uri}", text, flags=re.MULTILINE)
+            bundle.writestr(archive_name, text)
+        else:
+            bundle.write(path, archive_name)
 PY
 
   echo "==> Copying ${bundle_path} to ${superset_pod}:${remote_bundle}"

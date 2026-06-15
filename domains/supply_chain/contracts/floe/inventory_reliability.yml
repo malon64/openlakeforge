@@ -8,7 +8,7 @@ metadata:
 
 report:
   path: "floe/reports/supply_chain/inventory_reliability"
-  storage: "lakehouse_s3"
+  storage: "lakehouse_storage"
 
 entities:
   - name: "warehouses"
@@ -16,7 +16,7 @@ entities:
     source:
       format: "csv"
       path: "bronze/supply_chain/inventory_reliability/warehouses"
-      storage: "lakehouse_s3"
+      storage: "lakehouse_storage"
       options: { header: true, separator: ",", encoding: "utf-8", glob: "*.csv" }
       cast_mode: "strict"
     sink:
@@ -24,9 +24,9 @@ entities:
       accepted:
         format: "iceberg"
         path: "silver/supply_chain/inventory_reliability/warehouses"
-        storage: "lakehouse_s3"
-        iceberg: { catalog: "polaris", namespace: "silver", table: "inventory_reliability_warehouses" }
-      rejected: { format: "csv", path: "floe/rejected/supply_chain/inventory_reliability/warehouses", storage: "lakehouse_s3" }
+        storage: "lakehouse_storage"
+        iceberg: { catalog: "iceberg_catalog", namespace: "silver", table: "inventory_reliability_warehouses" }
+      rejected: { format: "csv", path: "floe/rejected/supply_chain/inventory_reliability/warehouses", storage: "lakehouse_storage" }
     policy: { severity: "reject" }
     schema:
       normalize_columns: { enabled: true, strategy: "snake_case" }
@@ -42,7 +42,7 @@ entities:
     source:
       format: "csv"
       path: "bronze/supply_chain/inventory_reliability/suppliers"
-      storage: "lakehouse_s3"
+      storage: "lakehouse_storage"
       options: { header: true, separator: ",", encoding: "utf-8", glob: "*.csv" }
       cast_mode: "strict"
     sink:
@@ -50,9 +50,9 @@ entities:
       accepted:
         format: "iceberg"
         path: "silver/supply_chain/inventory_reliability/suppliers"
-        storage: "lakehouse_s3"
-        iceberg: { catalog: "polaris", namespace: "silver", table: "inventory_reliability_suppliers" }
-      rejected: { format: "csv", path: "floe/rejected/supply_chain/inventory_reliability/suppliers", storage: "lakehouse_s3" }
+        storage: "lakehouse_storage"
+        iceberg: { catalog: "iceberg_catalog", namespace: "silver", table: "inventory_reliability_suppliers" }
+      rejected: { format: "csv", path: "floe/rejected/supply_chain/inventory_reliability/suppliers", storage: "lakehouse_storage" }
     policy: { severity: "reject" }
     schema:
       normalize_columns: { enabled: true, strategy: "snake_case" }
@@ -68,7 +68,7 @@ entities:
     source:
       format: "csv"
       path: "bronze/supply_chain/inventory_reliability/inventory_snapshots"
-      storage: "lakehouse_s3"
+      storage: "lakehouse_storage"
       options: { header: true, separator: ",", encoding: "utf-8", glob: "*.csv" }
       cast_mode: "strict"
     sink:
@@ -76,9 +76,9 @@ entities:
       accepted:
         format: "iceberg"
         path: "silver/supply_chain/inventory_reliability/inventory_snapshots"
-        storage: "lakehouse_s3"
-        iceberg: { catalog: "polaris", namespace: "silver", table: "inventory_reliability_inventory_snapshots" }
-      rejected: { format: "csv", path: "floe/rejected/supply_chain/inventory_reliability/inventory_snapshots", storage: "lakehouse_s3" }
+        storage: "lakehouse_storage"
+        iceberg: { catalog: "iceberg_catalog", namespace: "silver", table: "inventory_reliability_inventory_snapshots" }
+      rejected: { format: "csv", path: "floe/rejected/supply_chain/inventory_reliability/inventory_snapshots", storage: "lakehouse_storage" }
     policy: { severity: "reject" }
     schema:
       normalize_columns: { enabled: true, strategy: "snake_case" }
@@ -97,7 +97,7 @@ entities:
     source:
       format: "csv"
       path: "bronze/supply_chain/inventory_reliability/purchase_orders"
-      storage: "lakehouse_s3"
+      storage: "lakehouse_storage"
       options: { header: true, separator: ",", encoding: "utf-8", glob: "*.csv" }
       cast_mode: "strict"
     sink:
@@ -105,9 +105,9 @@ entities:
       accepted:
         format: "iceberg"
         path: "silver/supply_chain/inventory_reliability/purchase_orders"
-        storage: "lakehouse_s3"
-        iceberg: { catalog: "polaris", namespace: "silver", table: "inventory_reliability_purchase_orders" }
-      rejected: { format: "csv", path: "floe/rejected/supply_chain/inventory_reliability/purchase_orders", storage: "lakehouse_s3" }
+        storage: "lakehouse_storage"
+        iceberg: { catalog: "iceberg_catalog", namespace: "silver", table: "inventory_reliability_purchase_orders" }
+      rejected: { format: "csv", path: "floe/rejected/supply_chain/inventory_reliability/purchase_orders", storage: "lakehouse_storage" }
     policy: { severity: "reject" }
     schema:
       normalize_columns: { enabled: true, strategy: "snake_case" }
@@ -126,7 +126,7 @@ entities:
     source:
       format: "csv"
       path: "bronze/supply_chain/inventory_reliability/shipments"
-      storage: "lakehouse_s3"
+      storage: "lakehouse_storage"
       options: { header: true, separator: ",", encoding: "utf-8", glob: "*.csv" }
       cast_mode: "strict"
     sink:
@@ -134,9 +134,9 @@ entities:
       accepted:
         format: "iceberg"
         path: "silver/supply_chain/inventory_reliability/shipments"
-        storage: "lakehouse_s3"
-        iceberg: { catalog: "polaris", namespace: "silver", table: "inventory_reliability_shipments" }
-      rejected: { format: "csv", path: "floe/rejected/supply_chain/inventory_reliability/shipments", storage: "lakehouse_s3" }
+        storage: "lakehouse_storage"
+        iceberg: { catalog: "iceberg_catalog", namespace: "silver", table: "inventory_reliability_shipments" }
+      rejected: { format: "csv", path: "floe/rejected/supply_chain/inventory_reliability/shipments", storage: "lakehouse_storage" }
     policy: { severity: "reject" }
     schema:
       normalize_columns: { enabled: true, strategy: "snake_case" }
@@ -153,7 +153,7 @@ entities:
     source:
       format: "csv"
       path: "bronze/supply_chain/inventory_reliability/stockout_events"
-      storage: "lakehouse_s3"
+      storage: "lakehouse_storage"
       options: { header: true, separator: ",", encoding: "utf-8", glob: "*.csv" }
       cast_mode: "strict"
     sink:
@@ -161,9 +161,9 @@ entities:
       accepted:
         format: "iceberg"
         path: "silver/supply_chain/inventory_reliability/stockout_events"
-        storage: "lakehouse_s3"
-        iceberg: { catalog: "polaris", namespace: "silver", table: "inventory_reliability_stockout_events" }
-      rejected: { format: "csv", path: "floe/rejected/supply_chain/inventory_reliability/stockout_events", storage: "lakehouse_s3" }
+        storage: "lakehouse_storage"
+        iceberg: { catalog: "iceberg_catalog", namespace: "silver", table: "inventory_reliability_stockout_events" }
+      rejected: { format: "csv", path: "floe/rejected/supply_chain/inventory_reliability/stockout_events", storage: "lakehouse_storage" }
     policy: { severity: "reject" }
     schema:
       normalize_columns: { enabled: true, strategy: "snake_case" }

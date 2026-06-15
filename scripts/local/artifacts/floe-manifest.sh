@@ -2,10 +2,14 @@
 # Generate product Floe Dagster manifests from the shared local Kubernetes profile.
 set -euo pipefail
 
-PROFILE_PATH="${FLOE_PROFILE_PATH:-libs/floe/profiles/local-k8s.yml}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 NAMESPACE="${NAMESPACE:-lakehouse}"
 FLOE_VERSION="${FLOE_VERSION:-0.5.4}"
 FLOE_IMAGE="${FLOE_IMAGE:-ghcr.io/malon64/floe:${FLOE_VERSION}}"
+
+# shellcheck source=/dev/null
+source "${REPO_ROOT}/scripts/local/contracts/load-runtime-env.sh"
 
 if command -v docker &>/dev/null; then
   FLOE_CMD=(docker run --rm -v "${PWD}:/work" -w /work "${FLOE_IMAGE}")
@@ -17,6 +21,7 @@ else
   fi
 fi
 
+PROFILE_PATH="${FLOE_PROFILE_PATH:-}"
 GENERATED_PROFILE_PATH="${PROFILE_PATH}"
 PROFILE_TMP_DIR=""
 cleanup() {
@@ -26,7 +31,12 @@ cleanup() {
 }
 trap cleanup EXIT
 
-if [[ "${NAMESPACE}" != "lakehouse" ]]; then
+if [[ -z "${PROFILE_PATH}" ]]; then
+  mkdir -p .tmp
+  PROFILE_TMP_DIR="$(mktemp -d .tmp/floe-profile.XXXXXX)"
+  GENERATED_PROFILE_PATH="${PROFILE_TMP_DIR}/local-k8s.yml"
+  python3 "${REPO_ROOT}/scripts/local/contracts/render-floe-profile.py" > "${GENERATED_PROFILE_PATH}"
+elif [[ "${NAMESPACE}" != "lakehouse" ]]; then
   mkdir -p .tmp
   PROFILE_TMP_DIR="$(mktemp -d .tmp/floe-profile.XXXXXX)"
   GENERATED_PROFILE_PATH="${PROFILE_TMP_DIR}/local-k8s.yml"

@@ -11,7 +11,7 @@ clean-targets: ["target", "dbt_packages"]
 
 models:
   sales_customer_health:
-    +database: lakehouse_dev
+    +database: "{{ env_var('OPENLAKEFORGE_CATALOG_WAREHOUSE', 'lakehouse_dev') }}"
     +materialized: iceberg_table
     +meta:
       dagster:

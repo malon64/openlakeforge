@@ -25,20 +25,20 @@ sales_order_revenue:
           key_id: "{{ env_var('AWS_ACCESS_KEY_ID') }}"
           secret: "{{ env_var('AWS_SECRET_ACCESS_KEY') }}"
           region: "{{ env_var('AWS_REGION', 'us-east-1') }}"
-          endpoint: "{{ env_var('OPENLAKEFORGE_DUCKDB_S3_ENDPOINT', 'seaweedfs-s3:8333') }}"
+          endpoint: "{{ env_var('OPENLAKEFORGE_DUCKDB_S3_ENDPOINT') }}"
           url_style: path
           use_ssl: false
         - type: iceberg
-          name: openlakeforge_polaris_secret
-          client_id: "{{ env_var('POLARIS_DBT_CLIENT_ID') }}"
-          client_secret: "{{ env_var('POLARIS_DBT_CLIENT_SECRET') }}"
-          oauth2_server_uri: "{{ env_var('POLARIS_TOKEN_URI') }}"
-          oauth2_scope: "{{ env_var('POLARIS_OAUTH_SCOPE', 'PRINCIPAL_ROLE:ALL') }}"
+          name: openlakeforge_iceberg_catalog_secret
+          client_id: "{{ env_var('OPENLAKEFORGE_CATALOG_DBT_CLIENT_ID') }}"
+          client_secret: "{{ env_var('OPENLAKEFORGE_CATALOG_DBT_CLIENT_SECRET') }}"
+          oauth2_server_uri: "{{ env_var('OPENLAKEFORGE_CATALOG_TOKEN_URI') }}"
+          oauth2_scope: "{{ env_var('OPENLAKEFORGE_CATALOG_OAUTH_SCOPE', 'PRINCIPAL_ROLE:ALL') }}"
       attach:
-        - path: "{{ env_var('POLARIS_WAREHOUSE', 'lakehouse_dev') }}"
-          alias: lakehouse_dev
+        - path: "{{ env_var('OPENLAKEFORGE_CATALOG_WAREHOUSE', 'lakehouse_dev') }}"
+          alias: "{{ env_var('OPENLAKEFORGE_CATALOG_WAREHOUSE', 'lakehouse_dev') }}"
           options:
             type: iceberg
-            secret: openlakeforge_polaris_secret
-            endpoint: "{{ env_var('POLARIS_REST_URI') }}"
+            secret: openlakeforge_iceberg_catalog_secret
+            endpoint: "{{ env_var('OPENLAKEFORGE_CATALOG_REST_URI') }}"
             access_delegation_mode: none

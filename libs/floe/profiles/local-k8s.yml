@@ -5,23 +5,23 @@ metadata:
   env: local
   description: "Local kind Kubernetes runner profile for OpenLakeForge Floe assets."
 storages:
-  default: "lakehouse_s3"
+  default: "lakehouse_storage"
   definitions:
-    - name: "lakehouse_s3"
+    - name: "lakehouse_storage"
       type: "s3"
       bucket: "iceberg-data"
       region: "us-east-1"
 catalogs:
-  default: "polaris"
+  default: "iceberg_catalog"
   definitions:
-    - name: "polaris"
+    - name: "iceberg_catalog"
       type: "rest"
       uri: "http://polaris:8181/api/catalog"
-      credential: "client_credentials:${POLARIS_FLOE_CLIENT_ID}:${POLARIS_FLOE_CLIENT_SECRET}"
+      credential: "client_credentials:${OPENLAKEFORGE_CATALOG_FLOE_CLIENT_ID}:${OPENLAKEFORGE_CATALOG_FLOE_CLIENT_SECRET}"
       warehouse: "lakehouse_dev"
       oauth2_server_uri: "http://polaris:8181/api/catalog/v1/oauth/tokens"
       scope: "PRINCIPAL_ROLE:ALL"
-      warehouse_storage: "lakehouse_s3"
+      warehouse_storage: "lakehouse_storage"
       warehouse_prefix: "s3://iceberg-data"
 execution:
   orchestration:
@@ -49,10 +49,10 @@ execution:
       - name: AWS_SECRET_ACCESS_KEY
         secret_name: seaweedfs-s3-creds
         key: AWS_SECRET_ACCESS_KEY
-      - name: POLARIS_FLOE_CLIENT_ID
+      - name: OPENLAKEFORGE_CATALOG_FLOE_CLIENT_ID
         secret_name: polaris-floe-creds
         key: POLARIS_FLOE_CLIENT_ID
-      - name: POLARIS_FLOE_CLIENT_SECRET
+      - name: OPENLAKEFORGE_CATALOG_FLOE_CLIENT_SECRET
         secret_name: polaris-floe-creds
         key: POLARIS_FLOE_CLIENT_SECRET
 validation:

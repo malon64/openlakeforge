@@ -2,9 +2,15 @@
 # Publish generated product Floe manifests to the local code bucket.
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 NAMESPACE="${NAMESPACE:-lakehouse}"
-BUCKET="${CODE_BUCKET_NAME:-openlakeforge-code}"
 S3_PORT="${SEAWEEDFS_LOCAL_S3_PORT:-19000}"
+
+# shellcheck source=/dev/null
+source "${REPO_ROOT}/scripts/local/contracts/load-runtime-env.sh"
+
+BUCKET="${CODE_BUCKET_NAME:-${OPENLAKEFORGE_ARTIFACT_BUCKET_NAME}}"
 
 for cmd in kubectl base64; do
   if ! command -v "${cmd}" &>/dev/null; then
@@ -34,7 +40,7 @@ fi
 
 secret_value() {
   local key="$1"
-  kubectl get secret seaweedfs-s3-creds -n "${NAMESPACE}" \
+  kubectl get secret "${OPENLAKEFORGE_STORAGE_CREDENTIALS_SECRET_NAME}" -n "${NAMESPACE}" \
     -o "jsonpath={.data.${key}}" | base64 -d
 }
 
@@ -43,8 +49,8 @@ export AWS_SECRET_ACCESS_KEY
 export AWS_REGION="${AWS_REGION:-us-east-1}"
 export AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-${AWS_REGION}}"
 export AWS_EC2_METADATA_DISABLED=true
-AWS_ACCESS_KEY_ID="$(secret_value AWS_ACCESS_KEY_ID)"
-AWS_SECRET_ACCESS_KEY="$(secret_value AWS_SECRET_ACCESS_KEY)"
+AWS_ACCESS_KEY_ID="$(secret_value "${OPENLAKEFORGE_STORAGE_ACCESS_KEY_ID_KEY}")"
+AWS_SECRET_ACCESS_KEY="$(secret_value "${OPENLAKEFORGE_STORAGE_SECRET_ACCESS_KEY_KEY}")"
 
 discover_manifests() {
   if [[ -n "${FLOE_MANIFEST_PATH:-}" ]]; then
@@ -83,7 +89,7 @@ for manifest_path in "${manifests[@]}"; do
   fi
 done
 
-kubectl port-forward "svc/seaweedfs-s3" "${S3_PORT}:8333" -n "${NAMESPACE}" >/tmp/openlakeforge-seaweedfs-port-forward.log 2>&1 &
+kubectl port-forward "svc/${OPENLAKEFORGE_STORAGE_S3_SERVICE_NAME}" "${S3_PORT}:${OPENLAKEFORGE_STORAGE_S3_SERVICE_PORT}" -n "${NAMESPACE}" >/tmp/openlakeforge-seaweedfs-port-forward.log 2>&1 &
 port_forward_pid="$!"
 cleanup() {
   kill "${port_forward_pid}" >/dev/null 2>&1 || true

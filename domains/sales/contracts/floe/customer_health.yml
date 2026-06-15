@@ -8,7 +8,7 @@ metadata:
 
 report:
   path: "floe/reports/sales/customer_health"
-  storage: "lakehouse_s3"
+  storage: "lakehouse_storage"
 
 entities:
   - name: "accounts"
@@ -16,7 +16,7 @@ entities:
     source:
       format: "csv"
       path: "bronze/sales/customer_health/accounts"
-      storage: "lakehouse_s3"
+      storage: "lakehouse_storage"
       options: { header: true, separator: ",", encoding: "utf-8", glob: "*.csv" }
       cast_mode: "strict"
     sink:
@@ -24,9 +24,9 @@ entities:
       accepted:
         format: "iceberg"
         path: "silver/sales/customer_health/accounts"
-        storage: "lakehouse_s3"
-        iceberg: { catalog: "polaris", namespace: "silver", table: "customer_health_accounts" }
-      rejected: { format: "csv", path: "floe/rejected/sales/customer_health/accounts", storage: "lakehouse_s3" }
+        storage: "lakehouse_storage"
+        iceberg: { catalog: "iceberg_catalog", namespace: "silver", table: "customer_health_accounts" }
+      rejected: { format: "csv", path: "floe/rejected/sales/customer_health/accounts", storage: "lakehouse_storage" }
     policy: { severity: "reject" }
     schema:
       normalize_columns: { enabled: true, strategy: "snake_case" }
@@ -44,7 +44,7 @@ entities:
     source:
       format: "csv"
       path: "bronze/sales/customer_health/subscriptions"
-      storage: "lakehouse_s3"
+      storage: "lakehouse_storage"
       options: { header: true, separator: ",", encoding: "utf-8", glob: "*.csv" }
       cast_mode: "strict"
     sink:
@@ -52,9 +52,9 @@ entities:
       accepted:
         format: "iceberg"
         path: "silver/sales/customer_health/subscriptions"
-        storage: "lakehouse_s3"
-        iceberg: { catalog: "polaris", namespace: "silver", table: "customer_health_subscriptions" }
-      rejected: { format: "csv", path: "floe/rejected/sales/customer_health/subscriptions", storage: "lakehouse_s3" }
+        storage: "lakehouse_storage"
+        iceberg: { catalog: "iceberg_catalog", namespace: "silver", table: "customer_health_subscriptions" }
+      rejected: { format: "csv", path: "floe/rejected/sales/customer_health/subscriptions", storage: "lakehouse_storage" }
     policy: { severity: "reject" }
     schema:
       normalize_columns: { enabled: true, strategy: "snake_case" }
@@ -73,7 +73,7 @@ entities:
     source:
       format: "csv"
       path: "bronze/sales/customer_health/support_tickets"
-      storage: "lakehouse_s3"
+      storage: "lakehouse_storage"
       options: { header: true, separator: ",", encoding: "utf-8", glob: "*.csv" }
       cast_mode: "strict"
     sink:
@@ -81,9 +81,9 @@ entities:
       accepted:
         format: "iceberg"
         path: "silver/sales/customer_health/support_tickets"
-        storage: "lakehouse_s3"
-        iceberg: { catalog: "polaris", namespace: "silver", table: "customer_health_support_tickets" }
-      rejected: { format: "csv", path: "floe/rejected/sales/customer_health/support_tickets", storage: "lakehouse_s3" }
+        storage: "lakehouse_storage"
+        iceberg: { catalog: "iceberg_catalog", namespace: "silver", table: "customer_health_support_tickets" }
+      rejected: { format: "csv", path: "floe/rejected/sales/customer_health/support_tickets", storage: "lakehouse_storage" }
     policy: { severity: "reject" }
     schema:
       normalize_columns: { enabled: true, strategy: "snake_case" }
@@ -101,7 +101,7 @@ entities:
     source:
       format: "csv"
       path: "bronze/sales/customer_health/nps_responses"
-      storage: "lakehouse_s3"
+      storage: "lakehouse_storage"
       options: { header: true, separator: ",", encoding: "utf-8", glob: "*.csv" }
       cast_mode: "strict"
     sink:
@@ -109,9 +109,9 @@ entities:
       accepted:
         format: "iceberg"
         path: "silver/sales/customer_health/nps_responses"
-        storage: "lakehouse_s3"
-        iceberg: { catalog: "polaris", namespace: "silver", table: "customer_health_nps_responses" }
-      rejected: { format: "csv", path: "floe/rejected/sales/customer_health/nps_responses", storage: "lakehouse_s3" }
+        storage: "lakehouse_storage"
+        iceberg: { catalog: "iceberg_catalog", namespace: "silver", table: "customer_health_nps_responses" }
+      rejected: { format: "csv", path: "floe/rejected/sales/customer_health/nps_responses", storage: "lakehouse_storage" }
     policy: { severity: "reject" }
     schema:
       normalize_columns: { enabled: true, strategy: "snake_case" }

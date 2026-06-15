@@ -77,6 +77,22 @@ locals {
       name  = "OPENLAKEFORGE_CATALOG_RUNTIME_PROFILE"
       value = local.runtime_profile
     },
+    {
+      name  = "OPENLAKEFORGE_CATALOG_REST_URI"
+      value = coalesce(try(var.catalog_contract.rest_uri, null), "")
+    },
+    {
+      name  = "OPENLAKEFORGE_CATALOG_TOKEN_URI"
+      value = coalesce(try(var.catalog_contract.token_uri, null), "")
+    },
+    {
+      name  = "OPENLAKEFORGE_CATALOG_WAREHOUSE"
+      value = coalesce(try(var.catalog_contract.warehouse, null), local.catalog_name)
+    },
+    {
+      name  = "OPENLAKEFORGE_CATALOG_OAUTH_SCOPE"
+      value = coalesce(try(var.catalog_contract.oauth_scope, null), "")
+    },
   ]
 
   polaris_catalog_env = local.catalog_type == "rest" ? [
@@ -109,7 +125,28 @@ locals {
     },
   ]
 
-  runtime_env = concat(local.storage_env, local.artifact_env, local.generic_catalog_env, local.polaris_catalog_env, local.dbt_env)
+  dbt_secret_env = try(var.catalog_contract.dbt_credentials_secret_name, null) == null ? [] : [
+    {
+      name = "OPENLAKEFORGE_CATALOG_DBT_CLIENT_ID"
+      valueFrom = {
+        secretKeyRef = {
+          name = var.catalog_contract.dbt_credentials_secret_name
+          key  = coalesce(try(var.catalog_contract.dbt_client_id_key, null), "POLARIS_DBT_CLIENT_ID")
+        }
+      }
+    },
+    {
+      name = "OPENLAKEFORGE_CATALOG_DBT_CLIENT_SECRET"
+      valueFrom = {
+        secretKeyRef = {
+          name = var.catalog_contract.dbt_credentials_secret_name
+          key  = coalesce(try(var.catalog_contract.dbt_client_secret_key, null), "POLARIS_DBT_CLIENT_SECRET")
+        }
+      }
+    },
+  ]
+
+  runtime_env = concat(local.storage_env, local.artifact_env, local.generic_catalog_env, local.polaris_catalog_env, local.dbt_env, local.dbt_secret_env)
 
   runtime_env_secrets = concat(
     var.storage_contract.credentials_secret_name == null ? [] : [

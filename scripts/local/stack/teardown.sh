@@ -6,6 +6,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 TERRAFORM_DIR="${REPO_ROOT}/infra/terraform/environments/local"
+FOUNDATION_TERRAFORM_DIR="${REPO_ROOT}/infra/terraform/foundations/local-kind"
+FOUNDATION_STATE_PATH="${FOUNDATION_STATE_PATH:-${FOUNDATION_TERRAFORM_DIR}/terraform.tfstate}"
 NAMESPACE="${NAMESPACE:-lakehouse}"
 CLUSTER_NAME="${CLUSTER_NAME:-openlakeforge-local}"
 KUBE_CONTEXT="${KUBE_CONTEXT:-kind-${CLUSTER_NAME}}"
@@ -29,6 +31,11 @@ if ! kubectl cluster-info --context "${KUBE_CONTEXT}" >/dev/null 2>&1; then
   echo "The platform must be destroyed before the local foundation is destroyed." >&2
   exit 1
 fi
+if [[ ! -f "${FOUNDATION_STATE_PATH}" ]]; then
+  echo "ERROR: local foundation Terraform state is missing: ${FOUNDATION_STATE_PATH}" >&2
+  echo "The platform state depends on the foundation contract; restore or recreate it before running local-down." >&2
+  exit 1
+fi
 kubectl config use-context "${KUBE_CONTEXT}" >/dev/null
 
 echo "==> Removing completed Superset init hook job if present..."
@@ -41,7 +48,8 @@ terraform -chdir="${TERRAFORM_DIR}" init
 terraform -chdir="${TERRAFORM_DIR}" destroy \
   -auto-approve \
   -var="namespace=${NAMESPACE}" \
-  -var="kube_context=${KUBE_CONTEXT}"
+  -var="kube_context=${KUBE_CONTEXT}" \
+  -var="foundation_state_path=${FOUNDATION_STATE_PATH}"
 
 # One-time compatibility cleanup for stacks that were deployed before Terraform
 # owned the local environment.

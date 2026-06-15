@@ -40,3 +40,7 @@ local as the only implemented environment for now.
 `0011-iceberg-catalog-contract-allows-glue.md` records the decision that the
 catalog contract describes the Iceberg catalog implementation, allowing a future
 AWS provider profile to use Glue instead of self-hosted Polaris.
+
+`0012-contract-driven-provider-first-hardening.md` records the decision to make
+Terraform typed contracts the provider boundary source of truth while keeping
+the current v1 services as the implemented solution stack.
