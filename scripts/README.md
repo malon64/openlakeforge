@@ -1,6 +1,6 @@
 # Scripts
 
-Local developer and repository validation scripts live here.
+Local, Azure POC, and repository validation scripts live here.
 
 Repository validation scripts live under `scripts/test/`.
 `check-structure.sh` validates the repository skeleton and documentation
@@ -27,6 +27,16 @@ Local stack scripts under `scripts/local/` are grouped by lifecycle:
 - `artifacts/` contains local/CD-style domain artifact helpers: Floe manifest
   generation/upload, dbt parse, Superset report deploy/export, and
   OpenMetadata metadata deploy.
+
+Azure POC scripts under `scripts/azure/` mirror the local lifecycle without
+overloading local behavior:
+
+- `foundation/` contains Terraform wrappers for AKS and ACR.
+- `stack/` contains Azure infra up, dynamic artifact deploy, full setup, and
+  teardown wrappers.
+- `images/` builds and pushes Superset and project-code images to ACR.
+- `test/` runs the AKS e2e validation against Dagster, Trino, Superset, and
+  OpenMetadata.
 
 The Makefile is the public interface for normal use. The shell scripts stay
 focused implementation details behind those targets.

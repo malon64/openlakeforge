@@ -7,8 +7,10 @@ Implemented structure:
 ```text
 infra/terraform/
 ├── foundations/
+│   ├── azure-aks/
 │   └── local-kind/
 ├── environments/
+│   ├── azure-poc/
 │   └── local/
 └── modules/
     ├── storage/seaweedfs/
@@ -20,15 +22,15 @@ infra/terraform/
     └── governance/openmetadata/
 ```
 
-The local foundation root creates the kind cluster. The local environment root
-then deploys OpenLakeForge into that cluster through the Kubernetes and Helm
+The local foundation root creates the kind cluster. The Azure foundation root
+creates the AKS cluster and ACR registry. Environment roots then deploy
+OpenLakeForge into the selected cluster through the Kubernetes and Helm
 providers. Static, non-secret Helm chart values live in `../helm/values/local`;
 Terraform modules overlay the dynamic contract values and Secret references.
-Local is the only implemented provider profile today, but its module outputs
-are shaped as provider contracts so a future cloud profile can swap
-implementations.
+The Azure POC intentionally reuses those values and modules while emitting
+Azure-specific provider contracts.
 
-The local environment root normalizes its provider contracts in `contracts.tf`.
+Each environment root normalizes its provider contracts in `contracts.tf`.
 Those typed contract objects are the source of truth for storage, catalog,
 metadata database, artifacts, secrets, identity, access, observability, query,
 orchestration, reporting, and governance boundaries.
@@ -83,3 +85,36 @@ state files as sensitive; they are gitignored.
 
 No AWS environment, AWS provider blocks, remote state backend, Keycloak, Vault,
 or cloud secret manager integration is implemented yet.
+
+## Azure AKS POC workflow
+
+```bash
+make azure-foundation-up
+make azure-up
+make azure-e2e
+make azure-down
+make azure-foundation-down
+```
+
+`make azure-foundation-up` runs Terraform in
+`infra/terraform/foundations/azure-aks` to create the resource group, AKS
+cluster, ACR registry, AKS-to-ACR `AcrPull` role assignment, and AKS OIDC /
+Workload Identity readiness. The wrapper then runs `az aks get-credentials`.
+
+`make azure-up` runs:
+
+```bash
+make azure-infra-up
+make azure-artifacts-deploy
+```
+
+`make azure-infra-up` builds and pushes the custom Superset image to ACR before
+Terraform apply because the Superset Helm release waits for pods during install.
+`make azure-artifacts-deploy` generates Floe manifests, builds and pushes the
+project-code image, uploads manifests to the in-cluster SeaweedFS code bucket,
+imports Superset reports, deploys OpenMetadata metadata, and restarts Dagster.
+
+The Azure POC keeps SeaweedFS, PostgreSQL, Polaris, and Kubernetes Secrets
+in-cluster. Azure Blob/ADLS, Azure PostgreSQL Flexible Server, Key Vault,
+managed identity-backed runtime auth, ingress, DNS, and TLS are future phases,
+not active POC implementations.

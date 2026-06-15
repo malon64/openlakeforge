@@ -23,6 +23,8 @@ errors = []
 
 contracts_tf = Path("infra/terraform/environments/local/contracts.tf")
 text = contracts_tf.read_text()
+azure_contracts_tf = Path("infra/terraform/environments/azure-poc/contracts.tf")
+azure_text = azure_contracts_tf.read_text()
 
 required_contracts = [
     "foundation_contract",
@@ -44,6 +46,8 @@ required_contracts = [
 for name in required_contracts:
     if f"{name} =" not in text:
         errors.append(f"{contracts_tf}: missing {name}")
+    if f"{name} =" not in azure_text:
+        errors.append(f"{azure_contracts_tf}: missing {name}")
 
 required_adapters = [
     "foundation.kind",
@@ -62,6 +66,35 @@ for adapter in required_adapters:
     if adapter not in text:
         errors.append(f"{contracts_tf}: missing adapter shape {adapter}")
 
+required_azure_adapters = [
+    "foundation.aks",
+    "platform.kubernetes.aks",
+    "storage.s3_compatible.seaweedfs_on_aks",
+    "catalog.iceberg_rest.polaris_on_aks",
+    "metadata_database.postgresql.in_cluster_on_aks",
+    "secrets.kubernetes_secret_on_aks",
+    "identity.azure_workload_identity_ready",
+    "artifacts.azure_acr",
+    "artifacts.azure_acr_and_s3_compatible_bucket",
+    "access.kubectl_port_forward",
+    "storage.azure_blob_or_adls_gen2",
+    "catalog.polaris_with_azure_storage",
+    "metadata_database.azure_postgresql_flexible_server",
+    "secrets.azure_key_vault_external_secrets",
+]
+for adapter in required_azure_adapters:
+    if adapter not in azure_text:
+        errors.append(f"{azure_contracts_tf}: missing Azure adapter shape {adapter}")
+
+if 'implementation        = "storage.s3_compatible.seaweedfs_on_aks"' not in azure_text:
+    errors.append(f"{azure_contracts_tf}: Azure POC must actively use SeaweedFS S3-compatible storage")
+if 'implementation            = "artifacts.azure_acr"' not in azure_text:
+    errors.append(f"{azure_contracts_tf}: Azure POC must actively use ACR for runtime images")
+if re.search(r'implementation\s*=\s*"storage\.azure_', azure_text):
+    errors.append(f"{azure_contracts_tf}: Azure Blob/ADLS must remain a future adapter, not the active POC storage implementation")
+if 'local_upload_access_mode = "kubectl-port-forward"' not in azure_text:
+    errors.append(f"{azure_contracts_tf}: Azure POC artifact bucket must keep kubectl port-forward upload mode")
+
 required_checks = [
     'check "foundation_contract_matches_platform_context"',
     'check "local_contract_adapters_are_explicit"',
@@ -71,6 +104,18 @@ required_checks = [
 for check in required_checks:
     if check not in text:
         errors.append(f"{contracts_tf}: missing Terraform validation {check}")
+
+required_azure_checks = [
+    'check "foundation_contract_matches_platform_context"',
+    'check "azure_contract_adapters_are_explicit"',
+    'check "azure_poc_keeps_s3_compatible_storage"',
+    'check "azure_poc_uses_acr_artifacts"',
+    'check "catalog_contract_consumer_support"',
+    'check "openmetadata_catalog_fqn_uses_lakehouse_database"',
+]
+for check in required_azure_checks:
+    if check not in azure_text:
+        errors.append(f"{azure_contracts_tf}: missing Terraform validation {check}")
 
 for path in sorted(Path("domains").glob("*/contracts/floe/*.yml")):
     body = path.read_text()
@@ -120,6 +165,15 @@ for path in [
     body = path.read_text()
     if "scripts/local/contracts/load-runtime-env.sh" not in body:
         errors.append(f"{path}: must source the runtime contract environment")
+
+azure_artifact_script = Path("scripts/azure/stack/deploy-artifacts.sh")
+azure_artifact_body = azure_artifact_script.read_text()
+if "infra/terraform/environments/azure-poc" not in azure_artifact_body:
+    errors.append(f"{azure_artifact_script}: must default runtime contracts to the Azure POC Terraform root")
+if "OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR" not in azure_artifact_body:
+    errors.append(f"{azure_artifact_script}: must pass OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR to reused artifact scripts")
+if azure_artifact_body.find("floe-manifest.sh") > azure_artifact_body.find("build-push-project-code.sh"):
+    errors.append(f"{azure_artifact_script}: must generate Floe manifests before building the project-code image")
 
 with tempfile.NamedTemporaryFile("w+", encoding="utf-8") as handle:
     subprocess.run(
