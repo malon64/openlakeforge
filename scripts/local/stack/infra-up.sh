@@ -138,6 +138,39 @@ terraform_apply_with_retry() {
       -var="trino_chart_package_path=${TRINO_CHART_PACKAGE_PATH}"
 }
 
+refresh_trino_if_catalog_credentials_are_stale() {
+  local deployment="trino-coordinator"
+  local check_output
+
+  if ! kubectl get deployment "${deployment}" -n "${NAMESPACE}" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  echo "==> Checking Trino Iceberg catalog credentials..."
+  if check_output="$(kubectl exec "deployment/${deployment}" -n "${NAMESPACE}" -- \
+    trino --server http://localhost:8080 --execute "SHOW SCHEMAS FROM iceberg" 2>&1)"; then
+    return 0
+  fi
+
+  case "${check_output}" in
+    *unauthorized_client*|*"Cannot obtain metadata"*|*"ICEBERG_CATALOG_ERROR"*)
+      echo "WARN: Trino has stale Polaris catalog credentials; restarting ${deployment}..." >&2
+      ;;
+    *)
+      echo "${check_output}" >&2
+      echo "ERROR: Trino Iceberg catalog credential check failed." >&2
+      return 1
+      ;;
+  esac
+
+  kubectl rollout restart "deployment/${deployment}" -n "${NAMESPACE}"
+  kubectl rollout status "deployment/${deployment}" -n "${NAMESPACE}" --timeout=300s
+
+  run_with_retry "Trino Iceberg catalog credential check" \
+    kubectl exec "deployment/${deployment}" -n "${NAMESPACE}" -- \
+      trino --server http://localhost:8080 --execute "SHOW SCHEMAS FROM iceberg"
+}
+
 echo "==> Checking static infrastructure prerequisites..."
 check_prereqs
 check_cluster
@@ -151,5 +184,6 @@ terraform -chdir="${TERRAFORM_DIR}" init
 
 echo "==> Applying Terraform local infrastructure..."
 terraform_apply_with_retry
+refresh_trino_if_catalog_credentials_are_stale
 
 echo "Static OpenLakeForge local infrastructure is applied."

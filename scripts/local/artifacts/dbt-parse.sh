@@ -36,7 +36,10 @@ discover_projects() {
     -exec dirname {} \; | sort
 }
 
-mapfile -t projects < <(discover_projects)
+projects=()
+while IFS= read -r project_dir; do
+  projects+=("${project_dir}")
+done < <(discover_projects)
 if [[ "${#projects[@]}" -eq 0 ]]; then
   echo "ERROR: no product dbt projects found." >&2
   exit 1

@@ -76,7 +76,10 @@ manifest_key() {
   printf 'floe/%s/%s/%s.manifest.json\n' "${domain}" "${product}" "${product}"
 }
 
-mapfile -t manifests < <(discover_manifests)
+manifests=()
+while IFS= read -r manifest_path; do
+  manifests+=("${manifest_path}")
+done < <(discover_manifests)
 if [[ "${#manifests[@]}" -eq 0 ]]; then
   echo "ERROR: no generated product Floe manifests found. Run 'make floe-manifest' first." >&2
   exit 1

@@ -125,7 +125,10 @@ PY
   echo "Deployed Superset report assets from ${report_source_dir}"
 }
 
-mapfile -t report_dirs < <(discover_report_dirs)
+report_dirs=()
+while IFS= read -r report_dir; do
+  report_dirs+=("${report_dir}")
+done < <(discover_report_dirs)
 if [[ "${#report_dirs[@]}" -eq 0 ]]; then
   echo "ERROR: no product Superset report assets found." >&2
   exit 1

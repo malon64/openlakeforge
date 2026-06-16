@@ -9,6 +9,9 @@ resources:
   limits:
     memory: 2Gi
 
+image:
+  pullPolicy: IfNotPresent
+
 openmetadata:
   config:
     logLevel: INFO

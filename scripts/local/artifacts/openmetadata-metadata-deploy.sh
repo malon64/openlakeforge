@@ -28,12 +28,23 @@ for cmd in kubectl python3; do
   fi
 done
 
-python3 - <<'PY'
+PYTHON_BIN="python3"
+if ! "${PYTHON_BIN}" - <<'PY'
 try:
     import yaml  # noqa: F401
 except ImportError:
-    raise SystemExit("ERROR: Python package 'PyYAML' is required for OpenMetadata metadata deploy.")
+    raise SystemExit(1)
 PY
+then
+  PYTHON_VENV="${REPO_ROOT}/.tmp/python/openmetadata-metadata"
+  echo "==> Python package 'PyYAML' not found; preparing local helper environment..."
+  if [[ ! -x "${PYTHON_VENV}/bin/python" ]]; then
+    python3 -m venv "${PYTHON_VENV}"
+  fi
+  "${PYTHON_VENV}/bin/python" -m pip install --upgrade pip >/dev/null
+  "${PYTHON_VENV}/bin/python" -m pip install "PyYAML>=6,<7" >/dev/null
+  PYTHON_BIN="${PYTHON_VENV}/bin/python"
+fi
 
 echo "==> Waiting for OpenMetadata deployment..."
 kubectl rollout status "deployment/${OPENMETADATA_SERVICE}" -n "${NAMESPACE}" --timeout=300s
@@ -47,7 +58,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-python3 - \
+"${PYTHON_BIN}" - \
   "http://127.0.0.1:${OPENMETADATA_LOCAL_PORT}" \
   "${OPENMETADATA_ADMIN_EMAIL}" \
   "${OPENMETADATA_ADMIN_PASSWORD}" \

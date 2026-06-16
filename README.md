@@ -101,25 +101,146 @@ domain, data-product, Bronze, Silver, and Gold metadata in
 - Iteration 6: Superset reporting over Gold marts; OpenLineage integration deferred pending upstream connector fixes.
 - Iteration 7: multi-product seed POC with product-owned dlt, Floe, dbt, Dagster, Superset, and OpenMetadata artifacts.
 
-## Local Validation
+## Local Development
 
 ```sh
 make check-structure
 make check-contracts
 make local-foundation-up
+make local-prefetch
 make local-up
 ```
 
-The local shell must have Docker, kind, kubectl, Terraform, Helm, and Python.
-The `floe` CLI is optional locally because `make floe-manifest` falls back to
-the Floe runner image. `make local-up` runs two phases: `make local-infra-up`
-for static Terraform infrastructure, then `make local-artifacts-deploy` for the
-project-code image, Floe manifest upload, Superset report import, and
-OpenMetadata governance metadata deployment. The Dagster UI is available at
-`http://localhost:3000` through `make local-forward`. Launch
-`sales_order_revenue_pipeline`, `sales_customer_health_pipeline`, or
-`supply_chain_inventory_reliability_pipeline` from Dagster to run product
-`dlt -> Floe -> dbt-duckdb` pipelines. Trino is forwarded to
-`http://localhost:8080` for local SQL clients such as DBeaver. Superset is
-forwarded to `http://localhost:8088` with development-only local credentials
-`admin / admin`.
+The local stack runs on a kind cluster backed by your local Docker daemon. It
+has been exercised on Docker Desktop and Colima. On macOS with Colima, start
+Colima before running the make targets and make sure `docker ps` works from the
+same shell.
+
+### Prerequisites
+
+Install these tools on the host:
+
+| Tool | Why it is needed |
+| --- | --- |
+| Docker daemon | Builds local images and provides the container runtime used by kind. |
+| kind | Creates the local Kubernetes cluster. |
+| kubectl | Applies and inspects Kubernetes resources. |
+| Terraform | Creates the kind foundation and platform infrastructure. |
+| Helm | Installs Kubernetes applications through Terraform Helm releases. |
+| Python 3 | Runs local metadata and manifest helper scripts. |
+| Make | Provides the local workflow entrypoints. |
+
+The `floe` CLI is optional locally because manifest generation falls back to the
+Floe runner image. The helper scripts create local caches under `.tmp/` as
+needed, including a small Python virtual environment for OpenMetadata metadata
+deployment if the active host Python does not already include `PyYAML`.
+
+For a new macOS/Colima setup, a typical tool bootstrap is:
+
+```sh
+brew install colima docker kind kubectl terraform helm python make
+colima start --cpu 6 --memory 12 --disk 100
+docker ps
+```
+
+If your network uses a corporate TLS interception proxy, Docker inside Colima
+and the kind nodes must trust that CA. The early symptom is usually an image
+pull failure like `x509: certificate signed by unknown authority`. Fix host or
+Colima trust first, then use `make local-prefetch` so Kubernetes does not need
+to pull large images during Helm or Dagster execution.
+
+### Bring Up The Stack
+
+Run the static validations first:
+
+```sh
+make check-structure
+make check-contracts
+```
+
+Create the local kind foundation once:
+
+```sh
+make local-foundation-up
+```
+
+Preload heavy runtime images into the kind nodes. This is strongly recommended
+on macOS, Colima, slow networks, and corporate networks:
+
+```sh
+make local-prefetch
+```
+
+Apply the platform and deploy dynamic artifacts:
+
+```sh
+make local-up
+```
+
+`make local-up` runs two phases:
+
+1. `make local-infra-up` builds and loads the local Superset image, then applies
+   Terraform for SeaweedFS, PostgreSQL, Polaris, Trino, OpenMetadata, Superset,
+   and Dagster.
+2. `make local-artifacts-deploy` builds and loads the project-code image,
+   generates and uploads Floe manifests, imports Superset reports, deploys
+   OpenMetadata governance metadata, and restarts Dagster workloads.
+
+Check the cluster at any point with:
+
+```sh
+make local-status
+```
+
+### Access Local Services
+
+Start port-forwards in a long-running terminal:
+
+```sh
+make local-forward
+```
+
+Then open:
+
+| Service | URL | Credentials |
+| --- | --- | --- |
+| Dagster | http://localhost:3000 | none |
+| Superset | http://localhost:8088 | `admin / admin` |
+| OpenMetadata | http://localhost:8585 | `admin@open-metadata.org / admin` |
+| Trino | http://localhost:8080 | none |
+| Polaris API | http://localhost:8181/api/catalog | service credentials |
+| SeaweedFS S3 | http://localhost:9000 | generated local secret |
+
+In Dagster, launch `sales_order_revenue_pipeline`,
+`sales_customer_health_pipeline`, or
+`supply_chain_inventory_reliability_pipeline` to run the product
+`dlt -> Floe -> dbt-duckdb` pipelines. Superset dashboards query the Gold
+Iceberg marts through Trino.
+
+### Common Local Recovery
+
+If a Kubernetes pod cannot pull an image because of TLS or network issues, rerun:
+
+```sh
+make local-prefetch
+```
+
+If Polaris restarts while using local in-memory persistence, clients can hold
+stale OAuth credentials. `make local-up` now checks Trino and refreshes it when
+that happens, but for manual recovery you can restart Trino directly:
+
+```sh
+kubectl --context kind-openlakeforge-local -n lakehouse rollout restart deployment/trino-coordinator
+```
+
+To remove the local platform while keeping the kind foundation:
+
+```sh
+make local-down
+```
+
+To remove the foundation cluster as well:
+
+```sh
+make local-foundation-down
+```

@@ -86,6 +86,7 @@ generate_manifest() {
   fi
 
   python3 - "${manifest_path}" <<'PY'
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -97,13 +98,26 @@ base_args = payload["execution"]["base_args"]
 if "--run-id" not in base_args:
     base_args.extend(["--run-id", "{run_id}"])
 
+payload["profile_uri"] = "local:///work/libs/floe/profiles/local-k8s.yml"
+revision_payload = dict(payload)
+revision_payload.pop("manifest_revision", None)
+revision_bytes = json.dumps(
+    revision_payload,
+    sort_keys=True,
+    separators=(",", ":"),
+).encode("utf-8")
+payload["manifest_revision"] = f"sha256:{hashlib.sha256(revision_bytes).hexdigest()}"
+
 manifest_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 PY
 
   echo "Generated ${manifest_path}"
 }
 
-mapfile -t configs < <(discover_configs)
+configs=()
+while IFS= read -r config_path; do
+  configs+=("${config_path}")
+done < <(discover_configs)
 if [[ "${#configs[@]}" -eq 0 ]]; then
   echo "ERROR: no product Floe configs found." >&2
   exit 1
