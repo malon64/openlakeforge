@@ -1,23 +1,42 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-require_cmd() {
-  local cmd="$1"
-  if ! command -v "${cmd}" &>/dev/null; then
-    printf "ERROR: '%s' not found on PATH\n" "${cmd}" >&2
-    exit 1
+select_python() {
+  local candidate
+  local -a candidates
+  if [[ -n "${PYTHON_BIN:-}" ]]; then
+    candidates=("${PYTHON_BIN}")
+  else
+    candidates=(python3.12 python3)
   fi
+
+  for candidate in "${candidates[@]}"; do
+    if ! command -v "${candidate}" &>/dev/null; then
+      continue
+    fi
+    if "${candidate}" - <<'PY'
+import sys
+raise SystemExit(not (sys.version_info >= (3, 12) and sys.version_info < (3, 13)))
+PY
+    then
+      printf '%s\n' "${candidate}"
+      return 0
+    fi
+  done
+
+  printf "ERROR: check-project-code requires Python >=3.12,<3.13. Set PYTHON_BIN to a compatible interpreter.\n" >&2
+  exit 1
 }
 
-require_cmd python3
+PYTHON_BIN="$(select_python)"
 
 CACHE_ROOT="${PROJECT_CODE_CHECK_CACHE_DIR:-.cache/project-code-check}"
-python_tag="$(python3 - <<'PY'
+python_tag="$("${PYTHON_BIN}" - <<'PY'
 import sys
 print(f"py{sys.version_info.major}{sys.version_info.minor}")
 PY
 )"
-pyproject_hash="$(python3 - <<'PY'
+pyproject_hash="$("${PYTHON_BIN}" - <<'PY'
 import hashlib
 from pathlib import Path
 print(hashlib.sha256(Path("images/project-code/pyproject.toml").read_bytes()).hexdigest()[:16])
@@ -30,20 +49,37 @@ if [[ ! -f "${stamp_path}" ]]; then
   rm -rf "${CACHE_ROOT:?}/${python_tag}-${pyproject_hash}"
   mkdir -p "${site_dir}"
 
-  mapfile -t dependencies < <(python3 - <<'PY'
-import tomllib
+  dependencies=()
+  while IFS= read -r dependency; do
+    dependencies+=("${dependency}")
+  done < <("${PYTHON_BIN}" - <<'PY'
+import ast
 from pathlib import Path
 
-with Path("images/project-code/pyproject.toml").open("rb") as fh:
-    payload = tomllib.load(fh)
+text = Path("images/project-code/pyproject.toml").read_text()
+in_dependencies = False
+dependencies = []
+for line in text.splitlines():
+    stripped = line.strip()
+    if not in_dependencies:
+        if stripped == "dependencies = [":
+            in_dependencies = True
+        continue
+    if stripped == "]":
+        break
+    if stripped:
+        dependencies.append(ast.literal_eval(stripped.rstrip(",")))
 
-for dependency in payload["project"]["dependencies"]:
+if not dependencies:
+    raise SystemExit("images/project-code/pyproject.toml: missing project dependencies")
+
+for dependency in dependencies:
     print(dependency)
 PY
   )
 
   echo "==> Installing project-code dependencies into ${site_dir}"
-  PYTHONDONTWRITEBYTECODE=1 python3 -m pip install \
+  PYTHONDONTWRITEBYTECODE=1 "${PYTHON_BIN}" -m pip install \
     --disable-pip-version-check \
     --no-compile \
     --prefer-binary \
@@ -55,7 +91,7 @@ else
 fi
 
 echo "==> Loading aggregate Dagster product definitions"
-PATH="${site_dir}/bin:${PATH}" PYTHONPATH="${site_dir}:${PWD}" python3 - <<'PY'
+PATH="${site_dir}/bin:${PATH}" PYTHONPATH="${site_dir}:${PWD}" "${PYTHON_BIN}" - <<'PY'
 from pathlib import Path
 
 from dagster import AssetKey
