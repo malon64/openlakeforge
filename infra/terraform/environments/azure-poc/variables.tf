@@ -93,3 +93,9 @@ variable "trino_chart_package_path" {
   type        = string
   default     = null
 }
+
+variable "dagster_chart_package_path" {
+  description = "Optional local Dagster Helm chart package used by azure-up to avoid remote schema validation failures."
+  type        = string
+  default     = null
+}

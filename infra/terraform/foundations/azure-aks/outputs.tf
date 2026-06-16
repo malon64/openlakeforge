@@ -1,11 +1,11 @@
 output "resource_group_name" {
   description = "Azure resource group name."
-  value       = azurerm_resource_group.this.name
+  value       = local.resource_group_name
 }
 
 output "location" {
   description = "Azure region."
-  value       = azurerm_resource_group.this.location
+  value       = local.resource_group_location
 }
 
 output "cluster_name" {
@@ -47,8 +47,8 @@ output "foundation_contract" {
     cluster_name              = azurerm_kubernetes_cluster.this.name
     kube_context              = azurerm_kubernetes_cluster.this.name
     kubeconfig_path           = local.kubeconfig_path
-    resource_group_name       = azurerm_resource_group.this.name
-    location                  = azurerm_resource_group.this.location
+    resource_group_name       = local.resource_group_name
+    location                  = local.resource_group_location
     cluster_type              = "aks"
     acr_name                  = azurerm_container_registry.this.name
     acr_login_server          = azurerm_container_registry.this.login_server

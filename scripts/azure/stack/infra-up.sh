@@ -19,6 +19,9 @@ HELM_CHART_CACHE_DIR="${HELM_CHART_CACHE_DIR:-${REPO_ROOT}/.tmp/helm/charts}"
 TRINO_CHART_REPOSITORY="${TRINO_CHART_REPOSITORY:-https://trinodb.github.io/charts}"
 TRINO_CHART_VERSION="${TRINO_CHART_VERSION:-1.42.2}"
 TRINO_CHART_PACKAGE_PATH="${TRINO_CHART_PACKAGE_PATH:-${HELM_CHART_CACHE_DIR}/trino-${TRINO_CHART_VERSION}.tgz}"
+DAGSTER_CHART_REPOSITORY="${DAGSTER_CHART_REPOSITORY:-https://dagster-io.github.io/helm}"
+DAGSTER_CHART_VERSION="${DAGSTER_CHART_VERSION:-1.13.6}"
+DAGSTER_CHART_PACKAGE_PATH="${DAGSTER_CHART_PACKAGE_PATH:-${HELM_CHART_CACHE_DIR}/dagster-${DAGSTER_CHART_VERSION}-no-schema.tgz}"
 
 git_or_time_tag() {
   git -C "${REPO_ROOT}" rev-parse --short HEAD 2>/dev/null || date -u +%Y%m%d%H%M%S
@@ -97,18 +100,39 @@ prepare_helm_chart_cache() {
 
   if [[ -f "${TRINO_CHART_PACKAGE_PATH}" ]] && helm show chart "${TRINO_CHART_PACKAGE_PATH}" >/dev/null 2>&1; then
     echo "==> Using cached Trino Helm chart: ${TRINO_CHART_PACKAGE_PATH}"
+  else
+    rm -f "${TRINO_CHART_PACKAGE_PATH}"
+
+    echo "==> Downloading Trino Helm chart ${TRINO_CHART_VERSION} into local cache..."
+    run_with_retry "Helm repo add Trino" \
+      helm_cached repo add trino "${TRINO_CHART_REPOSITORY}" --force-update
+    run_with_retry "Helm repo update" \
+      helm_cached repo update
+    run_with_retry "Trino Helm chart download" \
+      helm_cached pull trino/trino --version "${TRINO_CHART_VERSION}" --destination "${HELM_CHART_CACHE_DIR}"
+  fi
+
+  if [[ -f "${DAGSTER_CHART_PACKAGE_PATH}" ]] && helm show chart "${DAGSTER_CHART_PACKAGE_PATH}" >/dev/null 2>&1; then
+    echo "==> Using cached Dagster Helm chart: ${DAGSTER_CHART_PACKAGE_PATH}"
     return 0
   fi
 
-  rm -f "${TRINO_CHART_PACKAGE_PATH}"
+  local dagster_work_dir
+  dagster_work_dir="$(mktemp -d "${REPO_ROOT}/.tmp/dagster-chart.XXXXXX")"
+  rm -f "${DAGSTER_CHART_PACKAGE_PATH}"
 
-  echo "==> Downloading Trino Helm chart ${TRINO_CHART_VERSION} into local cache..."
-  run_with_retry "Helm repo add Trino" \
-    helm_cached repo add trino "${TRINO_CHART_REPOSITORY}" --force-update
+  echo "==> Downloading Dagster Helm chart ${DAGSTER_CHART_VERSION} into local cache..."
+  run_with_retry "Helm repo add Dagster" \
+    helm_cached repo add dagster "${DAGSTER_CHART_REPOSITORY}" --force-update
   run_with_retry "Helm repo update" \
     helm_cached repo update
-  run_with_retry "Trino Helm chart download" \
-    helm_cached pull trino/trino --version "${TRINO_CHART_VERSION}" --destination "${HELM_CHART_CACHE_DIR}"
+  run_with_retry "Dagster Helm chart download" \
+    helm_cached pull dagster/dagster --version "${DAGSTER_CHART_VERSION}" --untar --untardir "${dagster_work_dir}"
+
+  find "${dagster_work_dir}/dagster" -name "values.schema.json" -delete
+  helm package "${dagster_work_dir}/dagster" --destination "${HELM_CHART_CACHE_DIR}" >/dev/null
+  mv "${HELM_CHART_CACHE_DIR}/dagster-${DAGSTER_CHART_VERSION}.tgz" "${DAGSTER_CHART_PACKAGE_PATH}"
+  rm -rf "${dagster_work_dir}"
 }
 
 prepare_image_variables() {
@@ -144,7 +168,8 @@ terraform_apply_with_retry() {
       -var="superset_image_repository=${SUPERSET_IMAGE_REPOSITORY}" \
       -var="superset_image_tag=${SUPERSET_IMAGE_TAG}" \
       -var="superset_image_pull_policy=${SUPERSET_IMAGE_PULL_POLICY}" \
-      -var="trino_chart_package_path=${TRINO_CHART_PACKAGE_PATH}"
+      -var="trino_chart_package_path=${TRINO_CHART_PACKAGE_PATH}" \
+      -var="dagster_chart_package_path=${DAGSTER_CHART_PACKAGE_PATH}"
 }
 
 echo "==> Checking Azure infrastructure prerequisites..."

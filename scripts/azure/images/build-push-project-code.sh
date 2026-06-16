@@ -26,6 +26,7 @@ fi
 ACR_NAME="${ACR_NAME:-$(terraform -chdir="${FOUNDATION_TERRAFORM_DIR}" output -raw acr_name 2>/dev/null || true)}"
 ACR_NAME="${ACR_NAME:-${ACR_LOGIN_SERVER%%.*}}"
 AZURE_IMAGE_TAG="${AZURE_IMAGE_TAG:-azure-$(git_or_time_tag)}"
+AZURE_IMAGE_PLATFORM="${AZURE_IMAGE_PLATFORM:-linux/amd64}"
 PROJECT_CODE_IMAGE_REPOSITORY="${PROJECT_CODE_IMAGE_REPOSITORY:-${ACR_LOGIN_SERVER}/openlakeforge/project-code}"
 PROJECT_CODE_IMAGE_TAG="${PROJECT_CODE_IMAGE_TAG:-${AZURE_IMAGE_TAG}}"
 IMAGE="${PROJECT_CODE_IMAGE_REPOSITORY}:${PROJECT_CODE_IMAGE_TAG}"
@@ -35,6 +36,7 @@ az acr login --name "${ACR_NAME}" >/dev/null
 
 echo "==> Building project-code image ${IMAGE}..."
 docker build \
+  --platform "${AZURE_IMAGE_PLATFORM}" \
   --file "${REPO_ROOT}/images/project-code/Dockerfile" \
   --tag "${IMAGE}" \
   "${REPO_ROOT}"

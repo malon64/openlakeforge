@@ -169,8 +169,8 @@ locals {
 
 resource "helm_release" "dagster" {
   name       = var.release_name
-  repository = var.chart_repository
-  chart      = "dagster"
+  repository = var.chart_package_path == null ? var.chart_repository : null
+  chart      = var.chart_package_path == null ? "dagster" : var.chart_package_path
   version    = var.chart_version
   namespace  = var.namespace
 

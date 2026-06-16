@@ -6,6 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 TERRAFORM_DIR="${REPO_ROOT}/infra/terraform/foundations/azure-aks"
 AZURE_RESOURCE_GROUP="${AZURE_RESOURCE_GROUP:-rg-openlakeforge-azure-poc}"
+AZURE_CREATE_RESOURCE_GROUP="${AZURE_CREATE_RESOURCE_GROUP:-true}"
 AZURE_LOCATION="${AZURE_LOCATION:-westeurope}"
 AZURE_CLUSTER_NAME="${AZURE_CLUSTER_NAME:-aks-openlakeforge-poc}"
 AZURE_NODE_COUNT="${AZURE_NODE_COUNT:-3}"
@@ -37,6 +38,7 @@ terraform -chdir="${TERRAFORM_DIR}" init
 echo "==> Applying Terraform Azure AKS foundation..."
 terraform -chdir="${TERRAFORM_DIR}" apply -auto-approve \
   -var="resource_group_name=${AZURE_RESOURCE_GROUP}" \
+  -var="create_resource_group=${AZURE_CREATE_RESOURCE_GROUP}" \
   -var="location=${AZURE_LOCATION}" \
   -var="cluster_name=${AZURE_CLUSTER_NAME}" \
   -var="node_count=${AZURE_NODE_COUNT}" \

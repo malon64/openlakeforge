@@ -120,12 +120,14 @@ module "openmetadata" {
 module "superset" {
   source = "../../modules/analytics/superset"
 
-  namespace           = kubernetes_namespace_v1.lakehouse.metadata[0].name
-  base_values_file    = "${path.root}/../../../helm/values/local/superset.yaml"
-  image_repository    = var.superset_image_repository
-  image_tag           = var.superset_image_tag
-  image_pull_policy   = var.superset_image_pull_policy
-  postgresql_contract = local.metadata_database_contract
+  namespace                  = kubernetes_namespace_v1.lakehouse.metadata[0].name
+  base_values_file           = "${path.root}/../../../helm/values/local/superset.yaml"
+  image_repository           = var.superset_image_repository
+  image_tag                  = var.superset_image_tag
+  image_pull_policy          = var.superset_image_pull_policy
+  reports_storage_class_name = "azurefile-csi"
+  reports_access_modes       = ["ReadWriteMany"]
+  postgresql_contract        = local.metadata_database_contract
 
   depends_on = [
     module.postgresql,
@@ -137,6 +139,7 @@ module "dagster" {
   source = "../../modules/orchestration/dagster"
 
   namespace                      = kubernetes_namespace_v1.lakehouse.metadata[0].name
+  chart_package_path             = var.dagster_chart_package_path
   base_values_file               = "${path.root}/../../../helm/values/local/dagster.yaml"
   project_code_image_repository  = var.project_code_image_repository
   project_code_image_tag         = var.project_code_image_tag

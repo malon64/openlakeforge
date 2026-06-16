@@ -23,7 +23,7 @@ resource "kubernetes_persistent_volume_claim_v1" "reports" {
   }
 
   spec {
-    access_modes       = ["ReadWriteOnce"]
+    access_modes       = var.reports_access_modes
     storage_class_name = var.reports_storage_class_name
 
     resources {

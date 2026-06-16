@@ -4,6 +4,12 @@ variable "resource_group_name" {
   default     = "rg-openlakeforge-azure-poc"
 }
 
+variable "create_resource_group" {
+  description = "Whether Terraform should create and own the Azure resource group. Set false for company-provided sandbox resource groups."
+  type        = bool
+  default     = true
+}
+
 variable "location" {
   description = "Azure region for the AKS POC foundation."
   type        = string

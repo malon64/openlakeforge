@@ -87,6 +87,12 @@ variable "reports_storage_class_name" {
   default     = null
 }
 
+variable "reports_access_modes" {
+  description = "Kubernetes access modes for the Superset report bundles PVC."
+  type        = list(string)
+  default     = ["ReadWriteOnce"]
+}
+
 variable "postgresql_contract" {
   description = "Metadata PostgreSQL contract consumed by Superset."
   type = object({
