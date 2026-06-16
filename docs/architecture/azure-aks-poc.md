@@ -35,6 +35,32 @@ Defaults:
 - Node pool: 3 `Standard_D4s_v5` nodes
 - ACR name: `openlakeforgepoc<random_suffix>`
 
+By default, the Azure foundation Terraform root owns the resource group. That
+is the normal path for a subscription where the operator can create resource
+groups:
+
+```bash
+make azure-foundation-up
+```
+
+Some corporate sandboxes only allow resource creation inside a pre-created
+resource group. In that restricted case, keep the resource group outside the
+foundation state and set `AZURE_CREATE_RESOURCE_GROUP=false`. Terraform will
+read the existing resource group and still create the POC-owned resources inside
+it: AKS, ACR, and the AKS-to-ACR pull role assignment.
+
+```bash
+AZURE_RESOURCE_GROUP=<existing-resource-group> \
+AZURE_CREATE_RESOURCE_GROUP=false \
+AZURE_LOCATION=<resource-group-region> \
+make azure-foundation-up
+```
+
+Use the same overrides for every Azure lifecycle command in that sandbox,
+including `azure-up`, `azure-down`, and `azure-foundation-down`. With
+`AZURE_CREATE_RESOURCE_GROUP=false`, foundation destroy removes the AKS and ACR
+resources owned by this stack but leaves the external resource group in place.
+
 ## Workflow
 
 Create AKS and ACR:

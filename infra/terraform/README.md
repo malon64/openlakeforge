@@ -101,6 +101,24 @@ make azure-foundation-down
 cluster, ACR registry, AKS-to-ACR `AcrPull` role assignment, and AKS OIDC /
 Workload Identity readiness. The wrapper then runs `az aks get-credentials`.
 
+The default Azure foundation model owns the resource group because that keeps
+the POC lifecycle self-contained: `make azure-foundation-down` can remove the
+whole foundation after `make azure-down` removes the in-cluster platform.
+Restricted corporate sandboxes may provide a resource group and only allow
+resource creation inside that scope. For that case, run the same foundation with
+an externally managed resource group:
+
+```bash
+AZURE_RESOURCE_GROUP=<existing-resource-group> \
+AZURE_CREATE_RESOURCE_GROUP=false \
+AZURE_LOCATION=<resource-group-region> \
+make azure-foundation-up
+```
+
+Use the same environment overrides for the rest of the Azure lifecycle. In this
+mode Terraform reads the resource group as data, creates AKS and ACR inside it,
+and leaves the resource group itself untouched during foundation destroy.
+
 `make azure-up` runs:
 
 ```bash

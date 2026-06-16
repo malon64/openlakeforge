@@ -54,7 +54,7 @@ help:
 	@printf '%s\n' '  make local-forward    Port-forward all services to localhost (Dagster :3000, Superset :8088, OpenMetadata :8585, Trino :8080, Polaris :8181, S3 :9000)'
 	@printf '%s\n' ''
 	@printf '%s\n' 'Azure AKS POC stack:'
-	@printf '%s\n' '  make azure-foundation-up    Terraform-create AKS and ACR'
+	@printf '%s\n' '  make azure-foundation-up    Terraform-create Azure resource group, AKS, and ACR'
 	@printf '%s\n' '  make azure-infra-up         Build/push Superset image, then apply static AKS platform infrastructure'
 	@printf '%s\n' '  make azure-artifacts-deploy Deploy Floe manifests, project-code image, Superset reports, and OpenMetadata metadata'
 	@printf '%s\n' '  make azure-up               Run azure-infra-up, then azure-artifacts-deploy'
