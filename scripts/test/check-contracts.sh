@@ -174,6 +174,14 @@ if "OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR" not in azure_artifact_body:
     errors.append(f"{azure_artifact_script}: must pass OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR to reused artifact scripts")
 if azure_artifact_body.find("floe-manifest.sh") > azure_artifact_body.find("build-push-project-code.sh"):
     errors.append(f"{azure_artifact_script}: must generate Floe manifests before building the project-code image")
+if "update_dagster_project_code_image" not in azure_artifact_body:
+    errors.append(f"{azure_artifact_script}: must update Dagster deployments to the project-code image pushed by azure-artifacts-deploy")
+if "PROJECT_CODE_IMAGE=\"${PROJECT_CODE_IMAGE_REPOSITORY}:${PROJECT_CODE_IMAGE_TAG}\"" not in azure_artifact_body:
+    errors.append(f"{azure_artifact_script}: must derive the exact pushed project-code image")
+if "kubectl set image" not in azure_artifact_body or "*=${PROJECT_CODE_IMAGE}" not in azure_artifact_body:
+    errors.append(f"{azure_artifact_script}: must patch Dagster deployment images before rollout restart")
+if "dagster-instance" not in azure_artifact_body or "job_image:" not in azure_artifact_body:
+    errors.append(f"{azure_artifact_script}: must patch Dagster run launcher job_image before rollout restart")
 
 with tempfile.NamedTemporaryFile("w+", encoding="utf-8") as handle:
     subprocess.run(

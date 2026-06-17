@@ -47,6 +47,70 @@ prepare_image_variables() {
   AZURE_IMAGE_TAG="${AZURE_IMAGE_TAG:-azure-$(git_or_time_tag)}"
   PROJECT_CODE_IMAGE_REPOSITORY="${PROJECT_CODE_IMAGE_REPOSITORY:-${ACR_LOGIN_SERVER}/openlakeforge/project-code}"
   PROJECT_CODE_IMAGE_TAG="${PROJECT_CODE_IMAGE_TAG:-${AZURE_IMAGE_TAG}}"
+  PROJECT_CODE_IMAGE="${PROJECT_CODE_IMAGE_REPOSITORY}:${PROJECT_CODE_IMAGE_TAG}"
+}
+
+patch_dagster_instance_configmap() {
+  local configmap="dagster-instance"
+
+  if ! kubectl get configmap "${configmap}" -n "${NAMESPACE}" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  echo "==> Updating Dagster run launcher image to ${PROJECT_CODE_IMAGE}..."
+  NAMESPACE="${NAMESPACE}" \
+  CONFIGMAP_NAME="${configmap}" \
+  PROJECT_CODE_IMAGE="${PROJECT_CODE_IMAGE}" \
+    python3 - <<'PY'
+import json
+import os
+import subprocess
+import sys
+
+namespace = os.environ["NAMESPACE"]
+configmap = os.environ["CONFIGMAP_NAME"]
+image = os.environ["PROJECT_CODE_IMAGE"]
+
+raw = subprocess.check_output(
+    ["kubectl", "get", "configmap", configmap, "-n", namespace, "-o", "json"],
+    text=True,
+)
+payload = json.loads(raw)
+data = payload.setdefault("data", {})
+dagster_yaml = data.get("dagster.yaml")
+if dagster_yaml is None:
+    sys.exit(0)
+
+lines = dagster_yaml.splitlines()
+updated = False
+for index, line in enumerate(lines):
+    stripped = line.lstrip()
+    if stripped.startswith("job_image:"):
+        indent = line[: len(line) - len(stripped)]
+        lines[index] = f'{indent}job_image: "{image}"'
+        updated = True
+        break
+
+if not updated:
+    sys.exit("ERROR: dagster-instance ConfigMap does not contain run launcher job_image.")
+
+data["dagster.yaml"] = "\n".join(lines) + ("\n" if dagster_yaml.endswith("\n") else "")
+patch = json.dumps({"data": {"dagster.yaml": data["dagster.yaml"]}})
+subprocess.check_call(
+    ["kubectl", "patch", "configmap", configmap, "-n", namespace, "--type", "merge", "-p", patch]
+)
+PY
+}
+
+patch_deployment_image_if_exists() {
+  local deployment="$1"
+
+  if ! kubectl get deployment "${deployment}" -n "${NAMESPACE}" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  echo "==> Updating ${deployment} image to ${PROJECT_CODE_IMAGE}..."
+  kubectl set image "deployment/${deployment}" "*=${PROJECT_CODE_IMAGE}" -n "${NAMESPACE}"
 }
 
 restart_if_exists() {
@@ -59,6 +123,16 @@ restart_if_exists() {
   echo "==> Restarting ${deployment} after Azure artifact deployment..."
   kubectl rollout restart "deployment/${deployment}" -n "${NAMESPACE}"
   kubectl rollout status "deployment/${deployment}" -n "${NAMESPACE}" --timeout=600s
+}
+
+update_dagster_project_code_image() {
+  patch_dagster_instance_configmap
+  patch_deployment_image_if_exists "dagster-dagster-webserver"
+  patch_deployment_image_if_exists "dagster-dagster-daemon"
+  patch_deployment_image_if_exists "dagster-dagster-user-deployments-openlakeforge-dagster"
+  patch_deployment_image_if_exists "dagster-webserver"
+  patch_deployment_image_if_exists "dagster-daemon"
+  patch_deployment_image_if_exists "dagster-user-deployments-openlakeforge-dagster"
 }
 
 restart_dagster_project_code_deployments() {
@@ -106,6 +180,7 @@ OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR="${CONTRACT_TERRAFORM_DIR}" \
 OPENMETADATA_ALLOW_MISSING_ASSETS="${OPENMETADATA_ALLOW_MISSING_ASSETS:-true}" \
   bash "${REPO_ROOT}/scripts/local/artifacts/openmetadata-metadata-deploy.sh"
 
+update_dagster_project_code_image
 restart_dagster_project_code_deployments
 
 echo "Dynamic OpenLakeForge Azure POC artifacts are deployed."
