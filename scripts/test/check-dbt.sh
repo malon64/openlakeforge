@@ -62,7 +62,10 @@ export OPENLAKEFORGE_CATALOG_DBT_CLIENT_ID="${OPENLAKEFORGE_CATALOG_DBT_CLIENT_I
 export OPENLAKEFORGE_CATALOG_DBT_CLIENT_SECRET="${OPENLAKEFORGE_CATALOG_DBT_CLIENT_SECRET:-openlakeforge-dbt}"
 export OPENLAKEFORGE_DBT_SCHEMA="${OPENLAKEFORGE_DBT_SCHEMA:-gold}"
 
-mapfile -t projects < <(
+projects=()
+while IFS= read -r project_dir; do
+  projects+=("${project_dir}")
+done < <(
   find domains -path "*/transformations/dbt/*/dbt_project.yml" -type f \
     -exec dirname {} \; | sort
 )
