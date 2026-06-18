@@ -72,13 +72,14 @@ module "seaweedfs" {
 module "polaris" {
   source = "../../modules/catalog/polaris"
 
-  namespace        = kubernetes_namespace_v1.lakehouse.metadata[0].name
-  base_values_file = "${path.root}/../../../helm/values/local/polaris.yaml"
-  catalog_name     = var.catalog_name
-  principal_name   = "trino"
-  principal_role   = "data-engineer"
-  catalog_role     = "catalog-admin"
-  storage_contract = local.storage_contract
+  namespace            = kubernetes_namespace_v1.lakehouse.metadata[0].name
+  base_values_file     = "${path.root}/../../../helm/values/local/polaris.yaml"
+  catalog_name         = var.catalog_name
+  principal_name       = "trino"
+  principal_role       = "data-engineer"
+  catalog_role         = "catalog-admin"
+  storage_contract     = local.storage_contract
+  bootstrap_generation = var.polaris_bootstrap_generation
 
   depends_on = [
     module.seaweedfs,

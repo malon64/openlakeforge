@@ -10,6 +10,8 @@ required_paths=(
   "docs/architecture/overview.md"
   "docs/architecture/azure-aks-poc.md"
   "docs/architecture/provider-contracts.md"
+  "docs/technical-debt.md"
+  "docs/testing/floe-openlineage-capture-test-plan.md"
   "docs/adr/README.md"
   "docs/adr/0001-v1-platform-baseline.md"
   "docs/adr/0002-local-object-storage-seaweedfs.md"

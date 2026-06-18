@@ -93,3 +93,9 @@ variable "trino_chart_package_path" {
   type        = string
   default     = null
 }
+
+variable "polaris_bootstrap_generation" {
+  description = "Generation value recorded on the Polaris bootstrap job after local-up detects stale in-memory Polaris service principals."
+  type        = string
+  default     = "manual"
+}

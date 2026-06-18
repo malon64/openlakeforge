@@ -115,6 +115,12 @@ Terraform bootstrap. They are source-controlled under
 Superset reports PVC at `/app/openlakeforge/reports`, and imported by the
 local/CD report deployment step.
 
+OpenMetadata receives the Superset service connection during governance
+bootstrap, but reports appear in OpenMetadata only after the Superset dashboard
+metadata ingestion pipeline crawls the running Superset instance. Importing a
+report bundle into Superset and crawling it into OpenMetadata are intentionally
+separate steps.
+
 Superset uses local development credentials by default. A future identity
 provider implementation should replace this through an identity contract rather
 than changing report artifact ownership.

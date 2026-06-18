@@ -7,4 +7,7 @@ This directory contains the repo-local architecture source of truth for OpenLake
 - `local-stack-contracts.md` describes the Terraform-managed local service interfaces.
 - `provider-contracts.md` describes the provider-neutral contract boundary that
   keeps the local implementation cloud-ready.
+- `../technical-debt.md` tracks known weaknesses, mitigations, and fix paths.
+- `../testing/floe-openlineage-capture-test-plan.md` describes the capture-based
+  validation path for Floe OpenLineage events.
 - Architecture decision records live in `../adr/`.

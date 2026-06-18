@@ -153,3 +153,9 @@ variable "om_credentials_secret_name" {
   type        = string
   default     = "polaris-om-creds"
 }
+
+variable "bootstrap_generation" {
+  description = "External generation value recorded on the Polaris bootstrap job when wrappers recreate it after in-memory Polaris state loses service principals."
+  type        = string
+  default     = "manual"
+}

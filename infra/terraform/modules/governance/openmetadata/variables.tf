@@ -171,3 +171,28 @@ variable "superset_url" {
   type        = string
   default     = "http://superset:8088"
 }
+
+variable "superset_username" {
+  description = "Superset API username used by OpenMetadata dashboard metadata ingestion."
+  type        = string
+  default     = "admin"
+}
+
+variable "superset_password" {
+  description = "Superset API password used by OpenMetadata dashboard metadata ingestion."
+  type        = string
+  default     = "admin"
+  sensitive   = true
+}
+
+variable "superset_auth_provider" {
+  description = "Superset API authentication provider used by OpenMetadata dashboard metadata ingestion."
+  type        = string
+  default     = "db"
+}
+
+variable "superset_verify_ssl" {
+  description = "Superset SSL verification mode used by OpenMetadata dashboard metadata ingestion."
+  type        = string
+  default     = "no-ssl"
+}

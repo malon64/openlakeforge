@@ -50,6 +50,12 @@ Report bundles are not seeded by Terraform. They are imported separately through
 Superset API, keeping Terraform responsible for infrastructure lifetime and the artifact
 deploy step responsible for dynamic domain content.
 
+OpenMetadata registers Superset as a dashboard service during governance bootstrap, but
+it does not automatically show newly imported Superset dashboards until the Superset
+dashboard metadata ingestion pipeline has crawled the Superset API. In the local flow,
+report import and OpenMetadata crawling are separate operations: Superset is the source
+of dashboard runtime state, and OpenMetadata reflects that state only after a crawl.
+
 ## Consequences
 
 The analytics module depends on the shared PostgreSQL module and the Trino module.

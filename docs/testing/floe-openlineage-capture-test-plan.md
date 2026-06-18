@@ -1,0 +1,103 @@
+# Floe OpenLineage Capture Test Plan
+
+This test plan verifies whether the Floe v0.5.4 OpenLineage fixes work inside
+OpenLakeForge before lineage is re-enabled in OpenMetadata.
+
+The test deliberately captures Floe events first, instead of sending them
+directly to OpenMetadata. That separates event-shape validation from
+OpenMetadata entity matching and makes regressions easier to diagnose.
+
+## Goal
+
+Prove that Floe emits valid Bronze-to-Silver OpenLineage events for the current
+OpenLakeForge runtime:
+
+- `run.runId` is UUID-shaped.
+- `inputs` and `outputs` are present on completion events.
+- S3 Bronze dataset names are bucket-relative and do not start with `/`.
+- Iceberg Silver output datasets use the expected catalog namespace.
+- OpenLineage job namespace and job name are separated correctly.
+- OpenMetadata can later match the same event stream without the removed proxy.
+
+This test does not validate dbt Silver-to-Gold lineage. That remains blocked by
+the `dbt-duckdb`/`openlineage-dbt` dataset namespace issue.
+
+## Preconditions
+
+| Requirement | Expected State |
+| --- | --- |
+| Local stack | `make local-foundation-up` and `make local-up` have completed. |
+| Floe runner image | Rendered profile and generated manifests use `ghcr.io/malon64/floe:0.5.4`. |
+| OpenLineage proxy | Not deployed. The test uses a temporary capture endpoint. |
+| dbt OpenLineage | Disabled. The test isolates Floe events only. |
+| Target product | Start with one small path, preferably `sales_order_revenue_pipeline`. |
+
+## Capture Endpoint
+
+Create a temporary in-cluster HTTP endpoint that records every POST body and
+returns a 200/202 response. The endpoint must expose one route compatible with
+Floe's OpenLineage client configuration, for example:
+
+```text
+http://openlineage-capture:5000/api/v1/lineage
+```
+
+The endpoint should persist captured JSON events long enough to copy them out of
+the pod after the test. A minimal Python/Flask or Python `http.server` based
+container is enough. It does not need authentication for the first capture pass.
+
+## Test Flow
+
+| Step | Action | Expected Result |
+| --- | --- | --- |
+| 1 | Deploy the capture service in the `lakehouse` namespace. | `openlineage-capture` is reachable from Floe runner pods. |
+| 2 | Render a temporary Floe profile with a `lineage` block pointing at `http://openlineage-capture:5000/api/v1/lineage`. | The generated profile differs only by lineage settings. |
+| 3 | Regenerate one product manifest with the temporary lineage-enabled profile. | The manifest still uses `ghcr.io/malon64/floe:0.5.4` and the normal OpenLakeForge storage/catalog contracts. |
+| 4 | Upload the temporary manifest to the code bucket path that Dagster passes to the Floe runner. | The runner can read the same manifest URI Dagster launches. |
+| 5 | Launch a narrow Dagster run, preferably `sales_order_revenue_pipeline`. | Bronze and Silver assets succeed, and the capture endpoint receives OpenLineage events. |
+| 6 | Copy captured event JSON from the capture pod. | The event payloads are available locally for validation. |
+| 7 | Validate `run.runId` on every event with a UUID parser. | No event uses an old `mfv1-...` style run ID. |
+| 8 | Validate COMPLETE events have non-empty `inputs` and `outputs`. | Bronze source datasets and Silver Iceberg output datasets are present. |
+| 9 | Validate S3 input dataset names. | Names are bucket-relative paths such as `bronze/sales/...`, never `/bronze/sales/...`. |
+| 10 | Validate job naming. | `job.namespace` carries the namespace and `job.name` is not prefixed by the Polaris REST URI. |
+| 11 | Validate Iceberg output dataset naming. | Output datasets can be mapped to OpenMetadata's `polaris.<catalog>.silver.<table>` entities. |
+| 12 | Restore the normal lineage-disabled manifest/profile and rerun artifact deploy if needed. | Normal local stack behavior is restored. |
+
+## Optional OpenMetadata Acceptance Pass
+
+Only run this after the capture pass succeeds.
+
+| Step | Action | Expected Result |
+| --- | --- | --- |
+| 1 | Point Floe lineage at OpenMetadata's native OpenLineage endpoint. | Floe can submit events without the deleted OpenLineage proxy. |
+| 2 | Run the same narrow product path. | OpenMetadata accepts the events. |
+| 3 | Inspect the lineage graph for the tested entity. | Bronze storage container lineage connects to the Silver Iceberg table. |
+| 4 | Keep dbt lineage disabled. | The test does not mix in the still-blocked Silver-to-Gold dbt lineage path. |
+
+## Pass Criteria
+
+The Floe debt can move from `Resolved Upstream, Pending Verification` to
+resolved only when all of these are true:
+
+- Floe v0.5.4 is the runtime image used by the launched runner pod.
+- Captured events satisfy the event-shape checks above.
+- OpenMetadata can accept the Floe events directly.
+- OpenMetadata resolves at least one Bronze-to-Silver lineage edge without a
+  normalizing proxy.
+
+## Failure Triage
+
+| Failure | Likely Cause | Next Step |
+| --- | --- | --- |
+| No events captured | Lineage block not rendered into the profile or manifest; runner pod cannot reach capture service. | Inspect generated manifest, runner pod env, and capture service DNS. |
+| Non-UUID run IDs | Floe runtime is not actually v0.5.4 or regression in Floe. | Check runner image in pod spec and captured event payload. |
+| Empty inputs/outputs | Floe emission regression or unsupported entity path. | Reproduce with one CSV-to-Iceberg entity and compare with Floe issue #382 expectations. |
+| S3 names start with `/` | Floe S3 dataset-name fix is not active. | Confirm runtime image and file upstream regression if needed. |
+| OM accepts events but shows no edge | Dataset namespace/name no longer matches OM storage or Polaris entities. | Compare captured dataset names with OM container/table FQNs. |
+
+## References
+
+- [ADR 0009: OpenMetadata Lineage Integration Deferred](../adr/0009-openmetadata-lineage-direct-rest-push.md)
+- [Technical Debt: Resolved Upstream, Pending Verification](../technical-debt.md#resolved-upstream-pending-verification)
+- [Floe issue #382](https://github.com/malon64/floe/issues/382)
+- [Floe v0.5.4 release](https://github.com/malon64/floe/releases/tag/v0.5.4)

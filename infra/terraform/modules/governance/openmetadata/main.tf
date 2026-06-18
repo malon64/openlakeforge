@@ -235,10 +235,10 @@ resource "kubernetes_job_v1" "bootstrap" {
             polaris_token_code="$(curl -sS -o /tmp/polaris-token-body -w '%%{http_code}' \
               -X POST "${var.catalog_contract.token_uri}" \
               -H "Content-Type: application/x-www-form-urlencoded" \
-              -d "grant_type=client_credentials" \
-              -d "client_id=$POLARIS_OM_CLIENT_ID" \
-              -d "client_secret=$POLARIS_OM_CLIENT_SECRET" \
-              -d "scope=${var.catalog_contract.oauth_scope}")"
+              --data-urlencode "grant_type=client_credentials" \
+              --data-urlencode "client_id=$POLARIS_OM_CLIENT_ID" \
+              --data-urlencode "client_secret=$POLARIS_OM_CLIENT_SECRET" \
+              --data-urlencode "scope=${var.catalog_contract.oauth_scope}")"
             if [ "$polaris_token_code" != "200" ]; then
               echo "Failed to obtain Polaris token for OpenMetadata (HTTP $polaris_token_code)" >&2
               cat /tmp/polaris-token-body >&2
@@ -434,22 +434,35 @@ resource "kubernetes_job_v1" "bootstrap" {
               -H "Authorization: Bearer $ADMIN_JWT" || true
             echo "Dagster pipeline service registered (ingestion deferred — see ADR 0009)."
 
-            # Register Superset as a Dashboard Service and trigger metadata ingestion.
+            # Register Superset as a Dashboard Service and create metadata ingestion.
+            superset_payload="$(jq -n \
+              --arg host_port "${var.superset_url}" \
+              --arg username "${var.superset_username}" \
+              --arg password "${var.superset_password}" \
+              --arg provider "${var.superset_auth_provider}" \
+              --arg verify_ssl "${var.superset_verify_ssl}" \
+              '{
+                name: "superset",
+                displayName: "Superset Reporting",
+                serviceType: "Superset",
+                connection: {
+                  config: {
+                    type: "Superset",
+                    hostPort: $host_port,
+                    connection: {
+                      provider: $provider,
+                      username: $username,
+                      password: $password,
+                      verifySSL: $verify_ssl
+                    }
+                  }
+                }
+              }')"
             superset_svc_code="$(curl -sS -o /tmp/om-superset-svc-body -w '%%{http_code}' \
               -X PUT "$om_url/api/v1/services/dashboardServices" \
               -H "Authorization: Bearer $ADMIN_JWT" \
               -H "Content-Type: application/json" \
-              -d "{
-                \"name\": \"superset\",
-                \"displayName\": \"Superset Reporting\",
-                \"serviceType\": \"Superset\",
-                \"connection\": {
-                  \"config\": {
-                    \"type\": \"Superset\",
-                    \"hostPort\": \"${var.superset_url}\"
-                  }
-                }
-              }")"
+              -d "$superset_payload")"
             case " 200 201 " in
               *" $superset_svc_code "*) superset_svc_id="$(jq -r '.id // empty' /tmp/om-superset-svc-body)" ;;
               *)
@@ -504,10 +517,8 @@ resource "kubernetes_job_v1" "bootstrap" {
             fi
 
             # Deploy (register) the pipeline definition but do NOT trigger it.
-            # OM 1.12.x Superset connector: Java API rejects username/password in the
-            # service connection, but the Python ingestion SDK requires them — the
-            # connection can't be deserialized and the connector crashes (see ADR 0009).
-            # Trigger manually once the connector schema is aligned.
+            # Superset reports are dynamic artifacts imported after Terraform by the
+            # local/CI artifact deploy phase; trigger this pipeline after report deploy.
             curl -sS -o /tmp/om-superset-deploy-body -X POST \
               "$om_url/api/v1/services/ingestionPipelines/deploy/$superset_pipeline_id" \
               -H "Authorization: Bearer $ADMIN_JWT" || true

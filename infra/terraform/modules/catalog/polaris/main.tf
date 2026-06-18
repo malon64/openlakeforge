@@ -12,6 +12,7 @@ locals {
   oauth_scope    = "PRINCIPAL_ROLE:ALL"
   bootstrap_annotations = {
     "openlakeforge.io/polaris-release-revision" = tostring(helm_release.polaris.metadata.revision)
+    "openlakeforge.io/bootstrap-generation"     = var.bootstrap_generation
   }
 }
 
