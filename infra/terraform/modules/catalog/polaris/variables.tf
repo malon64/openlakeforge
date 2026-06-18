@@ -92,12 +92,23 @@ variable "storage_contract" {
     credentials_secret_name = string
     access_key_id_key       = string
     secret_access_key_key   = string
+    silver_bucket_name      = optional(string)
+    gold_bucket_name        = optional(string)
     provider                = optional(string)
     implementation          = optional(string)
     auth_mode               = optional(string)
     ssl_mode                = optional(string)
     ingress_mode            = optional(string)
   })
+}
+
+variable "catalog_namespaces" {
+  description = "Polaris namespaces to bootstrap, each with its namespace-level storage location."
+  type = list(object({
+    name     = string
+    location = string
+  }))
+  default = []
 }
 
 variable "bootstrap_secret_name" {
@@ -156,6 +167,12 @@ variable "om_credentials_secret_name" {
 
 variable "bootstrap_generation" {
   description = "External generation value recorded on the Polaris bootstrap job when wrappers recreate it after in-memory Polaris state loses service principals."
+  type        = string
+  default     = "manual"
+}
+
+variable "bootstrap_revision" {
+  description = "Revision of the Polaris bootstrap script used to replace the bootstrap job when the script changes."
   type        = string
   default     = "manual"
 }

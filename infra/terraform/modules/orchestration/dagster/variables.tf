@@ -96,6 +96,7 @@ variable "storage_contract" {
     endpoint                = optional(string)
     region                  = string
     bucket_name             = string
+    bronze_bucket_name      = optional(string)
     path_style_access       = optional(bool)
     credentials_secret_name = optional(string)
     access_key_id_key       = string

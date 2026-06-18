@@ -39,8 +39,8 @@ locals {
     ] : [],
     [
       {
-        name  = "OPENLAKEFORGE_S3_BUCKET"
-        value = var.storage_contract.bucket_name
+        name  = "OPENLAKEFORGE_BRONZE_BUCKET"
+        value = coalesce(var.storage_contract.bronze_bucket_name, var.storage_contract.bucket_name)
       },
     ],
   )

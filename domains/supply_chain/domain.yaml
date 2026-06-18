@@ -23,40 +23,40 @@ data_products:
     asset_prefix: supply_chain_inventory_reliability
     bronze:
       - name: warehouses
-        path: s3://iceberg-data/bronze/supply_chain/inventory_reliability/warehouses
+        path: s3://lakehouse-bronze/supply_chain/inventory_reliability/warehouses
         description: Raw CSV warehouse dimension.
       - name: suppliers
-        path: s3://iceberg-data/bronze/supply_chain/inventory_reliability/suppliers
+        path: s3://lakehouse-bronze/supply_chain/inventory_reliability/suppliers
         description: Raw CSV supplier dimension.
       - name: inventory_snapshots
-        path: s3://iceberg-data/bronze/supply_chain/inventory_reliability/inventory_snapshots
+        path: s3://lakehouse-bronze/supply_chain/inventory_reliability/inventory_snapshots
         description: Raw CSV inventory snapshots.
       - name: purchase_orders
-        path: s3://iceberg-data/bronze/supply_chain/inventory_reliability/purchase_orders
+        path: s3://lakehouse-bronze/supply_chain/inventory_reliability/purchase_orders
         description: Raw CSV purchase orders.
       - name: shipments
-        path: s3://iceberg-data/bronze/supply_chain/inventory_reliability/shipments
+        path: s3://lakehouse-bronze/supply_chain/inventory_reliability/shipments
         description: Raw CSV shipments.
       - name: stockout_events
-        path: s3://iceberg-data/bronze/supply_chain/inventory_reliability/stockout_events
+        path: s3://lakehouse-bronze/supply_chain/inventory_reliability/stockout_events
         description: Raw CSV stockout events.
     silver_tables:
-      schema: polaris.lakehouse_dev.silver
+      schema: polaris.lakehouse_dev.supply_chain_inventory_reliability_silver
       tables:
-        - name: inventory_reliability_warehouses
+        - name: warehouses
           description: Validated warehouse dimension.
-        - name: inventory_reliability_suppliers
+        - name: suppliers
           description: Validated supplier dimension.
-        - name: inventory_reliability_inventory_snapshots
+        - name: inventory_snapshots
           description: Validated inventory snapshot facts.
-        - name: inventory_reliability_purchase_orders
+        - name: purchase_orders
           description: Validated purchase order facts.
-        - name: inventory_reliability_shipments
+        - name: shipments
           description: Validated shipment facts.
-        - name: inventory_reliability_stockout_events
+        - name: stockout_events
           description: Validated stockout event facts.
     gold_tables:
-      schema: polaris.lakehouse_dev.gold
+      schema: polaris.lakehouse_dev.supply_chain_inventory_reliability_gold
       tables:
         - name: mart_inventory_position
           description: Latest inventory position and reorder status by product and warehouse.
@@ -66,8 +66,8 @@ data_products:
           description: Stockout risk by product and warehouse using current inventory and stockout history.
     assets:
       - type: table
-        fqn: polaris.lakehouse_dev.gold.mart_inventory_position
+        fqn: polaris.lakehouse_dev.supply_chain_inventory_reliability_gold.mart_inventory_position
       - type: table
-        fqn: polaris.lakehouse_dev.gold.mart_supplier_delivery_reliability
+        fqn: polaris.lakehouse_dev.supply_chain_inventory_reliability_gold.mart_supplier_delivery_reliability
       - type: table
-        fqn: polaris.lakehouse_dev.gold.mart_stockout_risk
+        fqn: polaris.lakehouse_dev.supply_chain_inventory_reliability_gold.mart_stockout_risk

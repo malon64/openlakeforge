@@ -4,7 +4,7 @@ sales_order_revenue:
     local:
       type: duckdb
       path: "{{ env_var('OPENLAKEFORGE_DBT_DUCKDB_PATH', '/tmp/openlakeforge-sales-order-revenue-dbt.duckdb') }}"
-      schema: "{{ env_var('OPENLAKEFORGE_DBT_SCHEMA', 'gold') }}"
+      schema: sales_order_revenue_gold
       threads: 1
       extensions:
         - httpfs
@@ -13,7 +13,7 @@ sales_order_revenue:
     local_runtime:
       type: duckdb
       path: "{{ env_var('OPENLAKEFORGE_DBT_DUCKDB_PATH', '/tmp/openlakeforge-sales-order-revenue-dbt.duckdb') }}"
-      schema: "{{ env_var('OPENLAKEFORGE_DBT_SCHEMA', 'gold') }}"
+      schema: sales_order_revenue_gold
       threads: 1
       extensions:
         - httpfs

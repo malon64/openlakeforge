@@ -1,7 +1,7 @@
 table_name: mart_order_revenue_by_day
 main_dttm_col: order_date
 description: Daily order revenue, units, and discount amount by region.
-schema: gold
+schema: sales_order_revenue_gold
 uuid: f4c88b9c-6880-51f0-8672-04ada7010901
 metrics:
   - metric_name: sum__net_revenue

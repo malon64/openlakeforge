@@ -1,7 +1,7 @@
 table_name: mart_customer_health_score
 main_dttm_col: null
 description: Account-level health score using subscription, support, and NPS signals.
-schema: gold
+schema: sales_customer_health_gold
 uuid: 64386bcd-bccd-50d7-a96b-7c2f0c13b6f9
 metrics:
   - metric_name: avg__health_score

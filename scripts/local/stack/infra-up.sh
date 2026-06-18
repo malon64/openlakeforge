@@ -172,6 +172,22 @@ cleanup_polaris_bootstrap_jobs() {
   )
 }
 
+cleanup_failed_polaris_bootstrap_jobs() {
+  local failed
+  local job
+
+  while IFS= read -r job; do
+    [[ -n "${job}" ]] || continue
+    failed="$(kubectl get "${job}" -n "${NAMESPACE}" -o jsonpath='{.status.failed}' 2>/dev/null || true)"
+    if [[ -n "${failed}" && "${failed}" != "0" ]]; then
+      kubectl delete "${job}" -n "${NAMESPACE}" --ignore-not-found
+    fi
+  done < <(
+    kubectl get jobs -n "${NAMESPACE}" -o name 2>/dev/null \
+      | grep '^job.batch/polaris-bootstrap-' || true
+  )
+}
+
 prepare_polaris_bootstrap_generation() {
   local service="polaris"
   local secret_name="polaris-om-creds"
@@ -227,21 +243,27 @@ prepare_polaris_bootstrap_generation() {
   esac
 }
 
+terraform_apply_once() {
+  cleanup_failed_polaris_bootstrap_jobs
+
+  terraform -chdir="${TERRAFORM_DIR}" apply -auto-approve \
+    -var="namespace=${NAMESPACE}" \
+    -var="kube_context=${KUBE_CONTEXT}" \
+    -var="foundation_state_path=${FOUNDATION_STATE_PATH}" \
+    -var="project_code_image_repository=${PROJECT_CODE_IMAGE_REPOSITORY}" \
+    -var="project_code_image_tag=${PROJECT_CODE_IMAGE_TAG}" \
+    -var="project_code_image_pull_policy=${PROJECT_CODE_IMAGE_PULL_POLICY}" \
+    -var="project_code_image_revision=${PROJECT_CODE_IMAGE_REVISION}" \
+    -var="superset_image_repository=${SUPERSET_IMAGE_REPOSITORY}" \
+    -var="superset_image_tag=${SUPERSET_IMAGE_TAG}" \
+    -var="superset_image_pull_policy=${SUPERSET_IMAGE_PULL_POLICY}" \
+    -var="polaris_bootstrap_generation=${POLARIS_BOOTSTRAP_GENERATION}" \
+    -var="trino_chart_package_path=${TRINO_CHART_PACKAGE_PATH}"
+}
+
 terraform_apply_with_retry() {
   run_with_retry "Terraform apply" \
-    terraform -chdir="${TERRAFORM_DIR}" apply -auto-approve \
-      -var="namespace=${NAMESPACE}" \
-      -var="kube_context=${KUBE_CONTEXT}" \
-      -var="foundation_state_path=${FOUNDATION_STATE_PATH}" \
-      -var="project_code_image_repository=${PROJECT_CODE_IMAGE_REPOSITORY}" \
-      -var="project_code_image_tag=${PROJECT_CODE_IMAGE_TAG}" \
-      -var="project_code_image_pull_policy=${PROJECT_CODE_IMAGE_PULL_POLICY}" \
-      -var="project_code_image_revision=${PROJECT_CODE_IMAGE_REVISION}" \
-      -var="superset_image_repository=${SUPERSET_IMAGE_REPOSITORY}" \
-      -var="superset_image_tag=${SUPERSET_IMAGE_TAG}" \
-      -var="superset_image_pull_policy=${SUPERSET_IMAGE_PULL_POLICY}" \
-      -var="polaris_bootstrap_generation=${POLARIS_BOOTSTRAP_GENERATION}" \
-      -var="trino_chart_package_path=${TRINO_CHART_PACKAGE_PATH}"
+    terraform_apply_once
 }
 
 refresh_trino_if_catalog_credentials_are_stale() {

@@ -15,7 +15,7 @@ INVENTORY_RELIABILITY_ENTITIES = (
 
 _DOMAIN_DIR = Path(__file__).resolve().parents[2]
 _RAW_DIR = _DOMAIN_DIR / "examples" / "raw" / "inventory_reliability"
-_BRONZE_PREFIX = "bronze/supply_chain/inventory_reliability"
+_BRONZE_PREFIX = "supply_chain/inventory_reliability"
 
 
 def load_all_entities_to_bronze(raw_dir: Path | None = None) -> dict[str, BronzeLoadResult]:

@@ -1,7 +1,7 @@
 table_name: mart_supplier_delivery_reliability
 main_dttm_col: null
 description: Supplier delivery lateness, fill rate, and on-time performance.
-schema: gold
+schema: supply_chain_inventory_reliability_gold
 uuid: 1f094833-0374-574d-b3a0-98b1435b7b01
 metrics:
   - metric_name: avg__on_time_rate

@@ -28,10 +28,22 @@ variable "catalog_name" {
   default     = "lakehouse_dev"
 }
 
-variable "iceberg_bucket_name" {
-  description = "S3-compatible SeaweedFS bucket used by the Azure POC Iceberg catalog."
+variable "bronze_bucket_name" {
+  description = "S3-compatible bucket for the Bronze raw landing zone (immutable CSV files)."
   type        = string
-  default     = "iceberg-data"
+  default     = "lakehouse-bronze"
+}
+
+variable "silver_bucket_name" {
+  description = "S3-compatible bucket for the Silver layer (Floe-validated Iceberg tables)."
+  type        = string
+  default     = "lakehouse-silver"
+}
+
+variable "gold_bucket_name" {
+  description = "S3-compatible bucket for the Gold layer (dbt business-ready Iceberg marts)."
+  type        = string
+  default     = "lakehouse-gold"
 }
 
 variable "code_bucket_name" {

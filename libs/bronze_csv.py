@@ -52,7 +52,7 @@ def load_entity_to_bronze(
     if not rows:
         raise ValueError(f"{source_file} did not produce any rows")
 
-    bucket = _required_env("OPENLAKEFORGE_S3_BUCKET", default="iceberg-data")
+    bucket = _required_env("OPENLAKEFORGE_BRONZE_BUCKET", default="lakehouse-bronze")
     key = f"{bronze_prefix}/{entity}/{entity}.csv"
     _put_csv(bucket=bucket, key=key, rows=rows)
 

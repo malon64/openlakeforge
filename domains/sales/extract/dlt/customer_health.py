@@ -8,7 +8,7 @@ CUSTOMER_HEALTH_ENTITIES = ("accounts", "subscriptions", "support_tickets", "nps
 
 _DOMAIN_DIR = Path(__file__).resolve().parents[2]
 _RAW_DIR = _DOMAIN_DIR / "examples" / "raw" / "customer_health"
-_BRONZE_PREFIX = "bronze/sales/customer_health"
+_BRONZE_PREFIX = "sales/customer_health"
 
 
 def load_all_entities_to_bronze(raw_dir: Path | None = None) -> dict[str, BronzeLoadResult]:

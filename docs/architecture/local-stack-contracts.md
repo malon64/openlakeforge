@@ -35,17 +35,19 @@ http://seaweedfs-s3:8333
 The storage module owns:
 
 - S3 access credentials in `seaweedfs-s3-creds`
-- the Iceberg bucket `iceberg-data`
+- the Bronze landing bucket `lakehouse-bronze` (raw CSV files, owned by ingestion)
+- the Silver Iceberg bucket `lakehouse-silver` (Floe-validated tables, owned by Floe)
+- the Gold Iceberg bucket `lakehouse-gold` (dbt business marts, owned by dbt)
 - the local code/artifact bucket `openlakeforge-code`
 - path-style S3 access
 - region `us-east-1`
 
-Downstream services consume only the endpoint, bucket name, region, and Secret
+Downstream services consume only the endpoint, bucket names, region, and Secret
 key references. They should not assume SeaweedFS beyond the local provider
 profile.
 
-Product Floe contracts refer to this implementation through the logical
-`lakehouse_storage` alias.
+Product Floe contracts refer to the Bronze bucket through the logical
+`lakehouse_bronze` storage alias and to the Silver bucket through `lakehouse_silver`.
 
 ## Metadata Database Contract
 
@@ -69,7 +71,12 @@ The catalog module owns:
 - local catalog type `rest`
 - local catalog provider `polaris`
 - root bootstrap credentials in `polaris-bootstrap-credentials`
-- the `lakehouse_dev` warehouse
+- the `lakehouse_dev` warehouse with `default-base-location: s3://lakehouse-silver/`
+- product Silver namespaces such as `sales_order_revenue_silver` with storage
+  locations under `s3://lakehouse-silver/<namespace>/`
+- product Gold namespaces such as `sales_order_revenue_gold` with storage
+  locations under `s3://lakehouse-gold/<namespace>/`
+- allowed S3 locations `s3://lakehouse-silver/` and `s3://lakehouse-gold/`
 - the Trino service principal and role grants
 - Trino OAuth credentials in `polaris-trino-creds`
 - the Floe service principal and role grants
@@ -150,8 +157,8 @@ URI to Dagster; the artifact deploy phase publishes generated product Floe
 manifests under that base URI so the separate Floe runner pod can read them.
 Dagster launches Floe Kubernetes jobs from `ghcr.io/malon64/floe:0.5.4`.
 dbt-duckdb runs inside Dagster Kubernetes run pods from the project-code image
-and writes Gold Iceberg marts to the `gold` namespace of the `lakehouse_dev`
-Polaris warehouse.
+and writes Gold Iceberg marts to each product's Gold namespace in the
+`lakehouse_dev` Polaris warehouse.
 
 ## Secrets, Identity, and Access Contracts
 

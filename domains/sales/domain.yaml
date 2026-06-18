@@ -23,35 +23,35 @@ data_products:
     asset_prefix: sales_order_revenue
     bronze:
       - name: orders
-        path: s3://iceberg-data/bronze/sales/order_revenue/orders
+        path: s3://lakehouse-bronze/sales/order_revenue/orders
         description: Raw CSV sales order headers.
       - name: order_lines
-        path: s3://iceberg-data/bronze/sales/order_revenue/order_lines
+        path: s3://lakehouse-bronze/sales/order_revenue/order_lines
         description: Raw CSV sales order lines.
       - name: products
-        path: s3://iceberg-data/bronze/sales/order_revenue/products
+        path: s3://lakehouse-bronze/sales/order_revenue/products
         description: Raw CSV revenue product catalog.
       - name: channels
-        path: s3://iceberg-data/bronze/sales/order_revenue/channels
+        path: s3://lakehouse-bronze/sales/order_revenue/channels
         description: Raw CSV sales channel dimension.
       - name: promotions
-        path: s3://iceberg-data/bronze/sales/order_revenue/promotions
+        path: s3://lakehouse-bronze/sales/order_revenue/promotions
         description: Raw CSV promotion dimension.
     silver_tables:
-      schema: polaris.lakehouse_dev.silver
+      schema: polaris.lakehouse_dev.sales_order_revenue_silver
       tables:
-        - name: order_revenue_orders
+        - name: orders
           description: Validated sales order headers.
-        - name: order_revenue_order_lines
+        - name: order_lines
           description: Validated sales order lines.
-        - name: order_revenue_products
+        - name: products
           description: Validated product dimension for revenue analytics.
-        - name: order_revenue_channels
+        - name: channels
           description: Validated sales channel dimension.
-        - name: order_revenue_promotions
+        - name: promotions
           description: Validated promotion dimension.
     gold_tables:
-      schema: polaris.lakehouse_dev.gold
+      schema: polaris.lakehouse_dev.sales_order_revenue_gold
       tables:
         - name: mart_order_revenue_by_day
           description: Daily order revenue, units, and discount amount by region.
@@ -61,11 +61,11 @@ data_products:
           description: Product revenue, cost, and gross margin for fulfilled order lines.
     assets:
       - type: table
-        fqn: polaris.lakehouse_dev.gold.mart_order_revenue_by_day
+        fqn: polaris.lakehouse_dev.sales_order_revenue_gold.mart_order_revenue_by_day
       - type: table
-        fqn: polaris.lakehouse_dev.gold.mart_order_revenue_by_channel
+        fqn: polaris.lakehouse_dev.sales_order_revenue_gold.mart_order_revenue_by_channel
       - type: table
-        fqn: polaris.lakehouse_dev.gold.mart_order_revenue_margin_by_product
+        fqn: polaris.lakehouse_dev.sales_order_revenue_gold.mart_order_revenue_margin_by_product
   - id: customer_health
     name: sales_customer_health
     displayName: Sales Customer Health
@@ -74,30 +74,30 @@ data_products:
     asset_prefix: sales_customer_health
     bronze:
       - name: accounts
-        path: s3://iceberg-data/bronze/sales/customer_health/accounts
+        path: s3://lakehouse-bronze/sales/customer_health/accounts
         description: Raw CSV customer accounts.
       - name: subscriptions
-        path: s3://iceberg-data/bronze/sales/customer_health/subscriptions
+        path: s3://lakehouse-bronze/sales/customer_health/subscriptions
         description: Raw CSV subscriptions.
       - name: support_tickets
-        path: s3://iceberg-data/bronze/sales/customer_health/support_tickets
+        path: s3://lakehouse-bronze/sales/customer_health/support_tickets
         description: Raw CSV support tickets.
       - name: nps_responses
-        path: s3://iceberg-data/bronze/sales/customer_health/nps_responses
+        path: s3://lakehouse-bronze/sales/customer_health/nps_responses
         description: Raw CSV NPS responses.
     silver_tables:
-      schema: polaris.lakehouse_dev.silver
+      schema: polaris.lakehouse_dev.sales_customer_health_silver
       tables:
-        - name: customer_health_accounts
+        - name: accounts
           description: Validated account dimension.
-        - name: customer_health_subscriptions
+        - name: subscriptions
           description: Validated subscription records.
-        - name: customer_health_support_tickets
+        - name: support_tickets
           description: Validated support ticket facts.
-        - name: customer_health_nps_responses
+        - name: nps_responses
           description: Validated NPS response facts.
     gold_tables:
-      schema: polaris.lakehouse_dev.gold
+      schema: polaris.lakehouse_dev.sales_customer_health_gold
       tables:
         - name: mart_customer_health_score
           description: Account-level health score using subscription, support, and NPS signals.
@@ -107,8 +107,8 @@ data_products:
           description: Support volume, resolution hours, and SLA rate by customer and priority.
     assets:
       - type: table
-        fqn: polaris.lakehouse_dev.gold.mart_customer_health_score
+        fqn: polaris.lakehouse_dev.sales_customer_health_gold.mart_customer_health_score
       - type: table
-        fqn: polaris.lakehouse_dev.gold.mart_churn_risk_by_segment
+        fqn: polaris.lakehouse_dev.sales_customer_health_gold.mart_churn_risk_by_segment
       - type: table
-        fqn: polaris.lakehouse_dev.gold.mart_support_sla_by_customer
+        fqn: polaris.lakehouse_dev.sales_customer_health_gold.mart_support_sla_by_customer

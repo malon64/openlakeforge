@@ -60,7 +60,7 @@ container is enough. It does not need authentication for the first capture pass.
 | 8 | Validate COMPLETE events have non-empty `inputs` and `outputs`. | Bronze source datasets and Silver Iceberg output datasets are present. |
 | 9 | Validate S3 input dataset names. | Names are bucket-relative paths such as `bronze/sales/...`, never `/bronze/sales/...`. |
 | 10 | Validate job naming. | `job.namespace` carries the namespace and `job.name` is not prefixed by the Polaris REST URI. |
-| 11 | Validate Iceberg output dataset naming. | Output datasets can be mapped to OpenMetadata's `polaris.<catalog>.silver.<table>` entities. |
+| 11 | Validate Iceberg output dataset naming. | Output datasets can be mapped to OpenMetadata's `polaris.<catalog>.<product>_silver.<table>` entities. |
 | 12 | Restore the normal lineage-disabled manifest/profile and rerun artifact deploy if needed. | Normal local stack behavior is restored. |
 
 ## Optional OpenMetadata Acceptance Pass
@@ -71,7 +71,7 @@ Only run this after the capture pass succeeds.
 | --- | --- | --- |
 | 1 | Point Floe lineage at OpenMetadata's native OpenLineage endpoint. | Floe can submit events without the deleted OpenLineage proxy. |
 | 2 | Run the same narrow product path. | OpenMetadata accepts the events. |
-| 3 | Inspect the lineage graph for the tested entity. | Bronze storage container lineage connects to the Silver Iceberg table. |
+| 3 | Inspect the lineage graph for the tested entity. | Bronze bucket container lineage connects to the Silver Iceberg table. |
 | 4 | Keep dbt lineage disabled. | The test does not mix in the still-blocked Silver-to-Gold dbt lineage path. |
 
 ## Pass Criteria

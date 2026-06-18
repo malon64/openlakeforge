@@ -1,7 +1,7 @@
 table_name: mart_order_revenue_by_channel
 main_dttm_col: null
 description: Net revenue and discount amount by sales channel and promotion type.
-schema: gold
+schema: sales_order_revenue_gold
 uuid: fb286620-a1f4-5be5-b74a-3347abcb5bd1
 metrics:
   - metric_name: sum__net_revenue

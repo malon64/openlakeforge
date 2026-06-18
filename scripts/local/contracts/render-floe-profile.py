@@ -10,9 +10,9 @@ def env(name: str, default: str) -> str:
 
 
 namespace = env("NAMESPACE", env("OPENLAKEFORGE_KUBE_NAMESPACE", "lakehouse"))
-storage_name = env("OPENLAKEFORGE_STORAGE_LOGICAL_NAME", "lakehouse_storage")
 catalog_name = env("OPENLAKEFORGE_CATALOG_LOGICAL_NAME", "iceberg_catalog")
-storage_bucket = env("OPENLAKEFORGE_STORAGE_BUCKET", "iceberg-data")
+storage_bronze_bucket = env("OPENLAKEFORGE_STORAGE_BRONZE_BUCKET", env("OPENLAKEFORGE_STORAGE_BUCKET", "lakehouse-bronze"))
+storage_silver_bucket = env("OPENLAKEFORGE_STORAGE_SILVER_BUCKET", "lakehouse-silver")
 storage_region = env("OPENLAKEFORGE_STORAGE_REGION", "us-east-1")
 storage_endpoint = env("OPENLAKEFORGE_STORAGE_ENDPOINT", "http://seaweedfs-s3:8333")
 storage_virtual_endpoint = env(
@@ -46,11 +46,15 @@ metadata:
   env: local
   description: "Contract-rendered local Kubernetes runner profile for OpenLakeForge Floe assets."
 storages:
-  default: "{storage_name}"
+  default: "lakehouse_bronze"
   definitions:
-    - name: "{storage_name}"
+    - name: "lakehouse_bronze"
       type: "s3"
-      bucket: "{storage_bucket}"
+      bucket: "{storage_bronze_bucket}"
+      region: "{storage_region}"
+    - name: "lakehouse_silver"
+      type: "s3"
+      bucket: "{storage_silver_bucket}"
       region: "{storage_region}"
 catalogs:
   default: "{catalog_name}"
@@ -62,8 +66,8 @@ catalogs:
       warehouse: "{catalog_warehouse}"
       oauth2_server_uri: "{catalog_token_uri}"
       scope: "{catalog_scope}"
-      warehouse_storage: "{storage_name}"
-      warehouse_prefix: "s3://{storage_bucket}"
+      warehouse_storage: "lakehouse_silver"
+      warehouse_prefix: "s3://{storage_silver_bucket}"
 execution:
   orchestration:
     strategy: sequential

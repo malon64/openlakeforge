@@ -23,8 +23,10 @@ through the existing `K8sRunLauncher`; Iteration 4 does not introduce a separate
 dbt runner image.
 
 DuckDB attaches Polaris at runtime and transforms Silver Iceberg tables into
-Gold Iceberg tables through the Polaris REST catalog. Silver resides in the `silver` namespace of the `lakehouse_dev` warehouse, while Gold
-marts are written to the `gold` namespace of the same warehouse.
+Gold Iceberg tables through the Polaris REST catalog. Silver resides in product
+Silver namespaces such as `sales_order_revenue_silver` in the `lakehouse_dev`
+warehouse, while Gold marts are written to matching product Gold namespaces such
+as `sales_order_revenue_gold`.
 
 Polaris owns a dedicated dbt service principal and Kubernetes Secret
 `polaris-dbt-creds`, separate from Floe and Trino credentials.

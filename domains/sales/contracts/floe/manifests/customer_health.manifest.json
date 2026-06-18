@@ -4,13 +4,13 @@
   "floe_version": "0.5.4",
   "spec_version": "0.2",
   "manifest_name": "sales.customer_health.local",
-  "manifest_id": "mfv1-6c2213877c95d799",
-  "manifest_revision": "sha256:dcfd3e03c71645abcaa52153284e9c7c98961b004a90ea1451a92442c09f52f4",
+  "manifest_id": "mfv1-c5a6a6dc8fd6b7cf",
+  "manifest_revision": "sha256:e00ea84afcb78406ac0dd78637d88dd4562009bdbdbac4bc32b588059ce989bb",
   "config_uri": "local:///work/domains/sales/contracts/floe/customer_health.yml",
-  "config_checksum": "sha256:5667f933f9f338fcc94829a370a8dcdeeb35917886c8a2614342050a35d3af55",
+  "config_checksum": "sha256:738e3d9f77645d7c055ff0a513a6b687d6ae7b12cee9adaf665098d97ecd0172",
   "profile_uri": "local:///work/libs/floe/profiles/local-k8s.yml",
-  "profile_checksum": "sha256:79470177f6e16951bcaefb70dd9d80b7ba59ae042ff7f5b38be54c07bce944df",
-  "report_base_uri": "s3://iceberg-data/floe/reports/sales/customer_health",
+  "profile_checksum": "sha256:0b3a0abda975fd7f65223a12cde8ca41bda49ba883910d8228558bc1decfee3a",
+  "report_base_uri": "s3://lakehouse-silver/floe/reports/sales/customer_health",
   "domains": [],
   "execution": {
     "entrypoint": "floe",
@@ -111,14 +111,14 @@
         "accounts"
       ],
       "source_format": "csv",
-      "accepted_sink_uri": "s3://iceberg-data/silver/sales/customer_health/accounts",
-      "rejected_sink_uri": "s3://iceberg-data/floe/rejected/sales/customer_health/accounts",
+      "accepted_sink_uri": "s3://lakehouse-silver/sales/customer_health/accounts",
+      "rejected_sink_uri": "s3://lakehouse-silver/floe/rejected/sales/customer_health/accounts",
       "tags": null,
       "source": {
         "format": "csv",
-        "storage": "lakehouse_storage",
-        "uri": "s3://iceberg-data/bronze/sales/customer_health/accounts",
-        "path": "s3://iceberg-data/bronze/sales/customer_health/accounts",
+        "storage": "lakehouse_bronze",
+        "uri": "s3://lakehouse-bronze/sales/customer_health/accounts",
+        "path": "s3://lakehouse-bronze/sales/customer_health/accounts",
         "resolved": true,
         "cast_mode": "strict",
         "options": {
@@ -142,22 +142,22 @@
       "sinks": {
         "accepted": {
           "format": "iceberg",
-          "storage": "lakehouse_storage",
-          "uri": "s3://iceberg-data/silver/sales/customer_health/accounts",
-          "path": "s3://iceberg-data/silver/sales/customer_health/accounts",
+          "storage": "lakehouse_silver",
+          "uri": "s3://lakehouse-silver/sales/customer_health/accounts",
+          "path": "s3://lakehouse-silver/sales/customer_health/accounts",
           "resolved": true,
           "iceberg": {
             "catalog": "iceberg_catalog",
             "location": null,
-            "namespace": "silver",
-            "table": "customer_health_accounts"
+            "namespace": "sales_customer_health_silver",
+            "table": "accounts"
           }
         },
         "rejected": {
           "format": "csv",
-          "storage": "lakehouse_storage",
-          "uri": "s3://iceberg-data/floe/rejected/sales/customer_health/accounts",
-          "path": "s3://iceberg-data/floe/rejected/sales/customer_health/accounts",
+          "storage": "lakehouse_silver",
+          "uri": "s3://lakehouse-silver/floe/rejected/sales/customer_health/accounts",
+          "path": "s3://lakehouse-silver/floe/rejected/sales/customer_health/accounts",
           "resolved": true
         },
         "archive": null
@@ -218,14 +218,14 @@
         "nps_responses"
       ],
       "source_format": "csv",
-      "accepted_sink_uri": "s3://iceberg-data/silver/sales/customer_health/nps_responses",
-      "rejected_sink_uri": "s3://iceberg-data/floe/rejected/sales/customer_health/nps_responses",
+      "accepted_sink_uri": "s3://lakehouse-silver/sales/customer_health/nps_responses",
+      "rejected_sink_uri": "s3://lakehouse-silver/floe/rejected/sales/customer_health/nps_responses",
       "tags": null,
       "source": {
         "format": "csv",
-        "storage": "lakehouse_storage",
-        "uri": "s3://iceberg-data/bronze/sales/customer_health/nps_responses",
-        "path": "s3://iceberg-data/bronze/sales/customer_health/nps_responses",
+        "storage": "lakehouse_bronze",
+        "uri": "s3://lakehouse-bronze/sales/customer_health/nps_responses",
+        "path": "s3://lakehouse-bronze/sales/customer_health/nps_responses",
         "resolved": true,
         "cast_mode": "strict",
         "options": {
@@ -249,22 +249,22 @@
       "sinks": {
         "accepted": {
           "format": "iceberg",
-          "storage": "lakehouse_storage",
-          "uri": "s3://iceberg-data/silver/sales/customer_health/nps_responses",
-          "path": "s3://iceberg-data/silver/sales/customer_health/nps_responses",
+          "storage": "lakehouse_silver",
+          "uri": "s3://lakehouse-silver/sales/customer_health/nps_responses",
+          "path": "s3://lakehouse-silver/sales/customer_health/nps_responses",
           "resolved": true,
           "iceberg": {
             "catalog": "iceberg_catalog",
             "location": null,
-            "namespace": "silver",
-            "table": "customer_health_nps_responses"
+            "namespace": "sales_customer_health_silver",
+            "table": "nps_responses"
           }
         },
         "rejected": {
           "format": "csv",
-          "storage": "lakehouse_storage",
-          "uri": "s3://iceberg-data/floe/rejected/sales/customer_health/nps_responses",
-          "path": "s3://iceberg-data/floe/rejected/sales/customer_health/nps_responses",
+          "storage": "lakehouse_silver",
+          "uri": "s3://lakehouse-silver/floe/rejected/sales/customer_health/nps_responses",
+          "path": "s3://lakehouse-silver/floe/rejected/sales/customer_health/nps_responses",
           "resolved": true
         },
         "archive": null
@@ -315,14 +315,14 @@
         "subscriptions"
       ],
       "source_format": "csv",
-      "accepted_sink_uri": "s3://iceberg-data/silver/sales/customer_health/subscriptions",
-      "rejected_sink_uri": "s3://iceberg-data/floe/rejected/sales/customer_health/subscriptions",
+      "accepted_sink_uri": "s3://lakehouse-silver/sales/customer_health/subscriptions",
+      "rejected_sink_uri": "s3://lakehouse-silver/floe/rejected/sales/customer_health/subscriptions",
       "tags": null,
       "source": {
         "format": "csv",
-        "storage": "lakehouse_storage",
-        "uri": "s3://iceberg-data/bronze/sales/customer_health/subscriptions",
-        "path": "s3://iceberg-data/bronze/sales/customer_health/subscriptions",
+        "storage": "lakehouse_bronze",
+        "uri": "s3://lakehouse-bronze/sales/customer_health/subscriptions",
+        "path": "s3://lakehouse-bronze/sales/customer_health/subscriptions",
         "resolved": true,
         "cast_mode": "strict",
         "options": {
@@ -346,22 +346,22 @@
       "sinks": {
         "accepted": {
           "format": "iceberg",
-          "storage": "lakehouse_storage",
-          "uri": "s3://iceberg-data/silver/sales/customer_health/subscriptions",
-          "path": "s3://iceberg-data/silver/sales/customer_health/subscriptions",
+          "storage": "lakehouse_silver",
+          "uri": "s3://lakehouse-silver/sales/customer_health/subscriptions",
+          "path": "s3://lakehouse-silver/sales/customer_health/subscriptions",
           "resolved": true,
           "iceberg": {
             "catalog": "iceberg_catalog",
             "location": null,
-            "namespace": "silver",
-            "table": "customer_health_subscriptions"
+            "namespace": "sales_customer_health_silver",
+            "table": "subscriptions"
           }
         },
         "rejected": {
           "format": "csv",
-          "storage": "lakehouse_storage",
-          "uri": "s3://iceberg-data/floe/rejected/sales/customer_health/subscriptions",
-          "path": "s3://iceberg-data/floe/rejected/sales/customer_health/subscriptions",
+          "storage": "lakehouse_silver",
+          "uri": "s3://lakehouse-silver/floe/rejected/sales/customer_health/subscriptions",
+          "path": "s3://lakehouse-silver/floe/rejected/sales/customer_health/subscriptions",
           "resolved": true
         },
         "archive": null
@@ -427,14 +427,14 @@
         "support_tickets"
       ],
       "source_format": "csv",
-      "accepted_sink_uri": "s3://iceberg-data/silver/sales/customer_health/support_tickets",
-      "rejected_sink_uri": "s3://iceberg-data/floe/rejected/sales/customer_health/support_tickets",
+      "accepted_sink_uri": "s3://lakehouse-silver/sales/customer_health/support_tickets",
+      "rejected_sink_uri": "s3://lakehouse-silver/floe/rejected/sales/customer_health/support_tickets",
       "tags": null,
       "source": {
         "format": "csv",
-        "storage": "lakehouse_storage",
-        "uri": "s3://iceberg-data/bronze/sales/customer_health/support_tickets",
-        "path": "s3://iceberg-data/bronze/sales/customer_health/support_tickets",
+        "storage": "lakehouse_bronze",
+        "uri": "s3://lakehouse-bronze/sales/customer_health/support_tickets",
+        "path": "s3://lakehouse-bronze/sales/customer_health/support_tickets",
         "resolved": true,
         "cast_mode": "strict",
         "options": {
@@ -458,22 +458,22 @@
       "sinks": {
         "accepted": {
           "format": "iceberg",
-          "storage": "lakehouse_storage",
-          "uri": "s3://iceberg-data/silver/sales/customer_health/support_tickets",
-          "path": "s3://iceberg-data/silver/sales/customer_health/support_tickets",
+          "storage": "lakehouse_silver",
+          "uri": "s3://lakehouse-silver/sales/customer_health/support_tickets",
+          "path": "s3://lakehouse-silver/sales/customer_health/support_tickets",
           "resolved": true,
           "iceberg": {
             "catalog": "iceberg_catalog",
             "location": null,
-            "namespace": "silver",
-            "table": "customer_health_support_tickets"
+            "namespace": "sales_customer_health_silver",
+            "table": "support_tickets"
           }
         },
         "rejected": {
           "format": "csv",
-          "storage": "lakehouse_storage",
-          "uri": "s3://iceberg-data/floe/rejected/sales/customer_health/support_tickets",
-          "path": "s3://iceberg-data/floe/rejected/sales/customer_health/support_tickets",
+          "storage": "lakehouse_silver",
+          "uri": "s3://lakehouse-silver/floe/rejected/sales/customer_health/support_tickets",
+          "path": "s3://lakehouse-silver/floe/rejected/sales/customer_health/support_tickets",
           "resolved": true
         },
         "archive": null
@@ -527,15 +527,26 @@
     }
   ],
   "storages": {
-    "default": "lakehouse_storage",
+    "default": "lakehouse_bronze",
     "definitions": [
       {
         "account": null,
-        "bucket": "iceberg-data",
+        "bucket": "lakehouse-bronze",
         "container": null,
         "endpoint": null,
         "fs_type": "s3",
-        "name": "lakehouse_storage",
+        "name": "lakehouse_bronze",
+        "path_style_access": null,
+        "prefix": null,
+        "region": "us-east-1"
+      },
+      {
+        "account": null,
+        "bucket": "lakehouse-silver",
+        "container": null,
+        "endpoint": null,
+        "fs_type": "s3",
+        "name": "lakehouse_silver",
         "path_style_access": null,
         "prefix": null,
         "region": "us-east-1"
@@ -555,8 +566,8 @@
           "uri": "http://polaris:8181/api/catalog",
           "warehouse": "lakehouse_dev"
         },
-        "warehouse_prefix": "s3://iceberg-data",
-        "warehouse_storage": "lakehouse_storage"
+        "warehouse_prefix": "s3://lakehouse-silver",
+        "warehouse_storage": "lakehouse_silver"
       }
     ]
   }

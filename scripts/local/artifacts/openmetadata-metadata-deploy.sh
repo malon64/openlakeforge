@@ -93,7 +93,12 @@ STORAGE_SERVICE = os.environ.get("OPENLAKEFORGE_STORAGE_OM_SERVICE", "seaweedfs"
 STORAGE_DISPLAY_NAME = os.environ.get("OPENLAKEFORGE_STORAGE_DISPLAY_NAME", "SeaweedFS S3")
 STORAGE_ENDPOINT = os.environ.get("OPENLAKEFORGE_STORAGE_ENDPOINT", "http://seaweedfs-s3:8333")
 STORAGE_REGION = os.environ.get("OPENLAKEFORGE_STORAGE_REGION", "us-east-1")
-STORAGE_BUCKET = os.environ.get("OPENLAKEFORGE_STORAGE_BUCKET", "iceberg-data")
+STORAGE_BRONZE_BUCKET = os.environ.get(
+    "OPENLAKEFORGE_STORAGE_BRONZE_BUCKET",
+    os.environ.get("OPENLAKEFORGE_STORAGE_BUCKET", "lakehouse-bronze"),
+)
+STORAGE_SILVER_BUCKET = os.environ.get("OPENLAKEFORGE_STORAGE_SILVER_BUCKET", "lakehouse-silver")
+STORAGE_GOLD_BUCKET = os.environ.get("OPENLAKEFORGE_STORAGE_GOLD_BUCKET", "lakehouse-gold")
 
 
 class OpenMetadataError(RuntimeError):
@@ -397,19 +402,30 @@ def product_table_specs(product):
             yield schema_fqn, table
 
 
-def product_bronze_containers(domain, product):
-    domain_name = domain["name"]
-    product_id = product.get("id") or product["name"]
-    for container in product.get("bronze") or []:
-        if not container.get("path"):
-            raise OpenMetadataError(f"Data product '{product['name']}' Bronze entry is missing required 'path'.")
-        entity_name = container.get("name") or Path(container["path"].rstrip("/")).name
-        default_name = f"bronze-{domain_name}-{product_id}-{entity_name}".replace("_", "-")
+def storage_bucket_specs():
+    specs = [
+        (STORAGE_BRONZE_BUCKET, "Bronze landing bucket for raw immutable source files."),
+        (STORAGE_SILVER_BUCKET, "Silver bucket for Floe-validated Iceberg tables and validation reports."),
+        (STORAGE_GOLD_BUCKET, "Gold bucket for dbt-owned business marts."),
+    ]
+    seen = set()
+    for name, description in specs:
+        if not name or name in seen:
+            continue
+        seen.add(name)
         yield {
-            "name": container.get("container_name") or default_name,
-            "path": container["path"],
-            "description": container.get("description") or f"Raw Bronze data for {domain_name}/{product_id}/{entity_name}.",
+            "name": name,
+            "path": f"s3://{name}",
+            "description": description,
         }
+
+
+def validate_bronze_entries(domain_specs):
+    for _, domain in domain_specs:
+        for product in product_entries(domain):
+            for container in product.get("bronze") or []:
+                if not container.get("path"):
+                    raise OpenMetadataError(f"Data product '{product['name']}' Bronze entry is missing required 'path'.")
 
 
 def ensure_storage_service(token, name, display_name, endpoint, region):
@@ -512,22 +528,20 @@ def deploy():
             f"No OpenMetadata domain metadata files found under {METADATA_ROOT}/<domain>/domain.yaml"
         )
 
-    # Phase A+B: Object Store service and Bronze CSV source containers.
+    # Phase A+B: Object Store service and medallion bucket containers.
     # The seeding gives browse-level visibility in OM's Storage section immediately.
     # Lineage integration is intentionally deferred; see ADR 0009.
     ensure_storage_service(token, STORAGE_SERVICE, STORAGE_DISPLAY_NAME, STORAGE_ENDPOINT, STORAGE_REGION)
-    ensure_container(token, STORAGE_SERVICE, STORAGE_BUCKET, None, f"s3://{STORAGE_BUCKET}", "Main Iceberg data bucket.")
-    for _, domain in domain_specs:
-        for product in product_entries(domain):
-            for container in product_bronze_containers(domain, product):
-                ensure_container(
-                    token,
-                    STORAGE_SERVICE,
-                    container["name"],
-                    f"{STORAGE_SERVICE}.{STORAGE_BUCKET}",
-                    container["path"],
-                    container["description"],
-                )
+    validate_bronze_entries(domain_specs)
+    for container in storage_bucket_specs():
+        ensure_container(
+            token,
+            STORAGE_SERVICE,
+            container["name"],
+            None,
+            container["path"],
+            container["description"],
+        )
 
     # Phase C: Pre-seed Iceberg table stubs so governed assets are visible before
     # the hourly Polaris crawler refreshes table metadata.

@@ -125,8 +125,8 @@ check_trino() {
     trino --output-format CSV_UNQUOTED --execute "SHOW CATALOGS" | grep -qx "iceberg"
 
   echo "==> Checking Silver and Gold table counts..."
-  silver_count="$(trino_scalar "SELECT count(*) FROM iceberg.information_schema.tables WHERE table_schema = 'silver'")"
-  gold_count="$(trino_scalar "SELECT count(*) FROM iceberg.information_schema.tables WHERE table_schema = 'gold'")"
+  silver_count="$(trino_scalar "SELECT count(*) FROM iceberg.information_schema.tables WHERE table_schema IN ('sales_order_revenue_silver', 'sales_customer_health_silver', 'supply_chain_inventory_reliability_silver')")"
+  gold_count="$(trino_scalar "SELECT count(*) FROM iceberg.information_schema.tables WHERE table_schema IN ('sales_order_revenue_gold', 'sales_customer_health_gold', 'supply_chain_inventory_reliability_gold')")"
 
   if [[ "${silver_count}" != "15" ]]; then
     echo "ERROR: expected 15 Silver tables, got ${silver_count}" >&2
@@ -139,21 +139,21 @@ check_trino() {
   fi
 
   local marts=(
-    mart_order_revenue_by_day
-    mart_order_revenue_by_channel
-    mart_order_revenue_margin_by_product
-    mart_customer_health_score
-    mart_churn_risk_by_segment
-    mart_support_sla_by_customer
-    mart_inventory_position
-    mart_supplier_delivery_reliability
-    mart_stockout_risk
+    sales_order_revenue_gold.mart_order_revenue_by_day
+    sales_order_revenue_gold.mart_order_revenue_by_channel
+    sales_order_revenue_gold.mart_order_revenue_margin_by_product
+    sales_customer_health_gold.mart_customer_health_score
+    sales_customer_health_gold.mart_churn_risk_by_segment
+    sales_customer_health_gold.mart_support_sla_by_customer
+    supply_chain_inventory_reliability_gold.mart_inventory_position
+    supply_chain_inventory_reliability_gold.mart_supplier_delivery_reliability
+    supply_chain_inventory_reliability_gold.mart_stockout_risk
   )
 
   for mart in "${marts[@]}"; do
-    count="$(trino_scalar "SELECT count(*) FROM iceberg.gold.${mart}")"
+    count="$(trino_scalar "SELECT count(*) FROM iceberg.${mart}")"
     if [[ "${count}" -le 0 ]]; then
-      echo "ERROR: expected iceberg.gold.${mart} to contain rows, got ${count}" >&2
+      echo "ERROR: expected iceberg.${mart} to contain rows, got ${count}" >&2
       exit 1
     fi
   done

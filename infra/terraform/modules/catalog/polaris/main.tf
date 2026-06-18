@@ -10,9 +10,33 @@ locals {
   rest_uri       = "http://${var.release_name}:8181/api/catalog"
   token_uri      = "http://${var.release_name}:8181/api/catalog/v1/oauth/tokens"
   oauth_scope    = "PRINCIPAL_ROLE:ALL"
+  silver_bucket_name = (
+    var.storage_contract.silver_bucket_name != null
+    ? var.storage_contract.silver_bucket_name
+    : var.storage_contract.bucket_name
+  )
+  gold_bucket_name = (
+    var.storage_contract.gold_bucket_name != null
+    ? var.storage_contract.gold_bucket_name
+    : var.storage_contract.bucket_name
+  )
+  default_catalog_namespaces = [
+    {
+      name     = "silver"
+      location = "s3://${local.silver_bucket_name}/silver/"
+    },
+    {
+      name     = "gold"
+      location = "s3://${local.gold_bucket_name}/gold/"
+    },
+  ]
+  catalog_namespaces      = length(var.catalog_namespaces) > 0 ? var.catalog_namespaces : local.default_catalog_namespaces
+  catalog_namespaces_hash = sha256(jsonencode(local.catalog_namespaces))
   bootstrap_annotations = {
     "openlakeforge.io/polaris-release-revision" = tostring(helm_release.polaris.metadata.revision)
     "openlakeforge.io/bootstrap-generation"     = var.bootstrap_generation
+    "openlakeforge.io/bootstrap-revision"       = var.bootstrap_revision
+    "openlakeforge.io/catalog-namespaces-hash"  = local.catalog_namespaces_hash
   }
 }
 
@@ -98,6 +122,13 @@ resource "helm_release" "polaris" {
 resource "terraform_data" "polaris_release_revision" {
   triggers_replace = [
     helm_release.polaris.metadata.revision,
+  ]
+}
+
+resource "terraform_data" "polaris_bootstrap_revision" {
+  triggers_replace = [
+    var.bootstrap_revision,
+    local.catalog_namespaces_hash,
   ]
 }
 
@@ -252,22 +283,32 @@ resource "kubernetes_job_v1" "bootstrap" {
               exit 1
             fi
 
-            request POST "/catalogs" "201 409" '{
-              "name": "${var.catalog_name}",
-              "type": "INTERNAL",
-              "properties": {
-                "default-base-location": "s3://${var.storage_contract.bucket_name}"
-              },
-              "storageConfigInfo": {
-                "storageType": "S3",
-                "allowedLocations": ["s3://${var.storage_contract.bucket_name}/"],
-                "pathStyleAccess": true,
-                "stsUnavailable": true
-              }
-            }'
+            silver_bucket="${local.silver_bucket_name}"
+            gold_bucket="${local.gold_bucket_name}"
 
-            catalog_request POST "/${var.catalog_name}/namespaces" "200 409" '{"namespace": ["silver"], "properties": {}}'
-            catalog_request POST "/${var.catalog_name}/namespaces" "200 409" '{"namespace": ["gold"], "properties": {}}'
+            request POST "/catalogs" "201 409" "{
+              \"name\": \"${var.catalog_name}\",
+              \"type\": \"INTERNAL\",
+              \"properties\": {
+                \"default-base-location\": \"s3://$silver_bucket/\"
+              },
+              \"storageConfigInfo\": {
+                \"storageType\": \"S3\",
+                \"allowedLocations\": [\"s3://$silver_bucket/\", \"s3://$gold_bucket/\"],
+                \"pathStyleAccess\": true,
+                \"stsUnavailable\": true
+              }
+            }"
+
+            create_namespace() {
+              namespace_name="$1"
+              namespace_location="$2"
+              catalog_request POST "/${var.catalog_name}/namespaces" "200 409" "{\"namespace\": [\"$namespace_name\"], \"properties\": {\"location\": \"$namespace_location\"}}"
+            }
+
+%{for namespace in local.catalog_namespaces~}
+            create_namespace "${namespace.name}" "${namespace.location}"
+%{endfor~}
 
             create_principal_secret() {
               principal_name="$1"
@@ -367,6 +408,7 @@ resource "kubernetes_job_v1" "bootstrap" {
   lifecycle {
     replace_triggered_by = [
       terraform_data.polaris_release_revision,
+      terraform_data.polaris_bootstrap_revision,
     ]
   }
 }

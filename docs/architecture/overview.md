@@ -94,7 +94,7 @@ Dagster run pods. Durable product jobs are loaded from `domains.definitions`:
 `sales_order_revenue_pipeline`, `sales_customer_health_pipeline`, and
 `supply_chain_inventory_reliability_pipeline`. Each job materializes product
 Bronze source assets, executes manifest-loaded Floe assets, then runs
-dbt-duckdb Gold marts in the `gold` Polaris namespace of the `lakehouse_dev`
+dbt-duckdb Gold marts in product Gold Polaris namespaces of the `lakehouse_dev`
 warehouse.
 
 Superset is deployed as a BI consumer of those Gold marts through Trino.

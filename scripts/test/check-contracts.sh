@@ -25,6 +25,10 @@ contracts_tf = Path("infra/terraform/environments/local/contracts.tf")
 text = contracts_tf.read_text()
 azure_contracts_tf = Path("infra/terraform/environments/azure-poc/contracts.tf")
 azure_text = azure_contracts_tf.read_text()
+local_main_tf = Path("infra/terraform/environments/local/main.tf")
+local_main_text = local_main_tf.read_text()
+azure_main_tf = Path("infra/terraform/environments/azure-poc/main.tf")
+azure_main_text = azure_main_tf.read_text()
 
 required_contracts = [
     "foundation_contract",
@@ -99,6 +103,44 @@ for contracts_path, contracts_body in [(contracts_tf, text), (azure_contracts_tf
         errors.append(f"{contracts_path}: orchestration contract must set remote Floe manifest access")
     if 'access_mode              = "remote"' not in contracts_body:
         errors.append(f"{contracts_path}: artifact bucket contract must expose remote Floe manifest access")
+    for required in [
+        "catalog_namespace_model",
+        "catalog_namespaces",
+        "silver_namespaces",
+        "gold_namespaces",
+        "silver_schema_fqns",
+        "gold_schema_fqns",
+    ]:
+        if required not in contracts_body:
+            errors.append(f"{contracts_path}: catalog contract must expose {required}")
+    if re.search(r'\b(silver_namespace|gold_namespace)\s*=\s*"(silver|gold)"', contracts_body):
+        errors.append(f"{contracts_path}: catalog contract must not expose shared silver/gold namespace fields")
+
+expected_product_namespaces = {
+    "sales_order_revenue": {
+        "silver": "sales_order_revenue_silver",
+        "gold": "sales_order_revenue_gold",
+    },
+    "sales_customer_health": {
+        "silver": "sales_customer_health_silver",
+        "gold": "sales_customer_health_gold",
+    },
+    "supply_chain_inventory_reliability": {
+        "silver": "supply_chain_inventory_reliability_silver",
+        "gold": "supply_chain_inventory_reliability_gold",
+    },
+}
+for main_path, main_body in [(local_main_tf, local_main_text), (azure_main_tf, azure_main_text)]:
+    if 'catalog_namespace_model = "product-layer"' not in main_body:
+        errors.append(f"{main_path}: catalog namespace model must be product-layer")
+    if "catalog_namespaces   = local.catalog_namespaces" not in main_body:
+        errors.append(f"{main_path}: Polaris module must receive product catalog namespaces")
+    if "catalog_schema_names = [for namespace in local.catalog_namespaces : namespace.name]" not in main_body:
+        errors.append(f"{main_path}: OpenMetadata module must seed all product catalog namespaces")
+    for namespace_pair in expected_product_namespaces.values():
+        for namespace in namespace_pair.values():
+            if namespace not in main_body:
+                errors.append(f"{main_path}: missing product catalog namespace {namespace}")
 
 required_checks = [
     'check "foundation_contract_matches_platform_context"',
@@ -124,21 +166,43 @@ for check in required_azure_checks:
 
 for path in sorted(Path("domains").glob("*/contracts/floe/*.yml")):
     body = path.read_text()
+    domain = path.parts[1]
+    product = path.stem
+    product_key = f"{domain}_{product}"
+    expected_namespace = f'{product_key}_silver'
     if 'catalog: "polaris"' in body:
         errors.append(f"{path}: Floe contracts must use logical catalog iceberg_catalog, not physical polaris")
     if 'catalog: "iceberg_catalog"' not in body:
         errors.append(f"{path}: no logical iceberg_catalog sink reference found")
+    if f'namespace: "{expected_namespace}"' not in body:
+        errors.append(f"{path}: no product Silver namespace {expected_namespace} sink reference found")
+    if 'namespace: "silver"' in body:
+        errors.append(f"{path}: Floe contracts must use product Silver namespaces, not shared silver")
+    if re.search(r'table: "(order_revenue|customer_health|inventory_reliability)_', body):
+        errors.append(f"{path}: Silver table names must be product-local because the namespace carries the product")
     if 'storage: "lakehouse_s3"' in body:
-        errors.append(f"{path}: Floe contracts must use logical storage lakehouse_storage, not legacy lakehouse_s3")
-    if 'storage: "lakehouse_storage"' not in body:
-        errors.append(f"{path}: no logical lakehouse_storage reference found")
+        errors.append(f"{path}: Floe contracts must use medallion storage aliases, not legacy lakehouse_s3")
+    if 'storage: "lakehouse_storage"' in body:
+        errors.append(f"{path}: Floe contracts must use medallion storage aliases, not aggregate lakehouse_storage")
+    if 'storage: "lakehouse_bronze"' not in body:
+        errors.append(f"{path}: no logical lakehouse_bronze source reference found")
+    if 'storage: "lakehouse_silver"' not in body:
+        errors.append(f"{path}: no logical lakehouse_silver sink/report reference found")
 
 for path in sorted(Path("domains").glob("*/transformations/dbt/*/profiles.yml")):
     body = path.read_text()
+    parts = path.parts
+    domain = parts[1]
+    product = parts[4]
+    expected_schema = f"{domain}_{product}_gold"
     if "POLARIS_" in body:
         errors.append(f"{path}: product dbt profiles must use OPENLAKEFORGE_CATALOG_* env vars, not POLARIS_*")
     if "seaweedfs-s3" in body:
         errors.append(f"{path}: product dbt profiles must not hardcode local storage endpoints")
+    if expected_schema not in body:
+        errors.append(f"{path}: dbt profile must default to product Gold namespace {expected_schema}")
+    if "OPENLAKEFORGE_DBT_SCHEMA" in body:
+        errors.append(f"{path}: dbt profile must not use a global schema override")
     for required in [
         "OPENLAKEFORGE_CATALOG_DBT_CLIENT_ID",
         "OPENLAKEFORGE_CATALOG_DBT_CLIENT_SECRET",
@@ -156,8 +220,18 @@ for path in sorted(Path("domains").glob("*/transformations/dbt/*/dbt_project.yml
 
 for path in sorted(Path("domains").glob("*/transformations/dbt/*/models/sources.yml")):
     body = path.read_text()
+    parts = path.parts
+    domain = parts[1]
+    product = parts[4]
+    expected_schema = f"{domain}_{product}_silver"
     if re.search(r"^\s*database:\s*lakehouse_dev\s*$", body, re.MULTILINE):
         errors.append(f"{path}: source database must use OPENLAKEFORGE_CATALOG_WAREHOUSE")
+    if f"schema: {expected_schema}" not in body:
+        errors.append(f"{path}: source schema must be product Silver namespace {expected_schema}")
+    if "OPENLAKEFORGE_CATALOG_SILVER_NAMESPACE" in body:
+        errors.append(f"{path}: source schema must not use the legacy global Silver namespace env var")
+    if re.search(r"identifier:\s+(order_revenue|customer_health|inventory_reliability)_", body):
+        errors.append(f"{path}: source identifiers must be product-local because the schema carries the product")
 
 for path in [
     Path("scripts/local/artifacts/floe-manifest.sh"),
@@ -170,6 +244,21 @@ for path in [
     body = path.read_text()
     if "scripts/local/contracts/load-runtime-env.sh" not in body:
         errors.append(f"{path}: must source the runtime contract environment")
+
+openmetadata_metadata_script = Path("scripts/local/artifacts/openmetadata-metadata-deploy.sh")
+openmetadata_metadata_body = openmetadata_metadata_script.read_text()
+for required in [
+    "OPENLAKEFORGE_STORAGE_BRONZE_BUCKET",
+    "OPENLAKEFORGE_STORAGE_SILVER_BUCKET",
+    "OPENLAKEFORGE_STORAGE_GOLD_BUCKET",
+    "storage_bucket_specs",
+]:
+    if required not in openmetadata_metadata_body:
+        errors.append(f"{openmetadata_metadata_script}: must seed OpenMetadata medallion bucket containers using {required}")
+if "product_bronze_containers" in openmetadata_metadata_body:
+    errors.append(f"{openmetadata_metadata_script}: must not seed path-level product Bronze containers")
+if "f\"{STORAGE_SERVICE}.{STORAGE_BUCKET}\"" in openmetadata_metadata_body:
+    errors.append(f"{openmetadata_metadata_script}: must not parent product containers under a single storage bucket")
 
 azure_artifact_script = Path("scripts/azure/stack/deploy-artifacts.sh")
 azure_artifact_body = azure_artifact_script.read_text()
@@ -206,6 +295,11 @@ with tempfile.NamedTemporaryFile("w+", encoding="utf-8") as handle:
 
 if 'default: "iceberg_catalog"' not in profile:
     errors.append("rendered Floe profile must use logical catalog iceberg_catalog")
+if 'default: "lakehouse_bronze"' not in profile:
+    errors.append("rendered Floe profile must default to logical storage lakehouse_bronze")
+for storage_alias in ['name: "lakehouse_bronze"', 'name: "lakehouse_silver"']:
+    if storage_alias not in profile:
+        errors.append(f"rendered Floe profile must define logical storage {storage_alias}")
 if "${OPENLAKEFORGE_CATALOG_FLOE_CLIENT_ID}" not in profile:
     errors.append("rendered Floe profile must use generic Floe catalog client env vars")
 if "POLARIS_FLOE_CLIENT_ID" in profile.split("secrets:", 1)[0]:

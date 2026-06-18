@@ -4,7 +4,7 @@ supply_chain_inventory_reliability:
     local:
       type: duckdb
       path: "{{ env_var('OPENLAKEFORGE_DBT_DUCKDB_PATH', '/tmp/openlakeforge-supply-chain-inventory-reliability-dbt.duckdb') }}"
-      schema: "{{ env_var('OPENLAKEFORGE_DBT_SCHEMA', 'gold') }}"
+      schema: supply_chain_inventory_reliability_gold
       threads: 1
       extensions:
         - httpfs
@@ -13,7 +13,7 @@ supply_chain_inventory_reliability:
     local_runtime:
       type: duckdb
       path: "{{ env_var('OPENLAKEFORGE_DBT_DUCKDB_PATH', '/tmp/openlakeforge-supply-chain-inventory-reliability-dbt.duckdb') }}"
-      schema: "{{ env_var('OPENLAKEFORGE_DBT_SCHEMA', 'gold') }}"
+      schema: supply_chain_inventory_reliability_gold
       threads: 1
       extensions:
         - httpfs

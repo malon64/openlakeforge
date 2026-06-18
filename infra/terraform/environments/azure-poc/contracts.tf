@@ -49,6 +49,9 @@ locals {
     local_only            = false
     poc_only              = true
     future_adapter_shapes = ["storage.azure_blob_or_adls_gen2"]
+    bronze_bucket_name    = var.bronze_bucket_name
+    silver_bucket_name    = var.silver_bucket_name
+    gold_bucket_name      = var.gold_bucket_name
   })
 
   metadata_database_contract = merge(module.postgresql.contract, {
@@ -76,9 +79,11 @@ locals {
     catalog_name               = var.catalog_name
     runtime_profile            = "polaris-rest"
     trino_catalog_name         = "iceberg"
-    default_warehouse_location = "s3://${local.storage_contract.bucket_name}"
-    silver_namespace           = "silver"
-    gold_namespace             = "gold"
+    default_warehouse_location = "s3://${var.silver_bucket_name}"
+    catalog_namespace_model    = local.catalog_namespace_model
+    catalog_namespaces         = local.catalog_namespaces
+    silver_namespaces          = local.catalog_silver_namespaces
+    gold_namespaces            = local.catalog_gold_namespaces
     auth_mode                  = "oauth-client-secret"
     secret_delivery_mode       = "kubernetes-secret-env"
     ssl_mode                   = "disabled"
@@ -95,8 +100,12 @@ locals {
     dbt_support                = ["rest"]
     openmetadata_support       = ["rest"]
     catalog_database_fqn       = "polaris.${var.catalog_name}"
-    silver_schema_fqn          = "polaris.${var.catalog_name}.silver"
-    gold_schema_fqn            = "polaris.${var.catalog_name}.gold"
+    silver_schema_fqns = {
+      for product, namespace in local.catalog_silver_namespaces : product => "polaris.${var.catalog_name}.${namespace}"
+    }
+    gold_schema_fqns = {
+      for product, namespace in local.catalog_gold_namespaces : product => "polaris.${var.catalog_name}.${namespace}"
+    }
   })
 
   governance_contract = merge(module.openmetadata.contract, {

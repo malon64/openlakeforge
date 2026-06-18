@@ -60,7 +60,6 @@ export AWS_ENDPOINT_URL_S3="${AWS_ENDPOINT_URL_S3:-${OPENLAKEFORGE_STORAGE_ENDPO
 export OPENLAKEFORGE_DUCKDB_S3_ENDPOINT="${OPENLAKEFORGE_DUCKDB_S3_ENDPOINT:-${OPENLAKEFORGE_STORAGE_ENDPOINT#http://}}"
 export OPENLAKEFORGE_CATALOG_DBT_CLIENT_ID="${OPENLAKEFORGE_CATALOG_DBT_CLIENT_ID:-openlakeforge-dbt}"
 export OPENLAKEFORGE_CATALOG_DBT_CLIENT_SECRET="${OPENLAKEFORGE_CATALOG_DBT_CLIENT_SECRET:-openlakeforge-dbt}"
-export OPENLAKEFORGE_DBT_SCHEMA="${OPENLAKEFORGE_DBT_SCHEMA:-gold}"
 
 projects=()
 while IFS= read -r project_dir; do
@@ -95,7 +94,12 @@ from pathlib import Path
 project_dir = Path(sys.argv[1])
 manifest_path = project_dir / "target" / "manifest.json"
 expected_database = os.environ["OPENLAKEFORGE_CATALOG_WAREHOUSE"]
-expected_schema = os.environ["OPENLAKEFORGE_DBT_SCHEMA"]
+parts = project_dir.parts
+try:
+    domain = parts[parts.index("domains") + 1]
+except (ValueError, IndexError) as exc:
+    raise SystemExit(f"Cannot derive domain from dbt project path: {project_dir}") from exc
+expected_schema = f"{domain}_{project_dir.name}_gold"
 
 manifest = json.loads(manifest_path.read_text())
 violations = []

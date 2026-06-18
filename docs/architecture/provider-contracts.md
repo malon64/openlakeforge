@@ -67,8 +67,10 @@ fields is SeaweedFS, S3, in-cluster PostgreSQL, RDS, kind, EKS, Polaris, or
 Glue.
 
 Product-owned runtime assets should use logical aliases. The local adapter
-currently resolves `lakehouse_storage` to SeaweedFS and `iceberg_catalog` to
-Polaris.
+resolves `lakehouse_bronze` and `lakehouse_silver` to their respective
+SeaweedFS-backed medallion buckets, and `iceberg_catalog` to Polaris. A future
+cloud adapter can map the same logical names to S3 or ADLS prefixes without
+changing any domain contract.
 
 ## Catalog Contract
 

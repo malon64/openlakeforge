@@ -8,7 +8,7 @@ ORDER_REVENUE_ENTITIES = ("orders", "order_lines", "products", "channels", "prom
 
 _DOMAIN_DIR = Path(__file__).resolve().parents[2]
 _RAW_DIR = _DOMAIN_DIR / "examples" / "raw" / "order_revenue"
-_BRONZE_PREFIX = "bronze/sales/order_revenue"
+_BRONZE_PREFIX = "sales/order_revenue"
 
 
 def load_all_entities_to_bronze(raw_dir: Path | None = None) -> dict[str, BronzeLoadResult]:

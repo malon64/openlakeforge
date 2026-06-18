@@ -1,7 +1,7 @@
 table_name: mart_stockout_risk
 main_dttm_col: null
 description: Stockout risk by product and warehouse using current inventory and stockout history.
-schema: gold
+schema: supply_chain_inventory_reliability_gold
 uuid: 9874e97a-2409-5b09-a330-26c3bc3014e1
 metrics:
   - metric_name: sum__lost_units

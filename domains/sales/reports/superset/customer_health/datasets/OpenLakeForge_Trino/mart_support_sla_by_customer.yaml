@@ -1,7 +1,7 @@
 table_name: mart_support_sla_by_customer
 main_dttm_col: null
 description: Support volume, resolution hours, and SLA rate by customer and priority.
-schema: gold
+schema: sales_customer_health_gold
 uuid: 9910a74d-6dc4-5a99-acbc-e6ce7e3d2350
 metrics:
   - metric_name: avg__sla_rate

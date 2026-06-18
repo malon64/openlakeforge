@@ -1,7 +1,7 @@
 table_name: mart_order_revenue_margin_by_product
 main_dttm_col: null
 description: Product revenue, cost, and gross margin for fulfilled order lines.
-schema: gold
+schema: sales_order_revenue_gold
 uuid: df90d282-37d0-5df6-b81b-460892968ed1
 metrics:
   - metric_name: sum__net_revenue

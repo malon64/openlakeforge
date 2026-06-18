@@ -1,7 +1,7 @@
 table_name: mart_churn_risk_by_segment
 main_dttm_col: null
 description: Churn risk and ARR exposure grouped by account segment and region.
-schema: gold
+schema: sales_customer_health_gold
 uuid: 7ae9d43a-0c52-514a-83bf-afa2a5757a51
 metrics:
   - metric_name: sum__arr_at_risk

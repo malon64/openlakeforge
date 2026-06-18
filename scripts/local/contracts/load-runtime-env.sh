@@ -10,7 +10,10 @@ OPENLAKEFORGE_QUERY_SQLALCHEMY_URI_IS_USER_SET="${OPENLAKEFORGE_QUERY_SQLALCHEMY
 set_default_contract_env() {
   export OPENLAKEFORGE_STORAGE_LOGICAL_NAME="${OPENLAKEFORGE_STORAGE_LOGICAL_NAME:-lakehouse_storage}"
   export OPENLAKEFORGE_STORAGE_TYPE="${OPENLAKEFORGE_STORAGE_TYPE:-s3}"
-  export OPENLAKEFORGE_STORAGE_BUCKET="${OPENLAKEFORGE_STORAGE_BUCKET:-iceberg-data}"
+  export OPENLAKEFORGE_STORAGE_BRONZE_BUCKET="${OPENLAKEFORGE_STORAGE_BRONZE_BUCKET:-lakehouse-bronze}"
+  export OPENLAKEFORGE_STORAGE_SILVER_BUCKET="${OPENLAKEFORGE_STORAGE_SILVER_BUCKET:-lakehouse-silver}"
+  export OPENLAKEFORGE_STORAGE_GOLD_BUCKET="${OPENLAKEFORGE_STORAGE_GOLD_BUCKET:-lakehouse-gold}"
+  export OPENLAKEFORGE_STORAGE_BUCKET="${OPENLAKEFORGE_STORAGE_BUCKET:-${OPENLAKEFORGE_STORAGE_BRONZE_BUCKET}}"
   export OPENLAKEFORGE_STORAGE_REGION="${OPENLAKEFORGE_STORAGE_REGION:-us-east-1}"
   export OPENLAKEFORGE_STORAGE_ENDPOINT="${OPENLAKEFORGE_STORAGE_ENDPOINT:-http://seaweedfs-s3:8333}"
   export OPENLAKEFORGE_STORAGE_VIRTUAL_HOST_ENDPOINT="${OPENLAKEFORGE_STORAGE_VIRTUAL_HOST_ENDPOINT:-http://lakehouse.svc.cluster.local:8333}"
@@ -31,8 +34,12 @@ set_default_contract_env() {
   export OPENLAKEFORGE_CATALOG_TOKEN_URI="${OPENLAKEFORGE_CATALOG_TOKEN_URI:-http://polaris:8181/api/catalog/v1/oauth/tokens}"
   export OPENLAKEFORGE_CATALOG_OAUTH_SCOPE="${OPENLAKEFORGE_CATALOG_OAUTH_SCOPE:-PRINCIPAL_ROLE:ALL}"
   export OPENLAKEFORGE_CATALOG_WAREHOUSE="${OPENLAKEFORGE_CATALOG_WAREHOUSE:-lakehouse_dev}"
-  export OPENLAKEFORGE_CATALOG_SILVER_NAMESPACE="${OPENLAKEFORGE_CATALOG_SILVER_NAMESPACE:-silver}"
-  export OPENLAKEFORGE_CATALOG_GOLD_NAMESPACE="${OPENLAKEFORGE_CATALOG_GOLD_NAMESPACE:-gold}"
+  export OPENLAKEFORGE_CATALOG_NAMESPACE_MODEL="${OPENLAKEFORGE_CATALOG_NAMESPACE_MODEL:-product-layer}"
+  export OPENLAKEFORGE_CATALOG_NAMESPACES_JSON="${OPENLAKEFORGE_CATALOG_NAMESPACES_JSON:-[{\"name\":\"sales_order_revenue_silver\",\"location\":\"s3://lakehouse-silver/sales_order_revenue_silver/\"},{\"name\":\"sales_order_revenue_gold\",\"location\":\"s3://lakehouse-gold/sales_order_revenue_gold/\"},{\"name\":\"sales_customer_health_silver\",\"location\":\"s3://lakehouse-silver/sales_customer_health_silver/\"},{\"name\":\"sales_customer_health_gold\",\"location\":\"s3://lakehouse-gold/sales_customer_health_gold/\"},{\"name\":\"supply_chain_inventory_reliability_silver\",\"location\":\"s3://lakehouse-silver/supply_chain_inventory_reliability_silver/\"},{\"name\":\"supply_chain_inventory_reliability_gold\",\"location\":\"s3://lakehouse-gold/supply_chain_inventory_reliability_gold/\"}]}"
+  export OPENLAKEFORGE_CATALOG_SILVER_NAMESPACES_JSON="${OPENLAKEFORGE_CATALOG_SILVER_NAMESPACES_JSON:-{\"sales_order_revenue\":\"sales_order_revenue_silver\",\"sales_customer_health\":\"sales_customer_health_silver\",\"supply_chain_inventory_reliability\":\"supply_chain_inventory_reliability_silver\"}}"
+  export OPENLAKEFORGE_CATALOG_GOLD_NAMESPACES_JSON="${OPENLAKEFORGE_CATALOG_GOLD_NAMESPACES_JSON:-{\"sales_order_revenue\":\"sales_order_revenue_gold\",\"sales_customer_health\":\"sales_customer_health_gold\",\"supply_chain_inventory_reliability\":\"supply_chain_inventory_reliability_gold\"}}"
+  export OPENLAKEFORGE_CATALOG_SILVER_NAMESPACE="${OPENLAKEFORGE_CATALOG_SILVER_NAMESPACE:-}"
+  export OPENLAKEFORGE_CATALOG_GOLD_NAMESPACE="${OPENLAKEFORGE_CATALOG_GOLD_NAMESPACE:-}"
   export OPENLAKEFORGE_CATALOG_FLOE_CREDENTIALS_SECRET_NAME="${OPENLAKEFORGE_CATALOG_FLOE_CREDENTIALS_SECRET_NAME:-polaris-floe-creds}"
   export OPENLAKEFORGE_CATALOG_FLOE_CLIENT_ID_KEY="${OPENLAKEFORGE_CATALOG_FLOE_CLIENT_ID_KEY:-POLARIS_FLOE_CLIENT_ID}"
   export OPENLAKEFORGE_CATALOG_FLOE_CLIENT_SECRET_KEY="${OPENLAKEFORGE_CATALOG_FLOE_CLIENT_SECRET_KEY:-POLARIS_FLOE_CLIENT_SECRET}"
@@ -97,8 +104,17 @@ def emit(name, value):
     print(f"export {name}={shlex.quote(str(value))}")
 
 
+def emit_json(name, value):
+    if value is None:
+        return
+    print(f"export {name}={shlex.quote(json.dumps(value, separators=(',', ':')))}")
+
+
 emit("OPENLAKEFORGE_STORAGE_LOGICAL_NAME", storage.get("logical_name"))
 emit("OPENLAKEFORGE_STORAGE_TYPE", storage.get("protocol"))
+emit("OPENLAKEFORGE_STORAGE_BRONZE_BUCKET", storage.get("bronze_bucket_name"))
+emit("OPENLAKEFORGE_STORAGE_SILVER_BUCKET", storage.get("silver_bucket_name"))
+emit("OPENLAKEFORGE_STORAGE_GOLD_BUCKET", storage.get("gold_bucket_name"))
 emit("OPENLAKEFORGE_STORAGE_BUCKET", storage.get("bucket_name"))
 emit("OPENLAKEFORGE_STORAGE_REGION", storage.get("region"))
 emit("OPENLAKEFORGE_STORAGE_ENDPOINT", storage.get("endpoint"))
@@ -120,6 +136,10 @@ emit("OPENLAKEFORGE_CATALOG_REST_URI", catalog.get("rest_uri"))
 emit("OPENLAKEFORGE_CATALOG_TOKEN_URI", catalog.get("token_uri"))
 emit("OPENLAKEFORGE_CATALOG_OAUTH_SCOPE", catalog.get("oauth_scope"))
 emit("OPENLAKEFORGE_CATALOG_WAREHOUSE", catalog.get("warehouse") or catalog.get("catalog_name"))
+emit("OPENLAKEFORGE_CATALOG_NAMESPACE_MODEL", catalog.get("catalog_namespace_model"))
+emit_json("OPENLAKEFORGE_CATALOG_NAMESPACES_JSON", catalog.get("catalog_namespaces"))
+emit_json("OPENLAKEFORGE_CATALOG_SILVER_NAMESPACES_JSON", catalog.get("silver_namespaces"))
+emit_json("OPENLAKEFORGE_CATALOG_GOLD_NAMESPACES_JSON", catalog.get("gold_namespaces"))
 emit("OPENLAKEFORGE_CATALOG_SILVER_NAMESPACE", catalog.get("silver_namespace"))
 emit("OPENLAKEFORGE_CATALOG_GOLD_NAMESPACE", catalog.get("gold_namespace"))
 emit("OPENLAKEFORGE_CATALOG_FLOE_CREDENTIALS_SECRET_NAME", catalog.get("floe_credentials_secret_name"))

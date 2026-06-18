@@ -4,7 +4,7 @@ sales_customer_health:
     local:
       type: duckdb
       path: "{{ env_var('OPENLAKEFORGE_DBT_DUCKDB_PATH', '/tmp/openlakeforge-sales-customer-health-dbt.duckdb') }}"
-      schema: "{{ env_var('OPENLAKEFORGE_DBT_SCHEMA', 'gold') }}"
+      schema: sales_customer_health_gold
       threads: 1
       extensions:
         - httpfs
@@ -13,7 +13,7 @@ sales_customer_health:
     local_runtime:
       type: duckdb
       path: "{{ env_var('OPENLAKEFORGE_DBT_DUCKDB_PATH', '/tmp/openlakeforge-sales-customer-health-dbt.duckdb') }}"
-      schema: "{{ env_var('OPENLAKEFORGE_DBT_SCHEMA', 'gold') }}"
+      schema: sales_customer_health_gold
       threads: 1
       extensions:
         - httpfs

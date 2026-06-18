@@ -165,7 +165,6 @@ def _ensure_dbt_manifest(spec: ProductDefinitionSpec) -> Path:
     env.setdefault("OPENLAKEFORGE_CATALOG_OAUTH_SCOPE", "PRINCIPAL_ROLE:ALL")
     env.setdefault("OPENLAKEFORGE_CATALOG_DBT_CLIENT_ID", "openlakeforge-dbt")
     env.setdefault("OPENLAKEFORGE_CATALOG_DBT_CLIENT_SECRET", "openlakeforge-dbt")
-    env.setdefault("OPENLAKEFORGE_CATALOG_SILVER_NAMESPACE", "silver")
 
     subprocess.run(
         [

@@ -1,7 +1,7 @@
 table_name: mart_inventory_position
 main_dttm_col: snapshot_date
 description: Latest inventory position and reorder status by product and warehouse.
-schema: gold
+schema: supply_chain_inventory_reliability_gold
 uuid: 4d13cf4f-36f3-58b7-9608-e9da2ed26d1b
 metrics:
   - metric_name: sum__available_units
