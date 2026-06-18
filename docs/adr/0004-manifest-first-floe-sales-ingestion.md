@@ -22,11 +22,18 @@ Sales owns raw examples, dlt extract code, Floe contracts, generated Floe
 manifests, and Dagster definitions under `domains/sales`.
 
 The project-code image contains Dagster code, `dagster-floe`, dlt code, domain
-code, and the generated Sales Floe manifest used to load the Dagster asset
-graph. It does not install the Floe CLI. Local developer workflows run
-`floe manifest generate` before building the image. Local/CD artifact upload
-publishes the same generated Sales manifest to the SeaweedFS code bucket for the
-separate Kubernetes runner using `ghcr.io/malon64/floe:0.5.4`.
+code, and generated product Floe manifests used to load the Dagster asset graph.
+It does not install the Floe CLI. Local developer workflows run
+`floe manifest generate` before building the image so Dagster definitions load
+from the manifest baked into the project-code image.
+
+Kubernetes Floe execution uses explicit remote manifest access:
+`OPENLAKEFORGE_FLOE_MANIFEST_ACCESS_MODE=remote`. Local/CD artifact upload
+publishes the same generated product manifests to the SeaweedFS code bucket, and
+Dagster passes those `s3://...` manifest URIs to the separate
+`ghcr.io/malon64/floe:0.5.4` runner pods. `local` manifest access is reserved
+for same-container local-process execution because the separate runner image
+cannot read the project-code image filesystem.
 
 Polaris owns separate service principals for Trino and Floe. Floe credentials
 are stored in `polaris-floe-creds`.
@@ -39,10 +46,11 @@ as `sales_order_revenue_pipeline`, `sales_customer_health_pipeline`, and
 ## Consequences
 
 - Dagster parses a generated Floe manifest instead of Floe YAML at runtime.
-- Dagster loads product Floe asset graphs from manifests baked into the
+- Dagster loads product Floe asset graphs from local manifests baked into the
   project-code image.
 - The separate Floe runner expects the same product manifests under
   `s3://openlakeforge-code/floe/<domain>/<product>/<product>.manifest.json`.
+- Remote manifest mode fails fast if a product URI cannot be resolved.
 - Floe execution is isolated in Kubernetes jobs from the Floe runner image.
 - Artifact publication is a CD concern and is not modeled as a Terraform
   resource.

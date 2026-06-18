@@ -73,6 +73,17 @@ variable "floe_manifest_base_uri" {
   type        = string
 }
 
+variable "floe_manifest_access_mode" {
+  description = "How Floe runner pods access generated manifests. Use remote for Kubernetes runner pods and local only for same-container local-process execution."
+  type        = string
+  default     = "remote"
+
+  validation {
+    condition     = contains(["remote", "local"], var.floe_manifest_access_mode)
+    error_message = "floe_manifest_access_mode must be either remote or local."
+  }
+}
+
 variable "floe_manifest_revision" {
   description = "Content revision of generated product Floe manifests used to force Dagster code-server rollouts."
   type        = string

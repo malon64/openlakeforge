@@ -41,6 +41,7 @@ set_default_contract_env() {
   export OPENLAKEFORGE_CATALOG_DBT_CLIENT_SECRET_KEY="${OPENLAKEFORGE_CATALOG_DBT_CLIENT_SECRET_KEY:-POLARIS_DBT_CLIENT_SECRET}"
 
   export OPENLAKEFORGE_ARTIFACT_BUCKET_NAME="${OPENLAKEFORGE_ARTIFACT_BUCKET_NAME:-openlakeforge-code}"
+  export OPENLAKEFORGE_FLOE_MANIFEST_ACCESS_MODE="${OPENLAKEFORGE_FLOE_MANIFEST_ACCESS_MODE:-remote}"
   export OPENLAKEFORGE_FLOE_MANIFEST_BASE_URI="${OPENLAKEFORGE_FLOE_MANIFEST_BASE_URI:-s3://openlakeforge-code/floe}"
   export OPENLAKEFORGE_ARTIFACT_LOCAL_UPLOAD_ACCESS_MODE="${OPENLAKEFORGE_ARTIFACT_LOCAL_UPLOAD_ACCESS_MODE:-kubectl-port-forward}"
   export OPENLAKEFORGE_QUERY_TRINO_HOST="${OPENLAKEFORGE_QUERY_TRINO_HOST:-trino}"
@@ -129,6 +130,7 @@ emit("OPENLAKEFORGE_CATALOG_DBT_CLIENT_ID_KEY", catalog.get("dbt_client_id_key")
 emit("OPENLAKEFORGE_CATALOG_DBT_CLIENT_SECRET_KEY", catalog.get("dbt_client_secret_key"))
 
 emit("OPENLAKEFORGE_ARTIFACT_BUCKET_NAME", artifact_bucket.get("bucket_name") or artifact_bucket.get("code_bucket_name"))
+emit("OPENLAKEFORGE_FLOE_MANIFEST_ACCESS_MODE", artifact_bucket.get("access_mode") or artifact_bucket.get("floe_manifest_access_mode"))
 emit("OPENLAKEFORGE_FLOE_MANIFEST_BASE_URI", artifact_bucket.get("base_uri") or artifact_bucket.get("floe_manifest_base_uri"))
 emit("OPENLAKEFORGE_ARTIFACT_LOCAL_UPLOAD_ACCESS_MODE", artifact_bucket.get("local_upload_access_mode"))
 emit("OPENLAKEFORGE_KUBE_NAMESPACE", platform.get("namespace"))

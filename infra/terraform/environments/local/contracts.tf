@@ -147,6 +147,7 @@ locals {
     runner                    = "kubernetes-run-launcher"
     project_code_image        = "${var.project_code_image_repository}:${var.project_code_image_tag}"
     project_code_image_policy = var.project_code_image_pull_policy
+    floe_manifest_access_mode = "remote"
     floe_manifest_base_uri    = local.floe_manifest_base_uri
     supported_catalogs        = ["rest"]
     active_catalog_type       = local.catalog_contract.catalog_type
@@ -178,6 +179,7 @@ locals {
     adapter                  = "artifacts.local_s3_compatible_bucket"
     logical_name             = "floe_manifests"
     bucket_name              = var.code_bucket_name
+    access_mode              = "remote"
     base_uri                 = local.floe_manifest_base_uri
     manifest_uris            = local.product_floe_manifest_uris
     distribution_mode        = "s3-compatible-upload"
@@ -193,6 +195,7 @@ locals {
   artifact_contract = merge(local.artifact_registry_contract, {
     implementation             = "artifacts.local_kind_and_s3"
     adapter                    = "artifacts.local_kind_and_s3"
+    floe_manifest_access_mode  = local.artifact_bucket_contract.access_mode
     floe_manifest_base_uri     = local.artifact_bucket_contract.base_uri
     floe_manifest_uris         = local.artifact_bucket_contract.manifest_uris
     floe_manifest_distribution = local.artifact_bucket_contract.distribution_mode

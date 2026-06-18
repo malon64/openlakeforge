@@ -69,10 +69,10 @@ if ! kubectl cluster-info --context "${KUBE_CONTEXT}" >/dev/null 2>&1; then
 fi
 kubectl config use-context "${KUBE_CONTEXT}" >/dev/null
 
-prepare_local_project_code_image
-
 echo "==> Generating local product Floe manifests for namespace '${NAMESPACE}'..."
 NAMESPACE="${NAMESPACE}" bash "${SCRIPT_DIR}/../artifacts/floe-manifest.sh"
+
+prepare_local_project_code_image
 
 echo "==> Publishing product Floe manifests to local code bucket..."
 NAMESPACE="${NAMESPACE}" bash "${SCRIPT_DIR}/../artifacts/upload-floe-manifest.sh"

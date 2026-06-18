@@ -47,6 +47,10 @@ locals {
 
   artifact_env = [
     {
+      name  = "OPENLAKEFORGE_FLOE_MANIFEST_ACCESS_MODE"
+      value = var.floe_manifest_access_mode
+    },
+    {
       name  = "OPENLAKEFORGE_FLOE_MANIFEST_BASE_URI"
       value = var.floe_manifest_base_uri
     },

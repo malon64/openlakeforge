@@ -9,7 +9,7 @@ The image is built locally as:
 ghcr.io/openlakeforge/project-code:local
 ```
 
-Build and load it into kind with:
+Generate the Floe manifests, then build and load the image into kind with:
 
 ```bash
 make floe-manifest
@@ -22,7 +22,13 @@ product Floe contracts, generated product Floe manifests, product dbt projects,
 domain Python code, and shared OpenLakeForge libraries. It intentionally does
 not install the Floe CLI.
 `make floe-manifest` generates the product manifests locally, bakes them into
-this image for Dagster asset loading, publishes them to SeaweedFS outside
-Terraform for the separate runner pod, then Dagster uses `dagster-floe` to
-launch Floe Kubernetes jobs from the
-manifest-declared `ghcr.io/malon64/floe:0.5.4` runner image.
+this image for Dagster asset loading, and publishes the same files to SeaweedFS
+outside Terraform for separate runner pods.
+
+Dagster uses `dagster-floe` in remote manifest mode for Kubernetes:
+`OPENLAKEFORGE_FLOE_MANIFEST_ACCESS_MODE=remote`. The Dagster code server reads
+the local manifest from this image to build deterministic asset definitions,
+while the manifest-declared `ghcr.io/malon64/floe:0.5.4` runner image receives
+the corresponding `s3://openlakeforge-code/floe/...` manifest URI at runtime.
+`local` manifest mode is only valid when Floe runs in the same container as
+Dagster.

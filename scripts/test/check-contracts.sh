@@ -94,6 +94,11 @@ if re.search(r'implementation\s*=\s*"storage\.azure_', azure_text):
     errors.append(f"{azure_contracts_tf}: Azure Blob/ADLS must remain a future adapter, not the active POC storage implementation")
 if 'local_upload_access_mode = "kubectl-port-forward"' not in azure_text:
     errors.append(f"{azure_contracts_tf}: Azure POC artifact bucket must keep kubectl port-forward upload mode")
+for contracts_path, contracts_body in [(contracts_tf, text), (azure_contracts_tf, azure_text)]:
+    if 'floe_manifest_access_mode = "remote"' not in contracts_body:
+        errors.append(f"{contracts_path}: orchestration contract must set remote Floe manifest access")
+    if 'access_mode              = "remote"' not in contracts_body:
+        errors.append(f"{contracts_path}: artifact bucket contract must expose remote Floe manifest access")
 
 required_checks = [
     'check "foundation_contract_matches_platform_context"',
@@ -168,6 +173,13 @@ for path in [
 
 azure_artifact_script = Path("scripts/azure/stack/deploy-artifacts.sh")
 azure_artifact_body = azure_artifact_script.read_text()
+local_artifact_script = Path("scripts/local/stack/deploy-artifacts.sh")
+local_artifact_body = local_artifact_script.read_text()
+local_image_call = re.search(r"^prepare_local_project_code_image$", local_artifact_body, re.MULTILINE)
+if local_image_call is None:
+    errors.append(f"{local_artifact_script}: must call prepare_local_project_code_image")
+elif local_artifact_body.find("floe-manifest.sh") > local_image_call.start():
+    errors.append(f"{local_artifact_script}: must generate Floe manifests before building/loading the project-code image")
 if "infra/terraform/environments/azure-poc" not in azure_artifact_body:
     errors.append(f"{azure_artifact_script}: must default runtime contracts to the Azure POC Terraform root")
 if "OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR" not in azure_artifact_body:

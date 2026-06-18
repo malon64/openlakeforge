@@ -92,11 +92,15 @@ fi
 
 echo "==> Loading aggregate Dagster product definitions"
 PATH="${site_dir}/bin:${PATH}" PYTHONPATH="${site_dir}:${PWD}" "${PYTHON_BIN}" - <<'PY'
+import os
 from pathlib import Path
 
 from dagster import AssetKey
 from dagster._core.workspace.autodiscovery import loadable_targets_from_python_module
 from floe_dagster.manifest import load_manifest
+
+os.environ.setdefault("OPENLAKEFORGE_FLOE_MANIFEST_ACCESS_MODE", "remote")
+os.environ.setdefault("OPENLAKEFORGE_FLOE_MANIFEST_BASE_URI", "s3://openlakeforge-code/floe")
 
 from domains.definitions import defs
 from domains.sales.extract.dlt.customer_health import CUSTOMER_HEALTH_ENTITIES
@@ -107,6 +111,8 @@ from domains.supply_chain.extract.dlt.inventory_reliability import (
 
 PRODUCTS = [
     {
+        "domain": "sales",
+        "product": "order_revenue",
         "prefix": "sales_order_revenue",
         "job": "sales_order_revenue_pipeline",
         "manifest": Path("domains/sales/contracts/floe/manifests/order_revenue.manifest.json"),
@@ -118,6 +124,8 @@ PRODUCTS = [
         },
     },
     {
+        "domain": "sales",
+        "product": "customer_health",
         "prefix": "sales_customer_health",
         "job": "sales_customer_health_pipeline",
         "manifest": Path("domains/sales/contracts/floe/manifests/customer_health.manifest.json"),
@@ -129,6 +137,8 @@ PRODUCTS = [
         },
     },
     {
+        "domain": "supply_chain",
+        "product": "inventory_reliability",
         "prefix": "supply_chain_inventory_reliability",
         "job": "supply_chain_inventory_reliability_pipeline",
         "manifest": Path(
@@ -142,6 +152,9 @@ PRODUCTS = [
         },
     },
 ]
+
+if os.environ["OPENLAKEFORGE_FLOE_MANIFEST_ACCESS_MODE"].strip().lower() != "remote":
+    raise SystemExit("project-code check must load Dagster definitions in remote Floe manifest mode")
 
 targets = loadable_targets_from_python_module("domains.definitions", ".")
 if len(targets) != 1:
@@ -161,6 +174,15 @@ source_asset_keys = {
 
 for product in PRODUCTS:
     prefix = product["prefix"]
+    env_key = prefix.upper()
+    base_uri = os.environ["OPENLAKEFORGE_FLOE_MANIFEST_BASE_URI"].rstrip("/")
+    remote_uri = os.environ.get(
+        f"OPENLAKEFORGE_FLOE_MANIFEST_URI_{env_key}",
+        f"{base_uri}/{product['domain']}/{product['product']}/{product['product']}.manifest.json",
+    )
+    if not remote_uri.startswith(("s3://", "gs://", "abfs://")):
+        raise SystemExit(f"{prefix} remote Floe manifest URI is not a supported remote URI")
+
     manifest = load_manifest(product["manifest"])
     if manifest.execution.base_args != [
         "run",
