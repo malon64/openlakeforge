@@ -13,6 +13,7 @@ namespace = env("NAMESPACE", env("OPENLAKEFORGE_KUBE_NAMESPACE", "lakehouse"))
 catalog_name = env("OPENLAKEFORGE_CATALOG_LOGICAL_NAME", "iceberg_catalog")
 storage_bronze_bucket = env("OPENLAKEFORGE_STORAGE_BRONZE_BUCKET", env("OPENLAKEFORGE_STORAGE_BUCKET", "lakehouse-bronze"))
 storage_silver_bucket = env("OPENLAKEFORGE_STORAGE_SILVER_BUCKET", "lakehouse-silver")
+ops_bucket = env("OPENLAKEFORGE_OPS_BUCKET_NAME", env("OPENLAKEFORGE_ARTIFACT_BUCKET_NAME", "openlakeforge-ops"))
 storage_region = env("OPENLAKEFORGE_STORAGE_REGION", "us-east-1")
 storage_endpoint = env("OPENLAKEFORGE_STORAGE_ENDPOINT", "http://seaweedfs-s3:8333")
 storage_virtual_endpoint = env(
@@ -55,6 +56,10 @@ storages:
     - name: "lakehouse_silver"
       type: "s3"
       bucket: "{storage_silver_bucket}"
+      region: "{storage_region}"
+    - name: "openlakeforge_ops"
+      type: "s3"
+      bucket: "{ops_bucket}"
       region: "{storage_region}"
 catalogs:
   default: "{catalog_name}"

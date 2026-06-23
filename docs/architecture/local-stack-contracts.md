@@ -38,7 +38,7 @@ The storage module owns:
 - the Bronze landing bucket `lakehouse-bronze` (raw CSV files, owned by ingestion)
 - the Silver Iceberg bucket `lakehouse-silver` (Floe-validated tables, owned by Floe)
 - the Gold Iceberg bucket `lakehouse-gold` (dbt business marts, owned by dbt)
-- the local code/artifact bucket `openlakeforge-code`
+- the local ops/artifact bucket `openlakeforge-ops`
 - path-style S3 access
 - region `us-east-1`
 
@@ -47,7 +47,9 @@ key references. They should not assume SeaweedFS beyond the local provider
 profile.
 
 Product Floe contracts refer to the Bronze bucket through the logical
-`lakehouse_bronze` storage alias and to the Silver bucket through `lakehouse_silver`.
+`lakehouse_bronze` storage alias, to the Silver bucket through
+`lakehouse_silver`, and to the ops bucket through `openlakeforge_ops` for Floe
+run reports.
 
 ## Metadata Database Contract
 
@@ -144,21 +146,35 @@ The orchestration module owns:
 
 - the Dagster Helm release
 - shared PostgreSQL credentials for Dagster metadata
-- the aggregate product code server loading `domains.definitions`
+- the `sales-dagster` code location loading `domains.sales.definitions`
+- the `supply-chain-dagster` code location loading `domains.supply_chain.definitions`
 - the Kubernetes run launcher
 - the local project-code image reference `ghcr.io/openlakeforge/project-code:local`
-- the product Floe manifest base URI `s3://openlakeforge-code/floe`
+- the product Floe manifest base URI `s3://openlakeforge-ops/floe/manifests`
+- S3-backed Dagster compute logs under `s3://openlakeforge-ops/logs/dagster/compute`
 
 Local development uses `make local-infra-up` for Terraform-managed platform
 resources and `make local-artifacts-deploy` for dynamic domain artifacts.
 Dagster loads the Floe asset graphs from manifests baked into the project-code
-image. Terraform provisions the code bucket and passes the remote manifest base
-URI to Dagster; the artifact deploy phase publishes generated product Floe
-manifests under that base URI so the separate Floe runner pod can read them.
+image. Terraform provisions the ops bucket and passes remote artifact base URIs
+to Dagster; the artifact deploy phase publishes generated product Floe
+manifests under `floe/manifests/` so the separate Floe runner pod can read them.
 Dagster launches Floe Kubernetes jobs from `ghcr.io/malon64/floe:0.5.4`.
 dbt-duckdb runs inside Dagster Kubernetes run pods from the project-code image
 and writes Gold Iceberg marts to each product's Gold namespace in the
 `lakehouse_dev` Polaris warehouse.
+
+## Observability Contract
+
+The local observability adapter is `observability.object_log_archive`. It does
+not deploy Loki, Grafana, Prometheus, or tracing. Dagster compute logs, Floe
+reports, dbt run artifacts, and Kubernetes pod logs are archived to
+`openlakeforge-ops` using stable prefixes:
+
+- `logs/dagster/compute/`
+- `logs/k8s/namespace=<namespace>/date=<YYYY-MM-DD>/hour=<HH>/`
+- `floe/reports/<domain>/<product>/`
+- `run-artifacts/dbt/<domain>/<product>/<dagster_run_id>/`
 
 ## Secrets, Identity, and Access Contracts
 

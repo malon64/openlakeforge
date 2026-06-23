@@ -68,14 +68,14 @@ make local-artifacts-deploy
 - Polaris catalog and Trino principal bootstrap jobs
 - Polaris Floe principal bootstrap credentials for manifest-driven Floe jobs
 - shared local PostgreSQL for Dagster, OpenMetadata, and Superset metadata
-- Dagster webserver, daemon, aggregate product code server, and Kubernetes run launcher
+- Dagster webserver, daemon, domain product code servers, and Kubernetes run launcher
 - Superset webserver, worker, reports volume, and local report deploy path
 - OpenMetadata, Polaris service metadata, and catalog ingestion plumbing
 
 `make local-artifacts-deploy` owns the local/CD artifacts:
 
 - project-code image build/load
-- product Floe manifest generation and upload to the local code bucket
+- product Floe manifest generation and upload to the local ops bucket
 - product Superset report import
 - OpenMetadata domain, data-product, Bronze, Silver, and Gold metadata from domain YAML files
 - Dagster rollout after dynamic artifacts are available
@@ -129,7 +129,7 @@ make azure-artifacts-deploy
 `make azure-infra-up` builds and pushes the custom Superset image to ACR before
 Terraform apply because the Superset Helm release waits for pods during install.
 `make azure-artifacts-deploy` generates Floe manifests, builds and pushes the
-project-code image, uploads manifests to the in-cluster SeaweedFS code bucket,
+project-code image, uploads manifests to the in-cluster SeaweedFS ops bucket,
 imports Superset reports, deploys OpenMetadata metadata, and restarts Dagster.
 
 The Azure POC keeps SeaweedFS, PostgreSQL, Polaris, and Kubernetes Secrets

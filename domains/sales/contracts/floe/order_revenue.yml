@@ -8,7 +8,7 @@ metadata:
 
 report:
   path: "floe/reports/sales/order_revenue"
-  storage: "lakehouse_silver"
+  storage: "openlakeforge_ops"
 
 entities:
   - name: "orders"

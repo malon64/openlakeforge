@@ -32,7 +32,7 @@ help:
 	@printf '%s\n' '  make check-project-code  Validate the project-code Dagster package'
 	@printf '%s\n' '  make check-dbt        Validate all product dbt-duckdb projects'
 	@printf '%s\n' '  make floe-manifest   Generate product Floe Dagster manifests'
-	@printf '%s\n' '  make floe-manifest-upload  Upload product Floe manifests to the local code bucket'
+	@printf '%s\n' '  make floe-manifest-upload  Upload product Floe manifests to the local ops bucket'
 	@printf '%s\n' '  make dbt-parse       Generate product dbt manifests'
 	@printf '%s\n' '  make superset-reports-deploy  Deploy product Superset report assets'
 	@printf '%s\n' '  make superset-reports-export  Export edited Superset report assets'

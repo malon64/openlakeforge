@@ -29,6 +29,6 @@ Dagster uses `dagster-floe` in remote manifest mode for Kubernetes:
 `OPENLAKEFORGE_FLOE_MANIFEST_ACCESS_MODE=remote`. The Dagster code server reads
 the local manifest from this image to build deterministic asset definitions,
 while the manifest-declared `ghcr.io/malon64/floe:0.5.4` runner image receives
-the corresponding `s3://openlakeforge-code/floe/...` manifest URI at runtime.
+the corresponding `s3://openlakeforge-ops/floe/manifests/...` manifest URI at runtime.
 `local` manifest mode is only valid when Floe runs in the same container as
 Dagster.

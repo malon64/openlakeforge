@@ -113,6 +113,11 @@ patch_deployment_image_if_exists() {
   kubectl set image "deployment/${deployment}" "*=${PROJECT_CODE_IMAGE}" -n "${NAMESPACE}"
 }
 
+discover_dagster_user_deployments() {
+  kubectl get deployments -n "${NAMESPACE}" -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' \
+    | grep -E 'dagster-user-deployments-.+-dagster$' || true
+}
+
 restart_if_exists() {
   local deployment="$1"
 
@@ -129,19 +134,23 @@ update_dagster_project_code_image() {
   patch_dagster_instance_configmap
   patch_deployment_image_if_exists "dagster-dagster-webserver"
   patch_deployment_image_if_exists "dagster-dagster-daemon"
-  patch_deployment_image_if_exists "dagster-dagster-user-deployments-openlakeforge-dagster"
   patch_deployment_image_if_exists "dagster-webserver"
   patch_deployment_image_if_exists "dagster-daemon"
-  patch_deployment_image_if_exists "dagster-user-deployments-openlakeforge-dagster"
+
+  while IFS= read -r deployment; do
+    patch_deployment_image_if_exists "${deployment}"
+  done < <(discover_dagster_user_deployments)
 }
 
 restart_dagster_project_code_deployments() {
   restart_if_exists "dagster-dagster-webserver"
   restart_if_exists "dagster-dagster-daemon"
-  restart_if_exists "dagster-dagster-user-deployments-openlakeforge-dagster"
   restart_if_exists "dagster-webserver"
   restart_if_exists "dagster-daemon"
-  restart_if_exists "dagster-user-deployments-openlakeforge-dagster"
+
+  while IFS= read -r deployment; do
+    restart_if_exists "${deployment}"
+  done < <(discover_dagster_user_deployments)
 }
 
 for cmd in az docker kubectl python3 terraform; do
@@ -164,7 +173,7 @@ PROJECT_CODE_IMAGE_REPOSITORY="${PROJECT_CODE_IMAGE_REPOSITORY}" \
 PROJECT_CODE_IMAGE_TAG="${PROJECT_CODE_IMAGE_TAG}" \
   bash "${SCRIPT_DIR}/../images/build-push-project-code.sh"
 
-echo "==> Publishing product Floe manifests to the Azure POC SeaweedFS code bucket..."
+echo "==> Publishing product Floe manifests to the Azure POC SeaweedFS ops bucket..."
 NAMESPACE="${NAMESPACE}" \
 OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR="${CONTRACT_TERRAFORM_DIR}" \
   bash "${REPO_ROOT}/scripts/local/artifacts/upload-floe-manifest.sh"

@@ -46,10 +46,10 @@ variable "gold_bucket_name" {
   default     = "lakehouse-gold"
 }
 
-variable "code_bucket_name" {
-  description = "S3 bucket used for local code and orchestration artifacts."
+variable "ops_bucket_name" {
+  description = "S3 bucket used for local operational artifacts: manifests, logs, reports, and run artifacts."
   type        = string
-  default     = "openlakeforge-code"
+  default     = "openlakeforge-ops"
 }
 
 variable "s3_region" {

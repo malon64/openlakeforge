@@ -15,6 +15,10 @@ storages:
       type: "s3"
       bucket: "lakehouse-silver"
       region: "us-east-1"
+    - name: "openlakeforge_ops"
+      type: "s3"
+      bucket: "openlakeforge-ops"
+      region: "us-east-1"
 catalogs:
   default: "iceberg_catalog"
   definitions:

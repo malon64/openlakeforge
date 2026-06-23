@@ -56,16 +56,22 @@ variable "project_code_image_revision" {
   default     = "manual"
 }
 
-variable "code_location_name" {
-  description = "Dagster user-code deployment and code location name."
-  type        = string
-  default     = "openlakeforge-dagster"
-}
-
-variable "definitions_module" {
-  description = "Python module exposing Dagster Definitions."
-  type        = string
-  default     = "domains.definitions"
+variable "code_locations" {
+  description = "Dagster user-code deployments and Python modules exposing domain-scoped Definitions."
+  type = list(object({
+    name               = string
+    definitions_module = string
+  }))
+  default = [
+    {
+      name               = "sales-dagster"
+      definitions_module = "domains.sales.definitions"
+    },
+    {
+      name               = "supply-chain-dagster"
+      definitions_module = "domains.supply_chain.definitions"
+    },
+  ]
 }
 
 variable "floe_manifest_base_uri" {
@@ -88,6 +94,37 @@ variable "floe_manifest_revision" {
   description = "Content revision of generated product Floe manifests used to force Dagster code-server rollouts."
   type        = string
   default     = "manual"
+}
+
+variable "artifact_bucket_name" {
+  description = "S3-compatible operational artifact bucket used for manifests, logs, reports, and run artifacts."
+  type        = string
+}
+
+variable "artifact_base_uri" {
+  description = "S3 base URI of the operational artifact bucket."
+  type        = string
+}
+
+variable "floe_report_base_uri" {
+  description = "S3 base URI where Floe run reports are written."
+  type        = string
+}
+
+variable "log_base_uri" {
+  description = "S3 base URI where platform logs are archived."
+  type        = string
+}
+
+variable "run_artifact_base_uri" {
+  description = "S3 base URI where tool run artifacts are archived."
+  type        = string
+}
+
+variable "kubernetes_log_archive_schedule" {
+  description = "Cron schedule for archiving Kubernetes pod logs to the artifact bucket."
+  type        = string
+  default     = "*/15 * * * *"
 }
 
 variable "storage_contract" {

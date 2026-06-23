@@ -60,6 +60,7 @@ required_adapters = [
     "metadata_database.postgresql.in_cluster",
     "secrets.kubernetes_secret",
     "artifacts.local_kind_and_s3",
+    "observability.object_log_archive",
     "storage.aws_s3",
     "catalog.aws_glue",
     "metadata_database.aws_rds_postgresql",
@@ -80,6 +81,7 @@ required_azure_adapters = [
     "identity.azure_workload_identity_ready",
     "artifacts.azure_acr",
     "artifacts.azure_acr_and_s3_compatible_bucket",
+    "observability.object_log_archive_on_aks",
     "access.kubectl_port_forward",
     "storage.azure_blob_or_adls_gen2",
     "catalog.polaris_with_azure_storage",
@@ -103,6 +105,27 @@ for contracts_path, contracts_body in [(contracts_tf, text), (azure_contracts_tf
         errors.append(f"{contracts_path}: orchestration contract must set remote Floe manifest access")
     if 'access_mode              = "remote"' not in contracts_body:
         errors.append(f"{contracts_path}: artifact bucket contract must expose remote Floe manifest access")
+    if 'bucket_name              = var.ops_bucket_name' not in contracts_body:
+        errors.append(f"{contracts_path}: artifact bucket contract must use ops_bucket_name")
+    for required in [
+        "artifact_base_uri",
+        "floe_manifest_base_uri",
+        "floe_report_base_uri",
+        "log_base_uri",
+        "run_artifact_base_uri",
+        "ops_artifacts",
+        "s3-compatible-object-archive",
+    ]:
+        if required not in contracts_body:
+            errors.append(f"{contracts_path}: missing ops artifact/observability field {required}")
+    for required_location in [
+        'name               = "sales-dagster"',
+        'definitions_module = "domains.sales.definitions"',
+        'name               = "supply-chain-dagster"',
+        'definitions_module = "domains.supply_chain.definitions"',
+    ]:
+        if required_location not in contracts_body:
+            errors.append(f"{contracts_path}: missing domain Dagster code location {required_location}")
     for required in [
         "catalog_namespace_model",
         "catalog_namespaces",
@@ -141,6 +164,10 @@ for main_path, main_body in [(local_main_tf, local_main_text), (azure_main_tf, a
         for namespace in namespace_pair.values():
             if namespace not in main_body:
                 errors.append(f"{main_path}: missing product catalog namespace {namespace}")
+    if "ops_bucket_name" not in main_body or "floe/manifests" not in main_body:
+        errors.append(f"{main_path}: must use the ops artifact bucket and floe/manifests prefix")
+    if "var.code_bucket_name" in main_body:
+        errors.append(f"{main_path}: must not use legacy code_bucket_name")
 
 required_checks = [
     'check "foundation_contract_matches_platform_context"',
@@ -187,7 +214,12 @@ for path in sorted(Path("domains").glob("*/contracts/floe/*.yml")):
     if 'storage: "lakehouse_bronze"' not in body:
         errors.append(f"{path}: no logical lakehouse_bronze source reference found")
     if 'storage: "lakehouse_silver"' not in body:
-        errors.append(f"{path}: no logical lakehouse_silver sink/report reference found")
+        errors.append(f"{path}: no logical lakehouse_silver sink reference found")
+    report_block = body.split("entities:", 1)[0]
+    if 'storage: "openlakeforge_ops"' not in report_block:
+        errors.append(f"{path}: Floe report storage must use openlakeforge_ops")
+    if 'storage: "lakehouse_silver"' in report_block:
+        errors.append(f"{path}: Floe report storage must not use lakehouse_silver")
 
 for path in sorted(Path("domains").glob("*/transformations/dbt/*/profiles.yml")):
     body = path.read_text()
@@ -245,6 +277,27 @@ for path in [
     if "scripts/local/contracts/load-runtime-env.sh" not in body:
         errors.append(f"{path}: must source the runtime contract environment")
 
+dagster_values = Path("infra/helm/values/local/dagster.yaml").read_text()
+for required in [
+    "S3ComputeLogManager",
+    "openlakeforge-ops",
+    "logs/dagster/compute",
+]:
+    if required not in dagster_values:
+        errors.append(f"infra/helm/values/local/dagster.yaml: missing S3 compute log setting {required}")
+
+dagster_module = Path("infra/terraform/modules/orchestration/dagster/main.tf").read_text()
+for required in [
+    "S3ComputeLogManager",
+    "kubernetes_cron_job_v1",
+    "openlakeforge-k8s-log-archive",
+    "local.code_location_deployments",
+    "OPENLAKEFORGE_FLOE_REPORT_BASE_URI",
+    "OPENLAKEFORGE_RUN_ARTIFACT_BASE_URI",
+]:
+    if required not in dagster_module:
+        errors.append(f"infra/terraform/modules/orchestration/dagster/main.tf: missing {required}")
+
 openmetadata_metadata_script = Path("scripts/local/artifacts/openmetadata-metadata-deploy.sh")
 openmetadata_metadata_body = openmetadata_metadata_script.read_text()
 for required in [
@@ -283,6 +336,11 @@ if "kubectl set image" not in azure_artifact_body or "*=${PROJECT_CODE_IMAGE}" n
     errors.append(f"{azure_artifact_script}: must patch Dagster deployment images before rollout restart")
 if "dagster-instance" not in azure_artifact_body or "job_image:" not in azure_artifact_body:
     errors.append(f"{azure_artifact_script}: must patch Dagster run launcher job_image before rollout restart")
+for path, body in [(local_artifact_script, local_artifact_body), (azure_artifact_script, azure_artifact_body)]:
+    if "dagster-user-deployments-.+-dagster" not in body:
+        errors.append(f"{path}: must discover domain Dagster user deployments instead of hardcoding names")
+if "floe/manifests/%s/%s/%s.manifest.json" not in Path("scripts/local/artifacts/upload-floe-manifest.sh").read_text():
+    errors.append("scripts/local/artifacts/upload-floe-manifest.sh: must upload manifests under floe/manifests")
 
 with tempfile.NamedTemporaryFile("w+", encoding="utf-8") as handle:
     subprocess.run(
@@ -297,13 +355,22 @@ if 'default: "iceberg_catalog"' not in profile:
     errors.append("rendered Floe profile must use logical catalog iceberg_catalog")
 if 'default: "lakehouse_bronze"' not in profile:
     errors.append("rendered Floe profile must default to logical storage lakehouse_bronze")
-for storage_alias in ['name: "lakehouse_bronze"', 'name: "lakehouse_silver"']:
+for storage_alias in ['name: "lakehouse_bronze"', 'name: "lakehouse_silver"', 'name: "openlakeforge_ops"']:
     if storage_alias not in profile:
         errors.append(f"rendered Floe profile must define logical storage {storage_alias}")
 if "${OPENLAKEFORGE_CATALOG_FLOE_CLIENT_ID}" not in profile:
     errors.append("rendered Floe profile must use generic Floe catalog client env vars")
 if "POLARIS_FLOE_CLIENT_ID" in profile.split("secrets:", 1)[0]:
     errors.append("rendered Floe profile catalog credential must not use POLARIS_* env vars")
+
+tracked_files = subprocess.check_output(["git", "ls-files"], text=True).splitlines()
+legacy_bucket = "openlakeforge-" + "code"
+for tracked_file in tracked_files:
+    path = Path(tracked_file)
+    if not path.is_file():
+        continue
+    if legacy_bucket in path.read_text(errors="ignore"):
+        errors.append(f"{path}: must not reference the legacy ops bucket name")
 
 if errors:
     for error in errors:

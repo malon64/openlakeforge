@@ -44,3 +44,7 @@ AWS provider profile to use Glue instead of self-hosted Polaris.
 `0012-contract-driven-provider-first-hardening.md` records the decision to make
 Terraform typed contracts the provider boundary source of truth while keeping
 the current v1 services as the implemented solution stack.
+
+`0014-ops-artifact-bucket-and-domain-dagster-locations.md` records the
+`openlakeforge-ops` artifact bucket rename, object-backed log/report archive,
+and per-domain Dagster code locations.

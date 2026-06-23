@@ -75,10 +75,11 @@ ghcr.io/openlakeforge/project-code:<tag>
 
 It contains Dagster code, `dagster-floe`, product Floe contracts, generated
 product Floe manifests, dlt extract code, domain Python code, and shared
-OpenLakeForge libraries. Terraform provisions the local SeaweedFS code bucket
-and passes the runner-facing Floe manifest base URI to Dagster; manifest
-publication for the separate Floe runner pod is handled by local/CD artifact
-upload.
+OpenLakeForge libraries. Terraform provisions the local SeaweedFS ops bucket
+`openlakeforge-ops` and passes runner-facing artifact URIs to Dagster. Floe
+manifests are published under `s3://openlakeforge-ops/floe/manifests`, Floe
+reports under `s3://openlakeforge-ops/floe/reports`, and logs/run artifacts
+under `logs/` and `run-artifacts/`.
 
 Superset report assets are also treated as dynamic product artifacts. Their
 source lives under `domains/<domain>/reports/superset/<product>/`;

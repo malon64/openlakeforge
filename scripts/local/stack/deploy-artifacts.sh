@@ -51,12 +51,15 @@ restart_if_exists() {
 restart_dagster_project_code_deployments() {
   restart_if_exists "dagster-dagster-webserver"
   restart_if_exists "dagster-dagster-daemon"
-  restart_if_exists "dagster-dagster-user-deployments-openlakeforge-dagster"
-  restart_if_exists "dagster-dagster-user-deployments-sales-dagster"
   restart_if_exists "dagster-webserver"
   restart_if_exists "dagster-daemon"
-  restart_if_exists "dagster-user-deployments-openlakeforge-dagster"
-  restart_if_exists "dagster-user-deployments-sales-dagster"
+
+  while IFS= read -r deployment; do
+    restart_if_exists "${deployment}"
+  done < <(
+    kubectl get deployments -n "${NAMESPACE}" -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' \
+      | grep -E 'dagster-user-deployments-.+-dagster$' || true
+  )
 }
 
 require_cmd kubectl
@@ -74,7 +77,7 @@ NAMESPACE="${NAMESPACE}" bash "${SCRIPT_DIR}/../artifacts/floe-manifest.sh"
 
 prepare_local_project_code_image
 
-echo "==> Publishing product Floe manifests to local code bucket..."
+echo "==> Publishing product Floe manifests to local ops bucket..."
 NAMESPACE="${NAMESPACE}" bash "${SCRIPT_DIR}/../artifacts/upload-floe-manifest.sh"
 
 echo "==> Deploying product Superset report assets..."

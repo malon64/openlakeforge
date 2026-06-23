@@ -9,6 +9,11 @@ output "webserver_port" {
 }
 
 output "code_location_name" {
-  description = "Dagster code location name."
-  value       = var.code_location_name
+  description = "First Dagster code location name. Kept for compatibility with older scripts."
+  value       = var.code_locations[0].name
+}
+
+output "code_location_names" {
+  description = "Dagster code location names."
+  value       = [for location in var.code_locations : location.name]
 }
