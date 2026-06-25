@@ -31,17 +31,8 @@ PY
 PYTHON_BIN="$(select_python)"
 
 CACHE_ROOT="${PROJECT_CODE_CHECK_CACHE_DIR:-.cache/project-code-check}"
-python_tag="$("${PYTHON_BIN}" - <<'PY'
-import sys
-print(f"py{sys.version_info.major}{sys.version_info.minor}")
-PY
-)"
-pyproject_hash="$("${PYTHON_BIN}" - <<'PY'
-import hashlib
-from pathlib import Path
-print(hashlib.sha256(Path("images/project-code/pyproject.toml").read_bytes()).hexdigest()[:16])
-PY
-)"
+python_tag="$("${PYTHON_BIN}" -c 'import sys; print(f"py{sys.version_info.major}{sys.version_info.minor}")')"
+pyproject_hash="$("${PYTHON_BIN}" -c 'import hashlib, pathlib; print(hashlib.sha256(pathlib.Path("images/project-code/pyproject.toml").read_bytes()).hexdigest()[:16])')"
 site_dir="${CACHE_ROOT}/${python_tag}-${pyproject_hash}/site"
 stamp_path="${CACHE_ROOT}/${python_tag}-${pyproject_hash}/.complete"
 
@@ -52,7 +43,7 @@ if [[ ! -f "${stamp_path}" ]]; then
   dependencies=()
   while IFS= read -r dependency; do
     dependencies+=("${dependency}")
-  done < <("${PYTHON_BIN}" - <<'PY'
+  done < <("${PYTHON_BIN}" -c '
 import ast
 from pathlib import Path
 
@@ -75,8 +66,7 @@ if not dependencies:
 
 for dependency in dependencies:
     print(dependency)
-PY
-  )
+')
 
   echo "==> Installing project-code dependencies into ${site_dir}"
   PYTHONDONTWRITEBYTECODE=1 "${PYTHON_BIN}" -m pip install \

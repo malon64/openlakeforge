@@ -54,16 +54,16 @@ locals {
 
   rest_iceberg_catalog = <<-CATALOG
     # openlakeforge.catalog-provider=${coalesce(try(var.catalog_contract.catalog_provider, null), "polaris")}
-    # openlakeforge.polaris-bootstrap-run=${coalesce(try(var.catalog_contract.bootstrap_run_id, null), "")}
+    # openlakeforge.polaris-bootstrap-run=${(try(var.catalog_contract.bootstrap_run_id, null) == null ? "" : try(var.catalog_contract.bootstrap_run_id, null))}
     # openlakeforge.polaris-bootstrap-revision=${var.catalog_bootstrap_revision}
     connector.name=iceberg
     iceberg.catalog.type=rest
-    iceberg.rest-catalog.uri=${coalesce(try(var.catalog_contract.rest_uri, null), "")}
-    iceberg.rest-catalog.warehouse=${coalesce(try(var.catalog_contract.warehouse, null), "")}
+    iceberg.rest-catalog.uri=${(try(var.catalog_contract.rest_uri, null) == null ? "" : try(var.catalog_contract.rest_uri, null))}
+    iceberg.rest-catalog.warehouse=${(try(var.catalog_contract.warehouse, null) == null ? "" : try(var.catalog_contract.warehouse, null))}
     iceberg.rest-catalog.security=OAUTH2
     iceberg.rest-catalog.oauth2.credential=$${ENV:OPENLAKEFORGE_CATALOG_TRINO_CLIENT_ID}:$${ENV:OPENLAKEFORGE_CATALOG_TRINO_CLIENT_SECRET}
-    iceberg.rest-catalog.oauth2.server-uri=${coalesce(try(var.catalog_contract.token_uri, null), "")}
-    iceberg.rest-catalog.oauth2.scope=${coalesce(try(var.catalog_contract.oauth_scope, null), "")}
+    iceberg.rest-catalog.oauth2.server-uri=${(try(var.catalog_contract.token_uri, null) == null ? "" : try(var.catalog_contract.token_uri, null))}
+    iceberg.rest-catalog.oauth2.scope=${(try(var.catalog_contract.oauth_scope, null) == null ? "" : try(var.catalog_contract.oauth_scope, null))}
     iceberg.rest-catalog.vended-credentials-enabled=false
     iceberg.rest-catalog.nested-namespace-enabled=true
     ${local.s3_catalog_properties}

@@ -11,6 +11,11 @@ NAMESPACE="${NAMESPACE:-lakehouse}"
 AWS_CLUSTER_NAME="${AWS_CLUSTER_NAME:-eks-openlakeforge-poc}"
 KUBE_CONTEXT="${KUBE_CONTEXT:-}"
 
+# Account-mandated tags live in a .tfvars file rather than variable defaults.
+TFVARS_FILE="${AWS_TFVARS_FILE:-${TERRAFORM_DIR}/sandbox.tfvars}"
+TFVARS_ARGS=()
+[[ -f "${TFVARS_FILE}" ]] && TFVARS_ARGS+=(-var-file="${TFVARS_FILE}")
+
 check_prereqs() {
   local missing=0
   for cmd in aws kubectl terraform; do
@@ -54,6 +59,7 @@ echo "==> Destroying Terraform AWS POC stack..."
 terraform -chdir="${TERRAFORM_DIR}" init
 terraform -chdir="${TERRAFORM_DIR}" destroy \
   -auto-approve \
+  ${TFVARS_ARGS[@]+"${TFVARS_ARGS[@]}"} \
   -var="namespace=${NAMESPACE}" \
   -var="aws_region=${AWS_REGION}" \
   -var="kube_context=${KUBE_CONTEXT}" \

@@ -5,9 +5,15 @@ variable "aws_region" {
 }
 
 variable "cluster_name" {
-  description = "EKS cluster name."
+  description = "EKS cluster name. Sandbox/account-specific naming (e.g. the required limited- prefix) is supplied via a .tfvars file, not hardcoded here."
   type        = string
   default     = "eks-openlakeforge-poc"
+}
+
+variable "default_tags" {
+  description = "Tags applied to every taggable resource via the provider default_tags block. Account-mandated tags (Project/Owner/Requester/Env/IaC) are supplied via a .tfvars file. Casing is significant."
+  type        = map(string)
+  default     = {}
 }
 
 variable "kubernetes_version" {

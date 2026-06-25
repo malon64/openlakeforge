@@ -107,11 +107,11 @@ locals {
     },
     {
       name  = "OPENLAKEFORGE_CATALOG_REST_URI"
-      value = coalesce(try(var.catalog_contract.rest_uri, null), "")
+      value = (try(var.catalog_contract.rest_uri, null) == null ? "" : try(var.catalog_contract.rest_uri, null))
     },
     {
       name  = "OPENLAKEFORGE_CATALOG_TOKEN_URI"
-      value = coalesce(try(var.catalog_contract.token_uri, null), "")
+      value = (try(var.catalog_contract.token_uri, null) == null ? "" : try(var.catalog_contract.token_uri, null))
     },
     {
       name  = "OPENLAKEFORGE_CATALOG_WAREHOUSE"
@@ -119,7 +119,7 @@ locals {
     },
     {
       name  = "OPENLAKEFORGE_CATALOG_OAUTH_SCOPE"
-      value = coalesce(try(var.catalog_contract.oauth_scope, null), "")
+      value = (try(var.catalog_contract.oauth_scope, null) == null ? "" : try(var.catalog_contract.oauth_scope, null))
     },
   ]
 
@@ -130,7 +130,7 @@ locals {
     },
     {
       name  = "OPENLAKEFORGE_CATALOG_GLUE_CATALOG_ID"
-      value = coalesce(try(var.catalog_contract.glue_catalog_id, null), "")
+      value = (try(var.catalog_contract.glue_catalog_id, null) == null ? "" : try(var.catalog_contract.glue_catalog_id, null))
     },
     {
       name  = "OPENLAKEFORGE_CATALOG_GLUE_REST_URI"
@@ -150,11 +150,11 @@ locals {
   polaris_catalog_env = local.catalog_type == "rest" ? [
     {
       name  = "POLARIS_REST_URI"
-      value = coalesce(try(var.catalog_contract.rest_uri, null), "")
+      value = (try(var.catalog_contract.rest_uri, null) == null ? "" : try(var.catalog_contract.rest_uri, null))
     },
     {
       name  = "POLARIS_TOKEN_URI"
-      value = coalesce(try(var.catalog_contract.token_uri, null), "")
+      value = (try(var.catalog_contract.token_uri, null) == null ? "" : try(var.catalog_contract.token_uri, null))
     },
     {
       name  = "POLARIS_WAREHOUSE"
@@ -162,7 +162,7 @@ locals {
     },
     {
       name  = "POLARIS_OAUTH_SCOPE"
-      value = coalesce(try(var.catalog_contract.oauth_scope, null), "")
+      value = (try(var.catalog_contract.oauth_scope, null) == null ? "" : try(var.catalog_contract.oauth_scope, null))
     },
   ] : []
 

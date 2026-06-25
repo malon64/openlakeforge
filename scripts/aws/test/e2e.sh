@@ -83,12 +83,7 @@ for path, expected_value in expected.items():
 PY
 
 echo "==> Checking S3 artifact bucket and Glue databases..."
-CODE_BUCKET="$(python3 - "${contracts_json}" <<'PY'
-import json, sys
-from pathlib import Path
-print(json.loads(Path(sys.argv[1]).read_text())["artifact_bucket"]["bucket_name"])
-PY
-)"
+CODE_BUCKET="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["artifact_bucket"]["bucket_name"])' "${contracts_json}")"
 aws s3api head-bucket --bucket "${CODE_BUCKET}" >/dev/null
 
 python3 - "${contracts_json}" <<'PY' | while read -r database; do

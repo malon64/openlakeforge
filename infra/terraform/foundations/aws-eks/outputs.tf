@@ -39,18 +39,13 @@ output "subnet_ids" {
 }
 
 output "oidc_issuer_url" {
-  description = "EKS OIDC issuer URL."
+  description = "EKS OIDC issuer URL (informational; workload identity uses Pod Identity, not IRSA)."
   value       = aws_eks_cluster.this.identity[0].oidc[0].issuer
 }
 
-output "oidc_provider_arn" {
-  description = "IAM OIDC provider ARN for IRSA roles."
-  value       = aws_iam_openid_connect_provider.this.arn
-}
-
-output "oidc_provider_url_without_scheme" {
-  description = "OIDC provider URL without https://, used in IRSA trust policies."
-  value       = replace(aws_eks_cluster.this.identity[0].oidc[0].issuer, "https://", "")
+output "workload_identity_type" {
+  description = "Workload identity mechanism bound to service accounts."
+  value       = "eks-pod-identity"
 }
 
 output "project_code_ecr_repository_url" {
@@ -80,9 +75,8 @@ output "foundation_contract" {
     subnet_ids                       = values(aws_subnet.public)[*].id
     oidc_issuer_enabled              = true
     oidc_issuer_url                  = aws_eks_cluster.this.identity[0].oidc[0].issuer
-    oidc_provider_arn                = aws_iam_openid_connect_provider.this.arn
-    oidc_provider_url_without_scheme = replace(aws_eks_cluster.this.identity[0].oidc[0].issuer, "https://", "")
     workload_identity_enabled        = true
+    workload_identity_type           = "eks-pod-identity"
     ecr_project_code_repository_url  = aws_ecr_repository.project_code.repository_url
     ecr_superset_repository_url      = aws_ecr_repository.superset.repository_url
   }

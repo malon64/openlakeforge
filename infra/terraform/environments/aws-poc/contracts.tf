@@ -31,7 +31,7 @@ locals {
     cluster_name         = try(local.foundation_contract.cluster_name, "eks-openlakeforge-poc")
     aws_region           = local.aws_region
     platform_apply_model = "foundation-state-kube-context"
-    workload_identity    = "aws-irsa"
+    workload_identity    = "aws-pod-identity"
   }
 
   storage_contract = merge(module.s3.contract, {
@@ -40,7 +40,7 @@ locals {
     adapter              = "storage.aws_s3"
     logical_name         = "lakehouse_storage"
     protocol             = "s3"
-    auth_mode            = "aws-irsa"
+    auth_mode            = "aws-pod-identity"
     secret_delivery_mode = "none"
     workload_identity    = true
     ssl_mode             = "required"
@@ -78,7 +78,7 @@ locals {
     catalog_namespaces         = local.catalog_namespaces
     silver_namespaces          = local.catalog_silver_namespaces
     gold_namespaces            = local.catalog_gold_namespaces
-    auth_mode                  = "aws-sigv4-irsa"
+    auth_mode                  = "aws-sigv4-pod-identity"
     secret_delivery_mode       = "none"
     ssl_mode                   = "required"
     endpoint                   = module.glue.contract.rest_uri
@@ -248,12 +248,12 @@ locals {
 
   identity_contract = {
     provider          = local.aws_provider_name
-    implementation    = "identity.aws_irsa"
-    adapter           = "identity.aws_irsa"
+    implementation    = "identity.aws_pod_identity"
+    adapter           = "identity.aws_pod_identity"
     auth_mode         = "basic-poc"
-    oidc_enabled      = true
-    oidc_issuer_url   = local.foundation_contract.oidc_issuer_url
-    workload_identity = "aws-irsa"
+    oidc_enabled      = false
+    oidc_issuer_url   = try(local.foundation_contract.oidc_issuer_url, null)
+    workload_identity = "aws-pod-identity"
     local_only        = false
     poc_only          = true
   }

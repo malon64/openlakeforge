@@ -10,6 +10,12 @@ variable "aws_region" {
   default     = "eu-west-1"
 }
 
+variable "default_tags" {
+  description = "Tags applied to every taggable resource via the provider default_tags block. Account-mandated tags (Project/Owner/Requester/Env/IaC) are supplied via a .tfvars file. Casing is significant."
+  type        = map(string)
+  default     = {}
+}
+
 variable "kubeconfig_path" {
   description = "Optional kubeconfig path. Defaults to the path emitted by the AWS foundation root."
   type        = string

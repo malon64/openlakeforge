@@ -2,7 +2,8 @@
 
 ## Status
 
-Accepted.
+Accepted. The identity decision (`identity.aws_irsa`) is amended by
+[ADR 0016](0016-aws-eks-pod-identity-over-irsa.md), which adopts EKS Pod Identity.
 
 ## Context
 

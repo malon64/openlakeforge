@@ -23,6 +23,10 @@ terraform {
 
 provider "aws" {
   region = local.aws_region
+
+  default_tags {
+    tags = var.default_tags
+  }
 }
 
 provider "kubernetes" {
@@ -88,21 +92,42 @@ locals {
       },
     ]
   ])
-  irsa_subjects = [
-    "system:serviceaccount:${var.namespace}:dagster",
-    "system:serviceaccount:${var.namespace}:dagster-dagster-user-deployments-user-deployments",
-    "system:serviceaccount:${var.namespace}:trino",
-    "system:serviceaccount:${var.namespace}:openmetadata",
-    "system:serviceaccount:${var.namespace}:openmetadata-bootstrap",
+  # Service accounts bound to the lakehouse workload role via EKS Pod Identity
+  # associations (not IRSA). No SA annotation is required with Pod Identity.
+  workload_service_accounts = [
+    "dagster",
+    "dagster-dagster-user-deployments-user-deployments",
+    "trino",
+    "openmetadata",
+    "openmetadata-bootstrap",
   ]
-  service_account_annotations = {
-    "eks.amazonaws.com/role-arn" = aws_iam_role.lakehouse_workloads.arn
-  }
+  service_account_annotations = {}
 }
 
 resource "kubernetes_namespace_v1" "lakehouse" {
   metadata {
     name = var.namespace
+  }
+}
+
+# EKS does not ship a default StorageClass (kind does), so PVCs created without an
+# explicit class never bind. Provide a gp3 default backed by the EBS CSI driver
+# (which authenticates via Pod Identity). WaitForFirstConsumer provisions the
+# volume in the consuming pod's availability zone.
+resource "kubernetes_storage_class_v1" "gp3" {
+  metadata {
+    name = "gp3"
+    annotations = {
+      "storageclass.kubernetes.io/is-default-class" = "true"
+    }
+  }
+
+  storage_provisioner    = "ebs.csi.aws.com"
+  volume_binding_mode    = "WaitForFirstConsumer"
+  allow_volume_expansion = true
+
+  parameters = {
+    type = "gp3"
   }
 }
 
@@ -200,23 +225,18 @@ resource "aws_iam_policy" "lakehouse_workloads" {
 resource "aws_iam_role" "lakehouse_workloads" {
   name = "${local.foundation_contract.cluster_name}-openlakeforge-workloads"
 
+  # EKS Pod Identity trust: the Pod Identity agent assumes this role on behalf of
+  # the associated service accounts (see aws_eks_pod_identity_association below).
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
       {
-        Effect = "Allow"
-        Principal = {
-          Federated = local.foundation_contract.oidc_provider_arn
-        }
-        Action = "sts:AssumeRoleWithWebIdentity"
-        Condition = {
-          StringEquals = {
-            "${local.foundation_contract.oidc_provider_url_without_scheme}:aud" = "sts.amazonaws.com"
-          }
-          StringLike = {
-            "${local.foundation_contract.oidc_provider_url_without_scheme}:sub" = local.irsa_subjects
-          }
-        }
+        Effect    = "Allow"
+        Principal = { Service = "pods.eks.amazonaws.com" }
+        Action = [
+          "sts:AssumeRole",
+          "sts:TagSession",
+        ]
       },
     ]
   })
@@ -225,6 +245,15 @@ resource "aws_iam_role" "lakehouse_workloads" {
 resource "aws_iam_role_policy_attachment" "lakehouse_workloads" {
   role       = aws_iam_role.lakehouse_workloads.name
   policy_arn = aws_iam_policy.lakehouse_workloads.arn
+}
+
+resource "aws_eks_pod_identity_association" "lakehouse_workloads" {
+  for_each = toset(local.workload_service_accounts)
+
+  cluster_name    = local.foundation_contract.cluster_name
+  namespace       = var.namespace
+  service_account = each.value
+  role_arn        = aws_iam_role.lakehouse_workloads.arn
 }
 
 module "trino" {
@@ -241,6 +270,7 @@ module "trino" {
   depends_on = [
     module.glue,
     aws_iam_role_policy_attachment.lakehouse_workloads,
+    aws_eks_pod_identity_association.lakehouse_workloads,
   ]
 }
 
@@ -262,6 +292,7 @@ module "openmetadata" {
   depends_on = [
     module.glue,
     module.rds_postgresql,
+    aws_eks_pod_identity_association.lakehouse_workloads,
   ]
 }
 
@@ -276,7 +307,7 @@ module "superset" {
   postgresql_contract        = local.metadata_database_contract
   postgresql_ssl_mode        = "require"
   reports_storage_size       = "5Gi"
-  reports_storage_class_name = null
+  reports_storage_class_name = kubernetes_storage_class_v1.gp3.metadata[0].name
 
   depends_on = [
     module.rds_postgresql,
@@ -313,5 +344,6 @@ module "dagster" {
     module.openmetadata,
     module.rds_postgresql,
     module.superset,
+    aws_eks_pod_identity_association.lakehouse_workloads,
   ]
 }

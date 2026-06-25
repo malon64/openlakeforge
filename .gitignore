@@ -34,6 +34,8 @@ site/
 *.tfstate.*
 *.tfvars
 *.tfvars.json
+# Sandbox/account config is non-secret (mandatory tags + limited- naming) and is tracked.
+!sandbox.tfvars
 crash.log
 crash.*.log
 override.tf

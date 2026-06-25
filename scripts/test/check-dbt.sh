@@ -15,20 +15,15 @@ require_cmd python3
 source "scripts/local/contracts/load-runtime-env.sh"
 
 CACHE_ROOT="${DBT_CHECK_CACHE_DIR:-.cache/dbt-check}"
-python_tag="$(python3 - <<'PY'
-import sys
-print(f"py{sys.version_info.major}{sys.version_info.minor}")
-PY
-)"
-dependency_hash="$(python3 - <<'PY'
+python_tag="$(python3 -c 'import sys; print(f"py{sys.version_info.major}{sys.version_info.minor}")')"
+dependency_hash="$(python3 -c '
 import hashlib
 payload = "\n".join([
     "dbt-duckdb>=1.10.0,<1.11",
     "duckdb>=1.4.5,<1.5",
 ])
 print(hashlib.sha256(payload.encode()).hexdigest()[:16])
-PY
-)"
+')"
 site_dir="${CACHE_ROOT}/${python_tag}-${dependency_hash}/site"
 stamp_path="${CACHE_ROOT}/${python_tag}-${dependency_hash}/.complete"
 

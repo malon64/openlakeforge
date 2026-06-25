@@ -17,6 +17,13 @@ else
   NODE_INSTANCE_TYPES_VAR="[\"${AWS_NODE_INSTANCE_TYPES}\"]"
 fi
 
+# Account-specific config (cluster_name with its required limited- prefix, mandatory
+# tags) lives in a .tfvars file rather than the module's variable defaults. Override
+# with AWS_TFVARS_FILE; if the file is absent the module's neutral defaults apply.
+TFVARS_FILE="${AWS_TFVARS_FILE:-${TERRAFORM_DIR}/sandbox.tfvars}"
+TFVARS_ARGS=()
+[[ -f "${TFVARS_FILE}" ]] && TFVARS_ARGS+=(-var-file="${TFVARS_FILE}")
+
 check_prereqs() {
   local missing=0
   for cmd in aws terraform kubectl; do
@@ -37,8 +44,8 @@ terraform -chdir="${TERRAFORM_DIR}" init
 
 echo "==> Applying Terraform AWS EKS foundation..."
 terraform -chdir="${TERRAFORM_DIR}" apply -auto-approve \
+  ${TFVARS_ARGS[@]+"${TFVARS_ARGS[@]}"} \
   -var="aws_region=${AWS_REGION}" \
-  -var="cluster_name=${AWS_CLUSTER_NAME}" \
   -var="node_desired_size=${AWS_NODE_DESIRED_SIZE}" \
   -var="node_min_size=${AWS_NODE_MIN_SIZE}" \
   -var="node_max_size=${AWS_NODE_MAX_SIZE}" \

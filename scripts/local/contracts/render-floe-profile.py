@@ -77,6 +77,15 @@ if catalog_type == "rest" and catalog_secret:
         key: {catalog_client_secret_key}
 """
 
+# Floe requires profile.execution.runner.secrets to be an array. With AWS Pod
+# Identity (or any credential-chain auth) there are no Kubernetes Secrets to
+# mount, so emit an explicit empty array instead of a null `secrets:` key.
+secrets_entries = (storage_secret_yaml + catalog_secret_yaml).rstrip("\n")
+if secrets_entries.strip():
+    secrets_block = "    secrets:\n" + secrets_entries
+else:
+    secrets_block = "    secrets: []"
+
 if catalog_type == "rest":
     catalog_definition = f"""    - name: "{catalog_name}"
       type: "rest"
