@@ -69,12 +69,13 @@ resource "helm_release" "superset" {
 
       supersetNode = {
         connections = {
-          db_type = "postgresql"
-          db_host = var.postgresql_contract.host
-          db_port = tostring(var.postgresql_contract.port)
-          db_user = var.postgresql_contract.superset_db_user
-          db_pass = "managed-by-${var.postgresql_contract.superset_credentials_secret_name}"
-          db_name = var.postgresql_contract.superset_db_name
+          db_type  = "postgresql"
+          db_host  = var.postgresql_contract.host
+          db_port  = tostring(var.postgresql_contract.port)
+          db_user  = var.postgresql_contract.superset_db_user
+          db_pass  = "managed-by-${var.postgresql_contract.superset_credentials_secret_name}"
+          db_name  = var.postgresql_contract.superset_db_name
+          db_extra = var.postgresql_ssl_mode == "disable" ? "" : "?sslmode=${var.postgresql_ssl_mode}"
         }
       }
 

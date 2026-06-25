@@ -2,7 +2,7 @@
 
 Infrastructure definitions live under `terraform/`, `helm/`, and `kind/`.
 
-Terraform owns the local and Azure POC lifecycle phases:
+Terraform owns the local, Azure POC, and AWS POC lifecycle phases:
 
 - `terraform/foundations/local-kind/` creates and destroys the local kind
   cluster from the configuration in `kind/local/`.
@@ -12,3 +12,8 @@ Terraform owns the local and Azure POC lifecycle phases:
   resource group, AKS cluster, ACR registry, and AKS-to-ACR pull permission.
 - `terraform/environments/azure-poc/` assembles the same in-cluster services on
   AKS while emitting Azure-specific provider contracts.
+- `terraform/foundations/aws-eks/` creates and destroys the AWS POC VPC, EKS
+  cluster, managed node group, ECR repositories, and IRSA OIDC provider.
+- `terraform/environments/aws-poc/` deploys the OpenLakeForge services on EKS
+  while replacing SeaweedFS with S3, PostgreSQL with RDS PostgreSQL, and Polaris
+  with Glue.

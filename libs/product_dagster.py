@@ -122,10 +122,11 @@ def build_product_definitions(spec: ProductDefinitionSpec) -> Definitions:
             )
 
     def _dbt_gold_assets(context):
+        dbt_target = os.environ.get("OPENLAKEFORGE_DBT_TARGET", "local_runtime")
         dbt = DbtCliResource(
             project_dir=str(spec.dbt_project_dir),
             profiles_dir=str(spec.dbt_project_dir),
-            target="local_runtime",
+            target=dbt_target,
         )
         yield from dbt.cli(["build"], context=context).stream()
         _upload_dbt_artifacts(context, spec)

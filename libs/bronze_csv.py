@@ -91,11 +91,12 @@ def _put_csv(*, bucket: str, key: str, rows: list[dict[str, str]]) -> None:
 def _s3_client():
     region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or "us-east-1"
     endpoint_url = os.environ.get("AWS_ENDPOINT_URL_S3")
+    force_path_style = os.environ.get("AWS_S3_FORCE_PATH_STYLE", "true").lower() == "true"
     return boto3.client(
         "s3",
         endpoint_url=endpoint_url,
         region_name=region,
-        config=Config(s3={"addressing_style": "path"}),
+        config=Config(s3={"addressing_style": "path" if force_path_style else "virtual"}),
     )
 
 

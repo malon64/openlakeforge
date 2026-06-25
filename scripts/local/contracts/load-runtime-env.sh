@@ -9,6 +9,8 @@ OPENLAKEFORGE_QUERY_SQLALCHEMY_URI_IS_USER_SET="${OPENLAKEFORGE_QUERY_SQLALCHEMY
 
 set_default_contract_env() {
   export OPENLAKEFORGE_STORAGE_LOGICAL_NAME="${OPENLAKEFORGE_STORAGE_LOGICAL_NAME:-lakehouse_storage}"
+  export OPENLAKEFORGE_STORAGE_PROVIDER="${OPENLAKEFORGE_STORAGE_PROVIDER:-local}"
+  export OPENLAKEFORGE_STORAGE_IMPLEMENTATION="${OPENLAKEFORGE_STORAGE_IMPLEMENTATION:-storage.s3_compatible.seaweedfs}"
   export OPENLAKEFORGE_STORAGE_TYPE="${OPENLAKEFORGE_STORAGE_TYPE:-s3}"
   export OPENLAKEFORGE_STORAGE_BRONZE_BUCKET="${OPENLAKEFORGE_STORAGE_BRONZE_BUCKET:-lakehouse-bronze}"
   export OPENLAKEFORGE_STORAGE_SILVER_BUCKET="${OPENLAKEFORGE_STORAGE_SILVER_BUCKET:-lakehouse-silver}"
@@ -26,6 +28,7 @@ set_default_contract_env() {
   export OPENLAKEFORGE_STORAGE_S3_SERVICE_PORT="${OPENLAKEFORGE_STORAGE_S3_SERVICE_PORT:-8333}"
 
   export OPENLAKEFORGE_CATALOG_LOGICAL_NAME="${OPENLAKEFORGE_CATALOG_LOGICAL_NAME:-iceberg_catalog}"
+  export OPENLAKEFORGE_CATALOG_IMPLEMENTATION="${OPENLAKEFORGE_CATALOG_IMPLEMENTATION:-catalog.iceberg_rest.polaris}"
   export OPENLAKEFORGE_CATALOG_TYPE="${OPENLAKEFORGE_CATALOG_TYPE:-rest}"
   export OPENLAKEFORGE_CATALOG_PROVIDER="${OPENLAKEFORGE_CATALOG_PROVIDER:-polaris}"
   export OPENLAKEFORGE_CATALOG_NAME="${OPENLAKEFORGE_CATALOG_NAME:-lakehouse_dev}"
@@ -34,6 +37,9 @@ set_default_contract_env() {
   export OPENLAKEFORGE_CATALOG_TOKEN_URI="${OPENLAKEFORGE_CATALOG_TOKEN_URI:-http://polaris:8181/api/catalog/v1/oauth/tokens}"
   export OPENLAKEFORGE_CATALOG_OAUTH_SCOPE="${OPENLAKEFORGE_CATALOG_OAUTH_SCOPE:-PRINCIPAL_ROLE:ALL}"
   export OPENLAKEFORGE_CATALOG_WAREHOUSE="${OPENLAKEFORGE_CATALOG_WAREHOUSE:-lakehouse_dev}"
+  export OPENLAKEFORGE_CATALOG_GLUE_REGION="${OPENLAKEFORGE_CATALOG_GLUE_REGION:-}"
+  export OPENLAKEFORGE_CATALOG_GLUE_CATALOG_ID="${OPENLAKEFORGE_CATALOG_GLUE_CATALOG_ID:-}"
+  export OPENLAKEFORGE_CATALOG_GLUE_REST_URI="${OPENLAKEFORGE_CATALOG_GLUE_REST_URI:-}"
   export OPENLAKEFORGE_CATALOG_NAMESPACE_MODEL="${OPENLAKEFORGE_CATALOG_NAMESPACE_MODEL:-product-layer}"
   export OPENLAKEFORGE_CATALOG_NAMESPACES_JSON="${OPENLAKEFORGE_CATALOG_NAMESPACES_JSON:-[{\"name\":\"sales_order_revenue_silver\",\"location\":\"s3://lakehouse-silver/sales_order_revenue_silver/\"},{\"name\":\"sales_order_revenue_gold\",\"location\":\"s3://lakehouse-gold/sales_order_revenue_gold/\"},{\"name\":\"sales_customer_health_silver\",\"location\":\"s3://lakehouse-silver/sales_customer_health_silver/\"},{\"name\":\"sales_customer_health_gold\",\"location\":\"s3://lakehouse-gold/sales_customer_health_gold/\"},{\"name\":\"supply_chain_inventory_reliability_silver\",\"location\":\"s3://lakehouse-silver/supply_chain_inventory_reliability_silver/\"},{\"name\":\"supply_chain_inventory_reliability_gold\",\"location\":\"s3://lakehouse-gold/supply_chain_inventory_reliability_gold/\"}]}"
   export OPENLAKEFORGE_CATALOG_SILVER_NAMESPACES_JSON="${OPENLAKEFORGE_CATALOG_SILVER_NAMESPACES_JSON:-{\"sales_order_revenue\":\"sales_order_revenue_silver\",\"sales_customer_health\":\"sales_customer_health_silver\",\"supply_chain_inventory_reliability\":\"supply_chain_inventory_reliability_silver\"}}"
@@ -64,9 +70,15 @@ set_default_contract_env() {
 
   export AWS_REGION="${AWS_REGION:-${OPENLAKEFORGE_STORAGE_REGION}}"
   export AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-${AWS_REGION}}"
-  export AWS_ENDPOINT_URL_S3="${AWS_ENDPOINT_URL_S3:-${OPENLAKEFORGE_STORAGE_ENDPOINT}}"
-  export OPENLAKEFORGE_DUCKDB_S3_ENDPOINT="${OPENLAKEFORGE_DUCKDB_S3_ENDPOINT:-${OPENLAKEFORGE_STORAGE_ENDPOINT#http://}}"
-  export AWS_S3_FORCE_PATH_STYLE="${AWS_S3_FORCE_PATH_STYLE:-${OPENLAKEFORGE_STORAGE_PATH_STYLE_ACCESS}}"
+  if [[ "${OPENLAKEFORGE_STORAGE_IMPLEMENTATION}" == "storage.aws_s3" ]]; then
+    unset AWS_ENDPOINT_URL_S3
+    unset OPENLAKEFORGE_DUCKDB_S3_ENDPOINT
+    export AWS_S3_FORCE_PATH_STYLE="${AWS_S3_FORCE_PATH_STYLE:-false}"
+  else
+    export AWS_ENDPOINT_URL_S3="${AWS_ENDPOINT_URL_S3:-${OPENLAKEFORGE_STORAGE_ENDPOINT}}"
+    export OPENLAKEFORGE_DUCKDB_S3_ENDPOINT="${OPENLAKEFORGE_DUCKDB_S3_ENDPOINT:-${OPENLAKEFORGE_STORAGE_ENDPOINT#http://}}"
+    export AWS_S3_FORCE_PATH_STYLE="${AWS_S3_FORCE_PATH_STYLE:-${OPENLAKEFORGE_STORAGE_PATH_STYLE_ACCESS}}"
+  fi
   if [[ "${OPENLAKEFORGE_STORAGE_SSL_MODE}" == "disabled" ]]; then
     export AWS_ALLOW_HTTP="${AWS_ALLOW_HTTP:-true}"
   fi
@@ -116,6 +128,8 @@ def emit_json(name, value):
 
 
 emit("OPENLAKEFORGE_STORAGE_LOGICAL_NAME", storage.get("logical_name"))
+emit("OPENLAKEFORGE_STORAGE_PROVIDER", storage.get("provider"))
+emit("OPENLAKEFORGE_STORAGE_IMPLEMENTATION", storage.get("implementation"))
 emit("OPENLAKEFORGE_STORAGE_TYPE", storage.get("protocol"))
 emit("OPENLAKEFORGE_STORAGE_BRONZE_BUCKET", storage.get("bronze_bucket_name"))
 emit("OPENLAKEFORGE_STORAGE_SILVER_BUCKET", storage.get("silver_bucket_name"))
@@ -133,6 +147,7 @@ emit("OPENLAKEFORGE_STORAGE_S3_SERVICE_NAME", storage.get("s3_service_name"))
 emit("OPENLAKEFORGE_STORAGE_S3_SERVICE_PORT", storage.get("s3_service_port"))
 
 emit("OPENLAKEFORGE_CATALOG_LOGICAL_NAME", catalog.get("logical_name"))
+emit("OPENLAKEFORGE_CATALOG_IMPLEMENTATION", catalog.get("implementation"))
 emit("OPENLAKEFORGE_CATALOG_TYPE", catalog.get("catalog_type"))
 emit("OPENLAKEFORGE_CATALOG_PROVIDER", catalog.get("catalog_provider"))
 emit("OPENLAKEFORGE_CATALOG_NAME", catalog.get("catalog_name"))
@@ -141,6 +156,9 @@ emit("OPENLAKEFORGE_CATALOG_REST_URI", catalog.get("rest_uri"))
 emit("OPENLAKEFORGE_CATALOG_TOKEN_URI", catalog.get("token_uri"))
 emit("OPENLAKEFORGE_CATALOG_OAUTH_SCOPE", catalog.get("oauth_scope"))
 emit("OPENLAKEFORGE_CATALOG_WAREHOUSE", catalog.get("warehouse") or catalog.get("catalog_name"))
+emit("OPENLAKEFORGE_CATALOG_GLUE_REGION", catalog.get("glue_region"))
+emit("OPENLAKEFORGE_CATALOG_GLUE_CATALOG_ID", catalog.get("glue_catalog_id"))
+emit("OPENLAKEFORGE_CATALOG_GLUE_REST_URI", catalog.get("glue_rest_uri") or catalog.get("rest_uri"))
 emit("OPENLAKEFORGE_CATALOG_NAMESPACE_MODEL", catalog.get("catalog_namespace_model"))
 emit_json("OPENLAKEFORGE_CATALOG_NAMESPACES_JSON", catalog.get("catalog_namespaces"))
 emit_json("OPENLAKEFORGE_CATALOG_SILVER_NAMESPACES_JSON", catalog.get("silver_namespaces"))
@@ -179,6 +197,31 @@ PY
 fi
 
 export OPENLAKEFORGE_OPS_BUCKET_NAME="${OPENLAKEFORGE_OPS_BUCKET_NAME:-${OPENLAKEFORGE_ARTIFACT_BUCKET_NAME}}"
+if [[ "${OPENLAKEFORGE_STORAGE_IMPLEMENTATION}" == "storage.aws_s3" ]]; then
+  export OPENLAKEFORGE_STORAGE_ENDPOINT=""
+  export OPENLAKEFORGE_STORAGE_VIRTUAL_HOST_ENDPOINT=""
+  export OPENLAKEFORGE_STORAGE_PATH_STYLE_ACCESS="false"
+  export OPENLAKEFORGE_STORAGE_CREDENTIALS_SECRET_NAME=""
+  export OPENLAKEFORGE_STORAGE_ACCESS_KEY_ID_KEY=""
+  export OPENLAKEFORGE_STORAGE_SECRET_ACCESS_KEY_KEY=""
+  export OPENLAKEFORGE_STORAGE_S3_SERVICE_NAME=""
+  export OPENLAKEFORGE_STORAGE_S3_SERVICE_PORT=""
+  unset AWS_ENDPOINT_URL_S3
+  unset OPENLAKEFORGE_DUCKDB_S3_ENDPOINT
+  export AWS_S3_FORCE_PATH_STYLE="${AWS_S3_FORCE_PATH_STYLE:-false}"
+fi
+if [[ "${OPENLAKEFORGE_CATALOG_TYPE}" == "glue" && "${OPENLAKEFORGE_CATALOG_PROVIDER}" == "aws-glue" ]]; then
+  export OPENLAKEFORGE_CATALOG_TOKEN_URI=""
+  export OPENLAKEFORGE_CATALOG_OAUTH_SCOPE=""
+  export OPENLAKEFORGE_CATALOG_FLOE_CREDENTIALS_SECRET_NAME=""
+  export OPENLAKEFORGE_CATALOG_FLOE_CLIENT_ID_KEY=""
+  export OPENLAKEFORGE_CATALOG_FLOE_CLIENT_SECRET_KEY=""
+  export OPENLAKEFORGE_CATALOG_DBT_CREDENTIALS_SECRET_NAME=""
+  export OPENLAKEFORGE_CATALOG_DBT_CLIENT_ID_KEY=""
+  export OPENLAKEFORGE_CATALOG_DBT_CLIENT_SECRET_KEY=""
+fi
+
+export CODE_BUCKET_NAME="${CODE_BUCKET_NAME:-${OPENLAKEFORGE_ARTIFACT_BUCKET_NAME}}"
 export OPENMETADATA_CATALOG_SERVICE="${OPENMETADATA_CATALOG_SERVICE:-${OPENLAKEFORGE_CATALOG_PROVIDER}}"
 export OPENMETADATA_CATALOG_DATABASE="${OPENMETADATA_CATALOG_DATABASE:-${OPENLAKEFORGE_CATALOG_NAME}}"
 if [[ -z "${OPENLAKEFORGE_QUERY_SQLALCHEMY_URI_IS_USER_SET}" ]]; then

@@ -4,8 +4,10 @@ set -euo pipefail
 TERRAFORM_DIRS=(
   "infra/terraform/foundations/local-kind"
   "infra/terraform/foundations/azure-aks"
+  "infra/terraform/foundations/aws-eks"
   "infra/terraform/environments/local"
   "infra/terraform/environments/azure-poc"
+  "infra/terraform/environments/aws-poc"
 )
 
 require_cmd() {

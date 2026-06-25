@@ -48,3 +48,7 @@ the current v1 services as the implemented solution stack.
 `0014-ops-artifact-bucket-and-domain-dagster-locations.md` records the
 `openlakeforge-ops` artifact bucket rename, object-backed log/report archive,
 and per-domain Dagster code locations.
+
+`0015-aws-eks-managed-services-poc.md` records the first AWS POC provider
+implementation: EKS/ECR plus S3, RDS PostgreSQL, Glue, and IRSA behind the
+existing OpenLakeForge contracts.

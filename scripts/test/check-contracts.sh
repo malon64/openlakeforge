@@ -13,6 +13,7 @@ require_cmd python3
 
 echo "==> Contract source checks"
 python3 <<'PY'
+import os
 import re
 import subprocess
 import sys
@@ -25,10 +26,14 @@ contracts_tf = Path("infra/terraform/environments/local/contracts.tf")
 text = contracts_tf.read_text()
 azure_contracts_tf = Path("infra/terraform/environments/azure-poc/contracts.tf")
 azure_text = azure_contracts_tf.read_text()
+aws_contracts_tf = Path("infra/terraform/environments/aws-poc/contracts.tf")
+aws_text = aws_contracts_tf.read_text()
 local_main_tf = Path("infra/terraform/environments/local/main.tf")
 local_main_text = local_main_tf.read_text()
 azure_main_tf = Path("infra/terraform/environments/azure-poc/main.tf")
 azure_main_text = azure_main_tf.read_text()
+aws_main_tf = Path("infra/terraform/environments/aws-poc/main.tf")
+aws_main_text = aws_main_tf.read_text()
 
 required_contracts = [
     "foundation_contract",
@@ -52,6 +57,8 @@ for name in required_contracts:
         errors.append(f"{contracts_tf}: missing {name}")
     if f"{name} =" not in azure_text:
         errors.append(f"{azure_contracts_tf}: missing {name}")
+    if f"{name} =" not in aws_text:
+        errors.append(f"{aws_contracts_tf}: missing {name}")
 
 required_adapters = [
     "foundation.kind",
@@ -92,6 +99,27 @@ for adapter in required_azure_adapters:
     if adapter not in azure_text:
         errors.append(f"{azure_contracts_tf}: missing Azure adapter shape {adapter}")
 
+required_aws_adapters = [
+    "foundation.eks",
+    "platform.kubernetes.eks",
+    "storage.aws_s3",
+    "catalog.aws_glue",
+    "metadata_database.aws_rds_postgresql",
+    "query.trino_on_eks",
+    "orchestration.dagster_on_eks",
+    "governance.openmetadata_on_eks",
+    "reporting.superset_on_eks",
+    "artifacts.aws_ecr",
+    "artifacts.aws_s3_bucket",
+    "artifacts.aws_ecr_and_s3",
+    "secrets.kubernetes_secret_on_eks",
+    "identity.aws_irsa",
+    "observability.object_log_archive_on_eks",
+]
+for adapter in required_aws_adapters:
+    if adapter not in aws_text:
+        errors.append(f"{aws_contracts_tf}: missing AWS adapter shape {adapter}")
+
 if 'implementation        = "storage.s3_compatible.seaweedfs_on_aks"' not in azure_text:
     errors.append(f"{azure_contracts_tf}: Azure POC must actively use SeaweedFS S3-compatible storage")
 if 'implementation            = "artifacts.azure_acr"' not in azure_text:
@@ -100,12 +128,28 @@ if re.search(r'implementation\s*=\s*"storage\.azure_', azure_text):
     errors.append(f"{azure_contracts_tf}: Azure Blob/ADLS must remain a future adapter, not the active POC storage implementation")
 if 'local_upload_access_mode = "kubectl-port-forward"' not in azure_text:
     errors.append(f"{azure_contracts_tf}: Azure POC artifact bucket must keep kubectl port-forward upload mode")
-for contracts_path, contracts_body in [(contracts_tf, text), (azure_contracts_tf, azure_text)]:
+for required in [
+    'implementation       = "storage.aws_s3"',
+    'implementation       = "metadata_database.aws_rds_postgresql"',
+    'implementation             = "catalog.aws_glue"',
+    'catalog_type               = "glue"',
+    'catalog_provider           = "aws-glue"',
+    'auth_mode                  = "aws-sigv4-irsa"',
+    'distribution_mode        = "aws-s3-upload"',
+    'local_upload_access_mode = "aws-cli"',
+]:
+    if required not in aws_text:
+        errors.append(f"{aws_contracts_tf}: AWS POC must actively declare {required}")
+if "storage.s3_compatible.seaweedfs" in aws_text:
+    errors.append(f"{aws_contracts_tf}: AWS POC must replace SeaweedFS with S3")
+if "catalog.iceberg_rest.polaris" in aws_text:
+    errors.append(f"{aws_contracts_tf}: AWS POC must replace Polaris with Glue")
+for contracts_path, contracts_body in [(contracts_tf, text), (azure_contracts_tf, azure_text), (aws_contracts_tf, aws_text)]:
     if 'floe_manifest_access_mode = "remote"' not in contracts_body:
         errors.append(f"{contracts_path}: orchestration contract must set remote Floe manifest access")
     if 'access_mode              = "remote"' not in contracts_body:
         errors.append(f"{contracts_path}: artifact bucket contract must expose remote Floe manifest access")
-    if 'bucket_name              = var.ops_bucket_name' not in contracts_body:
+    if "ops_bucket_name" not in contracts_body:
         errors.append(f"{contracts_path}: artifact bucket contract must use ops_bucket_name")
     for required in [
         "artifact_base_uri",
@@ -114,10 +158,12 @@ for contracts_path, contracts_body in [(contracts_tf, text), (azure_contracts_tf
         "log_base_uri",
         "run_artifact_base_uri",
         "ops_artifacts",
-        "s3-compatible-object-archive",
     ]:
         if required not in contracts_body:
             errors.append(f"{contracts_path}: missing ops artifact/observability field {required}")
+    expected_log_mode = "s3-object-archive" if contracts_path == aws_contracts_tf else "s3-compatible-object-archive"
+    if expected_log_mode not in contracts_body:
+        errors.append(f"{contracts_path}: missing ops artifact/observability field {expected_log_mode}")
     for required_location in [
         'name               = "sales-dagster"',
         'definitions_module = "domains.sales.definitions"',
@@ -153,12 +199,15 @@ expected_product_namespaces = {
         "gold": "supply_chain_inventory_reliability_gold",
     },
 }
-for main_path, main_body in [(local_main_tf, local_main_text), (azure_main_tf, azure_main_text)]:
+for main_path, main_body in [(local_main_tf, local_main_text), (azure_main_tf, azure_main_text), (aws_main_tf, aws_main_text)]:
     if 'catalog_namespace_model = "product-layer"' not in main_body:
         errors.append(f"{main_path}: catalog namespace model must be product-layer")
-    if "catalog_namespaces   = local.catalog_namespaces" not in main_body:
+    if main_path == aws_main_tf:
+        if "catalog_namespaces = local.catalog_namespaces" not in main_body:
+            errors.append(f"{main_path}: Glue module must receive product catalog namespaces")
+    elif "catalog_namespaces   = local.catalog_namespaces" not in main_body:
         errors.append(f"{main_path}: Polaris module must receive product catalog namespaces")
-    if "catalog_schema_names = [for namespace in local.catalog_namespaces : namespace.name]" not in main_body:
+    if "catalog_schema_names" not in main_body or "[for namespace in local.catalog_namespaces : namespace.name]" not in main_body:
         errors.append(f"{main_path}: OpenMetadata module must seed all product catalog namespaces")
     for namespace_pair in expected_product_namespaces.values():
         for namespace in namespace_pair.values():
@@ -227,6 +276,16 @@ for check in required_azure_checks:
     if check not in azure_text:
         errors.append(f"{azure_contracts_tf}: missing Terraform validation {check}")
 
+required_aws_checks = [
+    'check "foundation_contract_matches_platform_context"',
+    'check "aws_contract_adapters_are_explicit"',
+    'check "aws_poc_uses_managed_services"',
+    'check "catalog_contract_consumer_support"',
+]
+for check in required_aws_checks:
+    if check not in aws_text:
+        errors.append(f"{aws_contracts_tf}: missing Terraform validation {check}")
+
 for path in sorted(Path("domains").glob("*/contracts/floe/*.yml")):
     body = path.read_text()
     domain = path.parts[1]
@@ -280,6 +339,16 @@ for path in sorted(Path("domains").glob("*/transformations/dbt/*/profiles.yml"))
     ]:
         if required not in body:
             errors.append(f"{path}: missing runtime contract env var {required}")
+    for required in [
+        "aws_runtime:",
+        "provider: credential_chain",
+        "OPENLAKEFORGE_CATALOG_GLUE_REST_URI",
+        "endpoint_type: glue",
+        "authorization_type: sigv4",
+        "OPENLAKEFORGE_CATALOG_GLUE_REGION",
+    ]:
+        if required not in body:
+            errors.append(f"{path}: missing AWS Glue/SigV4 dbt runtime setting {required}")
 
 for path in sorted(Path("domains").glob("*/transformations/dbt/*/dbt_project.yml")):
     body = path.read_text()
@@ -351,6 +420,8 @@ if "f\"{STORAGE_SERVICE}.{STORAGE_BUCKET}\"" in openmetadata_metadata_body:
 
 azure_artifact_script = Path("scripts/azure/stack/deploy-artifacts.sh")
 azure_artifact_body = azure_artifact_script.read_text()
+aws_artifact_script = Path("scripts/aws/stack/deploy-artifacts.sh")
+aws_artifact_body = aws_artifact_script.read_text()
 local_artifact_script = Path("scripts/local/stack/deploy-artifacts.sh")
 local_artifact_body = local_artifact_script.read_text()
 local_image_call = re.search(r"^prepare_local_project_code_image$", local_artifact_body, re.MULTILINE)
@@ -374,7 +445,19 @@ if "dagster-instance" not in azure_artifact_body or "job_image:" not in azure_ar
     errors.append(f"{azure_artifact_script}: must patch Dagster run launcher job_image before rollout restart")
 if "patch_cronjob_image_if_exists" not in azure_artifact_body or "openlakeforge-k8s-log-archive" not in azure_artifact_body:
     errors.append(f"{azure_artifact_script}: must patch the Kubernetes log archive CronJob image after pushing project-code")
-for path, body in [(local_artifact_script, local_artifact_body), (azure_artifact_script, azure_artifact_body)]:
+if "infra/terraform/environments/aws-poc" not in aws_artifact_body:
+    errors.append(f"{aws_artifact_script}: must default runtime contracts to the AWS POC Terraform root")
+if "aws s3api put-object" not in aws_artifact_body or "floe/manifests/${domain}/${product}/${product}.manifest.json" not in aws_artifact_body:
+    errors.append(f"{aws_artifact_script}: must upload product Floe manifests directly to the AWS S3 ops bucket")
+if "build-push-project-code.sh" not in aws_artifact_body:
+    errors.append(f"{aws_artifact_script}: must build and push the AWS project-code image")
+if "PROJECT_CODE_IMAGE=\"${PROJECT_CODE_IMAGE_REPOSITORY}:${PROJECT_CODE_IMAGE_TAG}\"" not in aws_artifact_body:
+    errors.append(f"{aws_artifact_script}: must derive the exact pushed project-code image")
+if "dagster-instance" not in aws_artifact_body or "job_image:" not in aws_artifact_body:
+    errors.append(f"{aws_artifact_script}: must patch Dagster run launcher job_image before rollout restart")
+if "patch_cronjob_image_if_exists" not in aws_artifact_body or "openlakeforge-k8s-log-archive" not in aws_artifact_body:
+    errors.append(f"{aws_artifact_script}: must patch the Kubernetes log archive CronJob image after pushing project-code")
+for path, body in [(local_artifact_script, local_artifact_body), (azure_artifact_script, azure_artifact_body), (aws_artifact_script, aws_artifact_body)]:
     if "dagster-user-deployments-.+-dagster" not in body:
         errors.append(f"{path}: must discover domain Dagster user deployments instead of hardcoding names")
 if "floe/manifests/%s/%s/%s.manifest.json" not in Path("scripts/local/artifacts/upload-floe-manifest.sh").read_text():
@@ -400,6 +483,49 @@ if "${OPENLAKEFORGE_CATALOG_FLOE_CLIENT_ID}" not in profile:
     errors.append("rendered Floe profile must use generic Floe catalog client env vars")
 if "POLARIS_FLOE_CLIENT_ID" in profile.split("secrets:", 1)[0]:
     errors.append("rendered Floe profile catalog credential must not use POLARIS_* env vars")
+
+aws_profile_env = os.environ.copy()
+aws_profile_env.update(
+    {
+        "OPENLAKEFORGE_STORAGE_IMPLEMENTATION": "storage.aws_s3",
+        "OPENLAKEFORGE_STORAGE_PROVIDER": "aws",
+        "OPENLAKEFORGE_STORAGE_REGION": "eu-west-1",
+        "OPENLAKEFORGE_STORAGE_ENDPOINT": "",
+        "OPENLAKEFORGE_STORAGE_VIRTUAL_HOST_ENDPOINT": "",
+        "OPENLAKEFORGE_STORAGE_PATH_STYLE_ACCESS": "false",
+        "OPENLAKEFORGE_STORAGE_SSL_MODE": "required",
+        "OPENLAKEFORGE_STORAGE_CREDENTIALS_SECRET_NAME": "",
+        "OPENLAKEFORGE_STORAGE_BRONZE_BUCKET": "openlakeforge-poc-bronze",
+        "OPENLAKEFORGE_STORAGE_SILVER_BUCKET": "openlakeforge-poc-silver",
+        "OPENLAKEFORGE_OPS_BUCKET_NAME": "openlakeforge-poc-ops",
+        "OPENLAKEFORGE_CATALOG_TYPE": "glue",
+        "OPENLAKEFORGE_CATALOG_PROVIDER": "aws-glue",
+        "OPENLAKEFORGE_CATALOG_WAREHOUSE": "123456789012",
+        "OPENLAKEFORGE_CATALOG_GLUE_CATALOG_ID": "123456789012",
+        "OPENLAKEFORGE_CATALOG_GLUE_REGION": "eu-west-1",
+        "OPENLAKEFORGE_CATALOG_GLUE_REST_URI": "https://glue.eu-west-1.amazonaws.com/iceberg",
+    }
+)
+with tempfile.NamedTemporaryFile("w+", encoding="utf-8") as handle:
+    subprocess.run(
+        ["python3", "scripts/local/contracts/render-floe-profile.py"],
+        check=True,
+        stdout=handle,
+        env=aws_profile_env,
+    )
+    handle.seek(0)
+    aws_profile = handle.read()
+
+for required in [
+    'authorization_type: "sigv4"',
+    'signing_name: "glue"',
+    'signing_region: "eu-west-1"',
+    'uri: "https://glue.eu-west-1.amazonaws.com/iceberg"',
+]:
+    if required not in aws_profile:
+        errors.append(f"rendered AWS Floe profile must include Glue/SigV4 setting {required}")
+if "endpoint:" in aws_profile.split("storages:", 1)[1].split("catalogs:", 1)[0]:
+    errors.append("rendered AWS Floe profile storage must not set an S3-compatible endpoint")
 
 tracked_files = subprocess.check_output(["git", "ls-files"], text=True).splitlines()
 legacy_bucket = "openlakeforge-" + "code"

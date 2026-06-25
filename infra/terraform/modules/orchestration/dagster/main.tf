@@ -123,6 +123,30 @@ locals {
     },
   ]
 
+  glue_catalog_env = local.catalog_type == "glue" ? [
+    {
+      name  = "OPENLAKEFORGE_CATALOG_GLUE_REGION"
+      value = coalesce(try(var.catalog_contract.glue_region, null), var.storage_contract.region)
+    },
+    {
+      name  = "OPENLAKEFORGE_CATALOG_GLUE_CATALOG_ID"
+      value = coalesce(try(var.catalog_contract.glue_catalog_id, null), "")
+    },
+    {
+      name  = "OPENLAKEFORGE_CATALOG_GLUE_REST_URI"
+      value = coalesce(try(var.catalog_contract.glue_rest_uri, null), try(var.catalog_contract.rest_uri, null), "")
+    },
+    {
+      name  = "OPENLAKEFORGE_DBT_TARGET"
+      value = "aws_runtime"
+    },
+    ] : [
+    {
+      name  = "OPENLAKEFORGE_DBT_TARGET"
+      value = "local_runtime"
+    },
+  ]
+
   polaris_catalog_env = local.catalog_type == "rest" ? [
     {
       name  = "POLARIS_REST_URI"
@@ -151,6 +175,10 @@ locals {
       name  = "OPENLAKEFORGE_DBT_ATTACH_POLARIS"
       value = tostring(local.catalog_type == "rest" && local.catalog_provider == "polaris")
     },
+    {
+      name  = "OPENLAKEFORGE_POSTGRES_SSL_MODE"
+      value = var.postgresql_ssl_mode
+    },
   ]
 
   dbt_secret_env = try(var.catalog_contract.dbt_credentials_secret_name, null) == null ? [] : [
@@ -174,7 +202,7 @@ locals {
     },
   ]
 
-  runtime_env = concat(local.storage_env, local.artifact_env, local.generic_catalog_env, local.polaris_catalog_env, local.dbt_env, local.dbt_secret_env)
+  runtime_env = concat(local.storage_env, local.artifact_env, local.generic_catalog_env, local.glue_catalog_env, local.polaris_catalog_env, local.dbt_env, local.dbt_secret_env)
 
   log_archive_env = concat(
     local.storage_env,
@@ -273,7 +301,10 @@ resource "helm_release" "dagster" {
       "dagster-user-deployments" = {
         enabled        = true
         enableSubchart = true
-        deployments    = local.code_location_deployments
+        serviceAccount = {
+          annotations = var.service_account_annotations
+        }
+        deployments = local.code_location_deployments
       }
 
       dagsterWebserver = {
@@ -284,6 +315,10 @@ resource "helm_release" "dagster" {
         }
         env        = local.runtime_env
         envSecrets = local.runtime_env_secrets
+      }
+
+      serviceAccount = {
+        annotations = var.service_account_annotations
       }
 
       dagsterDaemon = {
@@ -328,6 +363,9 @@ resource "helm_release" "dagster" {
             runK8sConfig = {
               jobSpecConfig = {
                 ttlSecondsAfterFinished = 3600
+              }
+              podSpecConfig = {
+                serviceAccountName = "dagster"
               }
               containerConfig = {
                 env = local.runtime_env

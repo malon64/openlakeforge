@@ -32,11 +32,22 @@ The current seed POC contains two Sales data products, `order_revenue` and
 | Technical contracts | Floe | Bronze-to-Silver validation and Silver materialization |
 | Transformation | dbt-duckdb | Silver-to-Gold business models |
 | Table format | Apache Iceberg | Open table format |
-| Catalog | Apache Polaris | Iceberg REST catalog |
-| Object storage | SeaweedFS | Default local S3-compatible backend |
+| Catalog | Apache Polaris / AWS Glue | Polaris for local/Azure POC, Glue for AWS POC |
+| Object storage | SeaweedFS / S3 | SeaweedFS for local/Azure POC, S3 for AWS POC |
 | Query serving | Trino | Analytics query engine |
 | Reporting | Superset | BI reports over Gold marts |
 | Orchestration | Dagster | Asset graph and run orchestration |
+
+## Deployment Targets
+
+| Target | Foundation | Managed-service replacements |
+| --- | --- | --- |
+| Local | kind | None; SeaweedFS, PostgreSQL, and Polaris run in-cluster |
+| Azure POC | AKS + ACR | None yet; Azure proves AKS/ACR parity while keeping in-cluster services |
+| AWS POC | EKS + ECR | S3 replaces SeaweedFS, RDS PostgreSQL replaces in-cluster PostgreSQL, Glue replaces Polaris |
+
+The first AWS query path still uses Trino. Athena is documented as a future
+adapter because it changes query pricing, Superset wiring, and e2e validation.
 
 ## Repository Structure
 
@@ -251,3 +262,26 @@ To remove the foundation cluster as well:
 ```sh
 make local-foundation-down
 ```
+
+## AWS POC
+
+The AWS POC is contract-compatible with local and Azure but uses EKS, ECR, S3,
+RDS PostgreSQL, Glue, and IRSA. Default region is `eu-west-1`; override
+`AWS_REGION` and the related `AWS_*` Make variables as needed.
+
+```sh
+make aws-foundation-up
+make aws-up
+make aws-forward
+make aws-e2e
+```
+
+Teardown runs in the opposite order:
+
+```sh
+make aws-down
+make aws-foundation-down
+```
+
+See [docs/architecture/aws-eks-poc.md](docs/architecture/aws-eks-poc.md) for the
+AWS contract shape, managed-service boundaries, and current compatibility gate.

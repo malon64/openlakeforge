@@ -136,8 +136,8 @@ variable "storage_contract" {
     bronze_bucket_name      = optional(string)
     path_style_access       = optional(bool)
     credentials_secret_name = optional(string)
-    access_key_id_key       = string
-    secret_access_key_key   = string
+    access_key_id_key       = optional(string)
+    secret_access_key_key   = optional(string)
     provider                = optional(string)
     implementation          = optional(string)
     auth_mode               = optional(string)
@@ -167,6 +167,8 @@ variable "catalog_contract" {
     default_warehouse_location   = optional(string)
     glue_catalog_id              = optional(string)
     glue_region                  = optional(string)
+    glue_rest_uri                = optional(string)
+    glue_rest_warehouse          = optional(string)
     provider                     = optional(string)
     implementation               = optional(string)
     auth_mode                    = optional(string)
@@ -192,6 +194,12 @@ variable "postgresql_contract" {
   })
 }
 
+variable "postgresql_ssl_mode" {
+  description = "PostgreSQL sslmode advertised by the active metadata database contract."
+  type        = string
+  default     = "disable"
+}
+
 variable "governance_contract" {
   description = "OpenMetadata governance contract passed from the governance module."
   type = object({
@@ -205,4 +213,10 @@ variable "governance_contract" {
     endpoint                  = optional(string)
     ingress_mode              = optional(string)
   })
+}
+
+variable "service_account_annotations" {
+  description = "Optional annotations for Dagster service accounts, used by AWS IRSA."
+  type        = map(string)
+  default     = {}
 }
