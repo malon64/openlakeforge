@@ -37,8 +37,8 @@ user-code location per domain:
 - `sales-dagster` loads `domains.sales.definitions`.
 - `supply-chain-dagster` loads `domains.supply_chain.definitions`.
 
-The aggregate `domains.definitions` module remains available for compatibility
-and local static checks.
+The old aggregate module was removed after the per-domain code locations became
+the supported runtime boundary.
 
 ## Consequences
 

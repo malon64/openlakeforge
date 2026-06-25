@@ -90,7 +90,7 @@ else
   echo "==> Reusing project-code dependency cache ${site_dir}"
 fi
 
-echo "==> Loading aggregate Dagster product definitions"
+echo "==> Loading domain Dagster product definitions"
 PATH="${site_dir}/bin:${PATH}" PYTHONPATH="${site_dir}:${PWD}" "${PYTHON_BIN}" - <<'PY'
 import os
 from pathlib import Path
@@ -108,7 +108,6 @@ os.environ.setdefault("OPENLAKEFORGE_FLOE_REPORT_BASE_URI", "s3://openlakeforge-
 os.environ.setdefault("OPENLAKEFORGE_LOG_BASE_URI", "s3://openlakeforge-ops/logs")
 os.environ.setdefault("OPENLAKEFORGE_RUN_ARTIFACT_BASE_URI", "s3://openlakeforge-ops/run-artifacts")
 
-from domains.definitions import defs
 from domains.sales.definitions import defs as sales_defs
 from domains.sales.extract.dlt.customer_health import CUSTOMER_HEALTH_ENTITIES
 from domains.sales.extract.dlt.order_revenue import ORDER_REVENUE_ENTITIES
@@ -164,25 +163,28 @@ PRODUCTS = [
 if os.environ["OPENLAKEFORGE_FLOE_MANIFEST_ACCESS_MODE"].strip().lower() != "remote":
     raise SystemExit("project-code check must load Dagster definitions in remote Floe manifest mode")
 
-targets = loadable_targets_from_python_module("domains.definitions", ".")
-if len(targets) != 1:
-    raise SystemExit(f"domains.definitions should expose exactly one Dagster target, found {len(targets)}")
-if targets[0].attribute != "defs":
-    raise SystemExit(f"domains.definitions should expose defs, found {targets[0].attribute}")
-
 for module_name in ["domains.sales.definitions", "domains.supply_chain.definitions"]:
     module_targets = loadable_targets_from_python_module(module_name, ".")
     if len(module_targets) != 1 or module_targets[0].attribute != "defs":
         raise SystemExit(f"{module_name} should expose exactly one defs target")
 
-asset_keys = {
+domain_defs = {
+    "sales": sales_defs,
+    "supply_chain": supply_chain_defs,
+}
+asset_key_list = [
     tuple(key.path)
-    for asset_def in defs.assets
+    for definitions in domain_defs.values()
+    for asset_def in definitions.assets
     if hasattr(asset_def, "keys")
     for key in asset_def.keys
-}
+]
+asset_keys = set(asset_key_list)
 source_asset_keys = {
-    tuple(asset.key.path) for asset in defs.assets if not hasattr(asset, "keys")
+    tuple(asset.key.path)
+    for definitions in domain_defs.values()
+    for asset in definitions.assets
+    if not hasattr(asset, "keys")
 }
 sales_asset_keys = {
     tuple(key.path)
@@ -231,7 +233,7 @@ for product in PRODUCTS:
     if {entity.name for entity in manifest.entities} != set(product["entities"]):
         raise SystemExit(f"{prefix} Floe manifest entities do not match product entities")
 
-    job = defs.resolve_job_def(product["job"])
+    job = domain_defs[product["domain"]].resolve_job_def(product["job"])
     if job.name != product["job"]:
         raise SystemExit(f"missing Dagster job {product['job']}")
     if job.run_config["execution"]["config"]["multiprocess"]["max_concurrent"] != 1:
@@ -266,8 +268,8 @@ if not any(key[0] == "supply_chain_inventory_reliability" for key in supply_chai
 if any(key[0].startswith("sales") for key in supply_chain_asset_keys):
     raise SystemExit("supply_chain domain definitions must not load sales assets")
 
-if len(asset_keys) != len(set(asset_keys)):
+if len(asset_key_list) != len(asset_keys):
     raise SystemExit("duplicate Dagster asset keys found")
 
-print("Aggregate product Dagster definitions loaded.")
+print("Domain product Dagster definitions loaded.")
 PY

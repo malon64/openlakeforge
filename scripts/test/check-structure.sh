@@ -54,8 +54,6 @@ required_paths=(
   "libs/product_dagster.py"
   "libs/s3_artifacts.py"
   "domains/README.md"
-  "domains/__init__.py"
-  "domains/definitions.py"
   "domains/sales/README.md"
   "domains/sales/__init__.py"
   "domains/sales/definitions.py"

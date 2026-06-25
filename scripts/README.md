@@ -10,7 +10,7 @@ upstream Helm charts with local values.
 aliases, and generated runtime profile expectations.
 
 `check-project-code.sh` installs project-code dependencies into a local cache and
-verifies that the aggregate product Dagster definitions load.
+verifies that the domain Dagster definitions load.
 `scripts/local/artifacts/floe-manifest.sh` generates manifest-first product Floe
 contracts from the shared profile in `libs/floe/profiles/`.
 
