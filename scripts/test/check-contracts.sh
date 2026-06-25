@@ -372,6 +372,8 @@ if "kubectl set image" not in azure_artifact_body or "*=${PROJECT_CODE_IMAGE}" n
     errors.append(f"{azure_artifact_script}: must patch Dagster deployment images before rollout restart")
 if "dagster-instance" not in azure_artifact_body or "job_image:" not in azure_artifact_body:
     errors.append(f"{azure_artifact_script}: must patch Dagster run launcher job_image before rollout restart")
+if "patch_cronjob_image_if_exists" not in azure_artifact_body or "openlakeforge-k8s-log-archive" not in azure_artifact_body:
+    errors.append(f"{azure_artifact_script}: must patch the Kubernetes log archive CronJob image after pushing project-code")
 for path, body in [(local_artifact_script, local_artifact_body), (azure_artifact_script, azure_artifact_body)]:
     if "dagster-user-deployments-.+-dagster" not in body:
         errors.append(f"{path}: must discover domain Dagster user deployments instead of hardcoding names")

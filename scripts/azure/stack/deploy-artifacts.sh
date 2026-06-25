@@ -113,6 +113,17 @@ patch_deployment_image_if_exists() {
   kubectl set image "deployment/${deployment}" "*=${PROJECT_CODE_IMAGE}" -n "${NAMESPACE}"
 }
 
+patch_cronjob_image_if_exists() {
+  local cronjob="$1"
+
+  if ! kubectl get cronjob "${cronjob}" -n "${NAMESPACE}" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  echo "==> Updating ${cronjob} image to ${PROJECT_CODE_IMAGE}..."
+  kubectl set image "cronjob/${cronjob}" "*=${PROJECT_CODE_IMAGE}" -n "${NAMESPACE}"
+}
+
 discover_dagster_user_deployments() {
   kubectl get deployments -n "${NAMESPACE}" -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' \
     | grep -E 'dagster-user-deployments-.+-dagster$' || true
@@ -136,6 +147,7 @@ update_dagster_project_code_image() {
   patch_deployment_image_if_exists "dagster-dagster-daemon"
   patch_deployment_image_if_exists "dagster-webserver"
   patch_deployment_image_if_exists "dagster-daemon"
+  patch_cronjob_image_if_exists "openlakeforge-k8s-log-archive"
 
   while IFS= read -r deployment; do
     patch_deployment_image_if_exists "${deployment}"
