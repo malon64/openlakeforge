@@ -35,7 +35,8 @@ Replace `iceberg-data` with three purpose-built medallion buckets:
 | `lakehouse-silver` | Silver | Floe | Iceberg tables in product Silver Polaris namespaces |
 | `lakehouse-gold` | Gold | dbt-duckdb | Iceberg tables in product Gold Polaris namespaces |
 
-The code artifact bucket `openlakeforge-code` is unchanged.
+The operational artifact bucket is outside the medallion split. It is currently
+`openlakeforge-ops`; see ADR 0014 for the rename and ops artifact prefixes.
 
 Within each data bucket, product-owned logical paths follow
 `{domain}/{product}/{entity}/` in the Floe contracts and domain descriptors.
@@ -64,7 +65,7 @@ Bronze data is plain CSV and is not registered in the Polaris catalog; the
 
 **Dagster** injects `OPENLAKEFORGE_BRONZE_BUCKET` instead of the former
 `OPENLAKEFORGE_S3_BUCKET`. Bronze ingestion code reads this variable. Catalog
-and artifact bucket env vars are unchanged.
+env vars are unchanged; ops artifact env vars are covered by ADR 0014.
 
 ## Considered Alternatives
 

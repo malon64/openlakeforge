@@ -6,6 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
+import floe_dagster.assets as floe_assets
 from dagster import (
     AssetKey,
     AssetOut,
@@ -17,15 +18,17 @@ from dagster import (
     multi_asset,
 )
 from dagster_dbt import DagsterDbtTranslator, DbtCliResource, dbt_assets
-from floe_dagster.assets import load_floe_assets
 from floe_dagster.definitions import build_job_run_config_from_manifest, build_runner_from_env
 from floe_dagster.manifest import load_manifest
 
 from libs.bronze_csv import BronzeLoadResult
+from libs.openlakeforge_logging import log_event
+from libs.s3_artifacts import is_s3_uri, read_json_uri, read_text_uri, upload_file_to_base_uri
 
 _FLOE_MANIFEST_ACCESS_MODE_ENV = "OPENLAKEFORGE_FLOE_MANIFEST_ACCESS_MODE"
 _FLOE_MANIFEST_ACCESS_MODE_REMOTE = "remote"
 _FLOE_MANIFEST_ACCESS_MODE_LOCAL = "local"
+_FLOE_S3_REPORT_LOADER_INSTALLED = False
 
 
 @dataclass(frozen=True)
@@ -62,6 +65,7 @@ class ProductDefinitionSpec:
 
 
 def build_product_definitions(spec: ProductDefinitionSpec) -> Definitions:
+    _install_floe_s3_report_loader()
     floe_manifest_path = _manifest_path_for_dagster(spec)
     floe_manifest_uri = _manifest_uri_for_floe_runner(spec, floe_manifest_path)
 
@@ -84,9 +88,29 @@ def build_product_definitions(spec: ProductDefinitionSpec) -> Definitions:
         group_name=spec.asset_prefix,
     )
     def bronze_sources(context):
-        results = spec.bronze_loader()
+        previous_run_id = os.environ.get("DAGSTER_RUN_ID")
+        os.environ["DAGSTER_RUN_ID"] = context.run_id
+        try:
+            results = spec.bronze_loader()
+        finally:
+            if previous_run_id is None:
+                os.environ.pop("DAGSTER_RUN_ID", None)
+            else:
+                os.environ["DAGSTER_RUN_ID"] = previous_run_id
         for entity, result in results.items():
-            context.log.info("Loaded %s Bronze source to %s", entity, result.uri)
+            log_event(
+                context.log,
+                message="Loaded Bronze source",
+                service="dagster",
+                tool="dlt",
+                domain=spec.domain,
+                product=spec.product,
+                dagster_run_id=context.run_id,
+                entity=entity,
+                asset_key=f"{spec.asset_prefix}/{entity}_source",
+                rows=result.rows,
+                uri=result.uri,
+            )
             yield Output(
                 value=None,
                 output_name=f"{entity}_source",
@@ -98,12 +122,14 @@ def build_product_definitions(spec: ProductDefinitionSpec) -> Definitions:
             )
 
     def _dbt_gold_assets(context):
+        dbt_target = os.environ.get("OPENLAKEFORGE_DBT_TARGET", "local_runtime")
         dbt = DbtCliResource(
             project_dir=str(spec.dbt_project_dir),
             profiles_dir=str(spec.dbt_project_dir),
-            target="local_runtime",
+            target=dbt_target,
         )
         yield from dbt.cli(["build"], context=context).stream()
+        _upload_dbt_artifacts(context, spec)
 
     _dbt_gold_assets.__name__ = f"{spec.asset_prefix}_dbt_gold_assets"
     dbt_gold_assets = dbt_assets(
@@ -123,7 +149,7 @@ def build_product_definitions(spec: ProductDefinitionSpec) -> Definitions:
         config=build_job_run_config_from_manifest(floe_manifest_path),
     )
 
-    floe_defs = load_floe_assets(
+    floe_defs = floe_assets.load_floe_assets(
         manifest_path=floe_manifest_path,
         manifest_uri=floe_manifest_uri,
         runner=build_runner_from_env(),
@@ -140,6 +166,72 @@ def build_product_definitions(spec: ProductDefinitionSpec) -> Definitions:
         ),
         floe_defs,
     )
+
+
+def _install_floe_s3_report_loader() -> None:
+    global _FLOE_S3_REPORT_LOADER_INSTALLED
+    if _FLOE_S3_REPORT_LOADER_INSTALLED:
+        return
+
+    original_reader = getattr(floe_assets, "_fsspec_read_text", None)
+    if original_reader is not None:
+        def _read_remote_text(ref: str) -> str:
+            if is_s3_uri(ref):
+                return read_text_uri(ref)
+            return original_reader(ref)
+
+        floe_assets._fsspec_read_text = _read_remote_text
+        _FLOE_S3_REPORT_LOADER_INSTALLED = True
+        return
+
+    original_loader = getattr(floe_assets, "_load_local_json_document", None)
+    if original_loader is None:
+        _FLOE_S3_REPORT_LOADER_INSTALLED = True
+        return
+
+    def _load_json_document(ref: str, config_uri: str, *, label: str) -> dict:
+        if is_s3_uri(ref):
+            return read_json_uri(ref)
+        return original_loader(ref, config_uri, label=label)
+
+    floe_assets._load_local_json_document = _load_json_document
+    _FLOE_S3_REPORT_LOADER_INSTALLED = True
+
+
+def _upload_dbt_artifacts(context, spec: ProductDefinitionSpec) -> None:
+    base_uri = os.environ.get("OPENLAKEFORGE_RUN_ARTIFACT_BASE_URI")
+    if not base_uri:
+        context.log.warning("OPENLAKEFORGE_RUN_ARTIFACT_BASE_URI is not set; skipping dbt artifact upload")
+        return
+
+    run_id = getattr(context, "run_id", None) or "unknown"
+    artifact_candidates = [
+        spec.dbt_project_dir / "target" / "manifest.json",
+        spec.dbt_project_dir / "target" / "run_results.json",
+        spec.dbt_project_dir / "target" / "sources.json",
+        spec.dbt_project_dir / "logs" / "dbt.log",
+    ]
+
+    for artifact_path in artifact_candidates:
+        if not artifact_path.exists():
+            continue
+        relative_key = (
+            f"dbt/{spec.domain}/{spec.product}/{run_id}/"
+            f"{artifact_path.relative_to(spec.dbt_project_dir).as_posix()}"
+        )
+        uri = upload_file_to_base_uri(artifact_path, base_uri=base_uri, relative_key=relative_key)
+        log_event(
+            context.log,
+            message="Uploaded dbt artifact",
+            service="dagster",
+            tool="dbt",
+            domain=spec.domain,
+            product=spec.product,
+            dagster_run_id=run_id,
+            asset_key=f"{spec.asset_prefix}/dbt_gold_assets",
+            artifact=str(artifact_path.relative_to(spec.dbt_project_dir)),
+            uri=uri,
+        )
 
 
 def _ensure_dbt_manifest(spec: ProductDefinitionSpec) -> Path:

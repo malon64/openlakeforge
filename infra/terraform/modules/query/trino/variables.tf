@@ -47,6 +47,12 @@ variable "storage_contract" {
   })
 }
 
+variable "service_account_annotations" {
+  description = "Optional annotations for the Trino service account, used by AWS IRSA."
+  type        = map(string)
+  default     = {}
+}
+
 variable "catalog_contract" {
   description = "Iceberg catalog contract consumed by Trino. Current local uses REST/Polaris; future provider profiles may use Glue."
   type = object({

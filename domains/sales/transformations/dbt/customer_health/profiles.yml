@@ -42,3 +42,28 @@ sales_customer_health:
             secret: openlakeforge_iceberg_catalog_secret
             endpoint: "{{ env_var('OPENLAKEFORGE_CATALOG_REST_URI') }}"
             access_delegation_mode: none
+    aws_runtime:
+      type: duckdb
+      path: "{{ env_var('OPENLAKEFORGE_DBT_DUCKDB_PATH', '/tmp/openlakeforge-sales-customer-health-dbt.duckdb') }}"
+      schema: sales_customer_health_gold
+      threads: 1
+      extensions:
+        - aws
+        - httpfs
+        - parquet
+        - iceberg
+      secrets:
+        - type: s3
+          name: openlakeforge_aws_s3_secret
+          provider: credential_chain
+          region: "{{ env_var('AWS_REGION', 'eu-west-1') }}"
+      attach:
+        - path: "{{ env_var('OPENLAKEFORGE_CATALOG_WAREHOUSE') }}"
+          alias: "{{ env_var('OPENLAKEFORGE_CATALOG_WAREHOUSE') }}"
+          options:
+            type: iceberg
+            endpoint: "{{ env_var('OPENLAKEFORGE_CATALOG_GLUE_REST_URI') }}"
+            endpoint_type: glue
+            authorization_type: sigv4
+            signing_region: "{{ env_var('OPENLAKEFORGE_CATALOG_GLUE_REGION', env_var('AWS_REGION', 'eu-west-1')) }}"
+            access_delegation_mode: none

@@ -8,13 +8,18 @@ Implemented structure:
 infra/terraform/
 ├── foundations/
 │   ├── azure-aks/
+│   ├── aws-eks/
 │   └── local-kind/
 ├── environments/
 │   ├── azure-poc/
+│   ├── aws-poc/
 │   └── local/
 └── modules/
+    ├── storage/aws-s3/
+    ├── storage/rds-postgresql/
     ├── storage/seaweedfs/
     ├── storage/postgresql/
+    ├── catalog/aws-glue/
     ├── catalog/polaris/
     ├── query/trino/
     ├── analytics/superset/
@@ -23,12 +28,14 @@ infra/terraform/
 ```
 
 The local foundation root creates the kind cluster. The Azure foundation root
-creates the AKS cluster and ACR registry. Environment roots then deploy
-OpenLakeForge into the selected cluster through the Kubernetes and Helm
-providers. Static, non-secret Helm chart values live in `../helm/values/local`;
-Terraform modules overlay the dynamic contract values and Secret references.
-The Azure POC intentionally reuses those values and modules while emitting
-Azure-specific provider contracts.
+creates the AKS cluster and ACR registry. The AWS foundation root creates the
+VPC, EKS cluster, node group, ECR registries, and IAM OIDC provider for IRSA.
+Environment roots then deploy OpenLakeForge into the selected cluster through
+the Kubernetes and Helm providers. Static, non-secret Helm chart values live in
+`../helm/values/local`; Terraform modules overlay the dynamic contract values
+and Secret references. Azure reuses the in-cluster service implementations while
+AWS swaps storage, metadata PostgreSQL, and catalog dependencies for managed
+services.
 
 Each environment root normalizes its provider contracts in `contracts.tf`.
 Those typed contract objects are the source of truth for storage, catalog,
@@ -68,14 +75,15 @@ make local-artifacts-deploy
 - Polaris catalog and Trino principal bootstrap jobs
 - Polaris Floe principal bootstrap credentials for manifest-driven Floe jobs
 - shared local PostgreSQL for Dagster, OpenMetadata, and Superset metadata
-- Dagster webserver, daemon, aggregate product code server, and Kubernetes run launcher
+- Dagster webserver, daemon, domain product code servers, and Kubernetes run launcher
 - Superset webserver, worker, reports volume, and local report deploy path
 - OpenMetadata, Polaris service metadata, and catalog ingestion plumbing
+- SeaweedFS S3, Filer, and Master services for local object storage and inspection
 
 `make local-artifacts-deploy` owns the local/CD artifacts:
 
 - project-code image build/load
-- product Floe manifest generation and upload to the local code bucket
+- product Floe manifest generation and upload to the local ops bucket
 - product Superset report import
 - OpenMetadata domain, data-product, Bronze, Silver, and Gold metadata from domain YAML files
 - Dagster rollout after dynamic artifacts are available
@@ -83,8 +91,8 @@ make local-artifacts-deploy
 Terraform state is local and contains generated development credentials. Treat
 state files as sensitive; they are gitignored.
 
-No AWS environment, AWS provider blocks, remote state backend, Keycloak, Vault,
-or cloud secret manager integration is implemented yet.
+No remote state backend, Keycloak, Vault, ingress/TLS, Lake Formation, or cloud
+secret manager integration is implemented yet.
 
 ## Azure AKS POC workflow
 
@@ -129,10 +137,46 @@ make azure-artifacts-deploy
 `make azure-infra-up` builds and pushes the custom Superset image to ACR before
 Terraform apply because the Superset Helm release waits for pods during install.
 `make azure-artifacts-deploy` generates Floe manifests, builds and pushes the
-project-code image, uploads manifests to the in-cluster SeaweedFS code bucket,
+project-code image, uploads manifests to the in-cluster SeaweedFS ops bucket,
 imports Superset reports, deploys OpenMetadata metadata, and restarts Dagster.
 
 The Azure POC keeps SeaweedFS, PostgreSQL, Polaris, and Kubernetes Secrets
 in-cluster. Azure Blob/ADLS, Azure PostgreSQL Flexible Server, Key Vault,
 managed identity-backed runtime auth, ingress, DNS, and TLS are future phases,
 not active POC implementations.
+
+## AWS EKS POC workflow
+
+```bash
+make aws-foundation-up
+make aws-up
+make aws-e2e
+make aws-down
+make aws-foundation-down
+```
+
+`make aws-foundation-up` runs Terraform in
+`infra/terraform/foundations/aws-eks` to create the VPC, EKS cluster, managed
+node group, EKS add-ons, ECR repositories, and IRSA OIDC provider. The wrapper
+then runs `aws eks update-kubeconfig`.
+
+`make aws-up` runs:
+
+```bash
+make aws-infra-up
+make aws-artifacts-deploy
+```
+
+`make aws-infra-up` builds and pushes the custom Superset image to ECR before
+Terraform apply. The AWS platform root creates S3 medallion and ops buckets,
+RDS PostgreSQL, Glue product-layer databases, IRSA workload access, and the
+shared Helm services on EKS.
+
+`make aws-artifacts-deploy` generates Floe manifests, builds and pushes the
+project-code image, uploads manifests directly to the S3 ops bucket, imports
+Superset reports, deploys OpenMetadata metadata, patches Dagster images, and
+restarts Dagster workloads.
+
+The AWS POC keeps Trino as the query path. Athena, Secrets Manager, External
+Secrets, Lake Formation, ingress, DNS, TLS, and remote state are future
+adapters.

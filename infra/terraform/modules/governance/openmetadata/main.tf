@@ -8,6 +8,36 @@ locals {
   om_url                        = "http://${var.release_name}:${var.om_http_port}"
   catalog_schema_names_json     = jsonencode(var.catalog_schema_names)
   catalog_schema_names_json_b64 = base64encode(local.catalog_schema_names_json)
+  catalog_type                  = coalesce(try(var.catalog_contract.catalog_type, null), "rest")
+  catalog_service_name          = local.catalog_type == "glue" ? "aws_glue" : "polaris"
+  catalog_service_display_name  = local.catalog_type == "glue" ? "AWS Glue Data Catalog" : "Polaris Iceberg Catalog"
+  catalog_database_fqn          = "${local.catalog_service_name}.${var.catalog_database_name}"
+  postgresql_ssl_mode           = var.postgresql_ssl_mode != "" ? var.postgresql_ssl_mode : coalesce(try(var.postgresql_contract.ssl_mode, null), "disable")
+  storage_secret_env = var.storage_contract.credentials_secret_name == null ? [] : [
+    {
+      name        = "AWS_ACCESS_KEY_ID"
+      secret_name = var.storage_contract.credentials_secret_name
+      key         = coalesce(try(var.storage_contract.access_key_id_key, null), "AWS_ACCESS_KEY_ID")
+    },
+    {
+      name        = "AWS_SECRET_ACCESS_KEY"
+      secret_name = var.storage_contract.credentials_secret_name
+      key         = coalesce(try(var.storage_contract.secret_access_key_key, null), "AWS_SECRET_ACCESS_KEY")
+    },
+  ]
+  polaris_secret_env = try(var.catalog_contract.om_credentials_secret_name, null) == null ? [] : [
+    {
+      name        = "POLARIS_OM_CLIENT_ID"
+      secret_name = var.catalog_contract.om_credentials_secret_name
+      key         = coalesce(try(var.catalog_contract.om_client_id_key, null), "POLARIS_OM_CLIENT_ID")
+    },
+    {
+      name        = "POLARIS_OM_CLIENT_SECRET"
+      secret_name = var.catalog_contract.om_credentials_secret_name
+      key         = coalesce(try(var.catalog_contract.om_client_secret_key, null), "POLARIS_OM_CLIENT_SECRET")
+    },
+  ]
+  bootstrap_secret_env = concat(local.storage_secret_env, local.polaris_secret_env)
   bootstrap_annotations = {
     "openlakeforge.io/openmetadata-release-revision" = tostring(helm_release.openmetadata.metadata.revision)
     "openlakeforge.io/catalog-schema-hash"           = sha256(local.catalog_schema_names_json)
@@ -61,7 +91,7 @@ resource "helm_release" "openmetadata" {
                 secretKey = "postgresql-password"
               }
             }
-            dbParams = "sslmode=disable"
+            dbParams = "sslmode=${local.postgresql_ssl_mode}"
           }
           pipelineServiceClientConfig = {
             k8s = {
@@ -94,9 +124,10 @@ resource "terraform_data" "openmetadata_catalog_schemas" {
 # ServiceAccount + RBAC for the bootstrap job
 resource "kubernetes_service_account_v1" "bootstrap" {
   metadata {
-    name      = "openmetadata-bootstrap"
-    namespace = var.namespace
-    labels    = local.labels
+    name        = "openmetadata-bootstrap"
+    namespace   = var.namespace
+    labels      = local.labels
+    annotations = var.service_account_annotations
   }
 }
 
@@ -232,24 +263,33 @@ resource "kubernetes_job_v1" "bootstrap" {
             # client-credentials flow hardcodes an OAuth scope Polaris rejects.
             # Mint the Polaris token here with the correct local scope and store
             # the bearer token in the OpenMetadata service connection.
-            polaris_token_code="$(curl -sS -o /tmp/polaris-token-body -w '%%{http_code}' \
-              -X POST "${var.catalog_contract.token_uri}" \
-              -H "Content-Type: application/x-www-form-urlencoded" \
-              --data-urlencode "grant_type=client_credentials" \
-              --data-urlencode "client_id=$POLARIS_OM_CLIENT_ID" \
-              --data-urlencode "client_secret=$POLARIS_OM_CLIENT_SECRET" \
-              --data-urlencode "scope=${var.catalog_contract.oauth_scope}")"
-            if [ "$polaris_token_code" != "200" ]; then
-              echo "Failed to obtain Polaris token for OpenMetadata (HTTP $polaris_token_code)" >&2
-              cat /tmp/polaris-token-body >&2
-              exit 1
-            fi
+            catalog_type="${local.catalog_type}"
+            catalog_service="${local.catalog_service_name}"
+            catalog_display="${local.catalog_service_display_name}"
+            catalog_uri="${coalesce(try(var.catalog_contract.rest_uri, null), try(var.catalog_contract.glue_rest_uri, null), "")}"
+            catalog_warehouse="${coalesce(try(var.catalog_contract.warehouse, null), try(var.catalog_contract.glue_rest_warehouse, null), var.catalog_database_name)}"
+            catalog_token=""
 
-            POLARIS_OM_TOKEN="$(jq -r '.access_token // empty' /tmp/polaris-token-body)"
-            if [ -z "$POLARIS_OM_TOKEN" ]; then
-              echo "Failed to parse Polaris token for OpenMetadata" >&2
-              cat /tmp/polaris-token-body >&2
-              exit 1
+            if [ "$catalog_type" = "rest" ]; then
+              polaris_token_code="$(curl -sS -o /tmp/polaris-token-body -w '%%{http_code}' \
+                -X POST "${coalesce(try(var.catalog_contract.token_uri, null), "")}" \
+                -H "Content-Type: application/x-www-form-urlencoded" \
+                --data-urlencode "grant_type=client_credentials" \
+                --data-urlencode "client_id=$POLARIS_OM_CLIENT_ID" \
+                --data-urlencode "client_secret=$POLARIS_OM_CLIENT_SECRET" \
+                --data-urlencode "scope=${coalesce(try(var.catalog_contract.oauth_scope, null), "")}")"
+              if [ "$polaris_token_code" != "200" ]; then
+                echo "Failed to obtain Polaris token for OpenMetadata (HTTP $polaris_token_code)" >&2
+                cat /tmp/polaris-token-body >&2
+                exit 1
+              fi
+
+              catalog_token="$(jq -r '.access_token // empty' /tmp/polaris-token-body)"
+              if [ -z "$catalog_token" ]; then
+                echo "Failed to parse Polaris token for OpenMetadata" >&2
+                cat /tmp/polaris-token-body >&2
+                exit 1
+              fi
             fi
 
             # Store bot JWT as Kubernetes Secret
@@ -258,31 +298,29 @@ resource "kubernetes_job_v1" "bootstrap" {
               -n "$NAMESPACE" \
               --from-literal="${var.ingestion_bot_jwt_key}=$BOT_JWT"
 
-            # Create or update the Polaris Iceberg database service in OpenMetadata.
+            # Create or update the Iceberg database service in OpenMetadata.
             svc_code="$(curl -sS -o /tmp/om-svc-body -w '%%{http_code}' \
               -X PUT "$om_url/api/v1/services/databaseServices" \
               -H "Authorization: Bearer $ADMIN_JWT" \
               -H "Content-Type: application/json" \
               -d "{
-                \"name\": \"polaris\",
-                \"displayName\": \"Polaris Iceberg Catalog\",
+                \"name\": \"$catalog_service\",
+                \"displayName\": \"$catalog_display\",
                 \"serviceType\": \"Iceberg\",
                 \"connection\": {
                   \"config\": {
                     \"type\": \"Iceberg\",
                     \"catalog\": {
-                      \"name\": \"${var.catalog_contract.warehouse}\",
+                      \"name\": \"$catalog_warehouse\",
                       \"databaseName\": \"${var.catalog_database_name}\",
-                      \"warehouseLocation\": \"${var.catalog_contract.warehouse}\",
+                      \"warehouseLocation\": \"$catalog_warehouse\",
                       \"connection\": {
-                        \"uri\": \"${var.catalog_contract.rest_uri}\",
-                        \"token\": \"$POLARIS_OM_TOKEN\",
+                        \"uri\": \"$catalog_uri\",
+                        \"token\": \"$catalog_token\",
                         \"fileSystem\": {
                           \"type\": {
-                            \"awsAccessKeyId\": \"$AWS_ACCESS_KEY_ID\",
-                            \"awsSecretAccessKey\": \"$AWS_SECRET_ACCESS_KEY\",
                             \"awsRegion\": \"${var.storage_contract.region}\",
-                            \"endPointURL\": \"${var.storage_contract.virtual_host_endpoint}\"
+                            \"endPointURL\": \"${coalesce(try(var.storage_contract.virtual_host_endpoint, null), "")}\"
                           }
                         }
                       }
@@ -303,16 +341,16 @@ resource "kubernetes_job_v1" "bootstrap" {
             svc_id="$(echo "$svc_resp" | jq -r '.id // empty')"
 
             if [ -z "$svc_id" ]; then
-              echo "Failed to retrieve polaris service id" >&2
+              echo "Failed to retrieve Iceberg service id" >&2
               echo "$svc_resp" >&2
               exit 1
             fi
 
             catalog_database="${var.catalog_database_name}"
-            catalog_database_fqn="polaris.$catalog_database"
+            catalog_database_fqn="${local.catalog_database_fqn}"
             db_payload="$(jq -n \
               --arg name "$catalog_database" \
-              --arg service "polaris" \
+              --arg service "$catalog_service" \
               '{
                 name: $name,
                 service: $service
@@ -524,8 +562,8 @@ resource "kubernetes_job_v1" "bootstrap" {
               -H "Authorization: Bearer $ADMIN_JWT" || true
             echo "Superset dashboard service registered (ingestion deferred — see ADR 0009)."
 
-            # Create or reuse the Polaris metadata ingestion pipeline.
-            pipeline_fqn="polaris.polaris-metadata-ingestion"
+            # Create or reuse the Iceberg metadata ingestion pipeline.
+            pipeline_fqn="$catalog_service.$catalog_service-metadata-ingestion"
             pipeline_code="$(curl -sS -o /tmp/om-pipeline-body -w '%%{http_code}' \
               "$om_url/api/v1/services/ingestionPipelines/name/$pipeline_fqn" \
               -H "Authorization: Bearer $ADMIN_JWT")"
@@ -537,8 +575,8 @@ resource "kubernetes_job_v1" "bootstrap" {
                 -H "Authorization: Bearer $ADMIN_JWT" \
                 -H "Content-Type: application/json" \
                 -d "{
-                  \"name\": \"polaris-metadata-ingestion\",
-                  \"displayName\": \"Polaris Metadata Ingestion\",
+                  \"name\": \"$catalog_service-metadata-ingestion\",
+                  \"displayName\": \"$catalog_display Metadata Ingestion\",
                   \"pipelineType\": \"metadata\",
                   \"sourceConfig\": {
                     \"config\": {
@@ -579,7 +617,7 @@ resource "kubernetes_job_v1" "bootstrap" {
               exit 1
             fi
 
-            # Deploy and trigger the first Polaris crawl.
+            # Deploy and trigger the first catalog crawl.
             deploy_code="$(curl -sS -o /tmp/om-deploy-body -w '%%{http_code}' \
               -X POST "$om_url/api/v1/services/ingestionPipelines/deploy/$pipeline_id" \
               -H "Authorization: Bearer $ADMIN_JWT")"
@@ -617,42 +655,16 @@ resource "kubernetes_job_v1" "bootstrap" {
             }
           }
 
-          env {
-            name = "POLARIS_OM_CLIENT_ID"
-            value_from {
-              secret_key_ref {
-                name = var.catalog_contract.om_credentials_secret_name
-                key  = var.catalog_contract.om_client_id_key
-              }
-            }
-          }
+          dynamic "env" {
+            for_each = local.bootstrap_secret_env
 
-          env {
-            name = "POLARIS_OM_CLIENT_SECRET"
-            value_from {
-              secret_key_ref {
-                name = var.catalog_contract.om_credentials_secret_name
-                key  = var.catalog_contract.om_client_secret_key
-              }
-            }
-          }
-
-          env {
-            name = "AWS_ACCESS_KEY_ID"
-            value_from {
-              secret_key_ref {
-                name = var.storage_contract.credentials_secret_name
-                key  = var.storage_contract.access_key_id_key
-              }
-            }
-          }
-
-          env {
-            name = "AWS_SECRET_ACCESS_KEY"
-            value_from {
-              secret_key_ref {
-                name = var.storage_contract.credentials_secret_name
-                key  = var.storage_contract.secret_access_key_key
+            content {
+              name = env.value.name
+              value_from {
+                secret_key_ref {
+                  name = env.value.secret_name
+                  key  = env.value.key
+                }
               }
             }
           }
@@ -682,7 +694,7 @@ resource "kubernetes_job_v1" "bootstrap" {
 }
 
 resource "kubernetes_cron_job_v1" "catalog_refresh" {
-  count = var.catalog_refresh_enabled ? 1 : 0
+  count = var.catalog_refresh_enabled && local.catalog_type == "rest" ? 1 : 0
 
   metadata {
     name      = "openmetadata-polaris-refresh"

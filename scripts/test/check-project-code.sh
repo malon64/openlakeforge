@@ -90,7 +90,7 @@ else
   echo "==> Reusing project-code dependency cache ${site_dir}"
 fi
 
-echo "==> Loading aggregate Dagster product definitions"
+echo "==> Loading domain Dagster product definitions"
 PATH="${site_dir}/bin:${PATH}" PYTHONPATH="${site_dir}:${PWD}" "${PYTHON_BIN}" - <<'PY'
 import os
 from pathlib import Path
@@ -100,11 +100,18 @@ from dagster._core.workspace.autodiscovery import loadable_targets_from_python_m
 from floe_dagster.manifest import load_manifest
 
 os.environ.setdefault("OPENLAKEFORGE_FLOE_MANIFEST_ACCESS_MODE", "remote")
-os.environ.setdefault("OPENLAKEFORGE_FLOE_MANIFEST_BASE_URI", "s3://openlakeforge-code/floe")
+os.environ.setdefault("OPENLAKEFORGE_ARTIFACT_BUCKET_NAME", "openlakeforge-ops")
+os.environ.setdefault("OPENLAKEFORGE_OPS_BUCKET_NAME", "openlakeforge-ops")
+os.environ.setdefault("OPENLAKEFORGE_ARTIFACT_BASE_URI", "s3://openlakeforge-ops")
+os.environ.setdefault("OPENLAKEFORGE_FLOE_MANIFEST_BASE_URI", "s3://openlakeforge-ops/floe/manifests")
+os.environ.setdefault("OPENLAKEFORGE_FLOE_REPORT_BASE_URI", "s3://openlakeforge-ops/floe/reports")
+os.environ.setdefault("OPENLAKEFORGE_LOG_BASE_URI", "s3://openlakeforge-ops/logs")
+os.environ.setdefault("OPENLAKEFORGE_RUN_ARTIFACT_BASE_URI", "s3://openlakeforge-ops/run-artifacts")
 
-from domains.definitions import defs
+from domains.sales.definitions import defs as sales_defs
 from domains.sales.extract.dlt.customer_health import CUSTOMER_HEALTH_ENTITIES
 from domains.sales.extract.dlt.order_revenue import ORDER_REVENUE_ENTITIES
+from domains.supply_chain.definitions import defs as supply_chain_defs
 from domains.supply_chain.extract.dlt.inventory_reliability import (
     INVENTORY_RELIABILITY_ENTITIES,
 )
@@ -156,20 +163,40 @@ PRODUCTS = [
 if os.environ["OPENLAKEFORGE_FLOE_MANIFEST_ACCESS_MODE"].strip().lower() != "remote":
     raise SystemExit("project-code check must load Dagster definitions in remote Floe manifest mode")
 
-targets = loadable_targets_from_python_module("domains.definitions", ".")
-if len(targets) != 1:
-    raise SystemExit(f"domains.definitions should expose exactly one Dagster target, found {len(targets)}")
-if targets[0].attribute != "defs":
-    raise SystemExit(f"domains.definitions should expose defs, found {targets[0].attribute}")
+for module_name in ["domains.sales.definitions", "domains.supply_chain.definitions"]:
+    module_targets = loadable_targets_from_python_module(module_name, ".")
+    if len(module_targets) != 1 or module_targets[0].attribute != "defs":
+        raise SystemExit(f"{module_name} should expose exactly one defs target")
 
-asset_keys = {
+domain_defs = {
+    "sales": sales_defs,
+    "supply_chain": supply_chain_defs,
+}
+asset_key_list = [
     tuple(key.path)
-    for asset_def in defs.assets
+    for definitions in domain_defs.values()
+    for asset_def in definitions.assets
+    if hasattr(asset_def, "keys")
+    for key in asset_def.keys
+]
+asset_keys = set(asset_key_list)
+source_asset_keys = {
+    tuple(asset.key.path)
+    for definitions in domain_defs.values()
+    for asset in definitions.assets
+    if not hasattr(asset, "keys")
+}
+sales_asset_keys = {
+    tuple(key.path)
+    for asset_def in sales_defs.assets
     if hasattr(asset_def, "keys")
     for key in asset_def.keys
 }
-source_asset_keys = {
-    tuple(asset.key.path) for asset in defs.assets if not hasattr(asset, "keys")
+supply_chain_asset_keys = {
+    tuple(key.path)
+    for asset_def in supply_chain_defs.assets
+    if hasattr(asset_def, "keys")
+    for key in asset_def.keys
 }
 
 for product in PRODUCTS:
@@ -182,8 +209,14 @@ for product in PRODUCTS:
     )
     if not remote_uri.startswith(("s3://", "gs://", "abfs://")):
         raise SystemExit(f"{prefix} remote Floe manifest URI is not a supported remote URI")
+    if "/floe/manifests/" not in remote_uri or "openlakeforge-ops" not in remote_uri:
+        raise SystemExit(f"{prefix} remote Floe manifest URI must use the ops manifest prefix")
 
     manifest = load_manifest(product["manifest"])
+    if not str(getattr(manifest, "report_base_uri", "")).startswith(
+        f"s3://openlakeforge-ops/floe/reports/{product['domain']}/{product['product']}"
+    ):
+        raise SystemExit(f"{prefix} Floe manifest must write reports to the ops bucket")
     if manifest.execution.base_args != [
         "run",
         "--manifest",
@@ -200,7 +233,7 @@ for product in PRODUCTS:
     if {entity.name for entity in manifest.entities} != set(product["entities"]):
         raise SystemExit(f"{prefix} Floe manifest entities do not match product entities")
 
-    job = defs.resolve_job_def(product["job"])
+    job = domain_defs[product["domain"]].resolve_job_def(product["job"])
     if job.name != product["job"]:
         raise SystemExit(f"missing Dagster job {product['job']}")
     if job.run_config["execution"]["config"]["multiprocess"]["max_concurrent"] != 1:
@@ -226,8 +259,17 @@ for product in PRODUCTS:
         if (prefix, asset_name) not in asset_keys:
             raise SystemExit(f"missing dbt Gold asset {prefix}/{asset_name}")
 
-if len(asset_keys) != len(set(asset_keys)):
+if not any(key[0] == "sales_order_revenue" for key in sales_asset_keys):
+    raise SystemExit("sales domain definitions did not load sales_order_revenue assets")
+if any(key[0].startswith("supply_chain") for key in sales_asset_keys):
+    raise SystemExit("sales domain definitions must not load supply_chain assets")
+if not any(key[0] == "supply_chain_inventory_reliability" for key in supply_chain_asset_keys):
+    raise SystemExit("supply_chain domain definitions did not load inventory_reliability assets")
+if any(key[0].startswith("sales") for key in supply_chain_asset_keys):
+    raise SystemExit("supply_chain domain definitions must not load sales assets")
+
+if len(asset_key_list) != len(asset_keys):
     raise SystemExit("duplicate Dagster asset keys found")
 
-print("Aggregate product Dagster definitions loaded.")
+print("Domain product Dagster definitions loaded.")
 PY

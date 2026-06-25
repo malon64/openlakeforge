@@ -11,6 +11,7 @@ KUBE_CONTEXT="${KUBE_CONTEXT:-}"
 DAGSTER_LOCAL_PORT="${DAGSTER_LOCAL_PORT:-13000}"
 SUPERSET_LOCAL_PORT="${SUPERSET_LOCAL_PORT:-18088}"
 OPENMETADATA_LOCAL_PORT="${OPENMETADATA_LOCAL_PORT:-18585}"
+SEAWEEDFS_LOCAL_PORT="${SEAWEEDFS_LOCAL_PORT:-19000}"
 
 require_cmd() {
   local cmd="$1"
@@ -117,6 +118,55 @@ trino_scalar() {
   kubectl --context "${KUBE_CONTEXT}" exec -n "${NAMESPACE}" deploy/trino-coordinator -- \
     trino --output-format CSV_UNQUOTED --execute "${sql}" \
     | awk 'NF { last = $0 } END { gsub(/\r/, "", last); print last }'
+}
+
+secret_value() {
+  local secret="$1"
+  local key="$2"
+  kubectl --context "${KUBE_CONTEXT}" get secret "${secret}" -n "${NAMESPACE}" \
+    -o "jsonpath={.data.${key}}" | base64 -d
+}
+
+prepare_s3_cli() {
+  if command -v aws &>/dev/null; then
+    AWS_CMD=(aws)
+  elif command -v docker &>/dev/null; then
+    AWS_CMD=(
+      docker run --rm --network host
+      -e AWS_ACCESS_KEY_ID
+      -e AWS_SECRET_ACCESS_KEY
+      -e AWS_REGION
+      -e AWS_DEFAULT_REGION
+      -e AWS_EC2_METADATA_DISABLED
+      amazon/aws-cli:2.17.63
+    )
+  else
+    echo "ERROR: either 'aws' or Docker is required for ops artifact validation." >&2
+    exit 1
+  fi
+
+  export AWS_ACCESS_KEY_ID
+  export AWS_SECRET_ACCESS_KEY
+  export AWS_REGION="${AWS_REGION:-us-east-1}"
+  export AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-${AWS_REGION}}"
+  export AWS_EC2_METADATA_DISABLED=true
+  AWS_ACCESS_KEY_ID="$(secret_value seaweedfs-s3-creds AWS_ACCESS_KEY_ID)"
+  AWS_SECRET_ACCESS_KEY="$(secret_value seaweedfs-s3-creds AWS_SECRET_ACCESS_KEY)"
+}
+
+ops_s3() {
+  "${AWS_CMD[@]}" --endpoint-url "http://127.0.0.1:${SEAWEEDFS_LOCAL_PORT}" "$@"
+}
+
+require_s3_prefix() {
+  local bucket="$1"
+  local prefix="$2"
+  local count
+  count="$(ops_s3 s3api list-objects-v2 --bucket "${bucket}" --prefix "${prefix}" --max-items 1 --query 'length(Contents || `[]`)' --output text)"
+  if [[ "${count}" == "0" || "${count}" == "None" ]]; then
+    echo "ERROR: expected objects under s3://${bucket}/${prefix}" >&2
+    exit 1
+  fi
 }
 
 check_trino() {
@@ -230,7 +280,7 @@ def discover_repository(job_name):
     try:
         workspace = graphql(query)["workspaceOrError"]
     except Exception:
-        return "openlakeforge-dagster", "__repository__"
+        return fallback_repository(job_name)
 
     for entry in workspace.get("locationEntries", []):
         location = entry.get("locationOrLoadError") or {}
@@ -240,7 +290,13 @@ def discover_repository(job_name):
             pipeline_names = {pipeline["name"] for pipeline in repo.get("pipelines", [])}
             if job_name in pipeline_names:
                 return entry["name"], repo["name"]
-    return "openlakeforge-dagster", "__repository__"
+    return fallback_repository(job_name)
+
+
+def fallback_repository(job_name):
+    if job_name.startswith("supply_chain_"):
+        return "supply-chain-dagster", "__repository__"
+    return "sales-dagster", "__repository__"
 
 
 def launch(job_name):
@@ -460,7 +516,50 @@ for product, candidates in DATA_PRODUCTS.items():
 PY
 }
 
-for cmd in az grep kubectl python3 terraform; do
+check_ops_artifacts() {
+  echo "==> Checking ops artifact bucket contents..."
+  prepare_s3_cli
+  start_port_forward "svc/seaweedfs-s3" "${SEAWEEDFS_LOCAL_PORT}:8333" "seaweedfs-s3"
+
+  for attempt in $(seq 1 60); do
+    if ops_s3 s3api head-bucket --bucket openlakeforge-ops >/dev/null 2>&1; then
+      break
+    fi
+    if [[ "${attempt}" == "60" ]]; then
+      echo "ERROR: openlakeforge-ops bucket did not become available through local S3 port-forward." >&2
+      exit 1
+    fi
+    sleep 2
+  done
+
+  local archive_job="openlakeforge-k8s-log-archive-e2e-$(date +%s)"
+  kubectl --context "${KUBE_CONTEXT}" create job \
+    --from=cronjob/openlakeforge-k8s-log-archive \
+    "${archive_job}" \
+    -n "${NAMESPACE}" >/dev/null
+  kubectl --context "${KUBE_CONTEXT}" wait \
+    --for=condition=complete \
+    "job/${archive_job}" \
+    -n "${NAMESPACE}" \
+    --timeout=300s
+
+  ops_s3 s3api head-object \
+    --bucket openlakeforge-ops \
+    --key floe/manifests/sales/order_revenue/order_revenue.manifest.json >/dev/null
+  ops_s3 s3api head-object \
+    --bucket openlakeforge-ops \
+    --key floe/manifests/sales/customer_health/customer_health.manifest.json >/dev/null
+  ops_s3 s3api head-object \
+    --bucket openlakeforge-ops \
+    --key floe/manifests/supply_chain/inventory_reliability/inventory_reliability.manifest.json >/dev/null
+
+  require_s3_prefix openlakeforge-ops "floe/reports/"
+  require_s3_prefix openlakeforge-ops "run-artifacts/dbt/"
+  require_s3_prefix openlakeforge-ops "logs/dagster/compute/"
+  require_s3_prefix openlakeforge-ops "logs/k8s/namespace=${NAMESPACE}/"
+}
+
+for cmd in az base64 grep kubectl python3 terraform; do
   require_cmd "${cmd}"
 done
 
@@ -470,5 +569,6 @@ launch_and_poll_dagster_jobs
 check_trino
 check_superset_reports
 check_openmetadata_assets
+check_ops_artifacts
 
 echo "Azure POC end-to-end validation passed."

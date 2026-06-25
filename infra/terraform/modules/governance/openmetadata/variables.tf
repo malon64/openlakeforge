@@ -53,6 +53,12 @@ variable "postgresql_contract" {
   })
 }
 
+variable "postgresql_ssl_mode" {
+  description = "PostgreSQL sslmode used by OpenMetadata metadata connections."
+  type        = string
+  default     = "disable"
+}
+
 variable "bootstrap_job_image" {
   description = "Image used by the OpenMetadata bootstrap Kubernetes Job."
   type        = string
@@ -93,13 +99,13 @@ variable "ingestion_bot_jwt_key" {
 variable "catalog_contract" {
   description = "Iceberg catalog contract consumed by OpenMetadata. This module currently uses the REST/Polaris fields for catalog discovery."
   type = object({
-    rest_uri                   = string
-    token_uri                  = string
-    warehouse                  = string
-    oauth_scope                = string
-    om_credentials_secret_name = string
-    om_client_id_key           = string
-    om_client_secret_key       = string
+    rest_uri                   = optional(string)
+    token_uri                  = optional(string)
+    warehouse                  = optional(string)
+    oauth_scope                = optional(string)
+    om_credentials_secret_name = optional(string)
+    om_client_id_key           = optional(string)
+    om_client_secret_key       = optional(string)
     catalog_type               = optional(string)
     catalog_provider           = optional(string)
     catalog_name               = optional(string)
@@ -108,6 +114,8 @@ variable "catalog_contract" {
     default_warehouse_location = optional(string)
     glue_catalog_id            = optional(string)
     glue_region                = optional(string)
+    glue_rest_uri              = optional(string)
+    glue_rest_warehouse        = optional(string)
     provider                   = optional(string)
     implementation             = optional(string)
     auth_mode                  = optional(string)
@@ -120,12 +128,12 @@ variable "catalog_contract" {
 variable "storage_contract" {
   description = "S3-compatible storage contract consumed by OpenMetadata."
   type = object({
-    virtual_host_endpoint   = string
+    virtual_host_endpoint   = optional(string)
     region                  = string
     bucket_name             = string
-    credentials_secret_name = string
-    access_key_id_key       = string
-    secret_access_key_key   = string
+    credentials_secret_name = optional(string)
+    access_key_id_key       = optional(string)
+    secret_access_key_key   = optional(string)
     endpoint                = optional(string)
     path_style_access       = optional(bool)
     provider                = optional(string)
@@ -195,4 +203,10 @@ variable "superset_verify_ssl" {
   description = "Superset SSL verification mode used by OpenMetadata dashboard metadata ingestion."
   type        = string
   default     = "no-ssl"
+}
+
+variable "service_account_annotations" {
+  description = "Optional annotations for OpenMetadata-related service accounts, used by AWS IRSA."
+  type        = map(string)
+  default     = {}
 }

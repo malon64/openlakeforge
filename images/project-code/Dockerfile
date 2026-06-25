@@ -27,4 +27,4 @@ RUN set -e; \
 
 RUN mkdir -p "${DAGSTER_HOME}"
 
-CMD ["dagster", "api", "grpc", "--module-name", "domains.definitions", "--host", "0.0.0.0", "--port", "3030"]
+CMD ["dagster", "api", "grpc", "--module-name", "domains.sales.definitions", "--host", "0.0.0.0", "--port", "3030"]

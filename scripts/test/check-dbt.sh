@@ -23,8 +23,8 @@ PY
 dependency_hash="$(python3 - <<'PY'
 import hashlib
 payload = "\n".join([
-    "dbt-duckdb>=1.9.6,<1.10",
-    "duckdb>=1.4.1,<1.5",
+    "dbt-duckdb>=1.10.0,<1.11",
+    "duckdb>=1.4.5,<1.5",
 ])
 print(hashlib.sha256(payload.encode()).hexdigest()[:16])
 PY
@@ -42,8 +42,8 @@ if [[ ! -f "${stamp_path}" ]]; then
     --no-compile \
     --prefer-binary \
     --target "${site_dir}" \
-    "dbt-duckdb>=1.9.6,<1.10" \
-    "duckdb>=1.4.1,<1.5"
+    "dbt-duckdb>=1.10.0,<1.11" \
+    "duckdb>=1.4.5,<1.5"
   touch "${stamp_path}"
 else
   echo "==> Reusing dbt dependency cache ${site_dir}"

@@ -24,7 +24,17 @@ postgresql:
   enabled: false
 
 computeLogManager:
-  type: NoOpComputeLogManager
+  type: S3ComputeLogManager
+  config:
+    s3ComputeLogManager:
+      bucket: openlakeforge-ops
+      localDir: /tmp/dagster-compute-logs
+      prefix: logs/dagster/compute
+      useSsl: false
+      verify: false
+      endpointUrl: http://seaweedfs-s3:8333
+      region: us-east-1
+      skipEmptyFiles: true
 
 telemetry:
   enabled: false

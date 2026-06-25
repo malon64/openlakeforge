@@ -152,24 +152,36 @@ locals {
   }
 
   orchestration_contract = {
-    provider                  = local.azure_provider_name
-    implementation            = "orchestration.dagster_on_aks"
-    adapter                   = "orchestration.dagster_on_aks"
-    logical_name              = "orchestration"
-    service_name              = "dagster-dagster-webserver"
-    http_port                 = 80
-    endpoint                  = "http://dagster-dagster-webserver:80"
-    definitions_module        = "domains.definitions"
+    provider       = local.azure_provider_name
+    implementation = "orchestration.dagster_on_aks"
+    adapter        = "orchestration.dagster_on_aks"
+    logical_name   = "orchestration"
+    service_name   = "dagster-dagster-webserver"
+    http_port      = 80
+    endpoint       = "http://dagster-dagster-webserver:80"
+    code_locations = [
+      {
+        name               = "sales-dagster"
+        definitions_module = "domains.sales.definitions"
+      },
+      {
+        name               = "supply-chain-dagster"
+        definitions_module = "domains.supply_chain.definitions"
+      },
+    ]
     runner                    = "kubernetes-run-launcher"
     project_code_image        = "${var.project_code_image_repository}:${var.project_code_image_tag}"
     project_code_image_policy = var.project_code_image_pull_policy
     floe_manifest_access_mode = "remote"
     floe_manifest_base_uri    = local.floe_manifest_base_uri
+    floe_report_base_uri      = local.floe_report_base_uri
+    log_base_uri              = local.log_base_uri
+    run_artifact_base_uri     = local.run_artifact_base_uri
     supported_catalogs        = ["rest"]
     active_catalog_type       = local.catalog_contract.catalog_type
     storage_ref               = local.storage_contract.logical_name
     catalog_ref               = local.catalog_contract.logical_name
-    artifact_bucket_ref       = "floe_manifests"
+    artifact_bucket_ref       = "ops_artifacts"
     local_only                = false
     poc_only                  = true
     future_adapter_shapes     = ["orchestration.dagster"]
@@ -196,10 +208,15 @@ locals {
     provider                 = local.azure_provider_name
     implementation           = "artifacts.s3_compatible_bucket.seaweedfs_on_aks"
     adapter                  = "artifacts.s3_compatible_bucket.seaweedfs_on_aks"
-    logical_name             = "floe_manifests"
-    bucket_name              = var.code_bucket_name
+    logical_name             = "ops_artifacts"
+    bucket_name              = var.ops_bucket_name
+    artifact_base_uri        = local.artifact_base_uri
     access_mode              = "remote"
     base_uri                 = local.floe_manifest_base_uri
+    floe_manifest_base_uri   = local.floe_manifest_base_uri
+    floe_report_base_uri     = local.floe_report_base_uri
+    log_base_uri             = local.log_base_uri
+    run_artifact_base_uri    = local.run_artifact_base_uri
     manifest_uris            = local.product_floe_manifest_uris
     distribution_mode        = "s3-compatible-upload"
     storage_ref              = local.storage_contract.logical_name
@@ -219,7 +236,11 @@ locals {
     floe_manifest_base_uri     = local.artifact_bucket_contract.base_uri
     floe_manifest_uris         = local.artifact_bucket_contract.manifest_uris
     floe_manifest_distribution = local.artifact_bucket_contract.distribution_mode
-    code_bucket_name           = local.artifact_bucket_contract.bucket_name
+    ops_bucket_name            = local.artifact_bucket_contract.bucket_name
+    artifact_base_uri          = local.artifact_bucket_contract.artifact_base_uri
+    floe_report_base_uri       = local.artifact_bucket_contract.floe_report_base_uri
+    log_base_uri               = local.artifact_bucket_contract.log_base_uri
+    run_artifact_base_uri      = local.artifact_bucket_contract.run_artifact_base_uri
   })
 
   secrets_contract = {
@@ -263,14 +284,18 @@ locals {
 
   observability_contract = {
     provider              = local.azure_provider_name
-    implementation        = "observability.none"
-    adapter               = "observability.none"
+    implementation        = "observability.object_log_archive_on_aks"
+    adapter               = "observability.object_log_archive_on_aks"
     metrics_enabled       = false
     tracing_enabled       = false
-    logs_mode             = "kubectl-and-pod-logs"
+    logs_mode             = "s3-compatible-object-archive"
+    log_base_uri          = local.log_base_uri
+    compute_log_uri       = "${local.log_base_uri}/dagster/compute"
+    kubernetes_log_uri    = "${local.log_base_uri}/k8s"
+    artifact_bucket_ref   = local.artifact_bucket_contract.logical_name
     local_only            = false
     poc_only              = true
-    future_adapter_shapes = ["observability.azure_monitor", "observability.managed_prometheus"]
+    future_adapter_shapes = ["observability.loki_grafana", "observability.azure_monitor", "observability.managed_prometheus"]
   }
 
   provider_contracts = {

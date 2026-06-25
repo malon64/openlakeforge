@@ -108,3 +108,9 @@ variable "postgresql_contract" {
     endpoint                         = optional(string)
   })
 }
+
+variable "postgresql_ssl_mode" {
+  description = "PostgreSQL sslmode used by Superset metadata connections."
+  type        = string
+  default     = "disable"
+}

@@ -12,6 +12,12 @@ output "contract" {
     secret_access_key_key   = "AWS_SECRET_ACCESS_KEY"
     s3_service_name         = local.s3_service_name
     s3_service_port         = var.s3_port
+    filer_service_name      = local.filer_service_name
+    filer_http_port         = 8888
+    filer_endpoint          = "http://${local.filer_service_name}:8888"
+    master_service_name     = local.master_service_name
+    master_http_port        = 9333
+    master_endpoint         = "http://${local.master_service_name}:9333"
   }
 
   depends_on = [

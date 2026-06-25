@@ -8,7 +8,7 @@ metadata:
 
 report:
   path: "floe/reports/sales/customer_health"
-  storage: "lakehouse_silver"
+  storage: "openlakeforge_ops"
 
 entities:
   - name: "accounts"

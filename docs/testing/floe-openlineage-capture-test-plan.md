@@ -53,7 +53,7 @@ container is enough. It does not need authentication for the first capture pass.
 | 1 | Deploy the capture service in the `lakehouse` namespace. | `openlineage-capture` is reachable from Floe runner pods. |
 | 2 | Render a temporary Floe profile with a `lineage` block pointing at `http://openlineage-capture:5000/api/v1/lineage`. | The generated profile differs only by lineage settings. |
 | 3 | Regenerate one product manifest with the temporary lineage-enabled profile. | The manifest still uses `ghcr.io/malon64/floe:0.5.4` and the normal OpenLakeForge storage/catalog contracts. |
-| 4 | Upload the temporary manifest to the code bucket path that Dagster passes to the Floe runner. | The runner can read the same manifest URI Dagster launches. |
+| 4 | Upload the temporary manifest to the ops bucket path that Dagster passes to the Floe runner. | The runner can read the same manifest URI Dagster launches. |
 | 5 | Launch a narrow Dagster run, preferably `sales_order_revenue_pipeline`. | Bronze and Silver assets succeed, and the capture endpoint receives OpenLineage events. |
 | 6 | Copy captured event JSON from the capture pod. | The event payloads are available locally for validation. |
 | 7 | Validate `run.runId` on every event with a UUID parser. | No event uses an old `mfv1-...` style run ID. |

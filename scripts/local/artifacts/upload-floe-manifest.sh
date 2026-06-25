@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Publish generated product Floe manifests to the local code bucket.
+# Publish generated product Floe manifests to the operational artifact bucket.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -10,7 +10,7 @@ S3_PORT="${SEAWEEDFS_LOCAL_S3_PORT:-19000}"
 # shellcheck source=/dev/null
 source "${REPO_ROOT}/scripts/local/contracts/load-runtime-env.sh"
 
-BUCKET="${CODE_BUCKET_NAME:-${OPENLAKEFORGE_ARTIFACT_BUCKET_NAME}}"
+BUCKET="${OPENLAKEFORGE_OPS_BUCKET_NAME:-${OPENLAKEFORGE_ARTIFACT_BUCKET_NAME}}"
 
 for cmd in kubectl base64; do
   if ! command -v "${cmd}" &>/dev/null; then
@@ -73,7 +73,7 @@ manifest_key() {
   local domain
   product="$(basename "${manifest_path}" .manifest.json)"
   domain="$(basename "${domain_dir}")"
-  printf 'floe/%s/%s/%s.manifest.json\n' "${domain}" "${product}" "${product}"
+  printf 'floe/manifests/%s/%s/%s.manifest.json\n' "${domain}" "${product}" "${product}"
 }
 
 manifests=()

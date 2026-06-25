@@ -89,8 +89,10 @@ Dagster webserver / daemon / code server
 ```
 
 The local stack loads `ghcr.io/openlakeforge/project-code:local` into the local
-kind cluster and uses it for both the aggregate product code server and isolated
-Dagster run pods. Durable product jobs are loaded from `domains.definitions`:
+kind cluster and uses it for domain Dagster code locations and isolated Dagster
+run pods. The v1 domain code locations are `sales-dagster`, loading
+`domains.sales.definitions`, and `supply-chain-dagster`, loading
+`domains.supply_chain.definitions`. Durable product jobs are
 `sales_order_revenue_pipeline`, `sales_customer_health_pipeline`, and
 `supply_chain_inventory_reliability_pipeline`. Each job materializes product
 Bronze source assets, executes manifest-loaded Floe assets, then runs

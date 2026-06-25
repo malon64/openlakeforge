@@ -44,7 +44,7 @@ A shell deploy step owns all artifacts that have a domain code lifetime:
 
 - Build and kind-load the `project-code` image (contains domain code, dlt, dbt, Dagster
   definitions)
-- Generate product Floe manifests and publish them to the SeaweedFS code bucket
+- Generate product Floe manifests and publish them to the SeaweedFS ops bucket
 - Import product Superset report bundles via the
   Superset API
 - Seed OpenMetadata with domain and data-product entities

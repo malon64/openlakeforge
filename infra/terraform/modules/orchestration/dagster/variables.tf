@@ -56,16 +56,22 @@ variable "project_code_image_revision" {
   default     = "manual"
 }
 
-variable "code_location_name" {
-  description = "Dagster user-code deployment and code location name."
-  type        = string
-  default     = "openlakeforge-dagster"
-}
-
-variable "definitions_module" {
-  description = "Python module exposing Dagster Definitions."
-  type        = string
-  default     = "domains.definitions"
+variable "code_locations" {
+  description = "Dagster user-code deployments and Python modules exposing domain-scoped Definitions."
+  type = list(object({
+    name               = string
+    definitions_module = string
+  }))
+  default = [
+    {
+      name               = "sales-dagster"
+      definitions_module = "domains.sales.definitions"
+    },
+    {
+      name               = "supply-chain-dagster"
+      definitions_module = "domains.supply_chain.definitions"
+    },
+  ]
 }
 
 variable "floe_manifest_base_uri" {
@@ -90,6 +96,37 @@ variable "floe_manifest_revision" {
   default     = "manual"
 }
 
+variable "artifact_bucket_name" {
+  description = "S3-compatible operational artifact bucket used for manifests, logs, reports, and run artifacts."
+  type        = string
+}
+
+variable "artifact_base_uri" {
+  description = "S3 base URI of the operational artifact bucket."
+  type        = string
+}
+
+variable "floe_report_base_uri" {
+  description = "S3 base URI where Floe run reports are written."
+  type        = string
+}
+
+variable "log_base_uri" {
+  description = "S3 base URI where platform logs are archived."
+  type        = string
+}
+
+variable "run_artifact_base_uri" {
+  description = "S3 base URI where tool run artifacts are archived."
+  type        = string
+}
+
+variable "kubernetes_log_archive_schedule" {
+  description = "Cron schedule for archiving Kubernetes pod logs to the artifact bucket."
+  type        = string
+  default     = "*/15 * * * *"
+}
+
 variable "storage_contract" {
   description = "S3-compatible storage contract consumed by Dagster and run pods."
   type = object({
@@ -99,8 +136,8 @@ variable "storage_contract" {
     bronze_bucket_name      = optional(string)
     path_style_access       = optional(bool)
     credentials_secret_name = optional(string)
-    access_key_id_key       = string
-    secret_access_key_key   = string
+    access_key_id_key       = optional(string)
+    secret_access_key_key   = optional(string)
     provider                = optional(string)
     implementation          = optional(string)
     auth_mode               = optional(string)
@@ -130,6 +167,8 @@ variable "catalog_contract" {
     default_warehouse_location   = optional(string)
     glue_catalog_id              = optional(string)
     glue_region                  = optional(string)
+    glue_rest_uri                = optional(string)
+    glue_rest_warehouse          = optional(string)
     provider                     = optional(string)
     implementation               = optional(string)
     auth_mode                    = optional(string)
@@ -155,6 +194,12 @@ variable "postgresql_contract" {
   })
 }
 
+variable "postgresql_ssl_mode" {
+  description = "PostgreSQL sslmode advertised by the active metadata database contract."
+  type        = string
+  default     = "disable"
+}
+
 variable "governance_contract" {
   description = "OpenMetadata governance contract passed from the governance module."
   type = object({
@@ -168,4 +213,10 @@ variable "governance_contract" {
     endpoint                  = optional(string)
     ingress_mode              = optional(string)
   })
+}
+
+variable "service_account_annotations" {
+  description = "Optional annotations for Dagster service accounts, used by AWS IRSA."
+  type        = map(string)
+  default     = {}
 }

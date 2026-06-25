@@ -29,7 +29,7 @@ from the manifest baked into the project-code image.
 
 Kubernetes Floe execution uses explicit remote manifest access:
 `OPENLAKEFORGE_FLOE_MANIFEST_ACCESS_MODE=remote`. Local/CD artifact upload
-publishes the same generated product manifests to the SeaweedFS code bucket, and
+publishes the same generated product manifests to the SeaweedFS ops bucket, and
 Dagster passes those `s3://...` manifest URIs to the separate
 `ghcr.io/malon64/floe:0.5.4` runner pods. `local` manifest access is reserved
 for same-container local-process execution because the separate runner image
@@ -49,7 +49,7 @@ as `sales_order_revenue_pipeline`, `sales_customer_health_pipeline`, and
 - Dagster loads product Floe asset graphs from local manifests baked into the
   project-code image.
 - The separate Floe runner expects the same product manifests under
-  `s3://openlakeforge-code/floe/<domain>/<product>/<product>.manifest.json`.
+  `s3://openlakeforge-ops/floe/manifests/<domain>/<product>/<product>.manifest.json`.
 - Remote manifest mode fails fast if a product URI cannot be resolved.
 - Floe execution is isolated in Kubernetes jobs from the Floe runner image.
 - Artifact publication is a CD concern and is not modeled as a Terraform

@@ -32,11 +32,22 @@ The current seed POC contains two Sales data products, `order_revenue` and
 | Technical contracts | Floe | Bronze-to-Silver validation and Silver materialization |
 | Transformation | dbt-duckdb | Silver-to-Gold business models |
 | Table format | Apache Iceberg | Open table format |
-| Catalog | Apache Polaris | Iceberg REST catalog |
-| Object storage | SeaweedFS | Default local S3-compatible backend |
+| Catalog | Apache Polaris / AWS Glue | Polaris for local/Azure POC, Glue for AWS POC |
+| Object storage | SeaweedFS / S3 | SeaweedFS for local/Azure POC, S3 for AWS POC |
 | Query serving | Trino | Analytics query engine |
 | Reporting | Superset | BI reports over Gold marts |
 | Orchestration | Dagster | Asset graph and run orchestration |
+
+## Deployment Targets
+
+| Target | Foundation | Managed-service replacements |
+| --- | --- | --- |
+| Local | kind | None; SeaweedFS, PostgreSQL, and Polaris run in-cluster |
+| Azure POC | AKS + ACR | None yet; Azure proves AKS/ACR parity while keeping in-cluster services |
+| AWS POC | EKS + ECR | S3 replaces SeaweedFS, RDS PostgreSQL replaces in-cluster PostgreSQL, Glue replaces Polaris |
+
+The first AWS query path still uses Trino. Athena is documented as a future
+adapter because it changes query pricing, Superset wiring, and e2e validation.
 
 ## Repository Structure
 
@@ -75,10 +86,11 @@ ghcr.io/openlakeforge/project-code:<tag>
 
 It contains Dagster code, `dagster-floe`, product Floe contracts, generated
 product Floe manifests, dlt extract code, domain Python code, and shared
-OpenLakeForge libraries. Terraform provisions the local SeaweedFS code bucket
-and passes the runner-facing Floe manifest base URI to Dagster; manifest
-publication for the separate Floe runner pod is handled by local/CD artifact
-upload.
+OpenLakeForge libraries. Terraform provisions the local SeaweedFS ops bucket
+`openlakeforge-ops` and passes runner-facing artifact URIs to Dagster. Floe
+manifests are published under `s3://openlakeforge-ops/floe/manifests`, Floe
+reports under `s3://openlakeforge-ops/floe/reports`, and logs/run artifacts
+under `logs/` and `run-artifacts/`.
 
 Superset report assets are also treated as dynamic product artifacts. Their
 source lives under `domains/<domain>/reports/superset/<product>/`;
@@ -210,6 +222,12 @@ Then open:
 | Trino | http://localhost:8080 | none |
 | Polaris API | http://localhost:8181/api/catalog | service credentials |
 | SeaweedFS S3 | http://localhost:9000 | generated local secret |
+| SeaweedFS Filer | http://localhost:8888 | none |
+| SeaweedFS Master | http://localhost:9333 | none |
+
+The SeaweedFS Filer UI is the simplest local bucket browser for this stack. It
+uses the existing SeaweedFS deployment, so no extra component or S3 credential
+setup is needed. The Master UI is useful for quick cluster and volume status.
 
 In Dagster, launch `sales_order_revenue_pipeline`,
 `sales_customer_health_pipeline`, or
@@ -244,3 +262,26 @@ To remove the foundation cluster as well:
 ```sh
 make local-foundation-down
 ```
+
+## AWS POC
+
+The AWS POC is contract-compatible with local and Azure but uses EKS, ECR, S3,
+RDS PostgreSQL, Glue, and IRSA. Default region is `eu-west-1`; override
+`AWS_REGION` and the related `AWS_*` Make variables as needed.
+
+```sh
+make aws-foundation-up
+make aws-up
+make aws-forward
+make aws-e2e
+```
+
+Teardown runs in the opposite order:
+
+```sh
+make aws-down
+make aws-foundation-down
+```
+
+See [docs/architecture/aws-eks-poc.md](docs/architecture/aws-eks-poc.md) for the
+AWS contract shape, managed-service boundaries, and current compatibility gate.

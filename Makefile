@@ -1,4 +1,4 @@
-.PHONY: help tree check-structure check-contracts check-infra check-project-code check-dbt floe-manifest floe-manifest-upload dbt-parse project-code-image project-code-load superset-image superset-load superset-reports-deploy superset-reports-export openmetadata-metadata-deploy local-foundation-up local-foundation-down local-infra-up local-artifacts-deploy local-up local-down local-status local-forward local-prefetch azure-foundation-up azure-infra-up azure-artifacts-deploy azure-up azure-forward azure-e2e azure-down azure-foundation-down
+.PHONY: help tree check-structure check-contracts check-infra check-project-code check-dbt floe-manifest floe-manifest-upload dbt-parse project-code-image project-code-load superset-image superset-load superset-reports-deploy superset-reports-export openmetadata-metadata-deploy local-foundation-up local-foundation-down local-infra-up local-artifacts-deploy local-up local-down local-status local-forward local-seaweed-ui-forward local-prefetch azure-foundation-up azure-infra-up azure-artifacts-deploy azure-up azure-forward azure-e2e azure-down azure-foundation-down aws-foundation-up aws-infra-up aws-artifacts-deploy aws-up aws-forward aws-e2e aws-down aws-foundation-down
 
 NAMESPACE ?= lakehouse
 CLUSTER_NAME ?= openlakeforge-local
@@ -22,6 +22,18 @@ AZURE_PROJECT_CODE_IMAGE_REPOSITORY ?=
 AZURE_PROJECT_CODE_IMAGE_TAG ?= $(AZURE_IMAGE_TAG)
 AZURE_SUPERSET_IMAGE_REPOSITORY ?=
 AZURE_SUPERSET_IMAGE_TAG ?= $(AZURE_IMAGE_TAG)
+AWS_REGION ?= eu-west-1
+AWS_CLUSTER_NAME ?= eks-openlakeforge-poc
+AWS_KUBE_CONTEXT ?= $(AWS_CLUSTER_NAME)
+AWS_NODE_DESIRED_SIZE ?= 3
+AWS_NODE_MIN_SIZE ?= 1
+AWS_NODE_MAX_SIZE ?= 4
+AWS_NODE_INSTANCE_TYPES ?= m7i.large
+AWS_IMAGE_TAG ?= aws-$(shell git rev-parse --short HEAD 2>/dev/null || date -u +%Y%m%d%H%M%S)
+AWS_PROJECT_CODE_IMAGE_REPOSITORY ?=
+AWS_PROJECT_CODE_IMAGE_TAG ?= $(AWS_IMAGE_TAG)
+AWS_SUPERSET_IMAGE_REPOSITORY ?=
+AWS_SUPERSET_IMAGE_TAG ?= $(AWS_IMAGE_TAG)
 
 help:
 	@printf '%s\n' 'OpenLakeForge bootstrap targets:'
@@ -32,7 +44,7 @@ help:
 	@printf '%s\n' '  make check-project-code  Validate the project-code Dagster package'
 	@printf '%s\n' '  make check-dbt        Validate all product dbt-duckdb projects'
 	@printf '%s\n' '  make floe-manifest   Generate product Floe Dagster manifests'
-	@printf '%s\n' '  make floe-manifest-upload  Upload product Floe manifests to the local code bucket'
+	@printf '%s\n' '  make floe-manifest-upload  Upload product Floe manifests to the local ops bucket'
 	@printf '%s\n' '  make dbt-parse       Generate product dbt manifests'
 	@printf '%s\n' '  make superset-reports-deploy  Deploy product Superset report assets'
 	@printf '%s\n' '  make superset-reports-export  Export edited Superset report assets'
@@ -51,7 +63,8 @@ help:
 	@printf '%s\n' '  make local-up         Run local-infra-up, then local-artifacts-deploy'
 	@printf '%s\n' '  make local-down       Terraform-destroy the local stack'
 	@printf '%s\n' '  make local-status     Show pod and service status in the configured namespace'
-	@printf '%s\n' '  make local-forward    Port-forward all services to localhost (Dagster :3000, Superset :8088, OpenMetadata :8585, Trino :8080, Polaris :8181, S3 :9000)'
+	@printf '%s\n' '  make local-forward    Port-forward all services to localhost (Dagster :3000, Superset :8088, OpenMetadata :8585, Trino :8080, Polaris :8181, S3 :9000, SeaweedFS Filer :8888, Master :9333)'
+	@printf '%s\n' '  make local-seaweed-ui-forward  Port-forward SeaweedFS Filer :8888 and Master :9333'
 	@printf '%s\n' ''
 	@printf '%s\n' 'Azure AKS POC stack:'
 	@printf '%s\n' '  make azure-foundation-up    Terraform-create Azure resource group, AKS, and ACR'
@@ -62,6 +75,16 @@ help:
 	@printf '%s\n' '  make azure-e2e              Run Azure POC end-to-end validation'
 	@printf '%s\n' '  make azure-down             Terraform-destroy the Azure POC platform, leaving AKS/ACR'
 	@printf '%s\n' '  make azure-foundation-down  Terraform-destroy AKS, ACR, and resource group resources'
+	@printf '%s\n' ''
+	@printf '%s\n' 'AWS EKS managed-services POC stack:'
+	@printf '%s\n' '  make aws-foundation-up      Terraform-create AWS VPC, EKS, ECR, and IRSA foundation'
+	@printf '%s\n' '  make aws-infra-up           Build/push Superset image, then apply S3/RDS/Glue/EKS platform infrastructure'
+	@printf '%s\n' '  make aws-artifacts-deploy   Deploy Floe manifests, project-code image, Superset reports, and OpenMetadata metadata'
+	@printf '%s\n' '  make aws-up                 Run aws-infra-up, then aws-artifacts-deploy'
+	@printf '%s\n' '  make aws-forward            Port-forward AWS POC services to localhost'
+	@printf '%s\n' '  make aws-e2e                Run AWS POC smoke validation'
+	@printf '%s\n' '  make aws-down               Terraform-destroy the AWS POC platform, leaving EKS/ECR'
+	@printf '%s\n' '  make aws-foundation-down    Terraform-destroy AWS EKS, ECR, and VPC resources'
 
 tree:
 	@find . -path './.git' -prune -o -print | sort
@@ -146,6 +169,8 @@ local-forward:
 	@echo "  Trino UI:         http://localhost:8080"
 	@echo "  Polaris API:      http://localhost:8181"
 	@echo "  SeaweedFS S3:     http://localhost:9000"
+	@echo "  SeaweedFS Filer:  http://localhost:8888"
+	@echo "  SeaweedFS Master: http://localhost:9333"
 	@set -e; \
 	context="$(KUBE_CONTEXT)"; \
 	dagster_pod="$$(kubectl --context $$context get pods -n $(NAMESPACE) -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' | grep 'dagster-webserver' | head -n 1)"; \
@@ -161,7 +186,24 @@ local-forward:
 	superset_pid=$$!; \
 	kubectl --context $$context port-forward svc/openmetadata 8585:8585 -n $(NAMESPACE) & \
 	om_pid=$$!; \
-	trap 'kill $$seaweedfs_pid $$polaris_pid $$trino_pid $$dagster_pid $$superset_pid $$om_pid 2>/dev/null || true' INT TERM EXIT; \
+	kubectl --context $$context port-forward svc/seaweedfs-filer-client 8888:8888 -n $(NAMESPACE) & \
+	seaweedfs_filer_pid=$$!; \
+	kubectl --context $$context port-forward svc/seaweedfs-master 9333:9333 -n $(NAMESPACE) & \
+	seaweedfs_master_pid=$$!; \
+	trap 'kill $$seaweedfs_pid $$polaris_pid $$trino_pid $$dagster_pid $$superset_pid $$om_pid $$seaweedfs_filer_pid $$seaweedfs_master_pid 2>/dev/null || true' INT TERM EXIT; \
+	wait
+
+local-seaweed-ui-forward:
+	@echo "Starting SeaweedFS UI port-forwards (Ctrl-C to stop)..."
+	@echo "  SeaweedFS Filer:  http://localhost:8888"
+	@echo "  SeaweedFS Master: http://localhost:9333"
+	@set -e; \
+	context="$(KUBE_CONTEXT)"; \
+	kubectl --context $$context port-forward svc/seaweedfs-filer-client 8888:8888 -n $(NAMESPACE) & \
+	filer_pid=$$!; \
+	kubectl --context $$context port-forward svc/seaweedfs-master 9333:9333 -n $(NAMESPACE) & \
+	master_pid=$$!; \
+	trap 'kill $$filer_pid $$master_pid 2>/dev/null || true' INT TERM EXIT; \
 	wait
 
 azure-foundation-up:
@@ -209,3 +251,43 @@ azure-down:
 
 azure-foundation-down:
 	@NAMESPACE=$(NAMESPACE) AZURE_RESOURCE_GROUP=$(AZURE_RESOURCE_GROUP) AZURE_CREATE_RESOURCE_GROUP=$(AZURE_CREATE_RESOURCE_GROUP) AZURE_LOCATION=$(AZURE_LOCATION) AZURE_CLUSTER_NAME=$(AZURE_CLUSTER_NAME) AZURE_NODE_COUNT=$(AZURE_NODE_COUNT) AZURE_NODE_VM_SIZE=$(AZURE_NODE_VM_SIZE) AZURE_ACR_NAME_PREFIX=$(AZURE_ACR_NAME_PREFIX) KUBE_CONTEXT=$(AZURE_KUBE_CONTEXT) bash scripts/azure/foundation/down.sh
+
+aws-foundation-up:
+	@AWS_REGION=$(AWS_REGION) AWS_CLUSTER_NAME=$(AWS_CLUSTER_NAME) AWS_NODE_DESIRED_SIZE=$(AWS_NODE_DESIRED_SIZE) AWS_NODE_MIN_SIZE=$(AWS_NODE_MIN_SIZE) AWS_NODE_MAX_SIZE=$(AWS_NODE_MAX_SIZE) AWS_NODE_INSTANCE_TYPES=$(AWS_NODE_INSTANCE_TYPES) bash scripts/aws/foundation/up.sh
+
+aws-infra-up:
+	@NAMESPACE=$(NAMESPACE) AWS_REGION=$(AWS_REGION) AWS_CLUSTER_NAME=$(AWS_CLUSTER_NAME) KUBE_CONTEXT=$(AWS_KUBE_CONTEXT) AWS_IMAGE_TAG=$(AWS_IMAGE_TAG) PROJECT_CODE_IMAGE_REPOSITORY="$(AWS_PROJECT_CODE_IMAGE_REPOSITORY)" PROJECT_CODE_IMAGE_TAG="$(AWS_PROJECT_CODE_IMAGE_TAG)" PROJECT_CODE_IMAGE_PULL_POLICY=Always SUPERSET_IMAGE_REPOSITORY="$(AWS_SUPERSET_IMAGE_REPOSITORY)" SUPERSET_IMAGE_TAG="$(AWS_SUPERSET_IMAGE_TAG)" SUPERSET_IMAGE_PULL_POLICY=Always bash scripts/aws/stack/infra-up.sh
+
+aws-artifacts-deploy:
+	@NAMESPACE=$(NAMESPACE) AWS_REGION=$(AWS_REGION) AWS_CLUSTER_NAME=$(AWS_CLUSTER_NAME) KUBE_CONTEXT=$(AWS_KUBE_CONTEXT) AWS_IMAGE_TAG=$(AWS_IMAGE_TAG) PROJECT_CODE_IMAGE_REPOSITORY="$(AWS_PROJECT_CODE_IMAGE_REPOSITORY)" PROJECT_CODE_IMAGE_TAG="$(AWS_PROJECT_CODE_IMAGE_TAG)" bash scripts/aws/stack/deploy-artifacts.sh
+
+aws-up:
+	@NAMESPACE=$(NAMESPACE) AWS_REGION=$(AWS_REGION) AWS_CLUSTER_NAME=$(AWS_CLUSTER_NAME) KUBE_CONTEXT=$(AWS_KUBE_CONTEXT) AWS_IMAGE_TAG=$(AWS_IMAGE_TAG) PROJECT_CODE_IMAGE_REPOSITORY="$(AWS_PROJECT_CODE_IMAGE_REPOSITORY)" PROJECT_CODE_IMAGE_TAG="$(AWS_PROJECT_CODE_IMAGE_TAG)" PROJECT_CODE_IMAGE_PULL_POLICY=Always SUPERSET_IMAGE_REPOSITORY="$(AWS_SUPERSET_IMAGE_REPOSITORY)" SUPERSET_IMAGE_TAG="$(AWS_SUPERSET_IMAGE_TAG)" SUPERSET_IMAGE_PULL_POLICY=Always bash scripts/aws/stack/setup.sh
+
+aws-forward:
+	@echo "Starting AWS POC port-forwards (Ctrl-C to stop all)..."
+	@echo "  Dagster UI:       http://localhost:3000"
+	@echo "  Superset UI:      http://localhost:8088  (admin / admin)"
+	@echo "  OpenMetadata UI:  http://localhost:8585  (admin@open-metadata.org / admin)"
+	@echo "  Trino UI:         http://localhost:8080"
+	@set -e; \
+	context="$(AWS_KUBE_CONTEXT)"; \
+	kubectl --context $$context port-forward svc/trino 8080:8080 -n $(NAMESPACE) & \
+	trino_pid=$$!; \
+	kubectl --context $$context port-forward svc/dagster-dagster-webserver 3000:80 -n $(NAMESPACE) & \
+	dagster_pid=$$!; \
+	kubectl --context $$context port-forward svc/superset 8088:8088 -n $(NAMESPACE) & \
+	superset_pid=$$!; \
+	kubectl --context $$context port-forward svc/openmetadata 8585:8585 -n $(NAMESPACE) & \
+	om_pid=$$!; \
+	trap 'kill $$trino_pid $$dagster_pid $$superset_pid $$om_pid 2>/dev/null || true' INT TERM EXIT; \
+	wait
+
+aws-e2e:
+	@NAMESPACE=$(NAMESPACE) AWS_REGION=$(AWS_REGION) AWS_CLUSTER_NAME=$(AWS_CLUSTER_NAME) KUBE_CONTEXT=$(AWS_KUBE_CONTEXT) bash scripts/aws/test/e2e.sh
+
+aws-down:
+	@NAMESPACE=$(NAMESPACE) AWS_REGION=$(AWS_REGION) AWS_CLUSTER_NAME=$(AWS_CLUSTER_NAME) KUBE_CONTEXT=$(AWS_KUBE_CONTEXT) bash scripts/aws/stack/teardown.sh
+
+aws-foundation-down:
+	@NAMESPACE=$(NAMESPACE) AWS_REGION=$(AWS_REGION) AWS_CLUSTER_NAME=$(AWS_CLUSTER_NAME) AWS_NODE_DESIRED_SIZE=$(AWS_NODE_DESIRED_SIZE) AWS_NODE_MIN_SIZE=$(AWS_NODE_MIN_SIZE) AWS_NODE_MAX_SIZE=$(AWS_NODE_MAX_SIZE) AWS_NODE_INSTANCE_TYPES=$(AWS_NODE_INSTANCE_TYPES) KUBE_CONTEXT=$(AWS_KUBE_CONTEXT) bash scripts/aws/foundation/down.sh

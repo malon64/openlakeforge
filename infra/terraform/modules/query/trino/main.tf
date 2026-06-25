@@ -78,6 +78,7 @@ locals {
   CATALOG
 
   iceberg_catalog_properties = local.iceberg_catalog_type == "glue" ? local.glue_iceberg_catalog : local.rest_iceberg_catalog
+  create_service_account     = length(var.service_account_annotations) > 0
 }
 
 resource "helm_release" "trino" {
@@ -98,6 +99,12 @@ resource "helm_release" "trino" {
 
       catalogs = {
         (local.trino_catalog_name) = local.iceberg_catalog_properties
+      }
+
+      serviceAccount = {
+        create      = local.create_service_account
+        name        = local.create_service_account ? "trino" : ""
+        annotations = var.service_account_annotations
       }
     }),
   ]

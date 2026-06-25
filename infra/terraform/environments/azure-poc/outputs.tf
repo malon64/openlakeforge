@@ -44,8 +44,13 @@ output "dagster_webserver_service_name" {
 }
 
 output "dagster_code_location_name" {
-  description = "Dagster code location name."
+  description = "First Dagster code location name. Kept for compatibility with older scripts."
   value       = module.dagster.code_location_name
+}
+
+output "dagster_code_location_names" {
+  description = "Dagster code location names."
+  value       = module.dagster.code_location_names
 }
 
 output "superset_contract" {
