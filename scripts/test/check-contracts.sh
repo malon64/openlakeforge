@@ -113,7 +113,7 @@ required_aws_adapters = [
     "artifacts.aws_s3_bucket",
     "artifacts.aws_ecr_and_s3",
     "secrets.kubernetes_secret_on_eks",
-    "identity.aws_irsa",
+    "identity.aws_pod_identity",
     "observability.object_log_archive_on_eks",
 ]
 for adapter in required_aws_adapters:
@@ -134,7 +134,7 @@ for required in [
     'implementation             = "catalog.aws_glue"',
     'catalog_type               = "glue"',
     'catalog_provider           = "aws-glue"',
-    'auth_mode                  = "aws-sigv4-irsa"',
+    'auth_mode                  = "aws-sigv4-pod-identity"',
     'distribution_mode        = "aws-s3-upload"',
     'local_upload_access_mode = "aws-cli"',
 ]:
@@ -310,6 +310,19 @@ for path in sorted(Path("domains").glob("*/contracts/floe/*.yml")):
         errors.append(f"{path}: no logical lakehouse_bronze source reference found")
     if 'storage: "lakehouse_silver"' not in body:
         errors.append(f"{path}: no logical lakehouse_silver sink reference found")
+    for required in [
+        'storages:',
+        'default: "lakehouse_bronze"',
+        'name: "lakehouse_bronze"',
+        'name: "lakehouse_silver"',
+        'name: "openlakeforge_ops"',
+        'bucket: "lakehouse-bronze"',
+        'bucket: "lakehouse-silver"',
+        'bucket: "openlakeforge-ops"',
+        'region: "us-east-1"',
+    ]:
+        if required not in body:
+            errors.append(f"{path}: Floe config must define schema-level medallion storage setting {required}")
     report_block = body.split("entities:", 1)[0]
     if 'storage: "openlakeforge_ops"' not in report_block:
         errors.append(f"{path}: Floe report storage must use openlakeforge_ops")
@@ -382,6 +395,21 @@ for path in [
     if "scripts/local/contracts/load-runtime-env.sh" not in body:
         errors.append(f"{path}: must source the runtime contract environment")
 
+floe_manifest_script = Path("scripts/local/artifacts/floe-manifest.sh")
+floe_manifest_body = floe_manifest_script.read_text()
+for required in [
+    "FLOE_RUNTIME_PROFILE_URI",
+    "libs/floe/profiles/aws-eks.yml",
+    "OPENLAKEFORGE_STORAGE_IMPLEMENTATION",
+    "OPENLAKEFORGE_CATALOG_TYPE",
+    "OPENLAKEFORGE_CATALOG_PROVIDER",
+    "https://github.com/malon64/floe/issues/424",
+]:
+    if required not in floe_manifest_body:
+        errors.append(f"{floe_manifest_script}: missing provider-aware Floe runtime profile handling {required}")
+if "payload[\"profile_uri\"]" in floe_manifest_body or "manifest_revision" in floe_manifest_body:
+    errors.append(f"{floe_manifest_script}: must not patch generated Floe manifests after generation")
+
 dagster_values = Path("infra/helm/values/local/dagster.yaml").read_text()
 for required in [
     "S3ComputeLogManager",
@@ -399,9 +427,58 @@ for required in [
     "local.code_location_deployments",
     "OPENLAKEFORGE_FLOE_REPORT_BASE_URI",
     "OPENLAKEFORGE_RUN_ARTIFACT_BASE_URI",
+    "OPENLAKEFORGE_STORAGE_BRONZE_BUCKET",
+    "OPENLAKEFORGE_STORAGE_SILVER_BUCKET",
+    "OPENLAKEFORGE_STORAGE_GOLD_BUCKET",
+    "OPENLAKEFORGE_CATALOG_GLUE_DATABASE",
+    "OPENLAKEFORGE_CATALOG_GLUE_WAREHOUSE_PREFIX",
 ]:
     if required not in dagster_module:
         errors.append(f"infra/terraform/modules/orchestration/dagster/main.tf: missing {required}")
+
+aws_floe_profile = Path("libs/floe/profiles/aws-eks.yml")
+aws_floe_profile_body = aws_floe_profile.read_text()
+for required in [
+    'name: "aws-eks"',
+    'variables:',
+    'OPENLAKEFORGE_STORAGE_BRONZE_BUCKET: "openlakeforge-poc-bronze"',
+    'OPENLAKEFORGE_STORAGE_SILVER_BUCKET: "openlakeforge-poc-silver"',
+    'OPENLAKEFORGE_OPS_BUCKET_NAME: "openlakeforge-poc-ops"',
+    'OPENLAKEFORGE_STORAGE_REGION: "eu-west-1"',
+    'type: "glue"',
+    'region: "eu-west-1"',
+    'database: "lakehouse_dev"',
+    'warehouse_storage: "lakehouse_silver"',
+    'warehouse_prefix: "warehouse/iceberg"',
+    'create_database_if_missing: false',
+    'AWS_S3_FORCE_PATH_STYLE: "false"',
+    'secrets: []',
+]:
+    if required not in aws_floe_profile_body:
+        errors.append(f"{aws_floe_profile}: missing native AWS Glue/S3 profile setting {required}")
+for forbidden in [
+    "polaris",
+    "seaweedfs",
+    "AWS_ENDPOINT_URL",
+    "OPENLAKEFORGE_CATALOG_FLOE_CLIENT_ID",
+    'type: "rest"',
+    "OPENLAKEFORGE_CATALOG_GLUE_REST_URI",
+    "authorization_type",
+    "signing_name",
+    "signing_region",
+    "\nstorages:",
+]:
+    if forbidden in aws_floe_profile_body:
+        errors.append(f"{aws_floe_profile}: must not contain local Polaris/SeaweedFS setting {forbidden}")
+
+for floe_profile in [Path("libs/floe/profiles/local-k8s.yml"), aws_floe_profile]:
+    body = floe_profile.read_text()
+    for forbidden in ["\nstorages:", "\nlineage:"]:
+        if forbidden in body:
+            errors.append(f"{floe_profile}: profile must follow Floe profile.schema.yaml and not contain {forbidden.strip()}")
+    for required in ["apiVersion: floe/v1", "kind: EnvironmentProfile", "metadata:", "variables:", "catalogs:", "execution:", "validation:"]:
+        if required not in body:
+            errors.append(f"{floe_profile}: missing Floe profile.schema.yaml section {required}")
 
 openmetadata_metadata_script = Path("scripts/local/artifacts/openmetadata-metadata-deploy.sh")
 openmetadata_metadata_body = openmetadata_metadata_script.read_text()
@@ -474,11 +551,19 @@ with tempfile.NamedTemporaryFile("w+", encoding="utf-8") as handle:
 
 if 'default: "iceberg_catalog"' not in profile:
     errors.append("rendered Floe profile must use logical catalog iceberg_catalog")
-if 'default: "lakehouse_bronze"' not in profile:
-    errors.append("rendered Floe profile must default to logical storage lakehouse_bronze")
-for storage_alias in ['name: "lakehouse_bronze"', 'name: "lakehouse_silver"', 'name: "openlakeforge_ops"']:
-    if storage_alias not in profile:
-        errors.append(f"rendered Floe profile must define logical storage {storage_alias}")
+for required in [
+    'variables:',
+    'OPENLAKEFORGE_STORAGE_BRONZE_BUCKET: "lakehouse-bronze"',
+    'OPENLAKEFORGE_STORAGE_SILVER_BUCKET: "lakehouse-silver"',
+    'OPENLAKEFORGE_OPS_BUCKET_NAME: "openlakeforge-ops"',
+    'OPENLAKEFORGE_STORAGE_REGION: "us-east-1"',
+    'warehouse_storage: "lakehouse_silver"',
+    'warehouse_prefix: "warehouse/iceberg"',
+]:
+    if required not in profile:
+        errors.append(f"rendered Floe profile must include schema-valid setting {required}")
+if "\nstorages:" in profile:
+    errors.append("rendered Floe profile must not define profile-level storages; storages belong in the Floe config")
 if "${OPENLAKEFORGE_CATALOG_FLOE_CLIENT_ID}" not in profile:
     errors.append("rendered Floe profile must use generic Floe catalog client env vars")
 if "POLARIS_FLOE_CLIENT_ID" in profile.split("secrets:", 1)[0]:
@@ -500,10 +585,13 @@ aws_profile_env.update(
         "OPENLAKEFORGE_OPS_BUCKET_NAME": "openlakeforge-poc-ops",
         "OPENLAKEFORGE_CATALOG_TYPE": "glue",
         "OPENLAKEFORGE_CATALOG_PROVIDER": "aws-glue",
+        "OPENLAKEFORGE_CATALOG_NAME": "lakehouse",
         "OPENLAKEFORGE_CATALOG_WAREHOUSE": "123456789012",
         "OPENLAKEFORGE_CATALOG_GLUE_CATALOG_ID": "123456789012",
         "OPENLAKEFORGE_CATALOG_GLUE_REGION": "eu-west-1",
         "OPENLAKEFORGE_CATALOG_GLUE_REST_URI": "https://glue.eu-west-1.amazonaws.com/iceberg",
+        "OPENLAKEFORGE_CATALOG_GLUE_DATABASE": "lakehouse",
+        "OPENLAKEFORGE_CATALOG_GLUE_WAREHOUSE_PREFIX": "warehouse/iceberg",
     }
 )
 with tempfile.NamedTemporaryFile("w+", encoding="utf-8") as handle:
@@ -517,15 +605,37 @@ with tempfile.NamedTemporaryFile("w+", encoding="utf-8") as handle:
     aws_profile = handle.read()
 
 for required in [
-    'authorization_type: "sigv4"',
-    'signing_name: "glue"',
-    'signing_region: "eu-west-1"',
-    'uri: "https://glue.eu-west-1.amazonaws.com/iceberg"',
+    'name: "aws-eks"',
+    'type: "glue"',
+    'region: "eu-west-1"',
+    'database: "lakehouse"',
+    'warehouse_storage: "lakehouse_silver"',
+    'warehouse_prefix: "warehouse/iceberg"',
+    'create_database_if_missing: false',
+    'OPENLAKEFORGE_STORAGE_BRONZE_BUCKET: "openlakeforge-poc-bronze"',
+    'OPENLAKEFORGE_STORAGE_SILVER_BUCKET: "openlakeforge-poc-silver"',
+    'OPENLAKEFORGE_OPS_BUCKET_NAME: "openlakeforge-poc-ops"',
+    'OPENLAKEFORGE_STORAGE_REGION: "eu-west-1"',
+    'AWS_S3_FORCE_PATH_STYLE: "false"',
+    'AWS_EC2_METADATA_DISABLED: "false"',
+    'secrets: []',
 ]:
     if required not in aws_profile:
-        errors.append(f"rendered AWS Floe profile must include Glue/SigV4 setting {required}")
-if "endpoint:" in aws_profile.split("storages:", 1)[1].split("catalogs:", 1)[0]:
-    errors.append("rendered AWS Floe profile storage must not set an S3-compatible endpoint")
+        errors.append(f"rendered AWS Floe profile must include native Glue/S3 setting {required}")
+if "\nstorages:" in aws_profile:
+    errors.append("rendered AWS Floe profile must not define profile-level storages; storages belong in the Floe config")
+if "AWS_ENDPOINT_URL" in aws_profile:
+    errors.append("rendered AWS Floe profile must not set SeaweedFS/S3-compatible endpoint env vars")
+for forbidden in [
+    'type: "rest"',
+    "authorization_type",
+    "signing_name",
+    "signing_region",
+    "OPENLAKEFORGE_CATALOG_GLUE_REST_URI",
+    "https://glue.eu-west-1.amazonaws.com/iceberg",
+]:
+    if forbidden in aws_profile:
+        errors.append(f"rendered AWS Floe profile must not include REST/SigV4 catalog setting {forbidden}")
 
 tracked_files = subprocess.check_output(["git", "ls-files"], text=True).splitlines()
 legacy_bucket = "openlakeforge-" + "code"

@@ -134,6 +134,9 @@ variable "storage_contract" {
     region                  = string
     bucket_name             = string
     bronze_bucket_name      = optional(string)
+    silver_bucket_name      = optional(string)
+    gold_bucket_name        = optional(string)
+    ops_bucket_name         = optional(string)
     path_style_access       = optional(bool)
     credentials_secret_name = optional(string)
     access_key_id_key       = optional(string)
@@ -169,6 +172,8 @@ variable "catalog_contract" {
     glue_region                  = optional(string)
     glue_rest_uri                = optional(string)
     glue_rest_warehouse          = optional(string)
+    glue_database                = optional(string)
+    glue_warehouse_prefix        = optional(string)
     provider                     = optional(string)
     implementation               = optional(string)
     auth_mode                    = optional(string)
@@ -216,7 +221,7 @@ variable "governance_contract" {
 }
 
 variable "service_account_annotations" {
-  description = "Optional annotations for Dagster service accounts, used by AWS IRSA."
+  description = "Optional annotations for Dagster service accounts, used by AWS workload identity integrations."
   type        = map(string)
   default     = {}
 }

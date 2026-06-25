@@ -43,6 +43,8 @@ set_default_contract_env() {
   export OPENLAKEFORGE_CATALOG_GLUE_REGION="${OPENLAKEFORGE_CATALOG_GLUE_REGION:-}"
   export OPENLAKEFORGE_CATALOG_GLUE_CATALOG_ID="${OPENLAKEFORGE_CATALOG_GLUE_CATALOG_ID:-}"
   export OPENLAKEFORGE_CATALOG_GLUE_REST_URI="${OPENLAKEFORGE_CATALOG_GLUE_REST_URI:-}"
+  export OPENLAKEFORGE_CATALOG_GLUE_DATABASE="${OPENLAKEFORGE_CATALOG_GLUE_DATABASE:-${OPENLAKEFORGE_CATALOG_NAME}}"
+  export OPENLAKEFORGE_CATALOG_GLUE_WAREHOUSE_PREFIX="${OPENLAKEFORGE_CATALOG_GLUE_WAREHOUSE_PREFIX:-warehouse/iceberg}"
   export OPENLAKEFORGE_CATALOG_NAMESPACE_MODEL="${OPENLAKEFORGE_CATALOG_NAMESPACE_MODEL:-product-layer}"
   export OPENLAKEFORGE_CATALOG_NAMESPACES_JSON="${OPENLAKEFORGE_CATALOG_NAMESPACES_JSON:-[{\"name\":\"sales_order_revenue_silver\",\"location\":\"s3://lakehouse-silver/sales_order_revenue_silver/\"},{\"name\":\"sales_order_revenue_gold\",\"location\":\"s3://lakehouse-gold/sales_order_revenue_gold/\"},{\"name\":\"sales_customer_health_silver\",\"location\":\"s3://lakehouse-silver/sales_customer_health_silver/\"},{\"name\":\"sales_customer_health_gold\",\"location\":\"s3://lakehouse-gold/sales_customer_health_gold/\"},{\"name\":\"supply_chain_inventory_reliability_silver\",\"location\":\"s3://lakehouse-silver/supply_chain_inventory_reliability_silver/\"},{\"name\":\"supply_chain_inventory_reliability_gold\",\"location\":\"s3://lakehouse-gold/supply_chain_inventory_reliability_gold/\"}]}"
   export OPENLAKEFORGE_CATALOG_SILVER_NAMESPACES_JSON="${OPENLAKEFORGE_CATALOG_SILVER_NAMESPACES_JSON:-{\"sales_order_revenue\":\"sales_order_revenue_silver\",\"sales_customer_health\":\"sales_customer_health_silver\",\"supply_chain_inventory_reliability\":\"supply_chain_inventory_reliability_silver\"}}"
@@ -122,6 +124,8 @@ if [[ "${OPENLAKEFORGE_STORAGE_IMPLEMENTATION}" == "storage.aws_s3" ]]; then
   export AWS_S3_FORCE_PATH_STYLE="${AWS_S3_FORCE_PATH_STYLE:-false}"
 fi
 if [[ "${OPENLAKEFORGE_CATALOG_TYPE}" == "glue" && "${OPENLAKEFORGE_CATALOG_PROVIDER}" == "aws-glue" ]]; then
+  export OPENLAKEFORGE_CATALOG_GLUE_DATABASE="${OPENLAKEFORGE_CATALOG_GLUE_DATABASE:-${OPENLAKEFORGE_CATALOG_NAME}}"
+  export OPENLAKEFORGE_CATALOG_GLUE_WAREHOUSE_PREFIX="${OPENLAKEFORGE_CATALOG_GLUE_WAREHOUSE_PREFIX:-warehouse/iceberg}"
   export OPENLAKEFORGE_CATALOG_TOKEN_URI=""
   export OPENLAKEFORGE_CATALOG_OAUTH_SCOPE=""
   export OPENLAKEFORGE_CATALOG_FLOE_CREDENTIALS_SECRET_NAME=""

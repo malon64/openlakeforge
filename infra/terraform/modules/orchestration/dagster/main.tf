@@ -39,6 +39,26 @@ locals {
     ] : [],
     [
       {
+        name  = "OPENLAKEFORGE_STORAGE_BRONZE_BUCKET"
+        value = coalesce(var.storage_contract.bronze_bucket_name, var.storage_contract.bucket_name)
+      },
+      {
+        name  = "OPENLAKEFORGE_STORAGE_SILVER_BUCKET"
+        value = coalesce(try(var.storage_contract.silver_bucket_name, null), "lakehouse-silver")
+      },
+      {
+        name  = "OPENLAKEFORGE_STORAGE_GOLD_BUCKET"
+        value = coalesce(try(var.storage_contract.gold_bucket_name, null), "lakehouse-gold")
+      },
+      {
+        name  = "OPENLAKEFORGE_STORAGE_BUCKET"
+        value = coalesce(var.storage_contract.bronze_bucket_name, var.storage_contract.bucket_name)
+      },
+      {
+        name  = "OPENLAKEFORGE_STORAGE_OPS_BUCKET"
+        value = coalesce(try(var.storage_contract.ops_bucket_name, null), var.artifact_bucket_name)
+      },
+      {
         name  = "OPENLAKEFORGE_BRONZE_BUCKET"
         value = coalesce(var.storage_contract.bronze_bucket_name, var.storage_contract.bucket_name)
       },
@@ -135,6 +155,14 @@ locals {
     {
       name  = "OPENLAKEFORGE_CATALOG_GLUE_REST_URI"
       value = coalesce(try(var.catalog_contract.glue_rest_uri, null), try(var.catalog_contract.rest_uri, null), "")
+    },
+    {
+      name  = "OPENLAKEFORGE_CATALOG_GLUE_DATABASE"
+      value = coalesce(try(var.catalog_contract.glue_database, null), local.catalog_name)
+    },
+    {
+      name  = "OPENLAKEFORGE_CATALOG_GLUE_WAREHOUSE_PREFIX"
+      value = coalesce(try(var.catalog_contract.glue_warehouse_prefix, null), "warehouse/iceberg")
     },
     {
       name  = "OPENLAKEFORGE_DBT_TARGET"

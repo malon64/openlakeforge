@@ -68,6 +68,8 @@ emit("OPENLAKEFORGE_CATALOG_WAREHOUSE", catalog.get("warehouse") or catalog.get(
 emit("OPENLAKEFORGE_CATALOG_GLUE_REGION", catalog.get("glue_region"))
 emit("OPENLAKEFORGE_CATALOG_GLUE_CATALOG_ID", catalog.get("glue_catalog_id"))
 emit("OPENLAKEFORGE_CATALOG_GLUE_REST_URI", catalog.get("glue_rest_uri") or catalog.get("rest_uri"))
+emit("OPENLAKEFORGE_CATALOG_GLUE_DATABASE", catalog.get("glue_database") or catalog.get("catalog_name"))
+emit("OPENLAKEFORGE_CATALOG_GLUE_WAREHOUSE_PREFIX", catalog.get("glue_warehouse_prefix"))
 emit("OPENLAKEFORGE_CATALOG_NAMESPACE_MODEL", catalog.get("catalog_namespace_model"))
 emit_json("OPENLAKEFORGE_CATALOG_NAMESPACES_JSON", catalog.get("catalog_namespaces"))
 emit_json("OPENLAKEFORGE_CATALOG_SILVER_NAMESPACES_JSON", catalog.get("silver_namespaces"))

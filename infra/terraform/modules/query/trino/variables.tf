@@ -48,7 +48,7 @@ variable "storage_contract" {
 }
 
 variable "service_account_annotations" {
-  description = "Optional annotations for the Trino service account, used by AWS IRSA."
+  description = "Optional annotations for the Trino service account, used by AWS workload identity integrations."
   type        = map(string)
   default     = {}
 }

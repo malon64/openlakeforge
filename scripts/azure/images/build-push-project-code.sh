@@ -5,6 +5,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 FOUNDATION_TERRAFORM_DIR="${REPO_ROOT}/infra/terraform/foundations/azure-aks"
+source "${REPO_ROOT}/scripts/lib/docker.sh"
 
 git_or_time_tag() {
   git -C "${REPO_ROOT}" rev-parse --short HEAD 2>/dev/null || date -u +%Y%m%d%H%M%S
@@ -29,19 +30,24 @@ AZURE_IMAGE_TAG="${AZURE_IMAGE_TAG:-azure-$(git_or_time_tag)}"
 AZURE_IMAGE_PLATFORM="${AZURE_IMAGE_PLATFORM:-linux/amd64}"
 PROJECT_CODE_IMAGE_REPOSITORY="${PROJECT_CODE_IMAGE_REPOSITORY:-${ACR_LOGIN_SERVER}/openlakeforge/project-code}"
 PROJECT_CODE_IMAGE_TAG="${PROJECT_CODE_IMAGE_TAG:-${AZURE_IMAGE_TAG}}"
+PROJECT_CODE_PYTHON_BASE_IMAGE="${PROJECT_CODE_PYTHON_BASE_IMAGE:-python:3.12-slim}"
 IMAGE="${PROJECT_CODE_IMAGE_REPOSITORY}:${PROJECT_CODE_IMAGE_TAG}"
 
 echo "==> Logging in to ACR '${ACR_NAME}'..."
 az acr login --name "${ACR_NAME}" >/dev/null
 
+echo "==> Pulling project-code Python base image: ${PROJECT_CODE_PYTHON_BASE_IMAGE}"
+docker_pull_with_retries --platform "${AZURE_IMAGE_PLATFORM}" "${PROJECT_CODE_PYTHON_BASE_IMAGE}"
+
 echo "==> Building project-code image ${IMAGE}..."
-docker build \
+docker_build_with_retries \
   --platform "${AZURE_IMAGE_PLATFORM}" \
+  --build-arg "PYTHON_BASE_IMAGE=${PROJECT_CODE_PYTHON_BASE_IMAGE}" \
   --file "${REPO_ROOT}/images/project-code/Dockerfile" \
   --tag "${IMAGE}" \
   "${REPO_ROOT}"
 
 echo "==> Pushing project-code image ${IMAGE}..."
-docker push "${IMAGE}"
+docker_push_with_retries "${IMAGE}"
 
 echo "Pushed ${IMAGE}"

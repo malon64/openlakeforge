@@ -5,6 +5,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 FOUNDATION_TERRAFORM_DIR="${REPO_ROOT}/infra/terraform/foundations/aws-eks"
+source "${REPO_ROOT}/scripts/lib/docker.sh"
 
 git_or_time_tag() {
   git -C "${REPO_ROOT}" rev-parse --short HEAD 2>/dev/null || date -u +%Y%m%d%H%M%S
@@ -27,6 +28,7 @@ fi
 AWS_IMAGE_TAG="${AWS_IMAGE_TAG:-aws-$(git_or_time_tag)}"
 AWS_IMAGE_PLATFORM="${AWS_IMAGE_PLATFORM:-linux/amd64}"
 SUPERSET_IMAGE_TAG="${SUPERSET_IMAGE_TAG:-${AWS_IMAGE_TAG}}"
+SUPERSET_BASE_IMAGE="${SUPERSET_BASE_IMAGE:-apache/superset:6.1.0}"
 IMAGE="${SUPERSET_IMAGE_REPOSITORY}:${SUPERSET_IMAGE_TAG}"
 registry="${SUPERSET_IMAGE_REPOSITORY%%/*}"
 
@@ -34,14 +36,18 @@ echo "==> Logging in to ECR '${registry}'..."
 aws ecr get-login-password --region "${AWS_REGION}" \
   | docker login --username AWS --password-stdin "${registry}" >/dev/null
 
+echo "==> Pulling Superset base image: ${SUPERSET_BASE_IMAGE}"
+docker_pull_with_retries --platform "${AWS_IMAGE_PLATFORM}" "${SUPERSET_BASE_IMAGE}"
+
 echo "==> Building Superset image ${IMAGE}..."
-docker build \
+docker_build_with_retries \
   --platform "${AWS_IMAGE_PLATFORM}" \
+  --build-arg "SUPERSET_BASE_IMAGE=${SUPERSET_BASE_IMAGE}" \
   --file "${REPO_ROOT}/images/superset/Dockerfile" \
   --tag "${IMAGE}" \
   "${REPO_ROOT}/images/superset"
 
 echo "==> Pushing Superset image ${IMAGE}..."
-docker push "${IMAGE}"
+docker_push_with_retries "${IMAGE}"
 
 echo "Pushed ${IMAGE}"

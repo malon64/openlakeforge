@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
 """Render the local Floe profile from provider contract environment values."""
 
+import json
 import os
 import sys
 
 
 def env(name: str, default: str) -> str:
     return os.environ.get(name, default)
+
+
+def yaml_string(value: str) -> str:
+    return json.dumps(str(value))
 
 
 namespace = env("NAMESPACE", env("OPENLAKEFORGE_KUBE_NAMESPACE", "lakehouse"))
@@ -17,22 +22,32 @@ ops_bucket = env("OPENLAKEFORGE_OPS_BUCKET_NAME", env("OPENLAKEFORGE_ARTIFACT_BU
 storage_region = env("OPENLAKEFORGE_STORAGE_REGION", "us-east-1")
 storage_implementation = env("OPENLAKEFORGE_STORAGE_IMPLEMENTATION", "storage.s3_compatible.seaweedfs")
 is_aws_s3 = storage_implementation == "storage.aws_s3"
-storage_endpoint = env("OPENLAKEFORGE_STORAGE_ENDPOINT", "http://seaweedfs-s3:8333")
+storage_endpoint = env("OPENLAKEFORGE_STORAGE_ENDPOINT", "" if is_aws_s3 else "http://seaweedfs-s3:8333")
 storage_virtual_endpoint = env(
     "OPENLAKEFORGE_STORAGE_VIRTUAL_HOST_ENDPOINT",
-    f"http://{namespace}.svc.cluster.local:8333",
+    "" if is_aws_s3 else f"http://{namespace}.svc.cluster.local:8333",
 )
 catalog_type = env("OPENLAKEFORGE_CATALOG_TYPE", "rest")
 catalog_provider = env("OPENLAKEFORGE_CATALOG_PROVIDER", "polaris")
+is_aws_glue = catalog_type == "glue" and catalog_provider == "aws-glue"
+profile_name = env("OPENLAKEFORGE_FLOE_PROFILE_NAME", "aws-eks" if is_aws_glue and is_aws_s3 else "local-k8s")
+profile_env = env("OPENLAKEFORGE_FLOE_PROFILE_ENV", "aws" if is_aws_glue and is_aws_s3 else "local")
+profile_description = env(
+    "OPENLAKEFORGE_FLOE_PROFILE_DESCRIPTION",
+    "AWS EKS runner profile for OpenLakeForge Floe assets."
+    if is_aws_glue and is_aws_s3
+    else "Contract-rendered local Kubernetes runner profile for OpenLakeForge Floe assets.",
+)
 catalog_rest_uri = env("OPENLAKEFORGE_CATALOG_REST_URI", "http://polaris:8181/api/catalog")
-catalog_glue_rest_uri = env("OPENLAKEFORGE_CATALOG_GLUE_REST_URI", catalog_rest_uri)
 catalog_glue_region = env("OPENLAKEFORGE_CATALOG_GLUE_REGION", storage_region)
-catalog_glue_catalog_id = env("OPENLAKEFORGE_CATALOG_GLUE_CATALOG_ID", "")
 catalog_token_uri = env(
     "OPENLAKEFORGE_CATALOG_TOKEN_URI",
     "http://polaris:8181/api/catalog/v1/oauth/tokens",
 )
 catalog_warehouse = env("OPENLAKEFORGE_CATALOG_WAREHOUSE", env("OPENLAKEFORGE_CATALOG_NAME", "lakehouse_dev"))
+catalog_warehouse_prefix = env("OPENLAKEFORGE_CATALOG_WAREHOUSE_PREFIX", "warehouse/iceberg")
+catalog_glue_database = env("OPENLAKEFORGE_CATALOG_GLUE_DATABASE", env("OPENLAKEFORGE_CATALOG_NAME", catalog_warehouse))
+catalog_glue_warehouse_prefix = env("OPENLAKEFORGE_CATALOG_GLUE_WAREHOUSE_PREFIX", "warehouse/iceberg")
 catalog_scope = env("OPENLAKEFORGE_CATALOG_OAUTH_SCOPE", "PRINCIPAL_ROLE:ALL")
 floe_image = env("FLOE_IMAGE", "ghcr.io/malon64/floe:0.5.4")
 storage_secret = env("OPENLAKEFORGE_STORAGE_CREDENTIALS_SECRET_NAME", "" if is_aws_s3 else "seaweedfs-s3-creds")
@@ -46,7 +61,7 @@ runner_env = {
     "AWS_REGION": storage_region,
     "AWS_DEFAULT_REGION": storage_region,
     "AWS_S3_FORCE_PATH_STYLE": env("OPENLAKEFORGE_STORAGE_PATH_STYLE_ACCESS", "true"),
-    "AWS_EC2_METADATA_DISABLED": "true",
+    "AWS_EC2_METADATA_DISABLED": "false" if is_aws_s3 else "true",
 }
 if env("OPENLAKEFORGE_STORAGE_SSL_MODE", "disabled") == "disabled":
     runner_env["AWS_ALLOW_HTTP"] = "true"
@@ -55,7 +70,17 @@ if storage_endpoint:
 if storage_virtual_endpoint:
     runner_env["AWS_ENDPOINT_URL_S3"] = storage_virtual_endpoint
 
-runner_env_yaml = "\n".join(f"      {key}: {value}" for key, value in runner_env.items())
+runner_env_yaml = "\n".join(f"      {key}: {yaml_string(value)}" for key, value in runner_env.items())
+
+profile_variables = {
+    "OPENLAKEFORGE_STORAGE_BRONZE_BUCKET": storage_bronze_bucket,
+    "OPENLAKEFORGE_STORAGE_SILVER_BUCKET": storage_silver_bucket,
+    "OPENLAKEFORGE_OPS_BUCKET_NAME": ops_bucket,
+    "OPENLAKEFORGE_STORAGE_REGION": storage_region,
+}
+profile_variables_yaml = "\n".join(
+    f"  {key}: {yaml_string(value)}" for key, value in profile_variables.items()
+)
 
 storage_secret_yaml = ""
 if storage_secret:
@@ -95,18 +120,16 @@ if catalog_type == "rest":
       oauth2_server_uri: "{catalog_token_uri}"
       scope: "{catalog_scope}"
       warehouse_storage: "lakehouse_silver"
-      warehouse_prefix: "s3://{storage_silver_bucket}"
+      warehouse_prefix: "{catalog_warehouse_prefix}"
 """
 elif catalog_type == "glue" and catalog_provider == "aws-glue":
     catalog_definition = f"""    - name: "{catalog_name}"
-      type: "rest"
-      uri: "{catalog_glue_rest_uri}"
-      warehouse: "{catalog_glue_catalog_id or catalog_warehouse}"
-      authorization_type: "sigv4"
-      signing_name: "glue"
-      signing_region: "{catalog_glue_region}"
+      type: "glue"
+      region: "{catalog_glue_region}"
+      database: "{catalog_glue_database}"
       warehouse_storage: "lakehouse_silver"
-      warehouse_prefix: "s3://{storage_silver_bucket}"
+      warehouse_prefix: "{catalog_glue_warehouse_prefix}"
+      create_database_if_missing: false
 """
 else:
     raise SystemExit(f"ERROR: unsupported Floe catalog_type/provider: {catalog_type!r}/{catalog_provider!r}.")
@@ -115,24 +138,11 @@ sys.stdout.write(
     f"""apiVersion: floe/v1
 kind: EnvironmentProfile
 metadata:
-  name: local-k8s
-  env: local
-  description: "Contract-rendered local Kubernetes runner profile for OpenLakeForge Floe assets."
-storages:
-  default: "lakehouse_bronze"
-  definitions:
-    - name: "lakehouse_bronze"
-      type: "s3"
-      bucket: "{storage_bronze_bucket}"
-      region: "{storage_region}"
-    - name: "lakehouse_silver"
-      type: "s3"
-      bucket: "{storage_silver_bucket}"
-      region: "{storage_region}"
-    - name: "openlakeforge_ops"
-      type: "s3"
-      bucket: "{ops_bucket}"
-      region: "{storage_region}"
+  name: {yaml_string(profile_name)}
+  env: {yaml_string(profile_env)}
+  description: {yaml_string(profile_description)}
+variables:
+{profile_variables_yaml}
 catalogs:
   default: "{catalog_name}"
   definitions:
@@ -150,9 +160,7 @@ execution:
     poll_interval_seconds: 5
     env:
 {runner_env_yaml}
-    secrets:
-{storage_secret_yaml.rstrip()}
-{catalog_secret_yaml.rstrip()}
+{secrets_block}
 validation:
   strict: true
 """

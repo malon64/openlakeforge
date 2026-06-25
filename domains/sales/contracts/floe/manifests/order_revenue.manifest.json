@@ -4,13 +4,13 @@
   "floe_version": "0.5.4",
   "spec_version": "0.2",
   "manifest_name": "sales.order_revenue.local",
-  "manifest_id": "mfv1-546721404f1d5bba",
-  "manifest_revision": "sha256:bfe95aeeb3a14ccb4c94007e6434feabc9bb1f50d8317ded56186ff086bddec7",
-  "config_uri": "local:///work/domains/sales/contracts/floe/order_revenue.yml",
-  "config_checksum": "sha256:352af0fc9e5c7007456ddaf7dc487c4f0eb548ab9186bd0e5334a768f35944dc",
-  "profile_uri": "local:///work/libs/floe/profiles/local-k8s.yml",
-  "profile_checksum": "sha256:b43075f398c0f9f7626f4d816e9437a2aff39d1b91e4a1c69cf8704a6a9c036b",
-  "report_base_uri": "s3://openlakeforge-ops/floe/reports/sales/order_revenue",
+  "manifest_id": "mfv1-cd75814c9ccb1407",
+  "manifest_revision": "sha256:56b3814619783607edc393c00f868e49293f14266061a407ab5decf4b23c23dc",
+  "config_uri": "local:///work/.tmp/floe-config.nYokzS/domains/sales/contracts/floe/order_revenue.yml",
+  "config_checksum": "sha256:5b5ac6a74f29ca913ff67fc91a9d57a81c1402050045fb3a03f52b7674079b97",
+  "profile_uri": "local:///work/.tmp/floe-profile.KXxPlC/aws-eks.yml",
+  "profile_checksum": "sha256:d0c6a4c9d45da9d053a98d3de7a5652bf14424b9b7a913ab0ce5ad262c00c246",
+  "report_base_uri": "s3://openlakeforge-poc-ops-8icgljzi/floe/reports/sales/order_revenue",
   "domains": [],
   "execution": {
     "entrypoint": "floe",
@@ -20,9 +20,7 @@
       "{manifest_uri}",
       "--log-format",
       "json",
-      "--quiet",
-      "--run-id",
-      "{run_id}"
+      "--quiet"
     ],
     "per_entity_args": [
       "--entities",
@@ -56,40 +54,16 @@
         "timeout_seconds": 600,
         "ttl_seconds_after_finished": 3600,
         "poll_interval_seconds": 5,
-        "secrets": [
-          {
-            "name": "AWS_ACCESS_KEY_ID",
-            "secret_name": "seaweedfs-s3-creds",
-            "key": "AWS_ACCESS_KEY_ID"
-          },
-          {
-            "name": "AWS_SECRET_ACCESS_KEY",
-            "secret_name": "seaweedfs-s3-creds",
-            "key": "AWS_SECRET_ACCESS_KEY"
-          },
-          {
-            "name": "OPENLAKEFORGE_CATALOG_FLOE_CLIENT_ID",
-            "secret_name": "polaris-floe-creds",
-            "key": "POLARIS_FLOE_CLIENT_ID"
-          },
-          {
-            "name": "OPENLAKEFORGE_CATALOG_FLOE_CLIENT_SECRET",
-            "secret_name": "polaris-floe-creds",
-            "key": "POLARIS_FLOE_CLIENT_SECRET"
-          }
-        ],
+        "secrets": [],
         "image": "ghcr.io/malon64/floe:0.5.4",
         "namespace": "lakehouse",
         "service_account": "dagster",
         "resources": null,
         "env": {
-          "AWS_ALLOW_HTTP": "true",
-          "AWS_DEFAULT_REGION": "us-east-1",
-          "AWS_EC2_METADATA_DISABLED": "true",
-          "AWS_ENDPOINT_URL": "http://seaweedfs-s3:8333",
-          "AWS_ENDPOINT_URL_S3": "http://lakehouse.svc.cluster.local:8333",
-          "AWS_REGION": "us-east-1",
-          "AWS_S3_FORCE_PATH_STYLE": "true"
+          "AWS_DEFAULT_REGION": "eu-west-1",
+          "AWS_EC2_METADATA_DISABLED": "false",
+          "AWS_REGION": "eu-west-1",
+          "AWS_S3_FORCE_PATH_STYLE": "false"
         },
         "workspace_url": null,
         "existing_cluster_id": null,
@@ -111,14 +85,14 @@
         "channels"
       ],
       "source_format": "csv",
-      "accepted_sink_uri": "s3://lakehouse-silver/sales/order_revenue/channels",
-      "rejected_sink_uri": "s3://lakehouse-silver/floe/rejected/sales/order_revenue/channels",
+      "accepted_sink_uri": "s3://openlakeforge-poc-silver-8icgljzi/sales/order_revenue/channels",
+      "rejected_sink_uri": "s3://openlakeforge-poc-silver-8icgljzi/floe/rejected/sales/order_revenue/channels",
       "tags": null,
       "source": {
         "format": "csv",
         "storage": "lakehouse_bronze",
-        "uri": "s3://lakehouse-bronze/sales/order_revenue/channels",
-        "path": "s3://lakehouse-bronze/sales/order_revenue/channels",
+        "uri": "s3://openlakeforge-poc-bronze-8icgljzi/sales/order_revenue/channels",
+        "path": "s3://openlakeforge-poc-bronze-8icgljzi/sales/order_revenue/channels",
         "resolved": true,
         "cast_mode": "strict",
         "options": {
@@ -143,8 +117,8 @@
         "accepted": {
           "format": "iceberg",
           "storage": "lakehouse_silver",
-          "uri": "s3://lakehouse-silver/sales/order_revenue/channels",
-          "path": "s3://lakehouse-silver/sales/order_revenue/channels",
+          "uri": "s3://openlakeforge-poc-silver-8icgljzi/sales/order_revenue/channels",
+          "path": "s3://openlakeforge-poc-silver-8icgljzi/sales/order_revenue/channels",
           "resolved": true,
           "iceberg": {
             "catalog": "iceberg_catalog",
@@ -156,8 +130,8 @@
         "rejected": {
           "format": "csv",
           "storage": "lakehouse_silver",
-          "uri": "s3://lakehouse-silver/floe/rejected/sales/order_revenue/channels",
-          "path": "s3://lakehouse-silver/floe/rejected/sales/order_revenue/channels",
+          "uri": "s3://openlakeforge-poc-silver-8icgljzi/floe/rejected/sales/order_revenue/channels",
+          "path": "s3://openlakeforge-poc-silver-8icgljzi/floe/rejected/sales/order_revenue/channels",
           "resolved": true
         },
         "archive": null
@@ -203,14 +177,14 @@
         "order_lines"
       ],
       "source_format": "csv",
-      "accepted_sink_uri": "s3://lakehouse-silver/sales/order_revenue/order_lines",
-      "rejected_sink_uri": "s3://lakehouse-silver/floe/rejected/sales/order_revenue/order_lines",
+      "accepted_sink_uri": "s3://openlakeforge-poc-silver-8icgljzi/sales/order_revenue/order_lines",
+      "rejected_sink_uri": "s3://openlakeforge-poc-silver-8icgljzi/floe/rejected/sales/order_revenue/order_lines",
       "tags": null,
       "source": {
         "format": "csv",
         "storage": "lakehouse_bronze",
-        "uri": "s3://lakehouse-bronze/sales/order_revenue/order_lines",
-        "path": "s3://lakehouse-bronze/sales/order_revenue/order_lines",
+        "uri": "s3://openlakeforge-poc-bronze-8icgljzi/sales/order_revenue/order_lines",
+        "path": "s3://openlakeforge-poc-bronze-8icgljzi/sales/order_revenue/order_lines",
         "resolved": true,
         "cast_mode": "strict",
         "options": {
@@ -235,8 +209,8 @@
         "accepted": {
           "format": "iceberg",
           "storage": "lakehouse_silver",
-          "uri": "s3://lakehouse-silver/sales/order_revenue/order_lines",
-          "path": "s3://lakehouse-silver/sales/order_revenue/order_lines",
+          "uri": "s3://openlakeforge-poc-silver-8icgljzi/sales/order_revenue/order_lines",
+          "path": "s3://openlakeforge-poc-silver-8icgljzi/sales/order_revenue/order_lines",
           "resolved": true,
           "iceberg": {
             "catalog": "iceberg_catalog",
@@ -248,8 +222,8 @@
         "rejected": {
           "format": "csv",
           "storage": "lakehouse_silver",
-          "uri": "s3://lakehouse-silver/floe/rejected/sales/order_revenue/order_lines",
-          "path": "s3://lakehouse-silver/floe/rejected/sales/order_revenue/order_lines",
+          "uri": "s3://openlakeforge-poc-silver-8icgljzi/floe/rejected/sales/order_revenue/order_lines",
+          "path": "s3://openlakeforge-poc-silver-8icgljzi/floe/rejected/sales/order_revenue/order_lines",
           "resolved": true
         },
         "archive": null
@@ -310,14 +284,14 @@
         "orders"
       ],
       "source_format": "csv",
-      "accepted_sink_uri": "s3://lakehouse-silver/sales/order_revenue/orders",
-      "rejected_sink_uri": "s3://lakehouse-silver/floe/rejected/sales/order_revenue/orders",
+      "accepted_sink_uri": "s3://openlakeforge-poc-silver-8icgljzi/sales/order_revenue/orders",
+      "rejected_sink_uri": "s3://openlakeforge-poc-silver-8icgljzi/floe/rejected/sales/order_revenue/orders",
       "tags": null,
       "source": {
         "format": "csv",
         "storage": "lakehouse_bronze",
-        "uri": "s3://lakehouse-bronze/sales/order_revenue/orders",
-        "path": "s3://lakehouse-bronze/sales/order_revenue/orders",
+        "uri": "s3://openlakeforge-poc-bronze-8icgljzi/sales/order_revenue/orders",
+        "path": "s3://openlakeforge-poc-bronze-8icgljzi/sales/order_revenue/orders",
         "resolved": true,
         "cast_mode": "strict",
         "options": {
@@ -342,8 +316,8 @@
         "accepted": {
           "format": "iceberg",
           "storage": "lakehouse_silver",
-          "uri": "s3://lakehouse-silver/sales/order_revenue/orders",
-          "path": "s3://lakehouse-silver/sales/order_revenue/orders",
+          "uri": "s3://openlakeforge-poc-silver-8icgljzi/sales/order_revenue/orders",
+          "path": "s3://openlakeforge-poc-silver-8icgljzi/sales/order_revenue/orders",
           "resolved": true,
           "iceberg": {
             "catalog": "iceberg_catalog",
@@ -355,8 +329,8 @@
         "rejected": {
           "format": "csv",
           "storage": "lakehouse_silver",
-          "uri": "s3://lakehouse-silver/floe/rejected/sales/order_revenue/orders",
-          "path": "s3://lakehouse-silver/floe/rejected/sales/order_revenue/orders",
+          "uri": "s3://openlakeforge-poc-silver-8icgljzi/floe/rejected/sales/order_revenue/orders",
+          "path": "s3://openlakeforge-poc-silver-8icgljzi/floe/rejected/sales/order_revenue/orders",
           "resolved": true
         },
         "archive": null
@@ -422,14 +396,14 @@
         "products"
       ],
       "source_format": "csv",
-      "accepted_sink_uri": "s3://lakehouse-silver/sales/order_revenue/products",
-      "rejected_sink_uri": "s3://lakehouse-silver/floe/rejected/sales/order_revenue/products",
+      "accepted_sink_uri": "s3://openlakeforge-poc-silver-8icgljzi/sales/order_revenue/products",
+      "rejected_sink_uri": "s3://openlakeforge-poc-silver-8icgljzi/floe/rejected/sales/order_revenue/products",
       "tags": null,
       "source": {
         "format": "csv",
         "storage": "lakehouse_bronze",
-        "uri": "s3://lakehouse-bronze/sales/order_revenue/products",
-        "path": "s3://lakehouse-bronze/sales/order_revenue/products",
+        "uri": "s3://openlakeforge-poc-bronze-8icgljzi/sales/order_revenue/products",
+        "path": "s3://openlakeforge-poc-bronze-8icgljzi/sales/order_revenue/products",
         "resolved": true,
         "cast_mode": "strict",
         "options": {
@@ -454,8 +428,8 @@
         "accepted": {
           "format": "iceberg",
           "storage": "lakehouse_silver",
-          "uri": "s3://lakehouse-silver/sales/order_revenue/products",
-          "path": "s3://lakehouse-silver/sales/order_revenue/products",
+          "uri": "s3://openlakeforge-poc-silver-8icgljzi/sales/order_revenue/products",
+          "path": "s3://openlakeforge-poc-silver-8icgljzi/sales/order_revenue/products",
           "resolved": true,
           "iceberg": {
             "catalog": "iceberg_catalog",
@@ -467,8 +441,8 @@
         "rejected": {
           "format": "csv",
           "storage": "lakehouse_silver",
-          "uri": "s3://lakehouse-silver/floe/rejected/sales/order_revenue/products",
-          "path": "s3://lakehouse-silver/floe/rejected/sales/order_revenue/products",
+          "uri": "s3://openlakeforge-poc-silver-8icgljzi/floe/rejected/sales/order_revenue/products",
+          "path": "s3://openlakeforge-poc-silver-8icgljzi/floe/rejected/sales/order_revenue/products",
           "resolved": true
         },
         "archive": null
@@ -519,14 +493,14 @@
         "promotions"
       ],
       "source_format": "csv",
-      "accepted_sink_uri": "s3://lakehouse-silver/sales/order_revenue/promotions",
-      "rejected_sink_uri": "s3://lakehouse-silver/floe/rejected/sales/order_revenue/promotions",
+      "accepted_sink_uri": "s3://openlakeforge-poc-silver-8icgljzi/sales/order_revenue/promotions",
+      "rejected_sink_uri": "s3://openlakeforge-poc-silver-8icgljzi/floe/rejected/sales/order_revenue/promotions",
       "tags": null,
       "source": {
         "format": "csv",
         "storage": "lakehouse_bronze",
-        "uri": "s3://lakehouse-bronze/sales/order_revenue/promotions",
-        "path": "s3://lakehouse-bronze/sales/order_revenue/promotions",
+        "uri": "s3://openlakeforge-poc-bronze-8icgljzi/sales/order_revenue/promotions",
+        "path": "s3://openlakeforge-poc-bronze-8icgljzi/sales/order_revenue/promotions",
         "resolved": true,
         "cast_mode": "strict",
         "options": {
@@ -551,8 +525,8 @@
         "accepted": {
           "format": "iceberg",
           "storage": "lakehouse_silver",
-          "uri": "s3://lakehouse-silver/sales/order_revenue/promotions",
-          "path": "s3://lakehouse-silver/sales/order_revenue/promotions",
+          "uri": "s3://openlakeforge-poc-silver-8icgljzi/sales/order_revenue/promotions",
+          "path": "s3://openlakeforge-poc-silver-8icgljzi/sales/order_revenue/promotions",
           "resolved": true,
           "iceberg": {
             "catalog": "iceberg_catalog",
@@ -564,8 +538,8 @@
         "rejected": {
           "format": "csv",
           "storage": "lakehouse_silver",
-          "uri": "s3://lakehouse-silver/floe/rejected/sales/order_revenue/promotions",
-          "path": "s3://lakehouse-silver/floe/rejected/sales/order_revenue/promotions",
+          "uri": "s3://openlakeforge-poc-silver-8icgljzi/floe/rejected/sales/order_revenue/promotions",
+          "path": "s3://openlakeforge-poc-silver-8icgljzi/floe/rejected/sales/order_revenue/promotions",
           "resolved": true
         },
         "archive": null
@@ -603,58 +577,19 @@
       }
     }
   ],
-  "storages": {
-    "default": "lakehouse_bronze",
-    "definitions": [
-      {
-        "account": null,
-        "bucket": "lakehouse-bronze",
-        "container": null,
-        "endpoint": null,
-        "fs_type": "s3",
-        "name": "lakehouse_bronze",
-        "path_style_access": null,
-        "prefix": null,
-        "region": "us-east-1"
-      },
-      {
-        "account": null,
-        "bucket": "lakehouse-silver",
-        "container": null,
-        "endpoint": null,
-        "fs_type": "s3",
-        "name": "lakehouse_silver",
-        "path_style_access": null,
-        "prefix": null,
-        "region": "us-east-1"
-      },
-      {
-        "account": null,
-        "bucket": "openlakeforge-ops",
-        "container": null,
-        "endpoint": null,
-        "fs_type": "s3",
-        "name": "openlakeforge_ops",
-        "path_style_access": null,
-        "prefix": null,
-        "region": "us-east-1"
-      }
-    ]
-  },
   "catalogs": {
     "default": "iceberg_catalog",
     "definitions": [
       {
         "name": "iceberg_catalog",
         "type_config": {
-          "credential": "client_credentials:${OPENLAKEFORGE_CATALOG_FLOE_CLIENT_ID}:${OPENLAKEFORGE_CATALOG_FLOE_CLIENT_SECRET}",
-          "oauth2_server_uri": "http://polaris:8181/api/catalog/v1/oauth/tokens",
-          "scope": "PRINCIPAL_ROLE:ALL",
-          "type": "rest",
-          "uri": "http://polaris:8181/api/catalog",
-          "warehouse": "lakehouse_dev"
+          "allow_takeover": false,
+          "create_database_if_missing": false,
+          "database": "lakehouse_dev",
+          "region": "eu-west-1",
+          "type": "glue"
         },
-        "warehouse_prefix": "s3://lakehouse-silver",
+        "warehouse_prefix": "warehouse/iceberg",
         "warehouse_storage": "lakehouse_silver"
       }
     ]

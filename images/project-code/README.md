@@ -21,6 +21,9 @@ The image contains Dagster, `dagster-floe`, dlt extract code, domain-owned
 product Floe contracts, generated product Floe manifests, product dbt projects,
 domain Python code, and shared OpenLakeForge libraries. It intentionally does
 not install the Floe CLI.
+The base image is configurable with `PROJECT_CODE_PYTHON_BASE_IMAGE`; AWS
+builds default this to `public.ecr.aws/docker/library/python:3.12-slim` to avoid
+Docker Hub during `make aws-artifacts-deploy`.
 `make floe-manifest` generates the product manifests locally, bakes them into
 this image for Dagster asset loading, and publishes the same files to SeaweedFS
 outside Terraform for separate runner pods.

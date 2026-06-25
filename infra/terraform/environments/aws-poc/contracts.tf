@@ -81,6 +81,8 @@ locals {
     auth_mode                  = "aws-sigv4-pod-identity"
     secret_delivery_mode       = "none"
     ssl_mode                   = "required"
+    glue_database              = var.catalog_name
+    glue_warehouse_prefix      = "warehouse/iceberg"
     endpoint                   = module.glue.contract.rest_uri
     ingress_mode               = "aws-service-endpoint"
     local_only                 = false

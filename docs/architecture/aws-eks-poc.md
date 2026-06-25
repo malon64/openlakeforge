@@ -12,7 +12,7 @@ operations cost and durability.
 | Runtime images | ECR repositories for project-code and Superset |
 | Object storage | S3 buckets for Bronze, Silver, Gold, and ops artifacts |
 | Metadata database | RDS PostgreSQL for Dagster, OpenMetadata, and Superset |
-| Iceberg catalog | AWS Glue Data Catalog through Glue Iceberg REST/SigV4 |
+| Iceberg catalog | AWS Glue Data Catalog |
 | Query path | Superset -> Trino -> Glue/S3 |
 | Orchestration | Dagster Helm release with per-domain code locations |
 | Artifacts | Floe manifests, reports, logs, and run artifacts in the S3 ops bucket |
@@ -59,8 +59,9 @@ The Glue catalog contract uses `catalog_type = "glue"` and
 
 - Trino uses its Glue catalog configuration.
 - Dagster passes AWS/Glue runtime environment to runs and code locations.
-- Floe renders a Glue REST/SigV4 profile without S3-compatible endpoints or
-  static object-storage secrets.
+- Floe keeps medallion S3 storage aliases in the Floe configs, then renders a
+  schema-valid native Glue profile (`type: "glue"`) with a Glue database and a
+  warehouse prefix under the Silver storage alias.
 - dbt-duckdb uses an `aws_runtime` target with credential-chain S3 access and a
   Glue/SigV4 Iceberg attach.
 - OpenMetadata registers a Glue-backed Iceberg service instead of Polaris OAuth.

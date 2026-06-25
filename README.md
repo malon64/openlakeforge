@@ -266,7 +266,7 @@ make local-foundation-down
 ## AWS POC
 
 The AWS POC is contract-compatible with local and Azure but uses EKS, ECR, S3,
-RDS PostgreSQL, Glue, and IRSA. Default region is `eu-west-1`; override
+RDS PostgreSQL, Glue, and EKS Pod Identity. Default region is `eu-west-1`; override
 `AWS_REGION` and the related `AWS_*` Make variables as needed.
 
 ```sh

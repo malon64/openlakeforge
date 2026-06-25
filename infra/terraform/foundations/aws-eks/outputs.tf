@@ -61,23 +61,23 @@ output "superset_ecr_repository_url" {
 output "foundation_contract" {
   description = "Provider-neutral AWS EKS foundation contract."
   value = {
-    provider                         = "aws"
-    implementation                   = "eks"
-    adapter                          = "foundation.eks"
-    cluster_name                     = aws_eks_cluster.this.name
-    kube_context                     = aws_eks_cluster.this.name
-    kubeconfig_path                  = local.kubeconfig_path
-    aws_region                       = var.aws_region
-    aws_account_id                   = data.aws_caller_identity.current.account_id
-    cluster_type                     = "eks"
-    vpc_id                           = aws_vpc.this.id
-    vpc_cidr_block                   = aws_vpc.this.cidr_block
-    subnet_ids                       = values(aws_subnet.public)[*].id
-    oidc_issuer_enabled              = true
-    oidc_issuer_url                  = aws_eks_cluster.this.identity[0].oidc[0].issuer
-    workload_identity_enabled        = true
-    workload_identity_type           = "eks-pod-identity"
-    ecr_project_code_repository_url  = aws_ecr_repository.project_code.repository_url
-    ecr_superset_repository_url      = aws_ecr_repository.superset.repository_url
+    provider                        = "aws"
+    implementation                  = "eks"
+    adapter                         = "foundation.eks"
+    cluster_name                    = aws_eks_cluster.this.name
+    kube_context                    = aws_eks_cluster.this.name
+    kubeconfig_path                 = local.kubeconfig_path
+    aws_region                      = var.aws_region
+    aws_account_id                  = data.aws_caller_identity.current.account_id
+    cluster_type                    = "eks"
+    vpc_id                          = aws_vpc.this.id
+    vpc_cidr_block                  = aws_vpc.this.cidr_block
+    subnet_ids                      = values(aws_subnet.public)[*].id
+    oidc_issuer_enabled             = true
+    oidc_issuer_url                 = aws_eks_cluster.this.identity[0].oidc[0].issuer
+    workload_identity_enabled       = true
+    workload_identity_type          = "eks-pod-identity"
+    ecr_project_code_repository_url = aws_ecr_repository.project_code.repository_url
+    ecr_superset_repository_url     = aws_ecr_repository.superset.repository_url
   }
 }
