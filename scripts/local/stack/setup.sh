@@ -45,3 +45,5 @@ echo "  OpenMetadata UI:  http://localhost:8585  (admin@open-metadata.org / admi
 echo "  Trino UI:         http://localhost:8080"
 echo "  Polaris API:      http://localhost:8181/api/catalog"
 echo "  SeaweedFS S3:     http://localhost:9000"
+echo "  SeaweedFS Filer:  http://localhost:8888"
+echo "  SeaweedFS Master: http://localhost:9333"

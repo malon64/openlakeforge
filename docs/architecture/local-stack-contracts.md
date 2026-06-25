@@ -51,6 +51,20 @@ Product Floe contracts refer to the Bronze bucket through the logical
 `lakehouse_silver`, and to the ops bucket through `openlakeforge_ops` for Floe
 run reports.
 
+The local SeaweedFS module also exposes the built-in Filer and Master HTTP UIs
+through the storage contract. They are local development inspection surfaces,
+not production access controls:
+
+- Filer UI: `svc/seaweedfs-filer-client:8888`, port-forwarded to
+  `http://localhost:8888`
+- Master UI: `svc/seaweedfs-master:9333`, port-forwarded to
+  `http://localhost:9333`
+
+Use `make local-forward` for all local services or
+`make local-seaweed-ui-forward` for only the SeaweedFS UIs. The Filer UI talks
+directly to SeaweedFS, so it avoids a second S3 browser component and manual S3
+backend credential setup.
+
 ## Metadata Database Contract
 
 The local metadata database contract is implemented by the shared in-cluster

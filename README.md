@@ -211,6 +211,12 @@ Then open:
 | Trino | http://localhost:8080 | none |
 | Polaris API | http://localhost:8181/api/catalog | service credentials |
 | SeaweedFS S3 | http://localhost:9000 | generated local secret |
+| SeaweedFS Filer | http://localhost:8888 | none |
+| SeaweedFS Master | http://localhost:9333 | none |
+
+The SeaweedFS Filer UI is the simplest local bucket browser for this stack. It
+uses the existing SeaweedFS deployment, so no extra component or S3 credential
+setup is needed. The Master UI is useful for quick cluster and volume status.
 
 In Dagster, launch `sales_order_revenue_pipeline`,
 `sales_customer_health_pipeline`, or

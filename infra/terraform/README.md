@@ -71,6 +71,7 @@ make local-artifacts-deploy
 - Dagster webserver, daemon, domain product code servers, and Kubernetes run launcher
 - Superset webserver, worker, reports volume, and local report deploy path
 - OpenMetadata, Polaris service metadata, and catalog ingestion plumbing
+- SeaweedFS S3, Filer, and Master services for local object storage and inspection
 
 `make local-artifacts-deploy` owns the local/CD artifacts:
 

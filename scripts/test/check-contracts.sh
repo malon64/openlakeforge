@@ -169,6 +169,42 @@ for main_path, main_body in [(local_main_tf, local_main_text), (azure_main_tf, a
     if "var.code_bucket_name" in main_body:
         errors.append(f"{main_path}: must not use legacy code_bucket_name")
 
+local_variables_tf = Path("infra/terraform/environments/local/variables.tf").read_text()
+local_outputs_tf = Path("infra/terraform/environments/local/outputs.tf").read_text()
+makefile_body = Path("Makefile").read_text()
+local_infra_script = Path("scripts/local/stack/infra-up.sh").read_text()
+local_setup_script = Path("scripts/local/stack/setup.sh").read_text()
+seaweedfs_outputs = Path("infra/terraform/modules/storage/seaweedfs/outputs.tf").read_text()
+for required in [
+    "filer_service_name",
+    "filer_http_port",
+    "filer_endpoint",
+    "master_service_name",
+    "master_http_port",
+    "master_endpoint",
+]:
+    if required not in seaweedfs_outputs:
+        errors.append(f"infra/terraform/modules/storage/seaweedfs/outputs.tf: missing SeaweedFS UI contract field {required}")
+for required in [
+    "local-seaweed-ui-forward",
+    "svc/seaweedfs-filer-client 8888:8888",
+    "svc/seaweedfs-master 9333:9333",
+]:
+    if required not in makefile_body:
+        errors.append(f"Makefile: missing SeaweedFS UI wrapper support {required}")
+for path, body in [
+    (Path("infra/terraform/environments/local/variables.tf"), local_variables_tf),
+    (local_main_tf, local_main_text),
+    (contracts_tf, text),
+    (Path("infra/terraform/environments/local/outputs.tf"), local_outputs_tf),
+    (Path("scripts/local/stack/infra-up.sh"), local_infra_script),
+    (Path("scripts/local/stack/setup.sh"), local_setup_script),
+]:
+    legacy_dev_ui = "file" + "stash"
+    legacy_dev_ui_env = "ENABLE_" + "FILESTASH"
+    if legacy_dev_ui in body.lower() or legacy_dev_ui_env in body:
+        errors.append(f"{path}: must not contain legacy S3 browser wiring")
+
 required_checks = [
     'check "foundation_contract_matches_platform_context"',
     'check "local_contract_adapters_are_explicit"',

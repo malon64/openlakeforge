@@ -1,4 +1,4 @@
-.PHONY: help tree check-structure check-contracts check-infra check-project-code check-dbt floe-manifest floe-manifest-upload dbt-parse project-code-image project-code-load superset-image superset-load superset-reports-deploy superset-reports-export openmetadata-metadata-deploy local-foundation-up local-foundation-down local-infra-up local-artifacts-deploy local-up local-down local-status local-forward local-prefetch azure-foundation-up azure-infra-up azure-artifacts-deploy azure-up azure-forward azure-e2e azure-down azure-foundation-down
+.PHONY: help tree check-structure check-contracts check-infra check-project-code check-dbt floe-manifest floe-manifest-upload dbt-parse project-code-image project-code-load superset-image superset-load superset-reports-deploy superset-reports-export openmetadata-metadata-deploy local-foundation-up local-foundation-down local-infra-up local-artifacts-deploy local-up local-down local-status local-forward local-seaweed-ui-forward local-prefetch azure-foundation-up azure-infra-up azure-artifacts-deploy azure-up azure-forward azure-e2e azure-down azure-foundation-down
 
 NAMESPACE ?= lakehouse
 CLUSTER_NAME ?= openlakeforge-local
@@ -51,7 +51,8 @@ help:
 	@printf '%s\n' '  make local-up         Run local-infra-up, then local-artifacts-deploy'
 	@printf '%s\n' '  make local-down       Terraform-destroy the local stack'
 	@printf '%s\n' '  make local-status     Show pod and service status in the configured namespace'
-	@printf '%s\n' '  make local-forward    Port-forward all services to localhost (Dagster :3000, Superset :8088, OpenMetadata :8585, Trino :8080, Polaris :8181, S3 :9000)'
+	@printf '%s\n' '  make local-forward    Port-forward all services to localhost (Dagster :3000, Superset :8088, OpenMetadata :8585, Trino :8080, Polaris :8181, S3 :9000, SeaweedFS Filer :8888, Master :9333)'
+	@printf '%s\n' '  make local-seaweed-ui-forward  Port-forward SeaweedFS Filer :8888 and Master :9333'
 	@printf '%s\n' ''
 	@printf '%s\n' 'Azure AKS POC stack:'
 	@printf '%s\n' '  make azure-foundation-up    Terraform-create Azure resource group, AKS, and ACR'
@@ -146,6 +147,8 @@ local-forward:
 	@echo "  Trino UI:         http://localhost:8080"
 	@echo "  Polaris API:      http://localhost:8181"
 	@echo "  SeaweedFS S3:     http://localhost:9000"
+	@echo "  SeaweedFS Filer:  http://localhost:8888"
+	@echo "  SeaweedFS Master: http://localhost:9333"
 	@set -e; \
 	context="$(KUBE_CONTEXT)"; \
 	dagster_pod="$$(kubectl --context $$context get pods -n $(NAMESPACE) -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' | grep 'dagster-webserver' | head -n 1)"; \
@@ -161,7 +164,24 @@ local-forward:
 	superset_pid=$$!; \
 	kubectl --context $$context port-forward svc/openmetadata 8585:8585 -n $(NAMESPACE) & \
 	om_pid=$$!; \
-	trap 'kill $$seaweedfs_pid $$polaris_pid $$trino_pid $$dagster_pid $$superset_pid $$om_pid 2>/dev/null || true' INT TERM EXIT; \
+	kubectl --context $$context port-forward svc/seaweedfs-filer-client 8888:8888 -n $(NAMESPACE) & \
+	seaweedfs_filer_pid=$$!; \
+	kubectl --context $$context port-forward svc/seaweedfs-master 9333:9333 -n $(NAMESPACE) & \
+	seaweedfs_master_pid=$$!; \
+	trap 'kill $$seaweedfs_pid $$polaris_pid $$trino_pid $$dagster_pid $$superset_pid $$om_pid $$seaweedfs_filer_pid $$seaweedfs_master_pid 2>/dev/null || true' INT TERM EXIT; \
+	wait
+
+local-seaweed-ui-forward:
+	@echo "Starting SeaweedFS UI port-forwards (Ctrl-C to stop)..."
+	@echo "  SeaweedFS Filer:  http://localhost:8888"
+	@echo "  SeaweedFS Master: http://localhost:9333"
+	@set -e; \
+	context="$(KUBE_CONTEXT)"; \
+	kubectl --context $$context port-forward svc/seaweedfs-filer-client 8888:8888 -n $(NAMESPACE) & \
+	filer_pid=$$!; \
+	kubectl --context $$context port-forward svc/seaweedfs-master 9333:9333 -n $(NAMESPACE) & \
+	master_pid=$$!; \
+	trap 'kill $$filer_pid $$master_pid 2>/dev/null || true' INT TERM EXIT; \
 	wait
 
 azure-foundation-up:
