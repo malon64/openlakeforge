@@ -3,6 +3,7 @@ locals {
   catalog_provider = coalesce(try(var.catalog_contract.catalog_provider, null), "polaris")
   catalog_name     = coalesce(try(var.catalog_contract.catalog_name, null), try(var.catalog_contract.warehouse, null), "lakehouse_dev")
   runtime_profile  = coalesce(try(var.catalog_contract.runtime_profile, null), "polaris-rest")
+  dbt_profile_env  = local.catalog_type == "glue" && local.catalog_provider == "aws-glue" ? "aws" : (try(var.storage_contract.provider, null) == "azure" ? "azure" : "local")
 
   storage_env = concat(
     [
@@ -135,7 +136,7 @@ locals {
     },
     {
       name  = "OPENLAKEFORGE_CATALOG_WAREHOUSE"
-      value = coalesce(try(var.catalog_contract.warehouse, null), local.catalog_name)
+      value = local.catalog_type == "glue" ? local.catalog_name : coalesce(try(var.catalog_contract.warehouse, null), local.catalog_name)
     },
     {
       name  = "OPENLAKEFORGE_CATALOG_OAUTH_SCOPE"
@@ -157,8 +158,12 @@ locals {
       value = coalesce(try(var.catalog_contract.glue_rest_uri, null), try(var.catalog_contract.rest_uri, null), "")
     },
     {
+      name  = "OPENLAKEFORGE_CATALOG_GLUE_REST_WAREHOUSE"
+      value = coalesce(try(var.catalog_contract.glue_rest_warehouse, null), try(var.catalog_contract.warehouse, null), "")
+    },
+    {
       name  = "OPENLAKEFORGE_CATALOG_GLUE_DATABASE"
-      value = coalesce(try(var.catalog_contract.glue_database, null), local.catalog_name)
+      value = (try(var.catalog_contract.glue_database, null) == null ? "" : try(var.catalog_contract.glue_database, null))
     },
     {
       name  = "OPENLAKEFORGE_CATALOG_GLUE_WAREHOUSE_PREFIX"
@@ -196,8 +201,12 @@ locals {
 
   dbt_env = [
     {
+      name  = "OPENLAKEFORGE_DBT_PROFILE_ENV"
+      value = local.dbt_profile_env
+    },
+    {
       name  = "DBT_PROFILES_DIR"
-      value = "/opt/openlakeforge/domains"
+      value = "/tmp/openlakeforge-dbt-profiles"
     },
     {
       name  = "OPENLAKEFORGE_DBT_ATTACH_POLARIS"

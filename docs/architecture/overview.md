@@ -73,7 +73,7 @@ The image contains:
 The project-code image does not install the Floe CLI. It includes generated
 product Floe manifests so the Dagster code server can load the asset graph from
 the image. Because Floe work runs in a separate manifest-declared
-`ghcr.io/malon64/floe:0.5.4` Kubernetes runner image, local/CD artifact upload
+`ghcr.io/malon64/floe:0.6.3` Kubernetes runner image, local/CD artifact upload
 also publishes the generated product manifests to SeaweedFS for the runner pod.
 
 The expected runtime flow is:

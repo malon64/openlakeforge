@@ -89,7 +89,12 @@ runtime_profile = "aws-glue-rest"
 The AWS implementation does not expose Polaris REST or OAuth credentials to
 writer runtimes. Floe uses its native Glue catalog profile (`type: "glue"`).
 Other consumers that support more than one Iceberg catalog implementation
-branch on `catalog_type`.
+branch on `catalog_type`. AWS keeps the same three-part SQL hierarchy as local
+and Azure, but maps it onto Glue's two-level physical model: the first SQL
+segment (`lakehouse_dev` by default) is the engine catalog alias for the AWS Glue
+Data Catalog, while product layers such as `sales_order_revenue_silver` are Glue
+databases/namespaces. A table resolves in SQL as
+`lakehouse_dev.sales_order_revenue_silver.sales_order_score`.
 
 ## Local Defaults
 

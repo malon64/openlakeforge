@@ -5,7 +5,7 @@
 Appropriate examples include:
 
 - config loading
-- shared dbt packages and macros
+- shared dbt packages, macros, and environment profile templates
 - shared Floe runtime profiles
 - storage path conventions
 - Dagster resource helpers
@@ -14,3 +14,8 @@ Appropriate examples include:
 
 Domain business logic stays under `domains/`; `libs/` contains reusable platform
 glue shared by those domains.
+
+dbt environment profiles live under `libs/dbt/profiles/` and are rendered into
+product projects by `libs.dbt.render_profiles`. Product dbt projects keep
+product-local model code and schema defaults; provider-specific attach settings
+belong in the shared templates.

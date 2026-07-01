@@ -9,6 +9,9 @@ CONTRACT_TERRAFORM_DIR="${OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR:-${REPO_ROOT}/inf
 NAMESPACE="${NAMESPACE:-lakehouse}"
 AWS_CLUSTER_NAME="${AWS_CLUSTER_NAME:-eks-openlakeforge-poc}"
 KUBE_CONTEXT="${KUBE_CONTEXT:-}"
+export OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR="${CONTRACT_TERRAFORM_DIR}"
+
+cd "${REPO_ROOT}"
 
 git_or_time_tag() {
   git -C "${REPO_ROOT}" rev-parse --short HEAD 2>/dev/null || date -u +%Y%m%d%H%M%S
@@ -86,7 +89,44 @@ patch_deployment_image_if_exists() {
   local deployment="$1"
   if kubectl get deployment "${deployment}" -n "${NAMESPACE}" >/dev/null 2>&1; then
     echo "==> Updating ${deployment} image to ${PROJECT_CODE_IMAGE}..."
-    kubectl set image "deployment/${deployment}" "*=${PROJECT_CODE_IMAGE}" -n "${NAMESPACE}"
+    NAMESPACE="${NAMESPACE}" DEPLOYMENT_NAME="${deployment}" PROJECT_CODE_IMAGE="${PROJECT_CODE_IMAGE}" python3 - <<'PY'
+import json
+import os
+import subprocess
+
+namespace = os.environ["NAMESPACE"]
+deployment = os.environ["DEPLOYMENT_NAME"]
+image = os.environ["PROJECT_CODE_IMAGE"]
+raw = subprocess.check_output(["kubectl", "get", "deployment", deployment, "-n", namespace, "-o", "json"], text=True)
+payload = json.loads(raw)
+containers = payload["spec"]["template"]["spec"].get("containers", [])
+if not containers:
+    raise SystemExit(f"ERROR: deployment/{deployment} has no regular containers to patch.")
+patch = {
+    "spec": {
+        "template": {
+            "spec": {
+                "containers": [
+                    {"name": container["name"], "image": image}
+                    for container in containers
+                ]
+            }
+        }
+    }
+}
+subprocess.check_call([
+    "kubectl",
+    "patch",
+    "deployment",
+    deployment,
+    "-n",
+    namespace,
+    "--type",
+    "strategic",
+    "-p",
+    json.dumps(patch),
+])
+PY
   fi
 }
 
@@ -97,7 +137,48 @@ patch_cronjob_image_if_exists() {
   fi
 
   echo "==> Updating ${cronjob} image to ${PROJECT_CODE_IMAGE}..."
-  kubectl set image "cronjob/${cronjob}" "*=${PROJECT_CODE_IMAGE}" -n "${NAMESPACE}"
+  NAMESPACE="${NAMESPACE}" CRONJOB_NAME="${cronjob}" PROJECT_CODE_IMAGE="${PROJECT_CODE_IMAGE}" python3 - <<'PY'
+import json
+import os
+import subprocess
+
+namespace = os.environ["NAMESPACE"]
+cronjob = os.environ["CRONJOB_NAME"]
+image = os.environ["PROJECT_CODE_IMAGE"]
+raw = subprocess.check_output(["kubectl", "get", "cronjob", cronjob, "-n", namespace, "-o", "json"], text=True)
+payload = json.loads(raw)
+containers = payload["spec"]["jobTemplate"]["spec"]["template"]["spec"].get("containers", [])
+if not containers:
+    raise SystemExit(f"ERROR: cronjob/{cronjob} has no regular containers to patch.")
+patch = {
+    "spec": {
+        "jobTemplate": {
+            "spec": {
+                "template": {
+                    "spec": {
+                        "containers": [
+                            {"name": container["name"], "image": image}
+                            for container in containers
+                        ]
+                    }
+                }
+            }
+        }
+    }
+}
+subprocess.check_call([
+    "kubectl",
+    "patch",
+    "cronjob",
+    cronjob,
+    "-n",
+    namespace,
+    "--type",
+    "strategic",
+    "-p",
+    json.dumps(patch),
+])
+PY
 }
 
 discover_dagster_user_deployments() {
@@ -143,21 +224,28 @@ upload_floe_manifests_to_s3() {
   source "${REPO_ROOT}/scripts/local/contracts/load-runtime-env.sh"
 
   local bucket="${CODE_BUCKET_NAME:-${OPENLAKEFORGE_ARTIFACT_BUCKET_NAME}}"
+  local root="${FLOE_RUNTIME_ARTIFACT_DIR:-${REPO_ROOT}/.tmp/floe-runtime/aws}"
+  local manifest_root="${root}/manifests"
   local manifests=()
+  if [[ ! -d "${manifest_root}" ]]; then
+    echo "ERROR: no rendered AWS Floe manifests found under ${manifest_root}. Run manifest generation first." >&2
+    exit 1
+  fi
+
   while IFS= read -r manifest_path; do
     manifests+=("${manifest_path}")
-  done < <(find domains -path "*/contracts/floe/manifests/*.manifest.json" -type f | sort)
+  done < <(find "${manifest_root}" -name '*.manifest.json' -type f | sort)
 
   if [[ "${#manifests[@]}" -eq 0 ]]; then
-    echo "ERROR: no generated product Floe manifests found. Run manifest generation first." >&2
+    echo "ERROR: no rendered AWS Floe manifests found under ${manifest_root}. Run manifest generation first." >&2
     exit 1
   fi
 
   for manifest_path in "${manifests[@]}"; do
-    local domain_dir product domain key
-    domain_dir="${manifest_path%/contracts/floe/manifests/*}"
+    local relative_path product domain key
+    relative_path="${manifest_path#${manifest_root}/}"
+    domain="${relative_path%%/*}"
     product="$(basename "${manifest_path}" .manifest.json)"
-    domain="$(basename "${domain_dir}")"
     key="floe/manifests/${domain}/${product}/${product}.manifest.json"
     aws s3api put-object \
       --bucket "${bucket}" \
@@ -175,9 +263,14 @@ done
 prepare_eks_context
 prepare_image_variables
 
+# shellcheck source=/dev/null
+source "${REPO_ROOT}/scripts/local/contracts/load-runtime-env.sh"
+FLOE_RUNTIME_ARTIFACT_DIR="${FLOE_RUNTIME_ARTIFACT_DIR:-.tmp/floe-runtime/aws}"
+FLOE_PERSIST_RUNTIME_ARTIFACTS="true"
+export FLOE_RUNTIME_ARTIFACT_DIR FLOE_PERSIST_RUNTIME_ARTIFACTS
+
 echo "==> Generating product Floe manifests before baking the project-code image..."
 NAMESPACE="${NAMESPACE}" \
-OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR="${CONTRACT_TERRAFORM_DIR}" \
   bash "${REPO_ROOT}/scripts/local/artifacts/floe-manifest.sh"
 
 echo "==> Building and pushing AWS project-code image..."
@@ -188,7 +281,7 @@ PROJECT_CODE_IMAGE_TAG="${PROJECT_CODE_IMAGE_TAG}" \
   bash "${SCRIPT_DIR}/../images/build-push-project-code.sh"
 
 echo "==> Publishing product Floe manifests to the AWS S3 ops bucket..."
-OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR="${CONTRACT_TERRAFORM_DIR}" upload_floe_manifests_to_s3
+upload_floe_manifests_to_s3
 
 echo "==> Deploying product Superset report assets..."
 NAMESPACE="${NAMESPACE}" \

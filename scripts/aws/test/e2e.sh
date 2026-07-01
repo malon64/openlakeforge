@@ -82,19 +82,42 @@ for path, expected_value in expected.items():
         raise SystemExit(f"ERROR: provider_contracts.{'.'.join(path)} expected {expected_value!r}, got {value!r}")
 PY
 
-echo "==> Checking S3 artifact bucket and Glue databases..."
+echo "==> Checking S3 artifact bucket and Glue catalog databases..."
 CODE_BUCKET="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["artifact_bucket"]["bucket_name"])' "${contracts_json}")"
 aws s3api head-bucket --bucket "${CODE_BUCKET}" >/dev/null
 
-python3 - "${contracts_json}" <<'PY' | while read -r database; do
-import json, sys
+while IFS= read -r glue_database; do
+  aws glue get-database --region "${AWS_REGION}" --name "${glue_database}" >/dev/null
+done < <(
+  python3 -c 'import json, sys; catalog=json.load(open(sys.argv[1]))["catalog"]; print("\n".join(catalog.get("glue_database_names") or catalog.get("catalog_schema_names") or []))' "${contracts_json}"
+)
+
+python3 - "${contracts_json}" <<'PY'
+import json
+import sys
 from pathlib import Path
+
 contracts = json.loads(Path(sys.argv[1]).read_text())
-for database in contracts["catalog"]["catalog_namespaces"]:
-    print(database["name"])
+catalog = contracts["catalog"]
+schema_names = catalog.get("catalog_schema_names") or [
+    namespace["name"] for namespace in catalog["catalog_namespaces"]
+]
+database_names = catalog.get("glue_database_names") or []
+expected = {
+    "sales_order_revenue_silver",
+    "sales_order_revenue_gold",
+    "sales_customer_health_silver",
+    "sales_customer_health_gold",
+    "supply_chain_inventory_reliability_silver",
+    "supply_chain_inventory_reliability_gold",
+}
+missing = expected.difference(schema_names)
+if missing:
+    raise SystemExit(f"ERROR: catalog contract missing Glue schema names: {sorted(missing)}")
+missing_databases = expected.difference(database_names)
+if missing_databases:
+    raise SystemExit(f"ERROR: catalog contract missing Glue database names: {sorted(missing_databases)}")
 PY
-  aws glue get-database --region "${AWS_REGION}" --name "${database}" >/dev/null
-done
 
 echo "==> Checking Trino Glue catalog..."
 kubectl --context "${KUBE_CONTEXT}" exec -n "${NAMESPACE}" deploy/trino-coordinator -- \

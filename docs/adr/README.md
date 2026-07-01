@@ -50,8 +50,8 @@ the current v1 services as the implemented solution stack.
 and per-domain Dagster code locations.
 
 `0015-aws-eks-managed-services-poc.md` records the first AWS POC provider
-implementation: EKS/ECR plus S3, RDS PostgreSQL, Glue, and IRSA behind the
-existing OpenLakeForge contracts.
+implementation: EKS/ECR plus S3, RDS PostgreSQL, Glue, and AWS workload
+identity behind the existing OpenLakeForge contracts.
 
 `0016-aws-eks-pod-identity-over-irsa.md` amends 0015 to use EKS Pod Identity
 instead of IRSA, because the lab sandbox denies `iam:CreateOpenIDConnectProvider`;

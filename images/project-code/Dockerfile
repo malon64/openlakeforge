@@ -1,5 +1,6 @@
 ARG PYTHON_BASE_IMAGE=python:3.12-slim
 FROM ${PYTHON_BASE_IMAGE}
+ARG DBT_PROFILE_ENV=local
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -17,9 +18,10 @@ COPY libs ./libs
 
 RUN pip install --no-cache-dir --no-deps .
 
-# Pre-generate dbt manifests at build time using the local (no-Polaris) target so
-# that the code-server pod starts without running dbt parse on every rollout.
+# Render environment-specific dbt profiles, then pre-generate dbt manifests with
+# the lightweight local target so code-server pods do not parse on every rollout.
 RUN set -e; \
+    python -m libs.dbt.render_profiles --environment "${DBT_PROFILE_ENV}" --write; \
     for project_dir in $(find domains -path "*/transformations/dbt/*/dbt_project.yml" -type f -exec dirname {} \; | sort); do \
       dbt deps --project-dir "${project_dir}"; \
       dbt parse --project-dir "${project_dir}" --profiles-dir "${project_dir}" --target local; \

@@ -15,7 +15,7 @@ catalogs:
     - name: "iceberg_catalog"
       type: "glue"
       region: "eu-west-1"
-      database: "lakehouse_dev"
+      database: "sales_customer_health_silver"
       warehouse_storage: "lakehouse_silver"
       warehouse_prefix: "warehouse/iceberg"
       create_database_if_missing: false
@@ -24,7 +24,7 @@ execution:
     strategy: sequential
   runner:
     type: kubernetes_job
-    image: ghcr.io/malon64/floe:0.5.4
+    image: ghcr.io/malon64/floe:0.6.3
     namespace: lakehouse
     service_account: dagster
     timeout_seconds: 600

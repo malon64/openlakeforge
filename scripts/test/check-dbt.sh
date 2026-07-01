@@ -70,6 +70,9 @@ if [[ "${#projects[@]}" -eq 0 ]]; then
 fi
 
 for project_dir in "${projects[@]}"; do
+  echo "==> Rendering dbt profile: ${project_dir}"
+  python3 -m libs.dbt.render_profiles --environment local --project-dir "${project_dir}" --write
+
   echo "==> dbt deps: ${project_dir}"
   dbt deps --project-dir "${project_dir}"
 

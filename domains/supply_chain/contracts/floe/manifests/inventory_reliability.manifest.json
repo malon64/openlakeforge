@@ -1,16 +1,16 @@
 {
   "schema": "floe.manifest.v1",
   "generated_at_ts_ms": 0,
-  "floe_version": "0.5.4",
+  "floe_version": "0.6.3",
   "spec_version": "0.2",
   "manifest_name": "supply_chain.inventory_reliability.local",
-  "manifest_id": "mfv1-531438016a6d4adb",
-  "manifest_revision": "sha256:92606b8882302e0b2e2457949cf6c69fe0f48b7d85001787429dfe2ab5ac8e3f",
-  "config_uri": "local:///work/.tmp/floe-config.nYokzS/domains/supply_chain/contracts/floe/inventory_reliability.yml",
-  "config_checksum": "sha256:9fa83c74d754113fdd838e054713f80e1c1606334a98738e300c9aa943dbba2f",
-  "profile_uri": "local:///work/.tmp/floe-profile.KXxPlC/aws-eks.yml",
-  "profile_checksum": "sha256:d0c6a4c9d45da9d053a98d3de7a5652bf14424b9b7a913ab0ce5ad262c00c246",
-  "report_base_uri": "s3://openlakeforge-poc-ops-8icgljzi/floe/reports/supply_chain/inventory_reliability",
+  "manifest_id": "mfv1-33ef4a55e13b0add",
+  "manifest_revision": "sha256:c181b16957c6f23d976b36abd13f278e7bd0244fde333de5535ef217a377faf2",
+  "config_uri": "local:///work/domains/supply_chain/contracts/floe/inventory_reliability.yml",
+  "config_checksum": "sha256:2991619176cc8f8990bbde7a34bb76fa494e9fc72c72b8b62a905f0519d4d399",
+  "profile_uri": "local:///work/libs/floe/profiles/local-k8s.yml",
+  "profile_checksum": "sha256:7b5929e12bd88b253101df76e0cffdea6f2cf07566b3d930181d25cf395bcfe3",
+  "report_base_uri": "s3://openlakeforge-ops/floe/reports/supply_chain/inventory_reliability",
   "domains": [],
   "execution": {
     "entrypoint": "floe",
@@ -54,16 +54,40 @@
         "timeout_seconds": 600,
         "ttl_seconds_after_finished": 3600,
         "poll_interval_seconds": 5,
-        "secrets": [],
-        "image": "ghcr.io/malon64/floe:0.5.4",
+        "secrets": [
+          {
+            "name": "AWS_ACCESS_KEY_ID",
+            "secret_name": "seaweedfs-s3-creds",
+            "key": "AWS_ACCESS_KEY_ID"
+          },
+          {
+            "name": "AWS_SECRET_ACCESS_KEY",
+            "secret_name": "seaweedfs-s3-creds",
+            "key": "AWS_SECRET_ACCESS_KEY"
+          },
+          {
+            "name": "OPENLAKEFORGE_CATALOG_FLOE_CLIENT_ID",
+            "secret_name": "polaris-floe-creds",
+            "key": "POLARIS_FLOE_CLIENT_ID"
+          },
+          {
+            "name": "OPENLAKEFORGE_CATALOG_FLOE_CLIENT_SECRET",
+            "secret_name": "polaris-floe-creds",
+            "key": "POLARIS_FLOE_CLIENT_SECRET"
+          }
+        ],
+        "image": "ghcr.io/malon64/floe:0.6.3",
         "namespace": "lakehouse",
         "service_account": "dagster",
         "resources": null,
         "env": {
-          "AWS_DEFAULT_REGION": "eu-west-1",
-          "AWS_EC2_METADATA_DISABLED": "false",
-          "AWS_REGION": "eu-west-1",
-          "AWS_S3_FORCE_PATH_STYLE": "false"
+          "AWS_ALLOW_HTTP": "true",
+          "AWS_DEFAULT_REGION": "us-east-1",
+          "AWS_EC2_METADATA_DISABLED": "true",
+          "AWS_ENDPOINT_URL": "http://seaweedfs-s3:8333",
+          "AWS_ENDPOINT_URL_S3": "http://lakehouse.svc.cluster.local:8333",
+          "AWS_REGION": "us-east-1",
+          "AWS_S3_FORCE_PATH_STYLE": "true"
         },
         "workspace_url": null,
         "existing_cluster_id": null,
@@ -85,14 +109,14 @@
         "inventory_snapshots"
       ],
       "source_format": "csv",
-      "accepted_sink_uri": "s3://openlakeforge-poc-silver-8icgljzi/supply_chain/inventory_reliability/inventory_snapshots",
-      "rejected_sink_uri": "s3://openlakeforge-poc-silver-8icgljzi/floe/rejected/supply_chain/inventory_reliability/inventory_snapshots",
+      "accepted_sink_uri": "s3://lakehouse-silver/supply_chain/inventory_reliability/inventory_snapshots",
+      "rejected_sink_uri": "s3://lakehouse-silver/floe/rejected/supply_chain/inventory_reliability/inventory_snapshots",
       "tags": null,
       "source": {
         "format": "csv",
         "storage": "lakehouse_bronze",
-        "uri": "s3://openlakeforge-poc-bronze-8icgljzi/supply_chain/inventory_reliability/inventory_snapshots",
-        "path": "s3://openlakeforge-poc-bronze-8icgljzi/supply_chain/inventory_reliability/inventory_snapshots",
+        "uri": "s3://lakehouse-bronze/supply_chain/inventory_reliability/inventory_snapshots",
+        "path": "s3://lakehouse-bronze/supply_chain/inventory_reliability/inventory_snapshots",
         "resolved": true,
         "cast_mode": "strict",
         "options": {
@@ -117,8 +141,8 @@
         "accepted": {
           "format": "iceberg",
           "storage": "lakehouse_silver",
-          "uri": "s3://openlakeforge-poc-silver-8icgljzi/supply_chain/inventory_reliability/inventory_snapshots",
-          "path": "s3://openlakeforge-poc-silver-8icgljzi/supply_chain/inventory_reliability/inventory_snapshots",
+          "uri": "s3://lakehouse-silver/supply_chain/inventory_reliability/inventory_snapshots",
+          "path": "s3://lakehouse-silver/supply_chain/inventory_reliability/inventory_snapshots",
           "resolved": true,
           "iceberg": {
             "catalog": "iceberg_catalog",
@@ -130,8 +154,8 @@
         "rejected": {
           "format": "csv",
           "storage": "lakehouse_silver",
-          "uri": "s3://openlakeforge-poc-silver-8icgljzi/floe/rejected/supply_chain/inventory_reliability/inventory_snapshots",
-          "path": "s3://openlakeforge-poc-silver-8icgljzi/floe/rejected/supply_chain/inventory_reliability/inventory_snapshots",
+          "uri": "s3://lakehouse-silver/floe/rejected/supply_chain/inventory_reliability/inventory_snapshots",
+          "path": "s3://lakehouse-silver/floe/rejected/supply_chain/inventory_reliability/inventory_snapshots",
           "resolved": true
         },
         "archive": null
@@ -197,14 +221,14 @@
         "purchase_orders"
       ],
       "source_format": "csv",
-      "accepted_sink_uri": "s3://openlakeforge-poc-silver-8icgljzi/supply_chain/inventory_reliability/purchase_orders",
-      "rejected_sink_uri": "s3://openlakeforge-poc-silver-8icgljzi/floe/rejected/supply_chain/inventory_reliability/purchase_orders",
+      "accepted_sink_uri": "s3://lakehouse-silver/supply_chain/inventory_reliability/purchase_orders",
+      "rejected_sink_uri": "s3://lakehouse-silver/floe/rejected/supply_chain/inventory_reliability/purchase_orders",
       "tags": null,
       "source": {
         "format": "csv",
         "storage": "lakehouse_bronze",
-        "uri": "s3://openlakeforge-poc-bronze-8icgljzi/supply_chain/inventory_reliability/purchase_orders",
-        "path": "s3://openlakeforge-poc-bronze-8icgljzi/supply_chain/inventory_reliability/purchase_orders",
+        "uri": "s3://lakehouse-bronze/supply_chain/inventory_reliability/purchase_orders",
+        "path": "s3://lakehouse-bronze/supply_chain/inventory_reliability/purchase_orders",
         "resolved": true,
         "cast_mode": "strict",
         "options": {
@@ -229,8 +253,8 @@
         "accepted": {
           "format": "iceberg",
           "storage": "lakehouse_silver",
-          "uri": "s3://openlakeforge-poc-silver-8icgljzi/supply_chain/inventory_reliability/purchase_orders",
-          "path": "s3://openlakeforge-poc-silver-8icgljzi/supply_chain/inventory_reliability/purchase_orders",
+          "uri": "s3://lakehouse-silver/supply_chain/inventory_reliability/purchase_orders",
+          "path": "s3://lakehouse-silver/supply_chain/inventory_reliability/purchase_orders",
           "resolved": true,
           "iceberg": {
             "catalog": "iceberg_catalog",
@@ -242,8 +266,8 @@
         "rejected": {
           "format": "csv",
           "storage": "lakehouse_silver",
-          "uri": "s3://openlakeforge-poc-silver-8icgljzi/floe/rejected/supply_chain/inventory_reliability/purchase_orders",
-          "path": "s3://openlakeforge-poc-silver-8icgljzi/floe/rejected/supply_chain/inventory_reliability/purchase_orders",
+          "uri": "s3://lakehouse-silver/floe/rejected/supply_chain/inventory_reliability/purchase_orders",
+          "path": "s3://lakehouse-silver/floe/rejected/supply_chain/inventory_reliability/purchase_orders",
           "resolved": true
         },
         "archive": null
@@ -309,14 +333,14 @@
         "shipments"
       ],
       "source_format": "csv",
-      "accepted_sink_uri": "s3://openlakeforge-poc-silver-8icgljzi/supply_chain/inventory_reliability/shipments",
-      "rejected_sink_uri": "s3://openlakeforge-poc-silver-8icgljzi/floe/rejected/supply_chain/inventory_reliability/shipments",
+      "accepted_sink_uri": "s3://lakehouse-silver/supply_chain/inventory_reliability/shipments",
+      "rejected_sink_uri": "s3://lakehouse-silver/floe/rejected/supply_chain/inventory_reliability/shipments",
       "tags": null,
       "source": {
         "format": "csv",
         "storage": "lakehouse_bronze",
-        "uri": "s3://openlakeforge-poc-bronze-8icgljzi/supply_chain/inventory_reliability/shipments",
-        "path": "s3://openlakeforge-poc-bronze-8icgljzi/supply_chain/inventory_reliability/shipments",
+        "uri": "s3://lakehouse-bronze/supply_chain/inventory_reliability/shipments",
+        "path": "s3://lakehouse-bronze/supply_chain/inventory_reliability/shipments",
         "resolved": true,
         "cast_mode": "strict",
         "options": {
@@ -341,8 +365,8 @@
         "accepted": {
           "format": "iceberg",
           "storage": "lakehouse_silver",
-          "uri": "s3://openlakeforge-poc-silver-8icgljzi/supply_chain/inventory_reliability/shipments",
-          "path": "s3://openlakeforge-poc-silver-8icgljzi/supply_chain/inventory_reliability/shipments",
+          "uri": "s3://lakehouse-silver/supply_chain/inventory_reliability/shipments",
+          "path": "s3://lakehouse-silver/supply_chain/inventory_reliability/shipments",
           "resolved": true,
           "iceberg": {
             "catalog": "iceberg_catalog",
@@ -354,8 +378,8 @@
         "rejected": {
           "format": "csv",
           "storage": "lakehouse_silver",
-          "uri": "s3://openlakeforge-poc-silver-8icgljzi/floe/rejected/supply_chain/inventory_reliability/shipments",
-          "path": "s3://openlakeforge-poc-silver-8icgljzi/floe/rejected/supply_chain/inventory_reliability/shipments",
+          "uri": "s3://lakehouse-silver/floe/rejected/supply_chain/inventory_reliability/shipments",
+          "path": "s3://lakehouse-silver/floe/rejected/supply_chain/inventory_reliability/shipments",
           "resolved": true
         },
         "archive": null
@@ -411,14 +435,14 @@
         "stockout_events"
       ],
       "source_format": "csv",
-      "accepted_sink_uri": "s3://openlakeforge-poc-silver-8icgljzi/supply_chain/inventory_reliability/stockout_events",
-      "rejected_sink_uri": "s3://openlakeforge-poc-silver-8icgljzi/floe/rejected/supply_chain/inventory_reliability/stockout_events",
+      "accepted_sink_uri": "s3://lakehouse-silver/supply_chain/inventory_reliability/stockout_events",
+      "rejected_sink_uri": "s3://lakehouse-silver/floe/rejected/supply_chain/inventory_reliability/stockout_events",
       "tags": null,
       "source": {
         "format": "csv",
         "storage": "lakehouse_bronze",
-        "uri": "s3://openlakeforge-poc-bronze-8icgljzi/supply_chain/inventory_reliability/stockout_events",
-        "path": "s3://openlakeforge-poc-bronze-8icgljzi/supply_chain/inventory_reliability/stockout_events",
+        "uri": "s3://lakehouse-bronze/supply_chain/inventory_reliability/stockout_events",
+        "path": "s3://lakehouse-bronze/supply_chain/inventory_reliability/stockout_events",
         "resolved": true,
         "cast_mode": "strict",
         "options": {
@@ -443,8 +467,8 @@
         "accepted": {
           "format": "iceberg",
           "storage": "lakehouse_silver",
-          "uri": "s3://openlakeforge-poc-silver-8icgljzi/supply_chain/inventory_reliability/stockout_events",
-          "path": "s3://openlakeforge-poc-silver-8icgljzi/supply_chain/inventory_reliability/stockout_events",
+          "uri": "s3://lakehouse-silver/supply_chain/inventory_reliability/stockout_events",
+          "path": "s3://lakehouse-silver/supply_chain/inventory_reliability/stockout_events",
           "resolved": true,
           "iceberg": {
             "catalog": "iceberg_catalog",
@@ -456,8 +480,8 @@
         "rejected": {
           "format": "csv",
           "storage": "lakehouse_silver",
-          "uri": "s3://openlakeforge-poc-silver-8icgljzi/floe/rejected/supply_chain/inventory_reliability/stockout_events",
-          "path": "s3://openlakeforge-poc-silver-8icgljzi/floe/rejected/supply_chain/inventory_reliability/stockout_events",
+          "uri": "s3://lakehouse-silver/floe/rejected/supply_chain/inventory_reliability/stockout_events",
+          "path": "s3://lakehouse-silver/floe/rejected/supply_chain/inventory_reliability/stockout_events",
           "resolved": true
         },
         "archive": null
@@ -518,14 +542,14 @@
         "suppliers"
       ],
       "source_format": "csv",
-      "accepted_sink_uri": "s3://openlakeforge-poc-silver-8icgljzi/supply_chain/inventory_reliability/suppliers",
-      "rejected_sink_uri": "s3://openlakeforge-poc-silver-8icgljzi/floe/rejected/supply_chain/inventory_reliability/suppliers",
+      "accepted_sink_uri": "s3://lakehouse-silver/supply_chain/inventory_reliability/suppliers",
+      "rejected_sink_uri": "s3://lakehouse-silver/floe/rejected/supply_chain/inventory_reliability/suppliers",
       "tags": null,
       "source": {
         "format": "csv",
         "storage": "lakehouse_bronze",
-        "uri": "s3://openlakeforge-poc-bronze-8icgljzi/supply_chain/inventory_reliability/suppliers",
-        "path": "s3://openlakeforge-poc-bronze-8icgljzi/supply_chain/inventory_reliability/suppliers",
+        "uri": "s3://lakehouse-bronze/supply_chain/inventory_reliability/suppliers",
+        "path": "s3://lakehouse-bronze/supply_chain/inventory_reliability/suppliers",
         "resolved": true,
         "cast_mode": "strict",
         "options": {
@@ -550,8 +574,8 @@
         "accepted": {
           "format": "iceberg",
           "storage": "lakehouse_silver",
-          "uri": "s3://openlakeforge-poc-silver-8icgljzi/supply_chain/inventory_reliability/suppliers",
-          "path": "s3://openlakeforge-poc-silver-8icgljzi/supply_chain/inventory_reliability/suppliers",
+          "uri": "s3://lakehouse-silver/supply_chain/inventory_reliability/suppliers",
+          "path": "s3://lakehouse-silver/supply_chain/inventory_reliability/suppliers",
           "resolved": true,
           "iceberg": {
             "catalog": "iceberg_catalog",
@@ -563,8 +587,8 @@
         "rejected": {
           "format": "csv",
           "storage": "lakehouse_silver",
-          "uri": "s3://openlakeforge-poc-silver-8icgljzi/floe/rejected/supply_chain/inventory_reliability/suppliers",
-          "path": "s3://openlakeforge-poc-silver-8icgljzi/floe/rejected/supply_chain/inventory_reliability/suppliers",
+          "uri": "s3://lakehouse-silver/floe/rejected/supply_chain/inventory_reliability/suppliers",
+          "path": "s3://lakehouse-silver/floe/rejected/supply_chain/inventory_reliability/suppliers",
           "resolved": true
         },
         "archive": null
@@ -615,14 +639,14 @@
         "warehouses"
       ],
       "source_format": "csv",
-      "accepted_sink_uri": "s3://openlakeforge-poc-silver-8icgljzi/supply_chain/inventory_reliability/warehouses",
-      "rejected_sink_uri": "s3://openlakeforge-poc-silver-8icgljzi/floe/rejected/supply_chain/inventory_reliability/warehouses",
+      "accepted_sink_uri": "s3://lakehouse-silver/supply_chain/inventory_reliability/warehouses",
+      "rejected_sink_uri": "s3://lakehouse-silver/floe/rejected/supply_chain/inventory_reliability/warehouses",
       "tags": null,
       "source": {
         "format": "csv",
         "storage": "lakehouse_bronze",
-        "uri": "s3://openlakeforge-poc-bronze-8icgljzi/supply_chain/inventory_reliability/warehouses",
-        "path": "s3://openlakeforge-poc-bronze-8icgljzi/supply_chain/inventory_reliability/warehouses",
+        "uri": "s3://lakehouse-bronze/supply_chain/inventory_reliability/warehouses",
+        "path": "s3://lakehouse-bronze/supply_chain/inventory_reliability/warehouses",
         "resolved": true,
         "cast_mode": "strict",
         "options": {
@@ -647,8 +671,8 @@
         "accepted": {
           "format": "iceberg",
           "storage": "lakehouse_silver",
-          "uri": "s3://openlakeforge-poc-silver-8icgljzi/supply_chain/inventory_reliability/warehouses",
-          "path": "s3://openlakeforge-poc-silver-8icgljzi/supply_chain/inventory_reliability/warehouses",
+          "uri": "s3://lakehouse-silver/supply_chain/inventory_reliability/warehouses",
+          "path": "s3://lakehouse-silver/supply_chain/inventory_reliability/warehouses",
           "resolved": true,
           "iceberg": {
             "catalog": "iceberg_catalog",
@@ -660,8 +684,8 @@
         "rejected": {
           "format": "csv",
           "storage": "lakehouse_silver",
-          "uri": "s3://openlakeforge-poc-silver-8icgljzi/floe/rejected/supply_chain/inventory_reliability/warehouses",
-          "path": "s3://openlakeforge-poc-silver-8icgljzi/floe/rejected/supply_chain/inventory_reliability/warehouses",
+          "uri": "s3://lakehouse-silver/floe/rejected/supply_chain/inventory_reliability/warehouses",
+          "path": "s3://lakehouse-silver/floe/rejected/supply_chain/inventory_reliability/warehouses",
           "resolved": true
         },
         "archive": null
@@ -704,17 +728,56 @@
       }
     }
   ],
+  "storages": {
+    "default": "lakehouse_bronze",
+    "definitions": [
+      {
+        "account": null,
+        "bucket": "lakehouse-bronze",
+        "container": null,
+        "endpoint": null,
+        "fs_type": "s3",
+        "name": "lakehouse_bronze",
+        "path_style_access": null,
+        "prefix": null,
+        "region": "us-east-1"
+      },
+      {
+        "account": null,
+        "bucket": "lakehouse-silver",
+        "container": null,
+        "endpoint": null,
+        "fs_type": "s3",
+        "name": "lakehouse_silver",
+        "path_style_access": null,
+        "prefix": null,
+        "region": "us-east-1"
+      },
+      {
+        "account": null,
+        "bucket": "openlakeforge-ops",
+        "container": null,
+        "endpoint": null,
+        "fs_type": "s3",
+        "name": "openlakeforge_ops",
+        "path_style_access": null,
+        "prefix": null,
+        "region": "us-east-1"
+      }
+    ]
+  },
   "catalogs": {
     "default": "iceberg_catalog",
     "definitions": [
       {
         "name": "iceberg_catalog",
         "type_config": {
-          "allow_takeover": false,
-          "create_database_if_missing": false,
-          "database": "lakehouse_dev",
-          "region": "eu-west-1",
-          "type": "glue"
+          "credential": "client_credentials:${OPENLAKEFORGE_CATALOG_FLOE_CLIENT_ID}:${OPENLAKEFORGE_CATALOG_FLOE_CLIENT_SECRET}",
+          "oauth2_server_uri": "http://polaris:8181/api/catalog/v1/oauth/tokens",
+          "scope": "PRINCIPAL_ROLE:ALL",
+          "type": "rest",
+          "uri": "http://polaris:8181/api/catalog",
+          "warehouse": "lakehouse_dev"
         },
         "warehouse_prefix": "warehouse/iceberg",
         "warehouse_storage": "lakehouse_silver"

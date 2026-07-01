@@ -31,6 +31,7 @@ AZURE_IMAGE_PLATFORM="${AZURE_IMAGE_PLATFORM:-linux/amd64}"
 PROJECT_CODE_IMAGE_REPOSITORY="${PROJECT_CODE_IMAGE_REPOSITORY:-${ACR_LOGIN_SERVER}/openlakeforge/project-code}"
 PROJECT_CODE_IMAGE_TAG="${PROJECT_CODE_IMAGE_TAG:-${AZURE_IMAGE_TAG}}"
 PROJECT_CODE_PYTHON_BASE_IMAGE="${PROJECT_CODE_PYTHON_BASE_IMAGE:-python:3.12-slim}"
+PROJECT_CODE_DBT_PROFILE_ENV="${PROJECT_CODE_DBT_PROFILE_ENV:-azure}"
 IMAGE="${PROJECT_CODE_IMAGE_REPOSITORY}:${PROJECT_CODE_IMAGE_TAG}"
 
 echo "==> Logging in to ACR '${ACR_NAME}'..."
@@ -43,6 +44,7 @@ echo "==> Building project-code image ${IMAGE}..."
 docker_build_with_retries \
   --platform "${AZURE_IMAGE_PLATFORM}" \
   --build-arg "PYTHON_BASE_IMAGE=${PROJECT_CODE_PYTHON_BASE_IMAGE}" \
+  --build-arg "DBT_PROFILE_ENV=${PROJECT_CODE_DBT_PROFILE_ENV}" \
   --file "${REPO_ROOT}/images/project-code/Dockerfile" \
   --tag "${IMAGE}" \
   "${REPO_ROOT}"

@@ -14,6 +14,12 @@ def yaml_string(value: str) -> str:
     return json.dumps(str(value))
 
 
+def absolute_s3_prefix(bucket: str, prefix: str) -> str:
+    if "://" in prefix:
+        return prefix
+    return f"s3://{bucket}/{prefix.lstrip('/')}"
+
+
 namespace = env("NAMESPACE", env("OPENLAKEFORGE_KUBE_NAMESPACE", "lakehouse"))
 catalog_name = env("OPENLAKEFORGE_CATALOG_LOGICAL_NAME", "iceberg_catalog")
 storage_bronze_bucket = env("OPENLAKEFORGE_STORAGE_BRONZE_BUCKET", env("OPENLAKEFORGE_STORAGE_BUCKET", "lakehouse-bronze"))
@@ -46,10 +52,10 @@ catalog_token_uri = env(
 )
 catalog_warehouse = env("OPENLAKEFORGE_CATALOG_WAREHOUSE", env("OPENLAKEFORGE_CATALOG_NAME", "lakehouse_dev"))
 catalog_warehouse_prefix = env("OPENLAKEFORGE_CATALOG_WAREHOUSE_PREFIX", "warehouse/iceberg")
-catalog_glue_database = env("OPENLAKEFORGE_CATALOG_GLUE_DATABASE", env("OPENLAKEFORGE_CATALOG_NAME", catalog_warehouse))
+catalog_glue_database = env("OPENLAKEFORGE_CATALOG_GLUE_DATABASE", "")
 catalog_glue_warehouse_prefix = env("OPENLAKEFORGE_CATALOG_GLUE_WAREHOUSE_PREFIX", "warehouse/iceberg")
 catalog_scope = env("OPENLAKEFORGE_CATALOG_OAUTH_SCOPE", "PRINCIPAL_ROLE:ALL")
-floe_image = env("FLOE_IMAGE", "ghcr.io/malon64/floe:0.5.4")
+floe_image = env("FLOE_IMAGE", "ghcr.io/malon64/floe:0.6.3")
 storage_secret = env("OPENLAKEFORGE_STORAGE_CREDENTIALS_SECRET_NAME", "" if is_aws_s3 else "seaweedfs-s3-creds")
 storage_access_key = env("OPENLAKEFORGE_STORAGE_ACCESS_KEY_ID_KEY", "AWS_ACCESS_KEY_ID")
 storage_secret_key = env("OPENLAKEFORGE_STORAGE_SECRET_ACCESS_KEY_KEY", "AWS_SECRET_ACCESS_KEY")
@@ -57,13 +63,20 @@ catalog_secret = env("OPENLAKEFORGE_CATALOG_FLOE_CREDENTIALS_SECRET_NAME", "pola
 catalog_client_id_key = env("OPENLAKEFORGE_CATALOG_FLOE_CLIENT_ID_KEY", "POLARIS_FLOE_CLIENT_ID")
 catalog_client_secret_key = env("OPENLAKEFORGE_CATALOG_FLOE_CLIENT_SECRET_KEY", "POLARIS_FLOE_CLIENT_SECRET")
 
+if is_aws_s3:
+    catalog_warehouse_prefix = absolute_s3_prefix(storage_silver_bucket, catalog_warehouse_prefix)
+    catalog_glue_warehouse_prefix = absolute_s3_prefix(storage_silver_bucket, catalog_glue_warehouse_prefix)
+
 runner_env = {
     "AWS_REGION": storage_region,
     "AWS_DEFAULT_REGION": storage_region,
-    "AWS_S3_FORCE_PATH_STYLE": env("OPENLAKEFORGE_STORAGE_PATH_STYLE_ACCESS", "true"),
+    "AWS_S3_FORCE_PATH_STYLE": env(
+        "OPENLAKEFORGE_STORAGE_PATH_STYLE_ACCESS",
+        "false" if is_aws_s3 else "true",
+    ),
     "AWS_EC2_METADATA_DISABLED": "false" if is_aws_s3 else "true",
 }
-if env("OPENLAKEFORGE_STORAGE_SSL_MODE", "disabled") == "disabled":
+if env("OPENLAKEFORGE_STORAGE_SSL_MODE", "required" if is_aws_s3 else "disabled") == "disabled":
     runner_env["AWS_ALLOW_HTTP"] = "true"
 if storage_endpoint:
     runner_env["AWS_ENDPOINT_URL"] = storage_endpoint
@@ -123,6 +136,10 @@ if catalog_type == "rest":
       warehouse_prefix: "{catalog_warehouse_prefix}"
 """
 elif catalog_type == "glue" and catalog_provider == "aws-glue":
+    if not catalog_glue_database:
+        raise SystemExit(
+            "ERROR: OPENLAKEFORGE_CATALOG_GLUE_DATABASE must be set to the target product-layer Glue database."
+        )
     catalog_definition = f"""    - name: "{catalog_name}"
       type: "glue"
       region: "{catalog_glue_region}"

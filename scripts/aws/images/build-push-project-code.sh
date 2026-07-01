@@ -29,6 +29,7 @@ AWS_IMAGE_TAG="${AWS_IMAGE_TAG:-aws-$(git_or_time_tag)}"
 AWS_IMAGE_PLATFORM="${AWS_IMAGE_PLATFORM:-linux/amd64}"
 PROJECT_CODE_IMAGE_TAG="${PROJECT_CODE_IMAGE_TAG:-${AWS_IMAGE_TAG}}"
 PROJECT_CODE_PYTHON_BASE_IMAGE="${PROJECT_CODE_PYTHON_BASE_IMAGE:-public.ecr.aws/docker/library/python:3.12-slim}"
+PROJECT_CODE_DBT_PROFILE_ENV="${PROJECT_CODE_DBT_PROFILE_ENV:-aws}"
 IMAGE="${PROJECT_CODE_IMAGE_REPOSITORY}:${PROJECT_CODE_IMAGE_TAG}"
 registry="${PROJECT_CODE_IMAGE_REPOSITORY%%/*}"
 
@@ -43,6 +44,7 @@ echo "==> Building project-code image ${IMAGE}..."
 docker_build_with_retries \
   --platform "${AWS_IMAGE_PLATFORM}" \
   --build-arg "PYTHON_BASE_IMAGE=${PROJECT_CODE_PYTHON_BASE_IMAGE}" \
+  --build-arg "DBT_PROFILE_ENV=${PROJECT_CODE_DBT_PROFILE_ENV}" \
   --file "${REPO_ROOT}/images/project-code/Dockerfile" \
   --tag "${IMAGE}" \
   "${REPO_ROOT}"

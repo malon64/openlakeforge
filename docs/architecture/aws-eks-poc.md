@@ -36,7 +36,9 @@ model from always-on compute to pay-per-data-scanned queries.
 `infra/terraform/environments/aws-poc` consumes the foundation state and creates:
 
 - S3 medallion and ops buckets.
-- Glue product-layer databases for every Silver and Gold namespace.
+- Product-layer Glue databases for every Silver and Gold layer. The AWS Glue
+  catalog is the AWS account/catalog ID; `lakehouse_dev` remains the SQL catalog
+  alias used by engines, not a Glue database.
 - RDS PostgreSQL plus Kubernetes Secrets for application database users.
 - A Pod Identity role/policy and per-service-account associations for S3 and Glue access.
 - Trino, Dagster, Superset, and OpenMetadata through the shared Helm modules.
@@ -60,8 +62,9 @@ The Glue catalog contract uses `catalog_type = "glue"` and
 - Trino uses its Glue catalog configuration.
 - Dagster passes AWS/Glue runtime environment to runs and code locations.
 - Floe keeps medallion S3 storage aliases in the Floe configs, then renders a
-  schema-valid native Glue profile (`type: "glue"`) with a Glue database and a
-  warehouse prefix under the Silver storage alias.
+  schema-valid native Glue profile (`type: "glue"`) per product. The profile
+  uses the product Silver layer as the Glue database, so writes resolve as
+  `lakehouse_dev.<product_layer_database>.<table>` in SQL engines.
 - dbt-duckdb uses an `aws_runtime` target with credential-chain S3 access and a
   Glue/SigV4 Iceberg attach.
 - OpenMetadata registers a Glue-backed Iceberg service instead of Polaris OAuth.

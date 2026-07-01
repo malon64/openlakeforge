@@ -9,6 +9,7 @@ output "contract" {
     default_warehouse_location    = "s3://${local.silver_bucket_name}"
     catalog_namespaces            = local.catalog_namespaces
     catalog_namespace_names       = [for namespace in local.catalog_namespaces : namespace.name]
+    catalog_schema_names          = [for namespace in local.catalog_namespaces : namespace.name]
     rest_uri                      = local.rest_uri
     token_uri                     = local.token_uri
     warehouse                     = var.catalog_name

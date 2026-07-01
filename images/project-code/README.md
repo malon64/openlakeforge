@@ -24,6 +24,10 @@ not install the Floe CLI.
 The base image is configurable with `PROJECT_CODE_PYTHON_BASE_IMAGE`; AWS
 builds default this to `public.ecr.aws/docker/library/python:3.12-slim` to avoid
 Docker Hub during `make aws-artifacts-deploy`.
+The dbt profile rendered into the image is selected with
+`PROJECT_CODE_DBT_PROFILE_ENV` (`local`, `azure`, or `aws`). The Docker build
+renders `libs/dbt/profiles/<env>.yml` into each product project before baking
+dbt manifests.
 `make floe-manifest` generates the product manifests locally, bakes them into
 this image for Dagster asset loading, and publishes the same files to SeaweedFS
 outside Terraform for separate runner pods.
@@ -31,7 +35,7 @@ outside Terraform for separate runner pods.
 Dagster uses `dagster-floe` in remote manifest mode for Kubernetes:
 `OPENLAKEFORGE_FLOE_MANIFEST_ACCESS_MODE=remote`. The Dagster code server reads
 the local manifest from this image to build deterministic asset definitions,
-while the manifest-declared `ghcr.io/malon64/floe:0.5.4` runner image receives
+while the manifest-declared `ghcr.io/malon64/floe:0.6.3` runner image receives
 the corresponding `s3://openlakeforge-ops/floe/manifests/...` manifest URI at runtime.
 `local` manifest mode is only valid when Floe runs in the same container as
 Dagster.

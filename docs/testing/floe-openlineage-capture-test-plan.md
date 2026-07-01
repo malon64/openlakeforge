@@ -1,6 +1,6 @@
 # Floe OpenLineage Capture Test Plan
 
-This test plan verifies whether the Floe v0.5.4 OpenLineage fixes work inside
+This test plan verifies whether the Floe v0.6.3 OpenLineage fixes work inside
 OpenLakeForge before lineage is re-enabled in OpenMetadata.
 
 The test deliberately captures Floe events first, instead of sending them
@@ -27,7 +27,7 @@ the `dbt-duckdb`/`openlineage-dbt` dataset namespace issue.
 | Requirement | Expected State |
 | --- | --- |
 | Local stack | `make local-foundation-up` and `make local-up` have completed. |
-| Floe runner image | Rendered profile and generated manifests use `ghcr.io/malon64/floe:0.5.4`. |
+| Floe runner image | Rendered profile and generated manifests use `ghcr.io/malon64/floe:0.6.3`. |
 | OpenLineage proxy | Not deployed. The test uses a temporary capture endpoint. |
 | dbt OpenLineage | Disabled. The test isolates Floe events only. |
 | Target product | Start with one small path, preferably `sales_order_revenue_pipeline`. |
@@ -52,7 +52,7 @@ container is enough. It does not need authentication for the first capture pass.
 | --- | --- | --- |
 | 1 | Deploy the capture service in the `lakehouse` namespace. | `openlineage-capture` is reachable from Floe runner pods. |
 | 2 | Render a temporary Floe profile with a `lineage` block pointing at `http://openlineage-capture:5000/api/v1/lineage`. | The generated profile differs only by lineage settings. |
-| 3 | Regenerate one product manifest with the temporary lineage-enabled profile. | The manifest still uses `ghcr.io/malon64/floe:0.5.4` and the normal OpenLakeForge storage/catalog contracts. |
+| 3 | Regenerate one product manifest with the temporary lineage-enabled profile. | The manifest still uses `ghcr.io/malon64/floe:0.6.3` and the normal OpenLakeForge storage/catalog contracts. |
 | 4 | Upload the temporary manifest to the ops bucket path that Dagster passes to the Floe runner. | The runner can read the same manifest URI Dagster launches. |
 | 5 | Launch a narrow Dagster run, preferably `sales_order_revenue_pipeline`. | Bronze and Silver assets succeed, and the capture endpoint receives OpenLineage events. |
 | 6 | Copy captured event JSON from the capture pod. | The event payloads are available locally for validation. |
@@ -79,7 +79,7 @@ Only run this after the capture pass succeeds.
 The Floe debt can move from `Resolved Upstream, Pending Verification` to
 resolved only when all of these are true:
 
-- Floe v0.5.4 is the runtime image used by the launched runner pod.
+- Floe v0.6.3 is the runtime image used by the launched runner pod.
 - Captured events satisfy the event-shape checks above.
 - OpenMetadata can accept the Floe events directly.
 - OpenMetadata resolves at least one Bronze-to-Silver lineage edge without a
@@ -90,7 +90,7 @@ resolved only when all of these are true:
 | Failure | Likely Cause | Next Step |
 | --- | --- | --- |
 | No events captured | Lineage block not rendered into the profile or manifest; runner pod cannot reach capture service. | Inspect generated manifest, runner pod env, and capture service DNS. |
-| Non-UUID run IDs | Floe runtime is not actually v0.5.4 or regression in Floe. | Check runner image in pod spec and captured event payload. |
+| Non-UUID run IDs | Floe runtime is not actually v0.6.3 or regression in Floe. | Check runner image in pod spec and captured event payload. |
 | Empty inputs/outputs | Floe emission regression or unsupported entity path. | Reproduce with one CSV-to-Iceberg entity and compare with Floe issue #382 expectations. |
 | S3 names start with `/` | Floe S3 dataset-name fix is not active. | Confirm runtime image and file upstream regression if needed. |
 | OM accepts events but shows no edge | Dataset namespace/name no longer matches OM storage or Polaris entities. | Compare captured dataset names with OM container/table FQNs. |
@@ -100,4 +100,4 @@ resolved only when all of these are true:
 - [ADR 0009: OpenMetadata Lineage Integration Deferred](../adr/0009-openmetadata-lineage-direct-rest-push.md)
 - [Technical Debt: Resolved Upstream, Pending Verification](../technical-debt.md#resolved-upstream-pending-verification)
 - [Floe issue #382](https://github.com/malon64/floe/issues/382)
-- [Floe v0.5.4 release](https://github.com/malon64/floe/releases/tag/v0.5.4)
+- [Floe v0.6.3 release](https://github.com/malon64/floe/releases/tag/v0.6.3)

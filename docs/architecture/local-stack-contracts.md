@@ -173,7 +173,7 @@ Dagster loads the Floe asset graphs from manifests baked into the project-code
 image. Terraform provisions the ops bucket and passes remote artifact base URIs
 to Dagster; the artifact deploy phase publishes generated product Floe
 manifests under `floe/manifests/` so the separate Floe runner pod can read them.
-Dagster launches Floe Kubernetes jobs from `ghcr.io/malon64/floe:0.5.4`.
+Dagster launches Floe Kubernetes jobs from `ghcr.io/malon64/floe:0.6.3`.
 dbt-duckdb runs inside Dagster Kubernetes run pods from the project-code image
 and writes Gold Iceberg marts to each product's Gold namespace in the
 `lakehouse_dev` Polaris warehouse.

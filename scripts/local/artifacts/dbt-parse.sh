@@ -13,6 +13,7 @@ require_cmd() {
 }
 
 require_cmd dbt
+require_cmd python3
 
 # shellcheck source=/dev/null
 source "${REPO_ROOT}/scripts/local/contracts/load-runtime-env.sh"
@@ -46,6 +47,9 @@ if [[ "${#projects[@]}" -eq 0 ]]; then
 fi
 
 for project_dir in "${projects[@]}"; do
+  echo "==> Rendering dbt profile: ${project_dir}"
+  python3 -m libs.dbt.render_profiles --project-dir "${project_dir}" --write
+
   echo "==> dbt deps: ${project_dir}"
   dbt deps --project-dir "${project_dir}"
 

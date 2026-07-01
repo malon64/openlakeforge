@@ -10,6 +10,7 @@ IMAGE_REPOSITORY="${PROJECT_CODE_IMAGE_REPOSITORY:-ghcr.io/openlakeforge/project
 IMAGE_TAG="${PROJECT_CODE_IMAGE_TAG:-local}"
 IMAGE="${PROJECT_CODE_IMAGE:-${IMAGE_REPOSITORY}:${IMAGE_TAG}}"
 PROJECT_CODE_PYTHON_BASE_IMAGE="${PROJECT_CODE_PYTHON_BASE_IMAGE:-python:3.12-slim}"
+PROJECT_CODE_DBT_PROFILE_ENV="${PROJECT_CODE_DBT_PROFILE_ENV:-local}"
 
 if ! command -v docker &>/dev/null; then
   echo "ERROR: 'docker' not found on PATH" >&2
@@ -22,6 +23,7 @@ docker_pull_with_retries "${PROJECT_CODE_PYTHON_BASE_IMAGE}"
 echo "==> Building project-code image: ${IMAGE}"
 docker_build_with_retries \
   --build-arg "PYTHON_BASE_IMAGE=${PROJECT_CODE_PYTHON_BASE_IMAGE}" \
+  --build-arg "DBT_PROFILE_ENV=${PROJECT_CODE_DBT_PROFILE_ENV}" \
   --file images/project-code/Dockerfile \
   --tag "${IMAGE}" \
   .

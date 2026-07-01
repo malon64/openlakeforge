@@ -11,16 +11,16 @@ storages:
   definitions:
     - name: "lakehouse_bronze"
       type: "s3"
-      bucket: "lakehouse-bronze"
-      region: "us-east-1"
+      bucket: "{{OPENLAKEFORGE_STORAGE_BRONZE_BUCKET}}"
+      region: "{{OPENLAKEFORGE_STORAGE_REGION}}"
     - name: "lakehouse_silver"
       type: "s3"
-      bucket: "lakehouse-silver"
-      region: "us-east-1"
+      bucket: "{{OPENLAKEFORGE_STORAGE_SILVER_BUCKET}}"
+      region: "{{OPENLAKEFORGE_STORAGE_REGION}}"
     - name: "openlakeforge_ops"
       type: "s3"
-      bucket: "openlakeforge-ops"
-      region: "us-east-1"
+      bucket: "{{OPENLAKEFORGE_OPS_BUCKET_NAME}}"
+      region: "{{OPENLAKEFORGE_STORAGE_REGION}}"
 
 report:
   path: "floe/reports/supply_chain/inventory_reliability"

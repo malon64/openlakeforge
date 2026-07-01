@@ -76,12 +76,13 @@ locals {
     default_warehouse_location = "s3://${local.storage_contract.silver_bucket_name}"
     catalog_namespace_model    = local.catalog_namespace_model
     catalog_namespaces         = local.catalog_namespaces
+    catalog_schema_names       = [for namespace in local.catalog_namespaces : namespace.name]
     silver_namespaces          = local.catalog_silver_namespaces
     gold_namespaces            = local.catalog_gold_namespaces
     auth_mode                  = "aws-sigv4-pod-identity"
     secret_delivery_mode       = "none"
     ssl_mode                   = "required"
-    glue_database              = var.catalog_name
+    glue_database              = null
     glue_warehouse_prefix      = "warehouse/iceberg"
     endpoint                   = module.glue.contract.rest_uri
     ingress_mode               = "aws-service-endpoint"

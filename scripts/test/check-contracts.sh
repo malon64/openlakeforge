@@ -175,6 +175,7 @@ for contracts_path, contracts_body in [(contracts_tf, text), (azure_contracts_tf
     for required in [
         "catalog_namespace_model",
         "catalog_namespaces",
+        "catalog_schema_names",
         "silver_namespaces",
         "gold_namespaces",
         "silver_schema_fqns",
@@ -203,9 +204,9 @@ for main_path, main_body in [(local_main_tf, local_main_text), (azure_main_tf, a
     if 'catalog_namespace_model = "product-layer"' not in main_body:
         errors.append(f"{main_path}: catalog namespace model must be product-layer")
     if main_path == aws_main_tf:
-        if "catalog_namespaces = local.catalog_namespaces" not in main_body:
+        if not re.search(r'\bcatalog_namespaces\s*=\s*local\.catalog_namespaces\b', main_body):
             errors.append(f"{main_path}: Glue module must receive product catalog namespaces")
-    elif "catalog_namespaces   = local.catalog_namespaces" not in main_body:
+    elif not re.search(r'\bcatalog_namespaces\s*=\s*local\.catalog_namespaces\b', main_body):
         errors.append(f"{main_path}: Polaris module must receive product catalog namespaces")
     if "catalog_schema_names" not in main_body or "[for namespace in local.catalog_namespaces : namespace.name]" not in main_body:
         errors.append(f"{main_path}: OpenMetadata module must seed all product catalog namespaces")
@@ -217,6 +218,35 @@ for main_path, main_body in [(local_main_tf, local_main_text), (azure_main_tf, a
         errors.append(f"{main_path}: must use the ops artifact bucket and floe/manifests prefix")
     if "var.code_bucket_name" in main_body:
         errors.append(f"{main_path}: must not use legacy code_bucket_name")
+
+aws_glue_main_tf = Path("infra/terraform/modules/catalog/aws-glue/main.tf")
+aws_glue_outputs_tf = Path("infra/terraform/modules/catalog/aws-glue/outputs.tf")
+aws_glue_main_text = aws_glue_main_tf.read_text()
+aws_glue_outputs_text = aws_glue_outputs_tf.read_text()
+if 'resource "aws_glue_catalog_database" "namespace"' not in aws_glue_main_text:
+    errors.append(f"{aws_glue_main_tf}: must create product-layer Glue databases")
+if 'resource "aws_glue_catalog_database" "catalog"' in aws_glue_main_text:
+    errors.append(f"{aws_glue_main_tf}: must not create the logical catalog alias as a Glue database")
+if not re.search(r'resource\s+"aws_glue_catalog_database"\s+"namespace"[^{]*\{[^}]*for_each\s*=', aws_glue_main_text, re.DOTALL):
+    errors.append(f"{aws_glue_main_tf}: product-layer Glue databases must use for_each over catalog namespaces")
+for required in [
+    "name         = each.value.name",
+    "location_uri = each.value.location",
+    "catalog_namespace_map = { for namespace in var.catalog_namespaces : namespace.name => namespace }",
+    "catalog_schema_names  = keys(local.catalog_namespace_map)",
+]:
+    if required not in aws_glue_main_text:
+        errors.append(f"{aws_glue_main_tf}: missing shared catalog/schema field {required}")
+for required in [
+    "glue_database                = null",
+    "glue_database_location       = null",
+    "glue_database_names          = local.catalog_schema_names",
+    "glue_schema_names            = local.catalog_schema_names",
+    "catalog_schema_names         = local.catalog_schema_names",
+    "catalog_namespaces           = var.catalog_namespaces",
+]:
+    if required not in aws_glue_outputs_text:
+        errors.append(f"{aws_glue_outputs_tf}: missing shared catalog/schema output {required}")
 
 local_variables_tf = Path("infra/terraform/environments/local/variables.tf").read_text()
 local_outputs_tf = Path("infra/terraform/environments/local/outputs.tf").read_text()
@@ -316,10 +346,10 @@ for path in sorted(Path("domains").glob("*/contracts/floe/*.yml")):
         'name: "lakehouse_bronze"',
         'name: "lakehouse_silver"',
         'name: "openlakeforge_ops"',
-        'bucket: "lakehouse-bronze"',
-        'bucket: "lakehouse-silver"',
-        'bucket: "openlakeforge-ops"',
-        'region: "us-east-1"',
+        'bucket: "{{OPENLAKEFORGE_STORAGE_BRONZE_BUCKET}}"',
+        'bucket: "{{OPENLAKEFORGE_STORAGE_SILVER_BUCKET}}"',
+        'bucket: "{{OPENLAKEFORGE_OPS_BUCKET_NAME}}"',
+        'region: "{{OPENLAKEFORGE_STORAGE_REGION}}"',
     ]:
         if required not in body:
             errors.append(f"{path}: Floe config must define schema-level medallion storage setting {required}")
@@ -335,6 +365,8 @@ for path in sorted(Path("domains").glob("*/transformations/dbt/*/profiles.yml"))
     domain = parts[1]
     product = parts[4]
     expected_schema = f"{domain}_{product}_gold"
+    if "{{PROFILE_NAME}}" in body or "{{GOLD_SCHEMA}}" in body:
+        errors.append(f"{path}: product dbt profile must be rendered from libs/dbt/profiles, not left as a template")
     if "POLARIS_" in body:
         errors.append(f"{path}: product dbt profiles must use OPENLAKEFORGE_CATALOG_* env vars, not POLARIS_*")
     if "seaweedfs-s3" in body:
@@ -343,6 +375,10 @@ for path in sorted(Path("domains").glob("*/transformations/dbt/*/profiles.yml"))
         errors.append(f"{path}: dbt profile must default to product Gold namespace {expected_schema}")
     if "OPENLAKEFORGE_DBT_SCHEMA" in body:
         errors.append(f"{path}: dbt profile must not use a global schema override")
+    if "aws_runtime:" in body:
+        errors.append(f"{path}: product dbt profiles must not inline AWS runtime settings; render them from libs/dbt/profiles/aws.yml")
+    if "local_runtime:" not in body:
+        errors.append(f"{path}: checked-in product dbt profiles must keep the local runtime target")
     for required in [
         "OPENLAKEFORGE_CATALOG_DBT_CLIENT_ID",
         "OPENLAKEFORGE_CATALOG_DBT_CLIENT_SECRET",
@@ -352,16 +388,49 @@ for path in sorted(Path("domains").glob("*/transformations/dbt/*/profiles.yml"))
     ]:
         if required not in body:
             errors.append(f"{path}: missing runtime contract env var {required}")
+
+dbt_profile_templates = {
+    "local": Path("libs/dbt/profiles/local.yml"),
+    "azure": Path("libs/dbt/profiles/azure.yml"),
+    "aws": Path("libs/dbt/profiles/aws.yml"),
+}
+for name, path in dbt_profile_templates.items():
+    body = path.read_text()
     for required in [
-        "aws_runtime:",
-        "provider: credential_chain",
-        "OPENLAKEFORGE_CATALOG_GLUE_REST_URI",
-        "endpoint_type: glue",
-        "authorization_type: sigv4",
-        "OPENLAKEFORGE_CATALOG_GLUE_REGION",
+        "{{PROFILE_NAME}}",
+        "{{DEFAULT_DUCKDB_PATH}}",
+        "{{GOLD_SCHEMA}}",
+        "OPENLAKEFORGE_CATALOG_WAREHOUSE",
     ]:
         if required not in body:
-            errors.append(f"{path}: missing AWS Glue/SigV4 dbt runtime setting {required}")
+            errors.append(f"{path}: missing shared dbt profile template field {required}")
+    if name == "aws":
+        for required in [
+            "aws_runtime:",
+            "provider: credential_chain",
+            "OPENLAKEFORGE_CATALOG_GLUE_CATALOG_ID",
+            "OPENLAKEFORGE_CATALOG_GLUE_REST_URI",
+            "endpoint_type: glue",
+            "alias: \"{{ env_var('OPENLAKEFORGE_CATALOG_WAREHOUSE', env_var('OPENLAKEFORGE_CATALOG_GLUE_DATABASE', 'lakehouse_dev')) }}\"",
+        ]:
+            if required not in body:
+                errors.append(f"{path}: missing AWS Glue/SigV4 dbt runtime setting {required}")
+        for forbidden in ["authorization_type", "signing_region", "signing_name"]:
+            if forbidden in body:
+                errors.append(f"{path}: endpoint_type glue must not be combined with {forbidden}")
+    elif "aws_runtime:" in body:
+        errors.append(f"{path}: non-AWS dbt profile templates must not define aws_runtime")
+
+dbt_profile_renderer = Path("libs/dbt/render_profiles.py").read_text()
+for required in [
+    "infer_environment",
+    "ensure_runtime_profile_dir",
+    "OPENLAKEFORGE_DBT_PROFILE_ENV",
+    "OPENLAKEFORGE_CATALOG_TYPE",
+    "OPENLAKEFORGE_STORAGE_PROVIDER",
+]:
+    if required not in dbt_profile_renderer:
+        errors.append(f"libs/dbt/render_profiles.py: missing renderer feature {required}")
 
 for path in sorted(Path("domains").glob("*/transformations/dbt/*/dbt_project.yml")):
     body = path.read_text()
@@ -394,6 +463,10 @@ for path in [
     body = path.read_text()
     if "scripts/local/contracts/load-runtime-env.sh" not in body:
         errors.append(f"{path}: must source the runtime contract environment")
+for path in [Path("scripts/local/artifacts/dbt-parse.sh"), Path("scripts/test/check-dbt.sh")]:
+    body = path.read_text()
+    if "libs.dbt.render_profiles" not in body:
+        errors.append(f"{path}: must render dbt profiles from libs/dbt/profiles before invoking dbt")
 
 floe_manifest_script = Path("scripts/local/artifacts/floe-manifest.sh")
 floe_manifest_body = floe_manifest_script.read_text()
@@ -403,12 +476,31 @@ for required in [
     "OPENLAKEFORGE_STORAGE_IMPLEMENTATION",
     "OPENLAKEFORGE_CATALOG_TYPE",
     "OPENLAKEFORGE_CATALOG_PROVIDER",
-    "https://github.com/malon64/floe/issues/424",
+    "FLOE_PERSIST_RUNTIME_ARTIFACTS",
+    "floe_path",
+    "silver_namespace_for_product",
+    "OPENLAKEFORGE_CATALOG_SILVER_NAMESPACES_JSON",
+    "OPENLAKEFORGE_CATALOG_GLUE_DATABASE",
+    'profiles/${domain}/${product}',
+    '-v "${REPO_ROOT}:/work"',
+    '"${FLOE_RUNTIME_ARTIFACT_DIR}/manifests"',
+    "--manifest-path-mode resolved-uri",
 ]:
     if required not in floe_manifest_body:
         errors.append(f"{floe_manifest_script}: missing provider-aware Floe runtime profile handling {required}")
-if "payload[\"profile_uri\"]" in floe_manifest_body or "manifest_revision" in floe_manifest_body:
-    errors.append(f"{floe_manifest_script}: must not patch generated Floe manifests after generation")
+for forbidden in [
+    "adapt_manifest_runtime_args",
+    "render-floe-config.py",
+    "FLOE_REMOTE_CONFIG_BASE_URI",
+    "FLOE_REMOTE_PROFILE_URI",
+    "payload[\"execution\"]",
+    "payload[\"config_uri\"]",
+    "payload[\"profile_uri\"]",
+    "https://github.com/malon64/floe/issues/424",
+    "https://github.com/malon64/floe/issues/425",
+]:
+    if forbidden in floe_manifest_body:
+        errors.append(f"{floe_manifest_script}: must not patch Floe-generated manifests with {forbidden}")
 
 dagster_values = Path("infra/helm/values/local/dagster.yaml").read_text()
 for required in [
@@ -430,11 +522,34 @@ for required in [
     "OPENLAKEFORGE_STORAGE_BRONZE_BUCKET",
     "OPENLAKEFORGE_STORAGE_SILVER_BUCKET",
     "OPENLAKEFORGE_STORAGE_GOLD_BUCKET",
+    "OPENLAKEFORGE_CATALOG_GLUE_CATALOG_ID",
+    "OPENLAKEFORGE_CATALOG_GLUE_REST_WAREHOUSE",
     "OPENLAKEFORGE_CATALOG_GLUE_DATABASE",
     "OPENLAKEFORGE_CATALOG_GLUE_WAREHOUSE_PREFIX",
+    "OPENLAKEFORGE_DBT_PROFILE_ENV",
+    "local.dbt_profile_env",
+    "/tmp/openlakeforge-dbt-profiles",
 ]:
     if required not in dagster_module:
         errors.append(f"infra/terraform/modules/orchestration/dagster/main.tf: missing {required}")
+
+product_dagster_body = Path("libs/product_dagster.py").read_text()
+for required in [
+    "ensure_runtime_profile_dir",
+    "_ensure_dbt_profiles_dir",
+    "profiles_dir=str(dbt_profiles_dir)",
+]:
+    if required not in product_dagster_body:
+        errors.append(f"libs/product_dagster.py: must render environment-specific dbt profiles at runtime using {required}")
+
+project_code_dockerfile = Path("images/project-code/Dockerfile").read_text()
+for required in [
+    "ARG DBT_PROFILE_ENV=local",
+    "python -m libs.dbt.render_profiles --environment",
+    "--profiles-dir \"${project_dir}\" --target local",
+]:
+    if required not in project_code_dockerfile:
+        errors.append(f"images/project-code/Dockerfile: must render selected dbt profile before dbt manifest parse using {required}")
 
 aws_floe_profile = Path("libs/floe/profiles/aws-eks.yml")
 aws_floe_profile_body = aws_floe_profile.read_text()
@@ -447,7 +562,7 @@ for required in [
     'OPENLAKEFORGE_STORAGE_REGION: "eu-west-1"',
     'type: "glue"',
     'region: "eu-west-1"',
-    'database: "lakehouse_dev"',
+    'database: "sales_customer_health_silver"',
     'warehouse_storage: "lakehouse_silver"',
     'warehouse_prefix: "warehouse/iceberg"',
     'create_database_if_missing: false',
@@ -486,6 +601,12 @@ for required in [
     "OPENLAKEFORGE_STORAGE_BRONZE_BUCKET",
     "OPENLAKEFORGE_STORAGE_SILVER_BUCKET",
     "OPENLAKEFORGE_STORAGE_GOLD_BUCKET",
+    "OPENLAKEFORGE_CATALOG_DATABASE_FQN",
+    "OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON",
+    "OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON",
+    "CATALOG_SILVER_SCHEMA_FQNS",
+    "CATALOG_GOLD_SCHEMA_FQNS",
+    "provider_asset_fqn",
     "storage_bucket_specs",
 ]:
     if required not in openmetadata_metadata_body:
@@ -494,6 +615,37 @@ if "product_bronze_containers" in openmetadata_metadata_body:
     errors.append(f"{openmetadata_metadata_script}: must not seed path-level product Bronze containers")
 if "f\"{STORAGE_SERVICE}.{STORAGE_BUCKET}\"" in openmetadata_metadata_body:
     errors.append(f"{openmetadata_metadata_script}: must not parent product containers under a single storage bucket")
+
+load_runtime_env_script = Path("scripts/local/contracts/load-runtime-env.sh")
+load_runtime_env_body = load_runtime_env_script.read_text()
+for required in [
+    "OPENLAKEFORGE_CATALOG_DATABASE_FQN",
+    "OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON",
+    "OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON",
+    "OPENMETADATA_CATALOG_SERVICE",
+    "aws_glue",
+    "OPENLAKEFORGE_CATALOG_GLUE_REST_WAREHOUSE",
+    "OPENLAKEFORGE_STORAGE_OM_SERVICE",
+    "OPENLAKEFORGE_STORAGE_DISPLAY_NAME",
+]:
+    if required not in load_runtime_env_body:
+        errors.append(f"{load_runtime_env_script}: must emit OpenMetadata provider runtime setting {required}")
+
+emit_contract_env_script = Path("scripts/local/contracts/emit-contract-env.py")
+emit_contract_env_body = emit_contract_env_script.read_text()
+for required in [
+    "OPENLAKEFORGE_CATALOG_DATABASE_FQN",
+    "OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON",
+    "OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON",
+    "OPENLAKEFORGE_CATALOG_GLUE_REST_WAREHOUSE",
+    "is_glue_catalog",
+    "catalog_warehouse",
+    "catalog_database_fqn",
+    "silver_schema_fqns",
+    "gold_schema_fqns",
+]:
+    if required not in emit_contract_env_body:
+        errors.append(f"{emit_contract_env_script}: must export OpenMetadata catalog FQN contract field {required}")
 
 azure_artifact_script = Path("scripts/azure/stack/deploy-artifacts.sh")
 azure_artifact_body = azure_artifact_script.read_text()
@@ -516,8 +668,18 @@ if "update_dagster_project_code_image" not in azure_artifact_body:
     errors.append(f"{azure_artifact_script}: must update Dagster deployments to the project-code image pushed by azure-artifacts-deploy")
 if "PROJECT_CODE_IMAGE=\"${PROJECT_CODE_IMAGE_REPOSITORY}:${PROJECT_CODE_IMAGE_TAG}\"" not in azure_artifact_body:
     errors.append(f"{azure_artifact_script}: must derive the exact pushed project-code image")
-if "kubectl set image" not in azure_artifact_body or "*=${PROJECT_CODE_IMAGE}" not in azure_artifact_body:
-    errors.append(f"{azure_artifact_script}: must patch Dagster deployment images before rollout restart")
+for path, expected_env in [
+    (Path("scripts/local/images/build-project-code.sh"), "local"),
+    (Path("scripts/azure/images/build-push-project-code.sh"), "azure"),
+    (Path("scripts/aws/images/build-push-project-code.sh"), "aws"),
+]:
+    body = path.read_text()
+    if f'PROJECT_CODE_DBT_PROFILE_ENV="${{PROJECT_CODE_DBT_PROFILE_ENV:-{expected_env}}}"' not in body:
+        errors.append(f"{path}: must default project-code dbt profile rendering to {expected_env}")
+    if '--build-arg "DBT_PROFILE_ENV=${PROJECT_CODE_DBT_PROFILE_ENV}"' not in body:
+        errors.append(f"{path}: must pass DBT_PROFILE_ENV into the project-code Docker build")
+if "regular containers to patch" not in azure_artifact_body or '"containers": [' not in azure_artifact_body:
+    errors.append(f"{azure_artifact_script}: must patch only regular container images before rollout restart")
 if "dagster-instance" not in azure_artifact_body or "job_image:" not in azure_artifact_body:
     errors.append(f"{azure_artifact_script}: must patch Dagster run launcher job_image before rollout restart")
 if "patch_cronjob_image_if_exists" not in azure_artifact_body or "openlakeforge-k8s-log-archive" not in azure_artifact_body:
@@ -526,14 +688,36 @@ if "infra/terraform/environments/aws-poc" not in aws_artifact_body:
     errors.append(f"{aws_artifact_script}: must default runtime contracts to the AWS POC Terraform root")
 if "aws s3api put-object" not in aws_artifact_body or "floe/manifests/${domain}/${product}/${product}.manifest.json" not in aws_artifact_body:
     errors.append(f"{aws_artifact_script}: must upload product Floe manifests directly to the AWS S3 ops bucket")
+for required in [
+    "manifest_root",
+    "FLOE_PERSIST_RUNTIME_ARTIFACTS",
+]:
+    if required not in aws_artifact_body:
+        errors.append(f"{aws_artifact_script}: must generate and upload Floe-generated AWS manifests using {required}")
+for forbidden in [
+    "upload_floe_runtime_artifacts_to_s3",
+    "floe/configs",
+    "floe/profiles/aws-eks.yml",
+    "FLOE_REMOTE_CONFIG_BASE_URI",
+    "FLOE_REMOTE_PROFILE_URI",
+]:
+    if forbidden in aws_artifact_body:
+        errors.append(f"{aws_artifact_script}: must not upload obsolete AWS Floe runtime config/profile artifacts using {forbidden}")
+if 'find domains -path "*/contracts/floe/manifests/*.manifest.json"' in aws_artifact_body:
+    errors.append(f"{aws_artifact_script}: must upload rendered AWS manifests from the runtime artifact directory, not tracked local manifests")
 if "build-push-project-code.sh" not in aws_artifact_body:
     errors.append(f"{aws_artifact_script}: must build and push the AWS project-code image")
 if "PROJECT_CODE_IMAGE=\"${PROJECT_CODE_IMAGE_REPOSITORY}:${PROJECT_CODE_IMAGE_TAG}\"" not in aws_artifact_body:
     errors.append(f"{aws_artifact_script}: must derive the exact pushed project-code image")
+if "regular containers to patch" not in aws_artifact_body or '"containers": [' not in aws_artifact_body:
+    errors.append(f"{aws_artifact_script}: must patch only regular container images before rollout restart")
 if "dagster-instance" not in aws_artifact_body or "job_image:" not in aws_artifact_body:
     errors.append(f"{aws_artifact_script}: must patch Dagster run launcher job_image before rollout restart")
 if "patch_cronjob_image_if_exists" not in aws_artifact_body or "openlakeforge-k8s-log-archive" not in aws_artifact_body:
     errors.append(f"{aws_artifact_script}: must patch the Kubernetes log archive CronJob image after pushing project-code")
+for path, body in [(azure_artifact_script, azure_artifact_body), (aws_artifact_script, aws_artifact_body)]:
+    if "kubectl set image" in body or "*=${PROJECT_CODE_IMAGE}" in body:
+        errors.append(f"{path}: must not use wildcard image patching because it rewrites chart-managed init containers")
 for path, body in [(local_artifact_script, local_artifact_body), (azure_artifact_script, azure_artifact_body), (aws_artifact_script, aws_artifact_body)]:
     if "dagster-user-deployments-.+-dagster" not in body:
         errors.append(f"{path}: must discover domain Dagster user deployments instead of hardcoding names")
@@ -586,11 +770,12 @@ aws_profile_env.update(
         "OPENLAKEFORGE_CATALOG_TYPE": "glue",
         "OPENLAKEFORGE_CATALOG_PROVIDER": "aws-glue",
         "OPENLAKEFORGE_CATALOG_NAME": "lakehouse",
-        "OPENLAKEFORGE_CATALOG_WAREHOUSE": "123456789012",
+        "OPENLAKEFORGE_CATALOG_WAREHOUSE": "lakehouse",
         "OPENLAKEFORGE_CATALOG_GLUE_CATALOG_ID": "123456789012",
+        "OPENLAKEFORGE_CATALOG_GLUE_REST_WAREHOUSE": "123456789012",
         "OPENLAKEFORGE_CATALOG_GLUE_REGION": "eu-west-1",
         "OPENLAKEFORGE_CATALOG_GLUE_REST_URI": "https://glue.eu-west-1.amazonaws.com/iceberg",
-        "OPENLAKEFORGE_CATALOG_GLUE_DATABASE": "lakehouse",
+        "OPENLAKEFORGE_CATALOG_GLUE_DATABASE": "sales_customer_health_silver",
         "OPENLAKEFORGE_CATALOG_GLUE_WAREHOUSE_PREFIX": "warehouse/iceberg",
     }
 )
@@ -608,9 +793,9 @@ for required in [
     'name: "aws-eks"',
     'type: "glue"',
     'region: "eu-west-1"',
-    'database: "lakehouse"',
+    'database: "sales_customer_health_silver"',
     'warehouse_storage: "lakehouse_silver"',
-    'warehouse_prefix: "warehouse/iceberg"',
+    'warehouse_prefix: "s3://openlakeforge-poc-silver/warehouse/iceberg"',
     'create_database_if_missing: false',
     'OPENLAKEFORGE_STORAGE_BRONZE_BUCKET: "openlakeforge-poc-bronze"',
     'OPENLAKEFORGE_STORAGE_SILVER_BUCKET: "openlakeforge-poc-silver"',
@@ -622,6 +807,8 @@ for required in [
 ]:
     if required not in aws_profile:
         errors.append(f"rendered AWS Floe profile must include native Glue/S3 setting {required}")
+if 'warehouse_prefix: "warehouse/iceberg"' in aws_profile:
+    errors.append("rendered AWS Floe profile must use an absolute S3 warehouse_prefix for remote profile execution")
 if "\nstorages:" in aws_profile:
     errors.append("rendered AWS Floe profile must not define profile-level storages; storages belong in the Floe config")
 if "AWS_ENDPOINT_URL" in aws_profile:

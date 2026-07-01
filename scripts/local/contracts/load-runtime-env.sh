@@ -6,11 +6,18 @@
 
 OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR="${OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR:-infra/terraform/environments/local}"
 OPENLAKEFORGE_QUERY_SQLALCHEMY_URI_IS_USER_SET="${OPENLAKEFORGE_QUERY_SQLALCHEMY_URI+x}"
+OPENMETADATA_CATALOG_SERVICE_IS_USER_SET="${OPENMETADATA_CATALOG_SERVICE+x}"
+OPENLAKEFORGE_STORAGE_OM_SERVICE_IS_USER_SET="${OPENLAKEFORGE_STORAGE_OM_SERVICE+x}"
+OPENLAKEFORGE_STORAGE_DISPLAY_NAME_IS_USER_SET="${OPENLAKEFORGE_STORAGE_DISPLAY_NAME+x}"
 
 # Directory of this (sourced) file, used to locate sibling helper scripts.
 OPENLAKEFORGE_CONTRACTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 set_default_contract_env() {
+  local default_catalog_namespaces_json='[{"name":"sales_order_revenue_silver","location":"s3://lakehouse-silver/sales_order_revenue_silver/"},{"name":"sales_order_revenue_gold","location":"s3://lakehouse-gold/sales_order_revenue_gold/"},{"name":"sales_customer_health_silver","location":"s3://lakehouse-silver/sales_customer_health_silver/"},{"name":"sales_customer_health_gold","location":"s3://lakehouse-gold/sales_customer_health_gold/"},{"name":"supply_chain_inventory_reliability_silver","location":"s3://lakehouse-silver/supply_chain_inventory_reliability_silver/"},{"name":"supply_chain_inventory_reliability_gold","location":"s3://lakehouse-gold/supply_chain_inventory_reliability_gold/"}]'
+  local default_catalog_silver_namespaces_json='{"sales_order_revenue":"sales_order_revenue_silver","sales_customer_health":"sales_customer_health_silver","supply_chain_inventory_reliability":"supply_chain_inventory_reliability_silver"}'
+  local default_catalog_gold_namespaces_json='{"sales_order_revenue":"sales_order_revenue_gold","sales_customer_health":"sales_customer_health_gold","supply_chain_inventory_reliability":"supply_chain_inventory_reliability_gold"}'
+
   export OPENLAKEFORGE_STORAGE_LOGICAL_NAME="${OPENLAKEFORGE_STORAGE_LOGICAL_NAME:-lakehouse_storage}"
   export OPENLAKEFORGE_STORAGE_PROVIDER="${OPENLAKEFORGE_STORAGE_PROVIDER:-local}"
   export OPENLAKEFORGE_STORAGE_IMPLEMENTATION="${OPENLAKEFORGE_STORAGE_IMPLEMENTATION:-storage.s3_compatible.seaweedfs}"
@@ -43,12 +50,13 @@ set_default_contract_env() {
   export OPENLAKEFORGE_CATALOG_GLUE_REGION="${OPENLAKEFORGE_CATALOG_GLUE_REGION:-}"
   export OPENLAKEFORGE_CATALOG_GLUE_CATALOG_ID="${OPENLAKEFORGE_CATALOG_GLUE_CATALOG_ID:-}"
   export OPENLAKEFORGE_CATALOG_GLUE_REST_URI="${OPENLAKEFORGE_CATALOG_GLUE_REST_URI:-}"
-  export OPENLAKEFORGE_CATALOG_GLUE_DATABASE="${OPENLAKEFORGE_CATALOG_GLUE_DATABASE:-${OPENLAKEFORGE_CATALOG_NAME}}"
+  export OPENLAKEFORGE_CATALOG_GLUE_REST_WAREHOUSE="${OPENLAKEFORGE_CATALOG_GLUE_REST_WAREHOUSE:-${OPENLAKEFORGE_CATALOG_GLUE_CATALOG_ID}}"
+  export OPENLAKEFORGE_CATALOG_GLUE_DATABASE="${OPENLAKEFORGE_CATALOG_GLUE_DATABASE:-}"
   export OPENLAKEFORGE_CATALOG_GLUE_WAREHOUSE_PREFIX="${OPENLAKEFORGE_CATALOG_GLUE_WAREHOUSE_PREFIX:-warehouse/iceberg}"
   export OPENLAKEFORGE_CATALOG_NAMESPACE_MODEL="${OPENLAKEFORGE_CATALOG_NAMESPACE_MODEL:-product-layer}"
-  export OPENLAKEFORGE_CATALOG_NAMESPACES_JSON="${OPENLAKEFORGE_CATALOG_NAMESPACES_JSON:-[{\"name\":\"sales_order_revenue_silver\",\"location\":\"s3://lakehouse-silver/sales_order_revenue_silver/\"},{\"name\":\"sales_order_revenue_gold\",\"location\":\"s3://lakehouse-gold/sales_order_revenue_gold/\"},{\"name\":\"sales_customer_health_silver\",\"location\":\"s3://lakehouse-silver/sales_customer_health_silver/\"},{\"name\":\"sales_customer_health_gold\",\"location\":\"s3://lakehouse-gold/sales_customer_health_gold/\"},{\"name\":\"supply_chain_inventory_reliability_silver\",\"location\":\"s3://lakehouse-silver/supply_chain_inventory_reliability_silver/\"},{\"name\":\"supply_chain_inventory_reliability_gold\",\"location\":\"s3://lakehouse-gold/supply_chain_inventory_reliability_gold/\"}]}"
-  export OPENLAKEFORGE_CATALOG_SILVER_NAMESPACES_JSON="${OPENLAKEFORGE_CATALOG_SILVER_NAMESPACES_JSON:-{\"sales_order_revenue\":\"sales_order_revenue_silver\",\"sales_customer_health\":\"sales_customer_health_silver\",\"supply_chain_inventory_reliability\":\"supply_chain_inventory_reliability_silver\"}}"
-  export OPENLAKEFORGE_CATALOG_GOLD_NAMESPACES_JSON="${OPENLAKEFORGE_CATALOG_GOLD_NAMESPACES_JSON:-{\"sales_order_revenue\":\"sales_order_revenue_gold\",\"sales_customer_health\":\"sales_customer_health_gold\",\"supply_chain_inventory_reliability\":\"supply_chain_inventory_reliability_gold\"}}"
+  export OPENLAKEFORGE_CATALOG_NAMESPACES_JSON="${OPENLAKEFORGE_CATALOG_NAMESPACES_JSON:-${default_catalog_namespaces_json}}"
+  export OPENLAKEFORGE_CATALOG_SILVER_NAMESPACES_JSON="${OPENLAKEFORGE_CATALOG_SILVER_NAMESPACES_JSON:-${default_catalog_silver_namespaces_json}}"
+  export OPENLAKEFORGE_CATALOG_GOLD_NAMESPACES_JSON="${OPENLAKEFORGE_CATALOG_GOLD_NAMESPACES_JSON:-${default_catalog_gold_namespaces_json}}"
   export OPENLAKEFORGE_CATALOG_SILVER_NAMESPACE="${OPENLAKEFORGE_CATALOG_SILVER_NAMESPACE:-}"
   export OPENLAKEFORGE_CATALOG_GOLD_NAMESPACE="${OPENLAKEFORGE_CATALOG_GOLD_NAMESPACE:-}"
   export OPENLAKEFORGE_CATALOG_FLOE_CREDENTIALS_SECRET_NAME="${OPENLAKEFORGE_CATALOG_FLOE_CREDENTIALS_SECRET_NAME:-polaris-floe-creds}"
@@ -124,7 +132,9 @@ if [[ "${OPENLAKEFORGE_STORAGE_IMPLEMENTATION}" == "storage.aws_s3" ]]; then
   export AWS_S3_FORCE_PATH_STYLE="${AWS_S3_FORCE_PATH_STYLE:-false}"
 fi
 if [[ "${OPENLAKEFORGE_CATALOG_TYPE}" == "glue" && "${OPENLAKEFORGE_CATALOG_PROVIDER}" == "aws-glue" ]]; then
-  export OPENLAKEFORGE_CATALOG_GLUE_DATABASE="${OPENLAKEFORGE_CATALOG_GLUE_DATABASE:-${OPENLAKEFORGE_CATALOG_NAME}}"
+  export OPENLAKEFORGE_CATALOG_GLUE_DATABASE="${OPENLAKEFORGE_CATALOG_GLUE_DATABASE:-}"
+  export OPENLAKEFORGE_CATALOG_WAREHOUSE="${OPENLAKEFORGE_CATALOG_NAME}"
+  export OPENLAKEFORGE_CATALOG_GLUE_REST_WAREHOUSE="${OPENLAKEFORGE_CATALOG_GLUE_REST_WAREHOUSE:-${OPENLAKEFORGE_CATALOG_GLUE_CATALOG_ID}}"
   export OPENLAKEFORGE_CATALOG_GLUE_WAREHOUSE_PREFIX="${OPENLAKEFORGE_CATALOG_GLUE_WAREHOUSE_PREFIX:-warehouse/iceberg}"
   export OPENLAKEFORGE_CATALOG_TOKEN_URI=""
   export OPENLAKEFORGE_CATALOG_OAUTH_SCOPE=""
@@ -136,8 +146,42 @@ if [[ "${OPENLAKEFORGE_CATALOG_TYPE}" == "glue" && "${OPENLAKEFORGE_CATALOG_PROV
   export OPENLAKEFORGE_CATALOG_DBT_CLIENT_SECRET_KEY=""
 fi
 
+OPENLAKEFORGE_CATALOG_OM_SERVICE_NAME="polaris"
+if [[ "${OPENLAKEFORGE_CATALOG_TYPE}" == "glue" && "${OPENLAKEFORGE_CATALOG_PROVIDER}" == "aws-glue" ]]; then
+  OPENLAKEFORGE_CATALOG_OM_SERVICE_NAME="aws_glue"
+fi
+OPENLAKEFORGE_DEFAULT_CATALOG_DATABASE_FQN="${OPENLAKEFORGE_CATALOG_OM_SERVICE_NAME}.${OPENLAKEFORGE_CATALOG_NAME}"
+OPENLAKEFORGE_DEFAULT_CATALOG_SILVER_SCHEMA_FQNS_JSON="{\"sales_order_revenue\":\"${OPENLAKEFORGE_DEFAULT_CATALOG_DATABASE_FQN}.sales_order_revenue_silver\",\"sales_customer_health\":\"${OPENLAKEFORGE_DEFAULT_CATALOG_DATABASE_FQN}.sales_customer_health_silver\",\"supply_chain_inventory_reliability\":\"${OPENLAKEFORGE_DEFAULT_CATALOG_DATABASE_FQN}.supply_chain_inventory_reliability_silver\"}"
+OPENLAKEFORGE_DEFAULT_CATALOG_GOLD_SCHEMA_FQNS_JSON="{\"sales_order_revenue\":\"${OPENLAKEFORGE_DEFAULT_CATALOG_DATABASE_FQN}.sales_order_revenue_gold\",\"sales_customer_health\":\"${OPENLAKEFORGE_DEFAULT_CATALOG_DATABASE_FQN}.sales_customer_health_gold\",\"supply_chain_inventory_reliability\":\"${OPENLAKEFORGE_DEFAULT_CATALOG_DATABASE_FQN}.supply_chain_inventory_reliability_gold\"}"
+if [[ -z "${OPENLAKEFORGE_CATALOG_DATABASE_FQN:-}" ]]; then
+  export OPENLAKEFORGE_CATALOG_DATABASE_FQN="${OPENLAKEFORGE_DEFAULT_CATALOG_DATABASE_FQN}"
+fi
+if [[ -z "${OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON:-}" ]]; then
+  export OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON="${OPENLAKEFORGE_DEFAULT_CATALOG_SILVER_SCHEMA_FQNS_JSON}"
+fi
+if [[ -z "${OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON:-}" ]]; then
+  export OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON="${OPENLAKEFORGE_DEFAULT_CATALOG_GOLD_SCHEMA_FQNS_JSON}"
+fi
+if [[ -z "${OPENMETADATA_CATALOG_SERVICE_IS_USER_SET}" ]]; then
+  export OPENMETADATA_CATALOG_SERVICE="${OPENLAKEFORGE_CATALOG_OM_SERVICE_NAME}"
+fi
+if [[ "${OPENLAKEFORGE_STORAGE_IMPLEMENTATION}" == "storage.aws_s3" ]]; then
+  if [[ -z "${OPENLAKEFORGE_STORAGE_OM_SERVICE_IS_USER_SET}" ]]; then
+    export OPENLAKEFORGE_STORAGE_OM_SERVICE="aws_s3"
+  fi
+  if [[ -z "${OPENLAKEFORGE_STORAGE_DISPLAY_NAME_IS_USER_SET}" ]]; then
+    export OPENLAKEFORGE_STORAGE_DISPLAY_NAME="AWS S3"
+  fi
+else
+  if [[ -z "${OPENLAKEFORGE_STORAGE_OM_SERVICE_IS_USER_SET}" ]]; then
+    export OPENLAKEFORGE_STORAGE_OM_SERVICE="seaweedfs"
+  fi
+  if [[ -z "${OPENLAKEFORGE_STORAGE_DISPLAY_NAME_IS_USER_SET}" ]]; then
+    export OPENLAKEFORGE_STORAGE_DISPLAY_NAME="SeaweedFS S3"
+  fi
+fi
+
 export CODE_BUCKET_NAME="${CODE_BUCKET_NAME:-${OPENLAKEFORGE_ARTIFACT_BUCKET_NAME}}"
-export OPENMETADATA_CATALOG_SERVICE="${OPENMETADATA_CATALOG_SERVICE:-${OPENLAKEFORGE_CATALOG_PROVIDER}}"
 export OPENMETADATA_CATALOG_DATABASE="${OPENMETADATA_CATALOG_DATABASE:-${OPENLAKEFORGE_CATALOG_NAME}}"
 if [[ -z "${OPENLAKEFORGE_QUERY_SQLALCHEMY_URI_IS_USER_SET}" ]]; then
   export OPENLAKEFORGE_QUERY_SQLALCHEMY_URI="trino://superset@${OPENLAKEFORGE_QUERY_TRINO_HOST}:${OPENLAKEFORGE_QUERY_TRINO_PORT}/${OPENLAKEFORGE_QUERY_TRINO_CATALOG}"

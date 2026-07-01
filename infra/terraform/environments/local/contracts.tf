@@ -78,6 +78,7 @@ locals {
     default_warehouse_location = "s3://${var.silver_bucket_name}"
     catalog_namespace_model    = local.catalog_namespace_model
     catalog_namespaces         = local.catalog_namespaces
+    catalog_schema_names       = [for namespace in local.catalog_namespaces : namespace.name]
     silver_namespaces          = local.catalog_silver_namespaces
     gold_namespaces            = local.catalog_gold_namespaces
     auth_mode                  = "oauth-client-secret"

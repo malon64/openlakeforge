@@ -15,6 +15,9 @@ builds, and pushes with retry behavior for transient registry/network failures.
 verifies that the domain Dagster definitions load.
 `scripts/local/artifacts/floe-manifest.sh` generates manifest-first product Floe
 contracts from the shared profile in `libs/floe/profiles/`.
+`scripts/local/artifacts/dbt-parse.sh` renders product dbt profiles from
+`libs/dbt/profiles/` before parsing, matching the profile selection used by
+project-code image builds.
 
 Local stack scripts under `scripts/local/` are grouped by lifecycle:
 
