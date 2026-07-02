@@ -5,8 +5,13 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 NAMESPACE="${NAMESPACE:-lakehouse}"
-FLOE_VERSION="${FLOE_VERSION:-0.6.3}"
+FLOE_VERSION="${FLOE_VERSION:-0.6.5}"
 FLOE_IMAGE="${FLOE_IMAGE:-ghcr.io/malon64/floe:${FLOE_VERSION}}"
+# The floe 0.6.5 arm64 image is built against glibc 2.38/2.39 while its Debian 12
+# base ships glibc 2.36, so the arm64 binary will not start. Pin the manifest
+# generation container to amd64 (matches the EKS runner arch) and let Docker
+# emulate it on Apple Silicon. Override with FLOE_PLATFORM if a fixed image ships.
+FLOE_PLATFORM="${FLOE_PLATFORM:-linux/amd64}"
 USING_DOCKER="false"
 
 # shellcheck source=/dev/null
@@ -25,15 +30,31 @@ if [[ -z "${FLOE_RUNTIME_PROFILE_URI:-}" ]]; then
 fi
 export FLOE_RUNTIME_PROFILE_URI
 
-if command -v docker &>/dev/null; then
-  USING_DOCKER="true"
-  FLOE_CMD=(docker run --rm -v "${REPO_ROOT}:/work" -w /work "${FLOE_IMAGE}")
-else
+# Runner selection.
+#
+# Default is the Docker image because it runs floe from /work, so the committed
+# manifests this script writes embed machine-independent `local:///work/...`
+# config/profile URIs. The native CLI embeds host-absolute paths (e.g.
+# `local:///Users/you/...`), which changes config_uri/profile_uri/manifest_id/
+# manifest_revision per machine — fine for local iteration, but not what should be
+# committed. Set FLOE_PREFER_CLI=true to use the native `brew` floe CLI (handy on
+# Apple Silicon where the 0.6.5 arm64 container is broken — see FLOE_PLATFORM).
+FLOE_PREFER_CLI="${FLOE_PREFER_CLI:-false}"
+floe_cli_version_matches() {
+  command -v floe &>/dev/null || return 1
+  [[ "$(floe --version 2>/dev/null || true)" == "floe ${FLOE_VERSION}"* ]]
+}
+
+if [[ "${FLOE_PREFER_CLI}" == "true" ]] && floe_cli_version_matches; then
   FLOE_CMD=(floe)
-  if ! command -v floe &>/dev/null || [[ "$(floe --version 2>/dev/null || true)" != "floe ${FLOE_VERSION}" ]]; then
-    echo "ERROR: Docker or Floe ${FLOE_VERSION} is required to generate manifests." >&2
-    exit 1
-  fi
+elif command -v docker &>/dev/null; then
+  USING_DOCKER="true"
+  FLOE_CMD=(docker run --rm --platform "${FLOE_PLATFORM}" -v "${REPO_ROOT}:/work" -w /work "${FLOE_IMAGE}")
+elif floe_cli_version_matches; then
+  FLOE_CMD=(floe)
+else
+  echo "ERROR: floe ${FLOE_VERSION} CLI or Docker is required to generate manifests." >&2
+  exit 1
 fi
 
 floe_path() {

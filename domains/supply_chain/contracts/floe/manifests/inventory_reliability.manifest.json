@@ -1,15 +1,15 @@
 {
   "schema": "floe.manifest.v1",
   "generated_at_ts_ms": 0,
-  "floe_version": "0.6.3",
+  "floe_version": "0.6.5",
   "spec_version": "0.2",
   "manifest_name": "supply_chain.inventory_reliability.local",
   "manifest_id": "mfv1-33ef4a55e13b0add",
-  "manifest_revision": "sha256:c181b16957c6f23d976b36abd13f278e7bd0244fde333de5535ef217a377faf2",
+  "manifest_revision": "sha256:5fc20bf8e6c42f14b1587024f4804945e1e88fa334fece91edae6870d880646f",
   "config_uri": "local:///work/domains/supply_chain/contracts/floe/inventory_reliability.yml",
   "config_checksum": "sha256:2991619176cc8f8990bbde7a34bb76fa494e9fc72c72b8b62a905f0519d4d399",
   "profile_uri": "local:///work/libs/floe/profiles/local-k8s.yml",
-  "profile_checksum": "sha256:7b5929e12bd88b253101df76e0cffdea6f2cf07566b3d930181d25cf395bcfe3",
+  "profile_checksum": "sha256:73fc3891e27b676c52222895c96844acd50bbcf6fae55e07f47aa42d8e650e2b",
   "report_base_uri": "s3://openlakeforge-ops/floe/reports/supply_chain/inventory_reliability",
   "domains": [],
   "execution": {
@@ -76,7 +76,7 @@
             "key": "POLARIS_FLOE_CLIENT_SECRET"
           }
         ],
-        "image": "ghcr.io/malon64/floe:0.6.3",
+        "image": "ghcr.io/malon64/floe:0.6.5",
         "namespace": "lakehouse",
         "service_account": "dagster",
         "resources": null,
