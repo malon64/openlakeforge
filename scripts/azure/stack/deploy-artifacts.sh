@@ -123,14 +123,25 @@ payload = json.loads(raw)
 containers = payload["spec"]["template"]["spec"].get("containers", [])
 if not containers:
     raise SystemExit(f"ERROR: deployment/{deployment} has no regular containers to patch.")
+
+
+def container_patch(container):
+    # Patch the container image, and keep DAGSTER_CURRENT_IMAGE in sync where it is
+    # already set: Dagster's K8sRunLauncher derives run-pod images from the code
+    # location's DAGSTER_CURRENT_IMAGE, which overrides run_launcher.job_image. If we
+    # bump only the container image, run pods keep launching on the previous image.
+    entry = {"name": container["name"], "image": image}
+    env = container.get("env") or []
+    if any(var.get("name") == "DAGSTER_CURRENT_IMAGE" for var in env):
+        entry["env"] = [{"name": "DAGSTER_CURRENT_IMAGE", "value": image}]
+    return entry
+
+
 patch = {
     "spec": {
         "template": {
             "spec": {
-                "containers": [
-                    {"name": container["name"], "image": image}
-                    for container in containers
-                ]
+                "containers": [container_patch(container) for container in containers]
             }
         }
     }

@@ -266,6 +266,10 @@ module "trino" {
   catalog_contract            = local.catalog_contract
   catalog_bootstrap_revision  = "aws-glue"
   service_account_annotations = local.service_account_annotations
+  # EKS Pod Identity binds the S3/Glue workload role to the "trino" service account
+  # (see aws_eks_pod_identity_association.lakehouse_workloads). Force the Trino chart
+  # to create and run under that SA; annotations stay empty under Pod Identity.
+  service_account_name = "trino"
 
   depends_on = [
     module.glue,

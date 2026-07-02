@@ -78,7 +78,11 @@ locals {
   CATALOG
 
   iceberg_catalog_properties = local.iceberg_catalog_type == "glue" ? local.glue_iceberg_catalog : local.rest_iceberg_catalog
-  create_service_account     = length(var.service_account_annotations) > 0
+  # Create a named service account when one is explicitly requested (EKS Pod Identity
+  # binds credentials by SA name and needs no annotation) or, IRSA-style, when
+  # annotations are supplied. Otherwise Trino runs under the namespace default SA.
+  service_account_name   = var.service_account_name != "" ? var.service_account_name : "trino"
+  create_service_account = var.service_account_name != "" || length(var.service_account_annotations) > 0
 }
 
 resource "helm_release" "trino" {
@@ -103,7 +107,7 @@ resource "helm_release" "trino" {
 
       serviceAccount = {
         create      = local.create_service_account
-        name        = local.create_service_account ? "trino" : ""
+        name        = local.create_service_account ? local.service_account_name : ""
         annotations = var.service_account_annotations
       }
     }),

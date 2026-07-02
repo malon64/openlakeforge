@@ -20,6 +20,12 @@
         - httpfs
         - parquet
         - iceberg
+      # Works around DuckDB's iceberg extension omitting `location` on createTable
+      # against the AWS Glue REST catalog; registers the olf_glue_ensure_iceberg_table
+      # UDF used by the iceberg_table materialization. See libs/dbt/duckdb_plugins.
+      plugins:
+        - module: libs.dbt.duckdb_plugins.glue_iceberg
+          alias: glue_iceberg
       secrets:
         - type: s3
           name: openlakeforge_aws_s3_secret

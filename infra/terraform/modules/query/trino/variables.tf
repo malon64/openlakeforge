@@ -53,6 +53,12 @@ variable "service_account_annotations" {
   default     = {}
 }
 
+variable "service_account_name" {
+  description = "Name of the Trino service account to create and use. Set this for workload-identity models that bind by service account name and need no annotation (e.g. EKS Pod Identity). When empty, a service account is created only if annotations are provided (IRSA-style)."
+  type        = string
+  default     = ""
+}
+
 variable "catalog_contract" {
   description = "Iceberg catalog contract consumed by Trino. Current local uses REST/Polaris; future provider profiles may use Glue."
   type = object({
