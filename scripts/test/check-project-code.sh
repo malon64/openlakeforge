@@ -58,7 +58,7 @@ for line in text.splitlines():
         continue
     if stripped == "]":
         break
-    if stripped:
+    if stripped and not stripped.startswith("#"):
         dependencies.append(ast.literal_eval(stripped.rstrip(",")))
 
 if not dependencies:
