@@ -178,6 +178,9 @@ resource "aws_iam_policy" "lakehouse_workloads" {
         Action = [
           "s3:ListBucket",
           "s3:GetBucketLocation",
+          # Bucket-scoped: ListMultipartUploads only matches the bucket ARN, not
+          # object ARNs, so it must live with the other bucket-level actions.
+          "s3:ListBucketMultipartUploads",
         ]
         Resource = values(module.s3.bucket_arns)
       },
@@ -188,7 +191,6 @@ resource "aws_iam_policy" "lakehouse_workloads" {
           "s3:PutObject",
           "s3:DeleteObject",
           "s3:AbortMultipartUpload",
-          "s3:ListBucketMultipartUploads",
           "s3:ListMultipartUploadParts",
         ]
         Resource = [
