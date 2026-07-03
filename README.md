@@ -49,6 +49,10 @@ The current seed POC contains two Sales data products, `order_revenue` and
 The first AWS query path still uses Trino. Athena is documented as a future
 adapter because it changes query pricing, Superset wiring, and e2e validation.
 
+To deploy the AWS or Azure POC into your own account — credentials, the
+per-account `sandbox.tfvars`, and the `make` targets — see
+[docs/setup/cloud-poc-setup.md](docs/setup/cloud-poc-setup.md).
+
 ## Repository Structure
 
 ```text

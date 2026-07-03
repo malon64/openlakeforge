@@ -35,8 +35,10 @@ site/
 *.tfstate.*
 *.tfvars
 *.tfvars.json
-# Sandbox/account config is non-secret (mandatory tags + limited- naming) and is tracked.
-!sandbox.tfvars
+# Cloud/account config (account IDs, mandatory tags, owner email) is user-specific
+# and stays out of git. Copy the tracked *.tfvars.example templates to your own
+# sandbox.tfvars — see docs/setup/cloud-poc-setup.md.
+!*.tfvars.example
 crash.log
 crash.*.log
 override.tf
