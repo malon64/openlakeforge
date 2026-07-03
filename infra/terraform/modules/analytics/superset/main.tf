@@ -34,6 +34,68 @@ resource "kubernetes_persistent_volume_claim_v1" "reports" {
   }
 }
 
+# Destroy-time teardown guard.
+#
+# In a clean `terraform destroy`, helm_release.superset (wait = true) removes the
+# Superset workloads before the reports PVC is deleted, so the RWO PVC's
+# kubernetes.io/pvc-protection finalizer clears on its own. But when a prior
+# destroy is interrupted (e.g. SSO token expiry mid-run) the release secret can
+# be gone while the Deployments are orphaned; those orphaned pods keep the PVC
+# mounted and it hangs in Terminating indefinitely, failing `make aws-down`.
+#
+# This resource runs a best-effort cleanup at destroy time BEFORE the PVC is
+# deleted: it force-removes any lingering Superset workloads (which drops the
+# pods mounting the PVC) and, as a backstop, strips the PVC finalizer if it is
+# still stuck. Everything is idempotent and `|| true` guarded so a healthy
+# teardown is a no-op and a partially torn-down one still converges.
+resource "terraform_data" "reports_teardown_guard" {
+  # depends_on (not a reference) so this guard is destroyed BEFORE the PVC and
+  # the helm release, letting its cleanup run ahead of the PVC deletion.
+  depends_on = [
+    kubernetes_persistent_volume_claim_v1.reports,
+    helm_release.superset,
+  ]
+
+  # Destroy provisioners may only read `self`, so carry everything in `input`.
+  input = {
+    kubeconfig = var.kubeconfig_path
+    context    = var.kube_context
+    namespace  = var.namespace
+    release    = var.release_name
+    claim      = local.reports_claim_name
+  }
+
+  provisioner "local-exec" {
+    when        = destroy
+    interpreter = ["/bin/bash", "-c"]
+    command     = <<-EOT
+      set -u
+      export KUBECONFIG="${self.input.kubeconfig}"
+      CTX="${self.input.context}"
+      NS="${self.input.namespace}"
+      REL="${self.input.release}"
+      PVC="${self.input.claim}"
+
+      if ! kubectl --context "$CTX" -n "$NS" get ns "$NS" >/dev/null 2>&1; then
+        echo "[superset teardown guard] namespace $NS gone; nothing to clean"
+        exit 0
+      fi
+
+      echo "[superset teardown guard] force-removing lingering Superset workloads"
+      kubectl --context "$CTX" -n "$NS" delete deploy,statefulset,replicaset,job \
+        -l "app.kubernetes.io/instance=$REL" --ignore-not-found --wait=false || true
+
+      # If the reports PVC is still stuck Terminating, clear the finalizer so the
+      # Terraform PVC delete can complete.
+      if kubectl --context "$CTX" -n "$NS" get pvc "$PVC" >/dev/null 2>&1; then
+        echo "[superset teardown guard] clearing pvc-protection finalizer on $PVC"
+        kubectl --context "$CTX" -n "$NS" patch pvc "$PVC" \
+          --type=merge -p '{"metadata":{"finalizers":null}}' || true
+      fi
+    EOT
+  }
+}
+
 resource "helm_release" "superset" {
   name       = var.release_name
   repository = var.chart_repository

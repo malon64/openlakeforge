@@ -312,6 +312,8 @@ module "superset" {
   postgresql_ssl_mode        = "require"
   reports_storage_size       = "5Gi"
   reports_storage_class_name = kubernetes_storage_class_v1.gp3.metadata[0].name
+  kubeconfig_path            = local.kubeconfig_path
+  kube_context               = local.kubernetes_platform_contract.kube_context
 
   depends_on = [
     module.rds_postgresql,

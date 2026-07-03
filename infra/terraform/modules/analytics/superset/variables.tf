@@ -114,3 +114,13 @@ variable "postgresql_ssl_mode" {
   type        = string
   default     = "disable"
 }
+
+variable "kubeconfig_path" {
+  description = "Path to the kubeconfig used by the destroy-time teardown guard (kubectl). Should match the kubeconfig the kubernetes/helm providers use."
+  type        = string
+}
+
+variable "kube_context" {
+  description = "kubeconfig context used by the destroy-time teardown guard (kubectl). Should match the kubernetes/helm provider context."
+  type        = string
+}
