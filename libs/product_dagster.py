@@ -22,6 +22,7 @@ from floe_dagster.definitions import build_job_run_config_from_manifest, build_r
 from floe_dagster.manifest import load_manifest
 
 from libs.bronze_csv import BronzeLoadResult
+from libs.dbt.render_profiles import ensure_runtime_profile_dir
 from libs.openlakeforge_logging import log_event
 from libs.s3_artifacts import is_s3_uri, read_json_uri, read_text_uri, upload_file_to_base_uri
 
@@ -123,9 +124,10 @@ def build_product_definitions(spec: ProductDefinitionSpec) -> Definitions:
 
     def _dbt_gold_assets(context):
         dbt_target = os.environ.get("OPENLAKEFORGE_DBT_TARGET", "local_runtime")
+        dbt_profiles_dir = _ensure_dbt_profiles_dir(spec)
         dbt = DbtCliResource(
             project_dir=str(spec.dbt_project_dir),
-            profiles_dir=str(spec.dbt_project_dir),
+            profiles_dir=str(dbt_profiles_dir),
             target=dbt_target,
         )
         yield from dbt.cli(["build"], context=context).stream()
@@ -257,6 +259,7 @@ def _ensure_dbt_manifest(spec: ProductDefinitionSpec) -> Path:
     env.setdefault("OPENLAKEFORGE_CATALOG_OAUTH_SCOPE", "PRINCIPAL_ROLE:ALL")
     env.setdefault("OPENLAKEFORGE_CATALOG_DBT_CLIENT_ID", "openlakeforge-dbt")
     env.setdefault("OPENLAKEFORGE_CATALOG_DBT_CLIENT_SECRET", "openlakeforge-dbt")
+    profiles_dir = _ensure_dbt_profiles_dir(spec, env=env)
 
     subprocess.run(
         [
@@ -275,7 +278,7 @@ def _ensure_dbt_manifest(spec: ProductDefinitionSpec) -> Path:
             "--project-dir",
             str(spec.dbt_project_dir),
             "--profiles-dir",
-            str(spec.dbt_project_dir),
+            str(profiles_dir),
             "--target",
             "local",
         ],
@@ -285,13 +288,58 @@ def _ensure_dbt_manifest(spec: ProductDefinitionSpec) -> Path:
     return manifest_path
 
 
+def _ensure_dbt_profiles_dir(spec: ProductDefinitionSpec, env: dict[str, str] | None = None) -> Path:
+    return ensure_runtime_profile_dir(spec.dbt_project_dir, env=env)
+
+
 def _manifest_path_for_dagster(spec: ProductDefinitionSpec) -> str:
+    if _use_remote_manifest_for_dagster_definitions():
+        manifest_uri = _remote_manifest_uri(spec)
+        if manifest_uri is None:
+            raise RuntimeError(
+                f"{_FLOE_MANIFEST_ACCESS_MODE_ENV}=remote for {spec.asset_prefix}, "
+                "but no remote Floe manifest URI could be resolved for Dagster definitions."
+            )
+        return _cache_remote_manifest_for_dagster(spec, manifest_uri)
+
     if not spec.manifest_path.exists():
         raise RuntimeError(
             f"Missing Floe manifest at {spec.manifest_path}. "
             "Run 'make floe-manifest' before building the project-code image."
         )
     return str(spec.manifest_path)
+
+
+def _use_remote_manifest_for_dagster_definitions() -> bool:
+    override = os.environ.get("OPENLAKEFORGE_FLOE_DAGSTER_MANIFEST_SOURCE", "").strip().lower()
+    if override:
+        if override not in {"local", "remote"}:
+            raise RuntimeError(
+                "OPENLAKEFORGE_FLOE_DAGSTER_MANIFEST_SOURCE must be 'local' or 'remote'; "
+                f"got {override!r}."
+            )
+        return override == "remote"
+
+    if _floe_manifest_access_mode() != _FLOE_MANIFEST_ACCESS_MODE_REMOTE:
+        return False
+
+    return (
+        os.environ.get("OPENLAKEFORGE_CATALOG_TYPE", "").strip().lower() == "glue"
+        and os.environ.get("OPENLAKEFORGE_CATALOG_PROVIDER", "").strip().lower() == "aws-glue"
+    )
+
+
+def _cache_remote_manifest_for_dagster(spec: ProductDefinitionSpec, manifest_uri: str) -> str:
+    cache_root = Path(
+        os.environ.get("OPENLAKEFORGE_FLOE_MANIFEST_CACHE_DIR", "/tmp/openlakeforge-floe-manifests")
+    )
+    target = cache_root / spec.domain / spec.product / f"{spec.product}.manifest.json"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        target.write_text(read_text_uri(manifest_uri), encoding="utf-8")
+    except Exception as exc:  # noqa: BLE001
+        raise RuntimeError(f"Failed to load remote Floe manifest {manifest_uri}") from exc
+    return str(target)
 
 
 def _manifest_uri_for_floe_runner(

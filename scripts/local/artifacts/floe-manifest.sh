@@ -1,29 +1,89 @@
 #!/usr/bin/env bash
-# Generate product Floe Dagster manifests from the shared local Kubernetes profile.
+# Generate product Floe Dagster manifests from the provider runtime profile.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 NAMESPACE="${NAMESPACE:-lakehouse}"
-FLOE_VERSION="${FLOE_VERSION:-0.5.4}"
+FLOE_VERSION="${FLOE_VERSION:-0.6.5}"
 FLOE_IMAGE="${FLOE_IMAGE:-ghcr.io/malon64/floe:${FLOE_VERSION}}"
+# The floe 0.6.5 arm64 image is built against glibc 2.38/2.39 while its Debian 12
+# base ships glibc 2.36, so the arm64 binary will not start. Pin the manifest
+# generation container to amd64 (matches the EKS runner arch) and let Docker
+# emulate it on Apple Silicon. Override with FLOE_PLATFORM if a fixed image ships.
+FLOE_PLATFORM="${FLOE_PLATFORM:-linux/amd64}"
+USING_DOCKER="false"
 
 # shellcheck source=/dev/null
 source "${REPO_ROOT}/scripts/local/contracts/load-runtime-env.sh"
 
-if command -v docker &>/dev/null; then
-  FLOE_CMD=(docker run --rm -v "${PWD}:/work" -w /work "${FLOE_IMAGE}")
-else
-  FLOE_CMD=(floe)
-  if ! command -v floe &>/dev/null || [[ "$(floe --version 2>/dev/null || true)" != "floe ${FLOE_VERSION}" ]]; then
-    echo "ERROR: Docker or Floe ${FLOE_VERSION} is required to generate manifests." >&2
-    exit 1
+cd "${REPO_ROOT}"
+
+if [[ -z "${FLOE_RUNTIME_PROFILE_URI:-}" ]]; then
+  if [[ "${OPENLAKEFORGE_STORAGE_IMPLEMENTATION}" == "storage.aws_s3" &&
+    "${OPENLAKEFORGE_CATALOG_TYPE}" == "glue" &&
+    "${OPENLAKEFORGE_CATALOG_PROVIDER}" == "aws-glue" ]]; then
+    FLOE_RUNTIME_PROFILE_URI="local:///work/libs/floe/profiles/aws-eks.yml"
+  else
+    FLOE_RUNTIME_PROFILE_URI="local:///work/libs/floe/profiles/local-k8s.yml"
   fi
 fi
+export FLOE_RUNTIME_PROFILE_URI
+
+# Runner selection.
+#
+# Default is the Docker image because it runs floe from /work, so the committed
+# manifests this script writes embed machine-independent `local:///work/...`
+# config/profile URIs. The native CLI embeds host-absolute paths (e.g.
+# `local:///Users/you/...`), which changes config_uri/profile_uri/manifest_id/
+# manifest_revision per machine — fine for local iteration, but not what should be
+# committed. Set FLOE_PREFER_CLI=true to use the native `brew` floe CLI (handy on
+# Apple Silicon where the 0.6.5 arm64 container is broken — see FLOE_PLATFORM).
+FLOE_PREFER_CLI="${FLOE_PREFER_CLI:-false}"
+floe_cli_version_matches() {
+  command -v floe &>/dev/null || return 1
+  [[ "$(floe --version 2>/dev/null || true)" == "floe ${FLOE_VERSION}"* ]]
+}
+
+if [[ "${FLOE_PREFER_CLI}" == "true" ]] && floe_cli_version_matches; then
+  FLOE_CMD=(floe)
+elif command -v docker &>/dev/null; then
+  USING_DOCKER="true"
+  FLOE_CMD=(docker run --rm --platform "${FLOE_PLATFORM}" -v "${REPO_ROOT}:/work" -w /work "${FLOE_IMAGE}")
+elif floe_cli_version_matches; then
+  FLOE_CMD=(floe)
+else
+  echo "ERROR: floe ${FLOE_VERSION} CLI or Docker is required to generate manifests." >&2
+  exit 1
+fi
+
+floe_path() {
+  local path="$1"
+
+  if [[ "${USING_DOCKER}" != "true" ]]; then
+    printf '%s\n' "${path}"
+    return
+  fi
+
+  case "${path}" in
+    "${REPO_ROOT}")
+      printf '/work\n'
+      ;;
+    "${REPO_ROOT}/"*)
+      printf '/work/%s\n' "${path#"${REPO_ROOT}/"}"
+      ;;
+    *)
+      printf '%s\n' "${path}"
+      ;;
+  esac
+}
 
 PROFILE_PATH="${FLOE_PROFILE_PATH:-}"
 GENERATED_PROFILE_PATH="${PROFILE_PATH}"
 PROFILE_TMP_DIR=""
+IS_AWS_FLOE_PROFILE="false"
+FLOE_RUNTIME_ARTIFACT_DIR="${FLOE_RUNTIME_ARTIFACT_DIR:-.tmp/floe-runtime}"
+PERSIST_RUNTIME_ARTIFACTS="${FLOE_PERSIST_RUNTIME_ARTIFACTS:-false}"
 cleanup() {
   if [[ -n "${PROFILE_TMP_DIR}" ]]; then
     rm -rf "${PROFILE_TMP_DIR}"
@@ -31,19 +91,49 @@ cleanup() {
 }
 trap cleanup EXIT
 
-if [[ -z "${PROFILE_PATH}" ]]; then
-  mkdir -p .tmp
-  PROFILE_TMP_DIR="$(mktemp -d .tmp/floe-profile.XXXXXX)"
-  GENERATED_PROFILE_PATH="${PROFILE_TMP_DIR}/local-k8s.yml"
+if [[ "${OPENLAKEFORGE_STORAGE_IMPLEMENTATION}" == "storage.aws_s3" &&
+  "${OPENLAKEFORGE_CATALOG_TYPE}" == "glue" &&
+  "${OPENLAKEFORGE_CATALOG_PROVIDER}" == "aws-glue" ]]; then
+  IS_AWS_FLOE_PROFILE="true"
+fi
+if [[ "${PERSIST_RUNTIME_ARTIFACTS}" == "true" ]]; then
+  rm -rf "${FLOE_RUNTIME_ARTIFACT_DIR}"
+  mkdir -p \
+    "${FLOE_RUNTIME_ARTIFACT_DIR}/manifests" \
+    "${FLOE_RUNTIME_ARTIFACT_DIR}/profiles"
+fi
+
+if [[ -z "${PROFILE_PATH}" && "${IS_AWS_FLOE_PROFILE}" == "false" && "${NAMESPACE}" == "lakehouse" ]]; then
+  GENERATED_PROFILE_PATH="libs/floe/profiles/local-k8s.yml"
+elif [[ -z "${PROFILE_PATH}" && "${IS_AWS_FLOE_PROFILE}" == "true" ]]; then
+  if [[ "${PERSIST_RUNTIME_ARTIFACTS}" != "true" ]]; then
+    mkdir -p .tmp
+    PROFILE_TMP_DIR="$(mktemp -d .tmp/floe-profile.XXXXXX)"
+  fi
+elif [[ -z "${PROFILE_PATH}" ]]; then
+  if [[ "${PERSIST_RUNTIME_ARTIFACTS}" == "true" ]]; then
+    GENERATED_PROFILE_PATH="${FLOE_RUNTIME_ARTIFACT_DIR}/profiles/$(basename "${FLOE_RUNTIME_PROFILE_URI}")"
+  else
+    mkdir -p .tmp
+    PROFILE_TMP_DIR="$(mktemp -d .tmp/floe-profile.XXXXXX)"
+    GENERATED_PROFILE_PATH="${PROFILE_TMP_DIR}/$(basename "${FLOE_RUNTIME_PROFILE_URI}")"
+  fi
   python3 "${REPO_ROOT}/scripts/local/contracts/render-floe-profile.py" > "${GENERATED_PROFILE_PATH}"
 elif [[ "${NAMESPACE}" != "lakehouse" ]]; then
-  mkdir -p .tmp
-  PROFILE_TMP_DIR="$(mktemp -d .tmp/floe-profile.XXXXXX)"
-  GENERATED_PROFILE_PATH="${PROFILE_TMP_DIR}/local-k8s.yml"
+  if [[ "${PERSIST_RUNTIME_ARTIFACTS}" == "true" ]]; then
+    GENERATED_PROFILE_PATH="${FLOE_RUNTIME_ARTIFACT_DIR}/profiles/$(basename "${FLOE_RUNTIME_PROFILE_URI}")"
+  else
+    mkdir -p .tmp
+    PROFILE_TMP_DIR="$(mktemp -d .tmp/floe-profile.XXXXXX)"
+    GENERATED_PROFILE_PATH="${PROFILE_TMP_DIR}/$(basename "${FLOE_RUNTIME_PROFILE_URI}")"
+  fi
   sed \
     -e "s|namespace: lakehouse|namespace: ${NAMESPACE}|g" \
     -e "s|http://lakehouse\\.svc\\.cluster\\.local:8333|http://${NAMESPACE}.svc.cluster.local:8333|g" \
     "${PROFILE_PATH}" > "${GENERATED_PROFILE_PATH}"
+elif [[ "${PERSIST_RUNTIME_ARTIFACTS}" == "true" ]]; then
+  GENERATED_PROFILE_PATH="${FLOE_RUNTIME_ARTIFACT_DIR}/profiles/$(basename "${PROFILE_PATH}")"
+  cp "${PROFILE_PATH}" "${GENERATED_PROFILE_PATH}"
 fi
 
 discover_configs() {
@@ -55,61 +145,90 @@ discover_configs() {
   find domains -path "*/contracts/floe/*.yml" -type f | sort
 }
 
+silver_namespace_for_product() {
+  local product_key="$1"
+
+  OPENLAKEFORGE_PRODUCT_KEY="${product_key}" python3 - <<'PY'
+import json
+import os
+import sys
+
+product_key = os.environ["OPENLAKEFORGE_PRODUCT_KEY"]
+try:
+    namespaces = json.loads(os.environ.get("OPENLAKEFORGE_CATALOG_SILVER_NAMESPACES_JSON", "{}"))
+except json.JSONDecodeError as exc:
+    raise SystemExit(f"ERROR: invalid OPENLAKEFORGE_CATALOG_SILVER_NAMESPACES_JSON: {exc}") from exc
+
+namespace = namespaces.get(product_key)
+if not namespace:
+    raise SystemExit(f"ERROR: missing Silver catalog namespace for product {product_key}")
+sys.stdout.write(namespace)
+PY
+}
+
+profile_for_config() {
+  local domain="$1"
+  local product="$2"
+  local product_key="${domain}_${product}"
+  local profile_path="${GENERATED_PROFILE_PATH}"
+  local silver_namespace
+
+  if [[ -n "${PROFILE_PATH}" || "${IS_AWS_FLOE_PROFILE}" != "true" ]]; then
+    printf '%s\n' "${profile_path}"
+    return
+  fi
+
+  silver_namespace="$(silver_namespace_for_product "${product_key}")"
+  if [[ "${PERSIST_RUNTIME_ARTIFACTS}" == "true" ]]; then
+    profile_path="${FLOE_RUNTIME_ARTIFACT_DIR}/profiles/${domain}/${product}/$(basename "${FLOE_RUNTIME_PROFILE_URI}")"
+  else
+    profile_path="${PROFILE_TMP_DIR}/${domain}/${product}/$(basename "${FLOE_RUNTIME_PROFILE_URI}")"
+  fi
+
+  mkdir -p "$(dirname "${profile_path}")"
+  echo "==> Rendering AWS Floe profile for ${product_key} with Glue database ${silver_namespace}" >&2
+  OPENLAKEFORGE_CATALOG_GLUE_DATABASE="${silver_namespace}" \
+    python3 "${REPO_ROOT}/scripts/local/contracts/render-floe-profile.py" > "${profile_path}"
+
+  printf '%s\n' "${profile_path}"
+}
+
 generate_manifest() {
   local config_path="$1"
   local domain_dir="${config_path%/contracts/floe/*}"
   local product
   local domain
   local manifest_path
+  local profile_path
+  local floe_config_path
+  local floe_profile_path
+  local floe_manifest_path
   product="$(basename "${config_path}" .yml)"
   domain="$(basename "${domain_dir}")"
   manifest_path="${FLOE_MANIFEST_PATH:-${domain_dir}/contracts/floe/manifests/${product}.manifest.json}"
 
+  if [[ -z "${FLOE_MANIFEST_PATH:-}" && "${PERSIST_RUNTIME_ARTIFACTS}" == "true" ]]; then
+    manifest_path="${FLOE_RUNTIME_ARTIFACT_DIR}/manifests/${domain}/${product}/${product}.manifest.json"
+  fi
+
   mkdir -p "$(dirname "${manifest_path}")"
+  profile_path="$(profile_for_config "${domain}" "${product}")"
 
   echo "==> Validating Floe config: ${config_path}"
-  "${FLOE_CMD[@]}" validate -c "${config_path}" -p "${GENERATED_PROFILE_PATH}"
+  floe_config_path="$(floe_path "${config_path}")"
+  floe_profile_path="$(floe_path "${profile_path}")"
+  floe_manifest_path="$(floe_path "${manifest_path}")"
+  "${FLOE_CMD[@]}" validate -c "${floe_config_path}" -p "${floe_profile_path}"
 
   echo "==> Generating Floe manifest: ${manifest_path}"
   "${FLOE_CMD[@]}" manifest generate \
-    -c "${config_path}" \
-    -p "${GENERATED_PROFILE_PATH}" \
+    -c "${floe_config_path}" \
+    -p "${floe_profile_path}" \
     --deterministic \
     --manifest-name "${domain}.${product}.local" \
     --default-domain "${domain}_${product}" \
     --manifest-path-mode resolved-uri \
-    --output "${manifest_path}"
-
-  if ! command -v python3 &>/dev/null; then
-    echo "ERROR: python3 is required to patch the generated Floe manifest." >&2
-    exit 1
-  fi
-
-  python3 - "${manifest_path}" <<'PY'
-import hashlib
-import json
-import sys
-from pathlib import Path
-
-manifest_path = Path(sys.argv[1])
-payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-base_args = payload["execution"]["base_args"]
-
-if "--run-id" not in base_args:
-    base_args.extend(["--run-id", "{run_id}"])
-
-payload["profile_uri"] = "local:///work/libs/floe/profiles/local-k8s.yml"
-revision_payload = dict(payload)
-revision_payload.pop("manifest_revision", None)
-revision_bytes = json.dumps(
-    revision_payload,
-    sort_keys=True,
-    separators=(",", ":"),
-).encode("utf-8")
-payload["manifest_revision"] = f"sha256:{hashlib.sha256(revision_bytes).hexdigest()}"
-
-manifest_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-PY
+    --output "${floe_manifest_path}"
 
   echo "Generated ${manifest_path}"
 }

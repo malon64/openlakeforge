@@ -31,17 +31,8 @@ PY
 PYTHON_BIN="$(select_python)"
 
 CACHE_ROOT="${PROJECT_CODE_CHECK_CACHE_DIR:-.cache/project-code-check}"
-python_tag="$("${PYTHON_BIN}" - <<'PY'
-import sys
-print(f"py{sys.version_info.major}{sys.version_info.minor}")
-PY
-)"
-pyproject_hash="$("${PYTHON_BIN}" - <<'PY'
-import hashlib
-from pathlib import Path
-print(hashlib.sha256(Path("images/project-code/pyproject.toml").read_bytes()).hexdigest()[:16])
-PY
-)"
+python_tag="$("${PYTHON_BIN}" -c 'import sys; print(f"py{sys.version_info.major}{sys.version_info.minor}")')"
+pyproject_hash="$("${PYTHON_BIN}" -c 'import hashlib, pathlib; print(hashlib.sha256(pathlib.Path("images/project-code/pyproject.toml").read_bytes()).hexdigest()[:16])')"
 site_dir="${CACHE_ROOT}/${python_tag}-${pyproject_hash}/site"
 stamp_path="${CACHE_ROOT}/${python_tag}-${pyproject_hash}/.complete"
 
@@ -52,7 +43,7 @@ if [[ ! -f "${stamp_path}" ]]; then
   dependencies=()
   while IFS= read -r dependency; do
     dependencies+=("${dependency}")
-  done < <("${PYTHON_BIN}" - <<'PY'
+  done < <("${PYTHON_BIN}" -c '
 import ast
 from pathlib import Path
 
@@ -67,7 +58,7 @@ for line in text.splitlines():
         continue
     if stripped == "]":
         break
-    if stripped:
+    if stripped and not stripped.startswith("#"):
         dependencies.append(ast.literal_eval(stripped.rstrip(",")))
 
 if not dependencies:
@@ -75,8 +66,7 @@ if not dependencies:
 
 for dependency in dependencies:
     print(dependency)
-PY
-  )
+')
 
   echo "==> Installing project-code dependencies into ${site_dir}"
   PYTHONDONTWRITEBYTECODE=1 "${PYTHON_BIN}" -m pip install \
@@ -92,6 +82,7 @@ fi
 
 echo "==> Loading domain Dagster product definitions"
 PATH="${site_dir}/bin:${PATH}" PYTHONPATH="${site_dir}:${PWD}" "${PYTHON_BIN}" - <<'PY'
+import json
 import os
 from pathlib import Path
 
@@ -115,6 +106,7 @@ from domains.supply_chain.definitions import defs as supply_chain_defs
 from domains.supply_chain.extract.dlt.inventory_reliability import (
     INVENTORY_RELIABILITY_ENTITIES,
 )
+import libs.product_dagster as product_dagster_lib
 
 PRODUCTS = [
     {
@@ -217,16 +209,16 @@ for product in PRODUCTS:
         f"s3://openlakeforge-ops/floe/reports/{product['domain']}/{product['product']}"
     ):
         raise SystemExit(f"{prefix} Floe manifest must write reports to the ops bucket")
-    if manifest.execution.base_args != [
+    expected_base_args = [
         "run",
         "--manifest",
         "{manifest_uri}",
         "--log-format",
         "json",
         "--quiet",
-        "--run-id",
-        "{run_id}",
-    ]:
+    ]
+    expected_base_args_with_run_id = expected_base_args + ["--run-id", "{run_id}"]
+    if manifest.execution.base_args not in [expected_base_args, expected_base_args_with_run_id]:
         raise SystemExit(f"{prefix} Floe manifest does not use the runtime manifest_uri placeholder")
     if manifest.execution.orchestration is None or manifest.execution.orchestration.strategy != "sequential":
         raise SystemExit(f"{prefix} Floe manifest should use sequential orchestration locally")
@@ -258,6 +250,55 @@ for product in PRODUCTS:
     for asset_name in product["gold"]:
         if (prefix, asset_name) not in asset_keys:
             raise SystemExit(f"missing dbt Gold asset {prefix}/{asset_name}")
+
+sample_product = PRODUCTS[0]
+remote_payload = json.loads(sample_product["manifest"].read_text())
+remote_payload["execution"]["base_args"] = [
+    "run",
+    "--manifest",
+    "{manifest_uri}",
+    "--log-format",
+    "json",
+    "--quiet",
+    "--run-id",
+    "{run_id}",
+]
+remote_payload["execution"]["per_entity_args"] = ["--entities", "{entity_name}"]
+
+previous_env = {
+    key: os.environ.get(key)
+    for key in [
+        "OPENLAKEFORGE_CATALOG_TYPE",
+        "OPENLAKEFORGE_CATALOG_PROVIDER",
+        "OPENLAKEFORGE_FLOE_MANIFEST_CACHE_DIR",
+    ]
+}
+previous_reader = product_dagster_lib.read_text_uri
+os.environ["OPENLAKEFORGE_CATALOG_TYPE"] = "glue"
+os.environ["OPENLAKEFORGE_CATALOG_PROVIDER"] = "aws-glue"
+os.environ["OPENLAKEFORGE_FLOE_MANIFEST_CACHE_DIR"] = ".tmp/project-code-check-floe-manifests"
+product_dagster_lib.read_text_uri = lambda uri: json.dumps(remote_payload)
+try:
+    sample_spec = product_dagster_lib.ProductDefinitionSpec(
+        domain=sample_product["domain"],
+        product=sample_product["product"],
+        asset_prefix=sample_product["prefix"],
+        entities=tuple(sample_product["entities"]),
+        gold_assets=tuple(sample_product["gold"]),
+        domain_dir=Path("domains") / sample_product["domain"],
+        bronze_loader=lambda: {},
+    )
+    cached_manifest_path = product_dagster_lib._manifest_path_for_dagster(sample_spec)
+    cached_manifest = load_manifest(cached_manifest_path)
+    if cached_manifest.execution.base_args[:3] != ["run", "--manifest", "{manifest_uri}"]:
+        raise SystemExit("AWS remote Floe manifest was not used for Dagster manifest replay args")
+finally:
+    product_dagster_lib.read_text_uri = previous_reader
+    for key, value in previous_env.items():
+        if value is None:
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = value
 
 if not any(key[0] == "sales_order_revenue" for key in sales_asset_keys):
     raise SystemExit("sales domain definitions did not load sales_order_revenue assets")

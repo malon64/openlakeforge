@@ -15,7 +15,7 @@ variable "catalog_name" {
 }
 
 variable "catalog_namespaces" {
-  description = "Product/layer Glue databases to create."
+  description = "Product/layer Glue databases exposed as Iceberg schemas."
   type = list(object({
     name     = string
     location = string

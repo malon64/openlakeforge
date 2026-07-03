@@ -49,6 +49,10 @@ The current seed POC contains two Sales data products, `order_revenue` and
 The first AWS query path still uses Trino. Athena is documented as a future
 adapter because it changes query pricing, Superset wiring, and e2e validation.
 
+To deploy the AWS or Azure POC into your own account — credentials, the
+per-account `sandbox.tfvars`, and the `make` targets — see
+[docs/setup/cloud-poc-setup.md](docs/setup/cloud-poc-setup.md).
+
 ## Repository Structure
 
 ```text
@@ -266,7 +270,7 @@ make local-foundation-down
 ## AWS POC
 
 The AWS POC is contract-compatible with local and Azure but uses EKS, ECR, S3,
-RDS PostgreSQL, Glue, and IRSA. Default region is `eu-west-1`; override
+RDS PostgreSQL, Glue, and EKS Pod Identity. Default region is `eu-west-1`; override
 `AWS_REGION` and the related `AWS_*` Make variables as needed.
 
 ```sh

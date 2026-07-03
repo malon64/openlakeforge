@@ -48,9 +48,15 @@ variable "storage_contract" {
 }
 
 variable "service_account_annotations" {
-  description = "Optional annotations for the Trino service account, used by AWS IRSA."
+  description = "Optional annotations for the Trino service account, used by AWS workload identity integrations."
   type        = map(string)
   default     = {}
+}
+
+variable "service_account_name" {
+  description = "Name of the Trino service account to create and use. Set this for workload-identity models that bind by service account name and need no annotation (e.g. EKS Pod Identity). When empty, a service account is created only if annotations are provided (IRSA-style)."
+  type        = string
+  default     = ""
 }
 
 variable "catalog_contract" {

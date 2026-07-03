@@ -10,6 +10,11 @@ FOUNDATION_STATE_PATH="${FOUNDATION_STATE_PATH:-${FOUNDATION_TERRAFORM_DIR}/terr
 NAMESPACE="${NAMESPACE:-lakehouse}"
 AWS_CLUSTER_NAME="${AWS_CLUSTER_NAME:-eks-openlakeforge-poc}"
 KUBE_CONTEXT="${KUBE_CONTEXT:-}"
+
+# Account-mandated tags live in a .tfvars file rather than variable defaults.
+TFVARS_FILE="${AWS_TFVARS_FILE:-${TERRAFORM_DIR}/sandbox.tfvars}"
+TFVARS_ARGS=()
+[[ -f "${TFVARS_FILE}" ]] && TFVARS_ARGS+=(-var-file="${TFVARS_FILE}")
 PROJECT_CODE_IMAGE_PULL_POLICY="${PROJECT_CODE_IMAGE_PULL_POLICY:-Always}"
 PROJECT_CODE_IMAGE_REVISION="${PROJECT_CODE_IMAGE_REVISION:-manual}"
 SUPERSET_IMAGE_PULL_POLICY="${SUPERSET_IMAGE_PULL_POLICY:-Always}"
@@ -140,6 +145,7 @@ prepare_superset_image() {
 
 terraform_apply_once() {
   terraform -chdir="${TERRAFORM_DIR}" apply -auto-approve \
+    ${TFVARS_ARGS[@]+"${TFVARS_ARGS[@]}"} \
     -var="namespace=${NAMESPACE}" \
     -var="aws_region=${AWS_REGION}" \
     -var="kube_context=${KUBE_CONTEXT}" \

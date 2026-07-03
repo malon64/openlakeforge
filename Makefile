@@ -23,7 +23,9 @@ AZURE_PROJECT_CODE_IMAGE_TAG ?= $(AZURE_IMAGE_TAG)
 AZURE_SUPERSET_IMAGE_REPOSITORY ?=
 AZURE_SUPERSET_IMAGE_TAG ?= $(AZURE_IMAGE_TAG)
 AWS_REGION ?= eu-west-1
-AWS_CLUSTER_NAME ?= eks-openlakeforge-poc
+# Runtime cluster name / kube-context. Must match cluster_name in
+# infra/terraform/foundations/aws-eks/sandbox.tfvars (sandbox requires a limited- prefix).
+AWS_CLUSTER_NAME ?= limited-eks-openlakeforge-poc
 AWS_KUBE_CONTEXT ?= $(AWS_CLUSTER_NAME)
 AWS_NODE_DESIRED_SIZE ?= 3
 AWS_NODE_MIN_SIZE ?= 1

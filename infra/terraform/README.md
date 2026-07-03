@@ -29,7 +29,7 @@ infra/terraform/
 
 The local foundation root creates the kind cluster. The Azure foundation root
 creates the AKS cluster and ACR registry. The AWS foundation root creates the
-VPC, EKS cluster, node group, ECR registries, and IAM OIDC provider for IRSA.
+VPC, EKS cluster, node group, ECR registries, and EKS Pod Identity readiness.
 Environment roots then deploy OpenLakeForge into the selected cluster through
 the Kubernetes and Helm providers. Static, non-secret Helm chart values live in
 `../helm/values/local`; Terraform modules overlay the dynamic contract values
@@ -157,8 +157,8 @@ make aws-foundation-down
 
 `make aws-foundation-up` runs Terraform in
 `infra/terraform/foundations/aws-eks` to create the VPC, EKS cluster, managed
-node group, EKS add-ons, ECR repositories, and IRSA OIDC provider. The wrapper
-then runs `aws eks update-kubeconfig`.
+node group, EKS add-ons, ECR repositories, and EKS Pod Identity add-on/roles.
+The wrapper then runs `aws eks update-kubeconfig`.
 
 `make aws-up` runs:
 
@@ -169,8 +169,8 @@ make aws-artifacts-deploy
 
 `make aws-infra-up` builds and pushes the custom Superset image to ECR before
 Terraform apply. The AWS platform root creates S3 medallion and ops buckets,
-RDS PostgreSQL, Glue product-layer databases, IRSA workload access, and the
-shared Helm services on EKS.
+RDS PostgreSQL, product-layer Glue databases/namespaces, Pod Identity workload
+access, and the shared Helm services on EKS.
 
 `make aws-artifacts-deploy` generates Floe manifests, builds and pushes the
 project-code image, uploads manifests directly to the S3 ops bucket, imports

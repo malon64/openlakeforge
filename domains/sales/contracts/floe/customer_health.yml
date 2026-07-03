@@ -6,6 +6,22 @@ metadata:
   description: "Customer Health Bronze to Silver Floe contracts."
   tags: ["sales", "customer_health", "silver"]
 
+storages:
+  default: "lakehouse_bronze"
+  definitions:
+    - name: "lakehouse_bronze"
+      type: "s3"
+      bucket: "{{OPENLAKEFORGE_STORAGE_BRONZE_BUCKET}}"
+      region: "{{OPENLAKEFORGE_STORAGE_REGION}}"
+    - name: "lakehouse_silver"
+      type: "s3"
+      bucket: "{{OPENLAKEFORGE_STORAGE_SILVER_BUCKET}}"
+      region: "{{OPENLAKEFORGE_STORAGE_REGION}}"
+    - name: "openlakeforge_ops"
+      type: "s3"
+      bucket: "{{OPENLAKEFORGE_OPS_BUCKET_NAME}}"
+      region: "{{OPENLAKEFORGE_STORAGE_REGION}}"
+
 report:
   path: "floe/reports/sales/customer_health"
   storage: "openlakeforge_ops"

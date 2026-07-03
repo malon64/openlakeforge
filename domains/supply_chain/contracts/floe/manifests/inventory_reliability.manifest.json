@@ -1,15 +1,15 @@
 {
   "schema": "floe.manifest.v1",
   "generated_at_ts_ms": 0,
-  "floe_version": "0.5.4",
+  "floe_version": "0.6.5",
   "spec_version": "0.2",
   "manifest_name": "supply_chain.inventory_reliability.local",
-  "manifest_id": "mfv1-07f15b844fbee7de",
-  "manifest_revision": "sha256:5430863eb9a9b35fb174a5f80de61875b58cac1b5ab907b47e21bdf2a572df90",
+  "manifest_id": "mfv1-33ef4a55e13b0add",
+  "manifest_revision": "sha256:5fc20bf8e6c42f14b1587024f4804945e1e88fa334fece91edae6870d880646f",
   "config_uri": "local:///work/domains/supply_chain/contracts/floe/inventory_reliability.yml",
-  "config_checksum": "sha256:e627b36c07b2ddd5002e59ac37b96a454bc7b193cf92d834ca6604dc49cde0bb",
+  "config_checksum": "sha256:2991619176cc8f8990bbde7a34bb76fa494e9fc72c72b8b62a905f0519d4d399",
   "profile_uri": "local:///work/libs/floe/profiles/local-k8s.yml",
-  "profile_checksum": "sha256:b43075f398c0f9f7626f4d816e9437a2aff39d1b91e4a1c69cf8704a6a9c036b",
+  "profile_checksum": "sha256:73fc3891e27b676c52222895c96844acd50bbcf6fae55e07f47aa42d8e650e2b",
   "report_base_uri": "s3://openlakeforge-ops/floe/reports/supply_chain/inventory_reliability",
   "domains": [],
   "execution": {
@@ -20,9 +20,7 @@
       "{manifest_uri}",
       "--log-format",
       "json",
-      "--quiet",
-      "--run-id",
-      "{run_id}"
+      "--quiet"
     ],
     "per_entity_args": [
       "--entities",
@@ -78,7 +76,7 @@
             "key": "POLARIS_FLOE_CLIENT_SECRET"
           }
         ],
-        "image": "ghcr.io/malon64/floe:0.5.4",
+        "image": "ghcr.io/malon64/floe:0.6.5",
         "namespace": "lakehouse",
         "service_account": "dagster",
         "resources": null,
@@ -781,7 +779,7 @@
           "uri": "http://polaris:8181/api/catalog",
           "warehouse": "lakehouse_dev"
         },
-        "warehouse_prefix": "s3://lakehouse-silver",
+        "warehouse_prefix": "warehouse/iceberg",
         "warehouse_storage": "lakehouse_silver"
       }
     ]

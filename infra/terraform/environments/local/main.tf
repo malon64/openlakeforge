@@ -169,6 +169,8 @@ module "superset" {
   image_tag           = var.superset_image_tag
   image_pull_policy   = var.superset_image_pull_policy
   postgresql_contract = local.metadata_database_contract
+  kubeconfig_path     = local.kubeconfig_path
+  kube_context        = local.kubernetes_platform_contract.kube_context
 
   depends_on = [
     module.postgresql,

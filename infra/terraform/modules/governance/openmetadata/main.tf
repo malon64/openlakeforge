@@ -272,12 +272,12 @@ resource "kubernetes_job_v1" "bootstrap" {
 
             if [ "$catalog_type" = "rest" ]; then
               polaris_token_code="$(curl -sS -o /tmp/polaris-token-body -w '%%{http_code}' \
-                -X POST "${coalesce(try(var.catalog_contract.token_uri, null), "")}" \
+                -X POST "${(try(var.catalog_contract.token_uri, null) == null ? "" : try(var.catalog_contract.token_uri, null))}" \
                 -H "Content-Type: application/x-www-form-urlencoded" \
                 --data-urlencode "grant_type=client_credentials" \
                 --data-urlencode "client_id=$POLARIS_OM_CLIENT_ID" \
                 --data-urlencode "client_secret=$POLARIS_OM_CLIENT_SECRET" \
-                --data-urlencode "scope=${coalesce(try(var.catalog_contract.oauth_scope, null), "")}")"
+                --data-urlencode "scope=${(try(var.catalog_contract.oauth_scope, null) == null ? "" : try(var.catalog_contract.oauth_scope, null))}")"
               if [ "$polaris_token_code" != "200" ]; then
                 echo "Failed to obtain Polaris token for OpenMetadata (HTTP $polaris_token_code)" >&2
                 cat /tmp/polaris-token-body >&2
@@ -320,7 +320,7 @@ resource "kubernetes_job_v1" "bootstrap" {
                         \"fileSystem\": {
                           \"type\": {
                             \"awsRegion\": \"${var.storage_contract.region}\",
-                            \"endPointURL\": \"${coalesce(try(var.storage_contract.virtual_host_endpoint, null), "")}\"
+                            \"endPointURL\": \"${(try(var.storage_contract.virtual_host_endpoint, null) == null ? "" : try(var.storage_contract.virtual_host_endpoint, null))}\"
                           }
                         }
                       }

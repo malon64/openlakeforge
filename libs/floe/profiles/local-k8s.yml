@@ -1,24 +1,14 @@
 apiVersion: floe/v1
 kind: EnvironmentProfile
 metadata:
-  name: local-k8s
-  env: local
+  name: "local-k8s"
+  env: "local"
   description: "Local kind Kubernetes runner profile for OpenLakeForge Floe assets."
-storages:
-  default: "lakehouse_bronze"
-  definitions:
-    - name: "lakehouse_bronze"
-      type: "s3"
-      bucket: "lakehouse-bronze"
-      region: "us-east-1"
-    - name: "lakehouse_silver"
-      type: "s3"
-      bucket: "lakehouse-silver"
-      region: "us-east-1"
-    - name: "openlakeforge_ops"
-      type: "s3"
-      bucket: "openlakeforge-ops"
-      region: "us-east-1"
+variables:
+  OPENLAKEFORGE_STORAGE_BRONZE_BUCKET: "lakehouse-bronze"
+  OPENLAKEFORGE_STORAGE_SILVER_BUCKET: "lakehouse-silver"
+  OPENLAKEFORGE_OPS_BUCKET_NAME: "openlakeforge-ops"
+  OPENLAKEFORGE_STORAGE_REGION: "us-east-1"
 catalogs:
   default: "iceberg_catalog"
   definitions:
@@ -30,13 +20,13 @@ catalogs:
       oauth2_server_uri: "http://polaris:8181/api/catalog/v1/oauth/tokens"
       scope: "PRINCIPAL_ROLE:ALL"
       warehouse_storage: "lakehouse_silver"
-      warehouse_prefix: "s3://lakehouse-silver"
+      warehouse_prefix: "warehouse/iceberg"
 execution:
   orchestration:
     strategy: sequential
   runner:
     type: kubernetes_job
-    image: ghcr.io/malon64/floe:0.5.4
+    image: ghcr.io/malon64/floe:0.6.5
     namespace: lakehouse
     service_account: dagster
     timeout_seconds: 600

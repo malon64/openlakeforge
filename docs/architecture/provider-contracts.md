@@ -32,7 +32,7 @@ Local implements the cluster foundation with `kind` through
 `infra/terraform/foundations/local-kind`. Azure uses
 `infra/terraform/foundations/azure-aks` for AKS and ACR. AWS uses
 `infra/terraform/foundations/aws-eks` for VPC, EKS, node groups, add-ons, ECR,
-and IRSA readiness.
+and EKS Pod Identity readiness.
 
 ## Stable Contracts
 
@@ -45,10 +45,10 @@ and IRSA readiness.
 | Catalog | `catalog.iceberg_rest.polaris` | `catalog.iceberg_rest.polaris_on_aks` | `catalog.aws_glue` |
 | Query | Trino Helm release | Trino Helm release | Trino Helm release with Glue catalog |
 | Reporting | Superset Helm release | Superset Helm release with ACR image | Superset Helm release with ECR image and RDS metadata DB |
-| Orchestration | Dagster with domain code locations | Dagster with ACR project-code image | Dagster with ECR project-code image and IRSA |
+| Orchestration | Dagster with domain code locations | Dagster with ACR project-code image | Dagster with ECR project-code image and EKS Pod Identity |
 | Artifacts | `artifacts.local_kind_and_s3` | `artifacts.azure_acr_and_s3_compatible_bucket` | `artifacts.aws_ecr_and_s3` |
 | Secrets | `secrets.kubernetes_secret` | `secrets.kubernetes_secret_on_aks` | `secrets.kubernetes_secret_on_eks` |
-| Identity | Local/basic app credentials | AKS OIDC readiness | `identity.aws_irsa` |
+| Identity | Local/basic app credentials | AKS OIDC readiness | `identity.aws_pod_identity` |
 | Access | `kubectl port-forward` | `kubectl port-forward` | `kubectl port-forward` |
 | Observability | `observability.object_log_archive` | `observability.object_log_archive_on_aks` | `observability.object_log_archive_on_eks` |
 
@@ -87,8 +87,14 @@ runtime_profile = "aws-glue-rest"
 ```
 
 The AWS implementation does not expose Polaris REST or OAuth credentials to
-writer runtimes. Consumers that support more than one Iceberg catalog
-implementation branch on `catalog_type`.
+writer runtimes. Floe uses its native Glue catalog profile (`type: "glue"`).
+Other consumers that support more than one Iceberg catalog implementation
+branch on `catalog_type`. AWS keeps the same three-part SQL hierarchy as local
+and Azure, but maps it onto Glue's two-level physical model: the first SQL
+segment (`lakehouse_dev` by default) is the engine catalog alias for the AWS Glue
+Data Catalog, while product layers such as `sales_order_revenue_silver` are Glue
+databases/namespaces. A table resolves in SQL as
+`lakehouse_dev.sales_order_revenue_silver.sales_order_score`.
 
 ## Local Defaults
 
@@ -109,7 +115,7 @@ the same contracts a future provider profile should satisfy.
 
 ## AWS POC Notes
 
-The AWS roots use managed S3, RDS PostgreSQL, Glue, ECR, and IRSA, but keep the
+The AWS roots use managed S3, RDS PostgreSQL, Glue, ECR, and EKS Pod Identity, but keep the
 same POC limits as the other environments: local Terraform state, Kubernetes
 Secrets, no ingress/TLS, and port-forward access. Athena, Secrets Manager,
 External Secrets, Lake Formation, remote state, and production observability are

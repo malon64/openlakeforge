@@ -13,7 +13,7 @@ IMAGES=(
   "apache/superset:dockerize"
   "apache/superset:6.1.0"
   "docker.io/bitnamilegacy/redis:7.0.10-debian-11-r4"
-  "ghcr.io/malon64/floe:0.5.4"
+  "ghcr.io/malon64/floe:0.6.5"
 )
 
 WORK_DIR="$(mktemp -d)"

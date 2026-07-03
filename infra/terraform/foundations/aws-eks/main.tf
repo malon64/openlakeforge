@@ -15,6 +15,10 @@ terraform {
 
 provider "aws" {
   region = var.aws_region
+
+  default_tags {
+    tags = var.default_tags
+  }
 }
 
 data "aws_caller_identity" "current" {}
@@ -214,6 +218,57 @@ resource "aws_eks_addon" "kube_proxy" {
   resolve_conflicts_on_update = "OVERWRITE"
 }
 
+# Workload identity uses EKS Pod Identity (not IRSA/OIDC). The sandbox guardrail
+# explicitly denies iam:CreateOpenIDConnectProvider and OIDC providers cannot take
+# the required "limited-" name prefix, so per-service roles are bound to Kubernetes
+# service accounts through Pod Identity associations instead. See
+# docs/adr/0016-aws-eks-pod-identity-over-irsa.md.
+resource "aws_eks_addon" "pod_identity_agent" {
+  cluster_name                = aws_eks_cluster.this.name
+  addon_name                  = "eks-pod-identity-agent"
+  resolve_conflicts_on_create = "OVERWRITE"
+  resolve_conflicts_on_update = "OVERWRITE"
+
+  depends_on = [aws_eks_node_group.system]
+}
+
+# Dedicated Pod Identity role for the managed EBS CSI driver controller.
+resource "aws_iam_role" "ebs_csi" {
+  name = "${var.cluster_name}-ebs-csi"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect    = "Allow"
+        Principal = { Service = "pods.eks.amazonaws.com" }
+        Action = [
+          "sts:AssumeRole",
+          "sts:TagSession",
+        ]
+      },
+    ]
+  })
+
+  tags = local.common_tags
+}
+
+resource "aws_iam_role_policy_attachment" "ebs_csi" {
+  role       = aws_iam_role.ebs_csi.name
+  policy_arn = "arn:${data.aws_partition.current.partition}:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy"
+}
+
+resource "aws_eks_pod_identity_association" "ebs_csi" {
+  cluster_name    = aws_eks_cluster.this.name
+  namespace       = "kube-system"
+  service_account = "ebs-csi-controller-sa"
+  role_arn        = aws_iam_role.ebs_csi.arn
+
+  tags = local.common_tags
+
+  depends_on = [aws_eks_addon.pod_identity_agent]
+}
+
 resource "aws_eks_addon" "ebs_csi" {
   cluster_name                = aws_eks_cluster.this.name
   addon_name                  = "aws-ebs-csi-driver"
@@ -222,25 +277,18 @@ resource "aws_eks_addon" "ebs_csi" {
 
   depends_on = [
     aws_eks_node_group.system,
-    aws_iam_role_policy_attachment.node_ebs_csi,
+    aws_eks_pod_identity_association.ebs_csi,
   ]
-}
-
-data "tls_certificate" "eks_oidc" {
-  url = aws_eks_cluster.this.identity[0].oidc[0].issuer
-}
-
-resource "aws_iam_openid_connect_provider" "this" {
-  url             = aws_eks_cluster.this.identity[0].oidc[0].issuer
-  client_id_list  = ["sts.amazonaws.com"]
-  thumbprint_list = [data.tls_certificate.eks_oidc.certificates[0].sha1_fingerprint]
-
-  tags = local.common_tags
 }
 
 resource "aws_ecr_repository" "project_code" {
   name                 = var.project_code_ecr_repository_name
   image_tag_mutability = "MUTABLE"
+
+  # force_delete lets `terraform destroy` (aws-foundation-down) remove the
+  # repository even when it still holds pushed images. Without it, teardown
+  # fails with RepositoryNotEmptyException and the images must be emptied by hand.
+  force_delete = true
 
   image_scanning_configuration {
     scan_on_push = true
@@ -252,6 +300,9 @@ resource "aws_ecr_repository" "project_code" {
 resource "aws_ecr_repository" "superset" {
   name                 = var.superset_ecr_repository_name
   image_tag_mutability = "MUTABLE"
+
+  # See project_code above: allow destroy to drop a non-empty repository.
+  force_delete = true
 
   image_scanning_configuration {
     scan_on_push = true

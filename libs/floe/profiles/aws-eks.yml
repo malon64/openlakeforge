@@ -1,0 +1,40 @@
+apiVersion: floe/v1
+kind: EnvironmentProfile
+metadata:
+  name: "aws-eks"
+  env: "aws"
+  description: "AWS EKS runner profile for OpenLakeForge Floe assets."
+variables:
+  OPENLAKEFORGE_STORAGE_BRONZE_BUCKET: "openlakeforge-poc-bronze"
+  OPENLAKEFORGE_STORAGE_SILVER_BUCKET: "openlakeforge-poc-silver"
+  OPENLAKEFORGE_OPS_BUCKET_NAME: "openlakeforge-poc-ops"
+  OPENLAKEFORGE_STORAGE_REGION: "eu-west-1"
+catalogs:
+  default: "iceberg_catalog"
+  definitions:
+    - name: "iceberg_catalog"
+      type: "glue"
+      region: "eu-west-1"
+      database: "sales_customer_health_silver"
+      warehouse_storage: "lakehouse_silver"
+      warehouse_prefix: "warehouse/iceberg"
+      create_database_if_missing: false
+execution:
+  orchestration:
+    strategy: sequential
+  runner:
+    type: kubernetes_job
+    image: ghcr.io/malon64/floe:0.6.5
+    namespace: lakehouse
+    service_account: dagster
+    timeout_seconds: 600
+    ttl_seconds_after_finished: 3600
+    poll_interval_seconds: 5
+    env:
+      AWS_REGION: "eu-west-1"
+      AWS_DEFAULT_REGION: "eu-west-1"
+      AWS_S3_FORCE_PATH_STYLE: "false"
+      AWS_EC2_METADATA_DISABLED: "false"
+    secrets: []
+validation:
+  strict: true

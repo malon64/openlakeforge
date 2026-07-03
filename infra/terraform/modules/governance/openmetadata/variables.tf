@@ -206,7 +206,7 @@ variable "superset_verify_ssl" {
 }
 
 variable "service_account_annotations" {
-  description = "Optional annotations for OpenMetadata-related service accounts, used by AWS IRSA."
+  description = "Optional annotations for OpenMetadata-related service accounts, used by AWS workload identity integrations."
   type        = map(string)
   default     = {}
 }

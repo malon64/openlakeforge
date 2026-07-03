@@ -2,7 +2,8 @@
 
 ## Status
 
-Accepted.
+Accepted. The identity decision (`identity.aws_irsa`) is amended by
+[ADR 0016](0016-aws-eks-pod-identity-over-irsa.md), which adopts EKS Pod Identity.
 
 ## Context
 
@@ -19,8 +20,8 @@ contracts instead of only moving Kubernetes hosting to EKS.
 Add an AWS POC profile with two Terraform phases:
 
 - `infra/terraform/foundations/aws-eks` creates the VPC, public subnets, EKS
-  cluster, managed node group, EKS add-ons, ECR repositories, and the IAM OIDC
-  provider needed for IRSA.
+  cluster, managed node group, EKS add-ons, ECR repositories, and workload
+  identity readiness.
 - `infra/terraform/environments/aws-poc` consumes that foundation state, deploys
   the OpenLakeForge Helm services into EKS, and replaces selected dependencies
   with AWS managed services.
@@ -30,9 +31,11 @@ The active AWS POC contracts are:
 - `storage.aws_s3` for Bronze, Silver, Gold, and ops buckets.
 - `metadata_database.aws_rds_postgresql` for Dagster, OpenMetadata, and Superset
   metadata databases, with `ssl_mode=require`.
-- `catalog.aws_glue` for product-layer Iceberg namespaces through AWS Glue.
+- `catalog.aws_glue` for the AWS account Data Catalog with product-layer Glue
+  databases/namespaces. `lakehouse_dev` remains the SQL catalog alias, not a
+  physical Glue database.
 - `artifacts.aws_ecr_and_s3` for runtime images and Floe/log/report artifacts.
-- `identity.aws_irsa` for S3 and Glue runtime access.
+- `identity.aws_pod_identity` for S3 and Glue runtime access.
 
 Keep Trino as the first AWS query path. Athena remains a future adapter because
 it changes query cost behavior, Superset connectivity, validation, and runtime

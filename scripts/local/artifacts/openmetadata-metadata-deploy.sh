@@ -89,6 +89,9 @@ ALLOW_MISSING_ASSETS = sys.argv[6].lower() in {"1", "true", "yes", "y"}
 CATALOG_SERVICE = sys.argv[7]
 CATALOG_DATABASE = sys.argv[8]
 CLEANUP_LEGACY_DEFAULT_DATABASE = sys.argv[9].lower() in {"1", "true", "yes", "y"}
+CATALOG_DATABASE_FQN = os.environ.get("OPENLAKEFORGE_CATALOG_DATABASE_FQN", f"{CATALOG_SERVICE}.{CATALOG_DATABASE}")
+CATALOG_SILVER_SCHEMA_FQNS_RAW = os.environ.get("OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON", "{}")
+CATALOG_GOLD_SCHEMA_FQNS_RAW = os.environ.get("OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON", "{}")
 STORAGE_SERVICE = os.environ.get("OPENLAKEFORGE_STORAGE_OM_SERVICE", "seaweedfs")
 STORAGE_DISPLAY_NAME = os.environ.get("OPENLAKEFORGE_STORAGE_DISPLAY_NAME", "SeaweedFS S3")
 STORAGE_ENDPOINT = os.environ.get("OPENLAKEFORGE_STORAGE_ENDPOINT", "http://seaweedfs-s3:8333")
@@ -103,6 +106,26 @@ STORAGE_GOLD_BUCKET = os.environ.get("OPENLAKEFORGE_STORAGE_GOLD_BUCKET", "lakeh
 
 class OpenMetadataError(RuntimeError):
     pass
+
+
+def parse_json_env(name, raw):
+    try:
+        value = json.loads(raw or "{}")
+    except json.JSONDecodeError as exc:
+        raise OpenMetadataError(f"Environment variable {name} must be valid JSON: {exc}") from exc
+    if not isinstance(value, dict):
+        raise OpenMetadataError(f"Environment variable {name} must contain a JSON object.")
+    return value
+
+
+CATALOG_SILVER_SCHEMA_FQNS = parse_json_env(
+    "OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON",
+    CATALOG_SILVER_SCHEMA_FQNS_RAW,
+)
+CATALOG_GOLD_SCHEMA_FQNS = parse_json_env(
+    "OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON",
+    CATALOG_GOLD_SCHEMA_FQNS_RAW,
+)
 
 
 def request(method, path, token=None, payload=None, ok_statuses=(200,), content_type="application/json"):
@@ -364,6 +387,43 @@ def data_product_asset_ref(table_ref):
     }
 
 
+def product_contract_key(product):
+    return product.get("asset_prefix") or product.get("name") or product.get("id") or ""
+
+
+def schema_fqn_for_product(product, table_group_key, fallback):
+    product_key = product_contract_key(product)
+    if table_group_key == "silver_tables":
+        return CATALOG_SILVER_SCHEMA_FQNS.get(product_key) or fallback
+    if table_group_key == "gold_tables":
+        return CATALOG_GOLD_SCHEMA_FQNS.get(product_key) or fallback
+    return fallback
+
+
+def provider_asset_fqn(product, fqn):
+    if not fqn:
+        return fqn
+
+    table_name = fqn.rsplit(".", 1)[-1]
+    for schema_fqn, table in product_table_specs(product):
+        if table.get("name") == table_name:
+            return f"{schema_fqn}.{table_name}"
+    return fqn
+
+
+def asset_with_provider_fqn(product, asset):
+    if isinstance(asset, str):
+        return provider_asset_fqn(product, asset)
+    if isinstance(asset, dict):
+        rewritten = dict(asset)
+        fqn = rewritten.get("fqn") or rewritten.get("fullyQualifiedName")
+        if fqn:
+            rewritten["fqn"] = provider_asset_fqn(product, fqn)
+            rewritten.pop("fullyQualifiedName", None)
+        return rewritten
+    return asset
+
+
 def product_asset_entries(product):
     seen = set()
     for schema_fqn, table in product_table_specs(product):
@@ -381,11 +441,12 @@ def product_asset_entries(product):
         else:
             fqn = None
 
+        fqn = provider_asset_fqn(product, fqn)
         if fqn and fqn in seen:
             continue
         if fqn:
             seen.add(fqn)
-        yield asset
+        yield asset_with_provider_fqn(product, asset)
 
 
 def product_table_specs(product):
@@ -393,7 +454,7 @@ def product_table_specs(product):
         spec = product.get(key)
         if not spec:
             continue
-        schema_fqn = spec.get("schema")
+        schema_fqn = schema_fqn_for_product(product, key, spec.get("schema"))
         if not schema_fqn:
             raise OpenMetadataError(
                 f"Data product '{product.get('name')}' table group '{key}' is missing required 'schema'."
@@ -429,6 +490,9 @@ def validate_bronze_entries(domain_specs):
 
 
 def ensure_storage_service(token, name, display_name, endpoint, region):
+    aws_config = {"awsRegion": region}
+    if endpoint:
+        aws_config["endPointURL"] = endpoint
     payload = {
         "name": name,
         "displayName": display_name,
@@ -436,10 +500,7 @@ def ensure_storage_service(token, name, display_name, endpoint, region):
         "connection": {
             "config": {
                 "type": "S3",
-                "awsConfig": {
-                    "awsRegion": region,
-                    "endPointURL": endpoint,
-                },
+                "awsConfig": aws_config,
             }
         },
     }
@@ -481,7 +542,7 @@ def cleanup_legacy_default_database(token):
     if not CLEANUP_LEGACY_DEFAULT_DATABASE or CATALOG_DATABASE == "default":
         return
 
-    target_fqn = f"{CATALOG_SERVICE}.{CATALOG_DATABASE}"
+    target_fqn = CATALOG_DATABASE_FQN
     legacy_fqn = f"{CATALOG_SERVICE}.default"
     encoded_target = urllib.parse.quote(target_fqn, safe="")
     encoded_legacy = urllib.parse.quote(legacy_fqn, safe="")
@@ -589,7 +650,7 @@ def deploy():
         guidance = (
             "OpenMetadata table assets are not available yet:\n"
             f"{message}\n"
-            "Run the product ETL jobs in Dagster, wait for the Polaris metadata ingestion to crawl the catalog, "
+            "Run the product ETL jobs in Dagster, wait for the catalog metadata ingestion to crawl the catalog, "
             "then rerun 'make openmetadata-metadata-deploy'."
         )
         if ALLOW_MISSING_ASSETS:

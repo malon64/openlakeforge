@@ -14,9 +14,15 @@ output "contract" {
     glue_region                  = var.region
     glue_rest_uri                = local.rest_uri
     glue_rest_warehouse          = var.account_id
-    glue_database_names          = [for namespace in var.catalog_namespaces : namespace.name]
+    glue_database                = null
+    glue_database_location       = null
+    glue_warehouse_prefix        = "warehouse/iceberg"
+    glue_database_names          = local.catalog_schema_names
+    glue_schema_names            = local.catalog_schema_names
+    catalog_schema_names         = local.catalog_schema_names
+    catalog_namespaces           = var.catalog_namespaces
     endpoint                     = local.rest_uri
-    auth_mode                    = "aws-sigv4-irsa"
+    auth_mode                    = "aws-sigv4-pod-identity"
     ssl_mode                     = "required"
     ingress_mode                 = "aws-public-service-endpoint"
     om_credentials_secret_name   = null

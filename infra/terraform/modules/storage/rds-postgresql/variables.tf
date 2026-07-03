@@ -25,9 +25,9 @@ variable "allowed_cidr_blocks" {
 }
 
 variable "engine_version" {
-  description = "RDS PostgreSQL engine version."
+  description = "RDS PostgreSQL engine version. Pin the major version only (e.g. \"16\") so RDS selects the current default minor; AWS retires specific minors over time and the provider suppresses the partial-version diff."
   type        = string
-  default     = "16.4"
+  default     = "16"
 }
 
 variable "instance_class" {

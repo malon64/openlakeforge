@@ -12,11 +12,11 @@ operations cost and durability.
 | Runtime images | ECR repositories for project-code and Superset |
 | Object storage | S3 buckets for Bronze, Silver, Gold, and ops artifacts |
 | Metadata database | RDS PostgreSQL for Dagster, OpenMetadata, and Superset |
-| Iceberg catalog | AWS Glue Data Catalog through Glue Iceberg REST/SigV4 |
+| Iceberg catalog | AWS Glue Data Catalog |
 | Query path | Superset -> Trino -> Glue/S3 |
 | Orchestration | Dagster Helm release with per-domain code locations |
 | Artifacts | Floe manifests, reports, logs, and run artifacts in the S3 ops bucket |
-| Identity | IRSA service account annotations for lakehouse workloads |
+| Identity | EKS Pod Identity associations for lakehouse workloads (see ADR 0016) |
 | Access | `kubectl port-forward`, matching the other POCs |
 
 Trino remains the implemented query engine. Athena is deferred because it would
@@ -29,16 +29,18 @@ model from always-on compute to pay-per-data-scanned queries.
 
 - VPC, internet gateway, route table, and two public subnets.
 - EKS control plane and managed node group.
-- EKS VPC CNI, CoreDNS, kube-proxy, and EBS CSI add-ons.
+- EKS VPC CNI, CoreDNS, kube-proxy, EBS CSI, and Pod Identity agent add-ons.
 - ECR repositories for project-code and Superset.
-- IAM OIDC provider for IRSA.
+- An EKS Pod Identity role/association for the EBS CSI driver (see ADR 0016).
 
 `infra/terraform/environments/aws-poc` consumes the foundation state and creates:
 
 - S3 medallion and ops buckets.
-- Glue product-layer databases for every Silver and Gold namespace.
+- Product-layer Glue databases for every Silver and Gold layer. The AWS Glue
+  catalog is the AWS account/catalog ID; `lakehouse_dev` remains the SQL catalog
+  alias used by engines, not a Glue database.
 - RDS PostgreSQL plus Kubernetes Secrets for application database users.
-- An IRSA role/policy for S3 and Glue access.
+- A Pod Identity role/policy and per-service-account associations for S3 and Glue access.
 - Trino, Dagster, Superset, and OpenMetadata through the shared Helm modules.
 
 ## Contracts
@@ -52,15 +54,17 @@ The active AWS contract implementations are:
 - `metadata_database.aws_rds_postgresql`
 - `catalog.aws_glue`
 - `artifacts.aws_ecr_and_s3`
-- `identity.aws_irsa`
+- `identity.aws_pod_identity`
 
 The Glue catalog contract uses `catalog_type = "glue"` and
 `catalog_provider = "aws-glue"`. Consumers branch on those fields:
 
 - Trino uses its Glue catalog configuration.
 - Dagster passes AWS/Glue runtime environment to runs and code locations.
-- Floe renders a Glue REST/SigV4 profile without S3-compatible endpoints or
-  static object-storage secrets.
+- Floe keeps medallion S3 storage aliases in the Floe configs, then renders a
+  schema-valid native Glue profile (`type: "glue"`) per product. The profile
+  uses the product Silver layer as the Glue database, so writes resolve as
+  `lakehouse_dev.<product_layer_database>.<table>` in SQL engines.
 - dbt-duckdb uses an `aws_runtime` target with credential-chain S3 access and a
   Glue/SigV4 Iceberg attach.
 - OpenMetadata registers a Glue-backed Iceberg service instead of Polaris OAuth.

@@ -110,7 +110,55 @@ patch_deployment_image_if_exists() {
   fi
 
   echo "==> Updating ${deployment} image to ${PROJECT_CODE_IMAGE}..."
-  kubectl set image "deployment/${deployment}" "*=${PROJECT_CODE_IMAGE}" -n "${NAMESPACE}"
+  NAMESPACE="${NAMESPACE}" DEPLOYMENT_NAME="${deployment}" PROJECT_CODE_IMAGE="${PROJECT_CODE_IMAGE}" python3 - <<'PY'
+import json
+import os
+import subprocess
+
+namespace = os.environ["NAMESPACE"]
+deployment = os.environ["DEPLOYMENT_NAME"]
+image = os.environ["PROJECT_CODE_IMAGE"]
+raw = subprocess.check_output(["kubectl", "get", "deployment", deployment, "-n", namespace, "-o", "json"], text=True)
+payload = json.loads(raw)
+containers = payload["spec"]["template"]["spec"].get("containers", [])
+if not containers:
+    raise SystemExit(f"ERROR: deployment/{deployment} has no regular containers to patch.")
+
+
+def container_patch(container):
+    # Patch the container image, and keep DAGSTER_CURRENT_IMAGE in sync where it is
+    # already set: Dagster's K8sRunLauncher derives run-pod images from the code
+    # location's DAGSTER_CURRENT_IMAGE, which overrides run_launcher.job_image. If we
+    # bump only the container image, run pods keep launching on the previous image.
+    entry = {"name": container["name"], "image": image}
+    env = container.get("env") or []
+    if any(var.get("name") == "DAGSTER_CURRENT_IMAGE" for var in env):
+        entry["env"] = [{"name": "DAGSTER_CURRENT_IMAGE", "value": image}]
+    return entry
+
+
+patch = {
+    "spec": {
+        "template": {
+            "spec": {
+                "containers": [container_patch(container) for container in containers]
+            }
+        }
+    }
+}
+subprocess.check_call([
+    "kubectl",
+    "patch",
+    "deployment",
+    deployment,
+    "-n",
+    namespace,
+    "--type",
+    "strategic",
+    "-p",
+    json.dumps(patch),
+])
+PY
 }
 
 patch_cronjob_image_if_exists() {
@@ -121,7 +169,48 @@ patch_cronjob_image_if_exists() {
   fi
 
   echo "==> Updating ${cronjob} image to ${PROJECT_CODE_IMAGE}..."
-  kubectl set image "cronjob/${cronjob}" "*=${PROJECT_CODE_IMAGE}" -n "${NAMESPACE}"
+  NAMESPACE="${NAMESPACE}" CRONJOB_NAME="${cronjob}" PROJECT_CODE_IMAGE="${PROJECT_CODE_IMAGE}" python3 - <<'PY'
+import json
+import os
+import subprocess
+
+namespace = os.environ["NAMESPACE"]
+cronjob = os.environ["CRONJOB_NAME"]
+image = os.environ["PROJECT_CODE_IMAGE"]
+raw = subprocess.check_output(["kubectl", "get", "cronjob", cronjob, "-n", namespace, "-o", "json"], text=True)
+payload = json.loads(raw)
+containers = payload["spec"]["jobTemplate"]["spec"]["template"]["spec"].get("containers", [])
+if not containers:
+    raise SystemExit(f"ERROR: cronjob/{cronjob} has no regular containers to patch.")
+patch = {
+    "spec": {
+        "jobTemplate": {
+            "spec": {
+                "template": {
+                    "spec": {
+                        "containers": [
+                            {"name": container["name"], "image": image}
+                            for container in containers
+                        ]
+                    }
+                }
+            }
+        }
+    }
+}
+subprocess.check_call([
+    "kubectl",
+    "patch",
+    "cronjob",
+    cronjob,
+    "-n",
+    namespace,
+    "--type",
+    "strategic",
+    "-p",
+    json.dumps(patch),
+])
+PY
 }
 
 discover_dagster_user_deployments() {

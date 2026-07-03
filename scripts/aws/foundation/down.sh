@@ -19,6 +19,13 @@ else
 fi
 AWS_FOUNDATION_FORCE_DOWN="${AWS_FOUNDATION_FORCE_DOWN:-false}"
 
+# cluster_name comes from AWS_CLUSTER_NAME (passed explicitly to destroy below) and
+# must match the value up.sh applied so destroy targets the same resource names.
+# Mandatory tags live in a .tfvars file (override with AWS_TFVARS_FILE).
+TFVARS_FILE="${AWS_TFVARS_FILE:-${TERRAFORM_DIR}/sandbox.tfvars}"
+TFVARS_ARGS=()
+[[ -f "${TFVARS_FILE}" ]] && TFVARS_ARGS+=(-var-file="${TFVARS_FILE}")
+
 check_prereqs() {
   local missing=0
   for cmd in aws terraform kubectl; do
@@ -58,8 +65,9 @@ fi
 
 echo "==> Destroying Terraform AWS EKS foundation..."
 terraform -chdir="${TERRAFORM_DIR}" destroy -auto-approve \
-  -var="aws_region=${AWS_REGION}" \
+  ${TFVARS_ARGS[@]+"${TFVARS_ARGS[@]}"} \
   -var="cluster_name=${AWS_CLUSTER_NAME}" \
+  -var="aws_region=${AWS_REGION}" \
   -var="node_desired_size=${AWS_NODE_DESIRED_SIZE}" \
   -var="node_min_size=${AWS_NODE_MIN_SIZE}" \
   -var="node_max_size=${AWS_NODE_MAX_SIZE}" \

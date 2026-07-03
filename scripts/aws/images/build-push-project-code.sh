@@ -5,6 +5,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 FOUNDATION_TERRAFORM_DIR="${REPO_ROOT}/infra/terraform/foundations/aws-eks"
+source "${REPO_ROOT}/scripts/lib/docker.sh"
 
 git_or_time_tag() {
   git -C "${REPO_ROOT}" rev-parse --short HEAD 2>/dev/null || date -u +%Y%m%d%H%M%S
@@ -27,6 +28,8 @@ fi
 AWS_IMAGE_TAG="${AWS_IMAGE_TAG:-aws-$(git_or_time_tag)}"
 AWS_IMAGE_PLATFORM="${AWS_IMAGE_PLATFORM:-linux/amd64}"
 PROJECT_CODE_IMAGE_TAG="${PROJECT_CODE_IMAGE_TAG:-${AWS_IMAGE_TAG}}"
+PROJECT_CODE_PYTHON_BASE_IMAGE="${PROJECT_CODE_PYTHON_BASE_IMAGE:-public.ecr.aws/docker/library/python:3.12-slim}"
+PROJECT_CODE_DBT_PROFILE_ENV="${PROJECT_CODE_DBT_PROFILE_ENV:-aws}"
 IMAGE="${PROJECT_CODE_IMAGE_REPOSITORY}:${PROJECT_CODE_IMAGE_TAG}"
 registry="${PROJECT_CODE_IMAGE_REPOSITORY%%/*}"
 
@@ -34,14 +37,19 @@ echo "==> Logging in to ECR '${registry}'..."
 aws ecr get-login-password --region "${AWS_REGION}" \
   | docker login --username AWS --password-stdin "${registry}" >/dev/null
 
+echo "==> Pulling project-code Python base image: ${PROJECT_CODE_PYTHON_BASE_IMAGE}"
+docker_pull_with_retries --platform "${AWS_IMAGE_PLATFORM}" "${PROJECT_CODE_PYTHON_BASE_IMAGE}"
+
 echo "==> Building project-code image ${IMAGE}..."
-docker build \
+docker_build_with_retries \
   --platform "${AWS_IMAGE_PLATFORM}" \
+  --build-arg "PYTHON_BASE_IMAGE=${PROJECT_CODE_PYTHON_BASE_IMAGE}" \
+  --build-arg "DBT_PROFILE_ENV=${PROJECT_CODE_DBT_PROFILE_ENV}" \
   --file "${REPO_ROOT}/images/project-code/Dockerfile" \
   --tag "${IMAGE}" \
   "${REPO_ROOT}"
 
 echo "==> Pushing project-code image ${IMAGE}..."
-docker push "${IMAGE}"
+docker_push_with_retries "${IMAGE}"
 
 echo "Pushed ${IMAGE}"

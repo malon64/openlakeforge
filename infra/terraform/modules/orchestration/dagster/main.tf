@@ -3,6 +3,7 @@ locals {
   catalog_provider = coalesce(try(var.catalog_contract.catalog_provider, null), "polaris")
   catalog_name     = coalesce(try(var.catalog_contract.catalog_name, null), try(var.catalog_contract.warehouse, null), "lakehouse_dev")
   runtime_profile  = coalesce(try(var.catalog_contract.runtime_profile, null), "polaris-rest")
+  dbt_profile_env  = local.catalog_type == "glue" && local.catalog_provider == "aws-glue" ? "aws" : (try(var.storage_contract.provider, null) == "azure" ? "azure" : "local")
 
   storage_env = concat(
     [
@@ -38,6 +39,26 @@ locals {
       },
     ] : [],
     [
+      {
+        name  = "OPENLAKEFORGE_STORAGE_BRONZE_BUCKET"
+        value = coalesce(var.storage_contract.bronze_bucket_name, var.storage_contract.bucket_name)
+      },
+      {
+        name  = "OPENLAKEFORGE_STORAGE_SILVER_BUCKET"
+        value = coalesce(try(var.storage_contract.silver_bucket_name, null), "lakehouse-silver")
+      },
+      {
+        name  = "OPENLAKEFORGE_STORAGE_GOLD_BUCKET"
+        value = coalesce(try(var.storage_contract.gold_bucket_name, null), "lakehouse-gold")
+      },
+      {
+        name  = "OPENLAKEFORGE_STORAGE_BUCKET"
+        value = coalesce(var.storage_contract.bronze_bucket_name, var.storage_contract.bucket_name)
+      },
+      {
+        name  = "OPENLAKEFORGE_STORAGE_OPS_BUCKET"
+        value = coalesce(try(var.storage_contract.ops_bucket_name, null), var.artifact_bucket_name)
+      },
       {
         name  = "OPENLAKEFORGE_BRONZE_BUCKET"
         value = coalesce(var.storage_contract.bronze_bucket_name, var.storage_contract.bucket_name)
@@ -107,19 +128,19 @@ locals {
     },
     {
       name  = "OPENLAKEFORGE_CATALOG_REST_URI"
-      value = coalesce(try(var.catalog_contract.rest_uri, null), "")
+      value = (try(var.catalog_contract.rest_uri, null) == null ? "" : try(var.catalog_contract.rest_uri, null))
     },
     {
       name  = "OPENLAKEFORGE_CATALOG_TOKEN_URI"
-      value = coalesce(try(var.catalog_contract.token_uri, null), "")
+      value = (try(var.catalog_contract.token_uri, null) == null ? "" : try(var.catalog_contract.token_uri, null))
     },
     {
       name  = "OPENLAKEFORGE_CATALOG_WAREHOUSE"
-      value = coalesce(try(var.catalog_contract.warehouse, null), local.catalog_name)
+      value = local.catalog_type == "glue" ? local.catalog_name : coalesce(try(var.catalog_contract.warehouse, null), local.catalog_name)
     },
     {
       name  = "OPENLAKEFORGE_CATALOG_OAUTH_SCOPE"
-      value = coalesce(try(var.catalog_contract.oauth_scope, null), "")
+      value = (try(var.catalog_contract.oauth_scope, null) == null ? "" : try(var.catalog_contract.oauth_scope, null))
     },
   ]
 
@@ -130,11 +151,23 @@ locals {
     },
     {
       name  = "OPENLAKEFORGE_CATALOG_GLUE_CATALOG_ID"
-      value = coalesce(try(var.catalog_contract.glue_catalog_id, null), "")
+      value = (try(var.catalog_contract.glue_catalog_id, null) == null ? "" : try(var.catalog_contract.glue_catalog_id, null))
     },
     {
       name  = "OPENLAKEFORGE_CATALOG_GLUE_REST_URI"
       value = coalesce(try(var.catalog_contract.glue_rest_uri, null), try(var.catalog_contract.rest_uri, null), "")
+    },
+    {
+      name  = "OPENLAKEFORGE_CATALOG_GLUE_REST_WAREHOUSE"
+      value = coalesce(try(var.catalog_contract.glue_rest_warehouse, null), try(var.catalog_contract.warehouse, null), "")
+    },
+    {
+      name  = "OPENLAKEFORGE_CATALOG_GLUE_DATABASE"
+      value = (try(var.catalog_contract.glue_database, null) == null ? "" : try(var.catalog_contract.glue_database, null))
+    },
+    {
+      name  = "OPENLAKEFORGE_CATALOG_GLUE_WAREHOUSE_PREFIX"
+      value = coalesce(try(var.catalog_contract.glue_warehouse_prefix, null), "warehouse/iceberg")
     },
     {
       name  = "OPENLAKEFORGE_DBT_TARGET"
@@ -150,11 +183,11 @@ locals {
   polaris_catalog_env = local.catalog_type == "rest" ? [
     {
       name  = "POLARIS_REST_URI"
-      value = coalesce(try(var.catalog_contract.rest_uri, null), "")
+      value = (try(var.catalog_contract.rest_uri, null) == null ? "" : try(var.catalog_contract.rest_uri, null))
     },
     {
       name  = "POLARIS_TOKEN_URI"
-      value = coalesce(try(var.catalog_contract.token_uri, null), "")
+      value = (try(var.catalog_contract.token_uri, null) == null ? "" : try(var.catalog_contract.token_uri, null))
     },
     {
       name  = "POLARIS_WAREHOUSE"
@@ -162,14 +195,18 @@ locals {
     },
     {
       name  = "POLARIS_OAUTH_SCOPE"
-      value = coalesce(try(var.catalog_contract.oauth_scope, null), "")
+      value = (try(var.catalog_contract.oauth_scope, null) == null ? "" : try(var.catalog_contract.oauth_scope, null))
     },
   ] : []
 
   dbt_env = [
     {
+      name  = "OPENLAKEFORGE_DBT_PROFILE_ENV"
+      value = local.dbt_profile_env
+    },
+    {
       name  = "DBT_PROFILES_DIR"
-      value = "/opt/openlakeforge/domains"
+      value = "/tmp/openlakeforge-dbt-profiles"
     },
     {
       name  = "OPENLAKEFORGE_DBT_ATTACH_POLARIS"
