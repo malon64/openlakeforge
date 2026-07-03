@@ -10,10 +10,11 @@
 # Override the path with AWS_TFVARS_FILE=/path/to/your.tfvars if you prefer.
 # See docs/setup/cloud-poc-setup.md for the full walkthrough.
 
-# Cluster name. Some sandboxes mandate an IAM naming prefix (e.g. "limited-"):
-# roles are named "${cluster_name}-...", so prefixing the cluster name satisfies
-# that guardrail. Use a plain name if your account has no such rule.
-cluster_name = "eks-openlakeforge-poc"
+# NOTE: the cluster name is NOT set here. It comes from the AWS_CLUSTER_NAME
+# environment variable (the Makefile defaults it to a "limited-"-prefixed name for
+# sandbox IAM guardrails) so it stays in sync with the kube context and kubeconfig
+# alias the tooling derives from it. Set AWS_CLUSTER_NAME to change it; a value put
+# here would be overridden by the -var the scripts pass.
 
 # Tags applied to every resource. Many managed accounts REQUIRE a specific set of
 # tags (case-sensitive) and delete untagged resources. Adjust keys/values to match

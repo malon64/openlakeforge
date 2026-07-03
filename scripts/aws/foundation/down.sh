@@ -19,9 +19,9 @@ else
 fi
 AWS_FOUNDATION_FORCE_DOWN="${AWS_FOUNDATION_FORCE_DOWN:-false}"
 
-# Account-specific config (cluster_name with its required limited- prefix, mandatory
-# tags) lives in a .tfvars file. Must match the file used by up.sh so destroy targets
-# the same resource names.
+# cluster_name comes from AWS_CLUSTER_NAME (passed explicitly to destroy below) and
+# must match the value up.sh applied so destroy targets the same resource names.
+# Mandatory tags live in a .tfvars file (override with AWS_TFVARS_FILE).
 TFVARS_FILE="${AWS_TFVARS_FILE:-${TERRAFORM_DIR}/sandbox.tfvars}"
 TFVARS_ARGS=()
 [[ -f "${TFVARS_FILE}" ]] && TFVARS_ARGS+=(-var-file="${TFVARS_FILE}")
@@ -66,6 +66,7 @@ fi
 echo "==> Destroying Terraform AWS EKS foundation..."
 terraform -chdir="${TERRAFORM_DIR}" destroy -auto-approve \
   ${TFVARS_ARGS[@]+"${TFVARS_ARGS[@]}"} \
+  -var="cluster_name=${AWS_CLUSTER_NAME}" \
   -var="aws_region=${AWS_REGION}" \
   -var="node_desired_size=${AWS_NODE_DESIRED_SIZE}" \
   -var="node_min_size=${AWS_NODE_MIN_SIZE}" \

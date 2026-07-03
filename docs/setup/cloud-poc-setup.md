@@ -44,15 +44,16 @@ machine.
 
 ```bash
 cd infra/terraform/foundations/aws-eks
-cp sandbox.tfvars.example sandbox.tfvars      # set cluster_name + your Owner tag
+cp sandbox.tfvars.example sandbox.tfvars      # set your Owner tag
 
 cd ../../environments/aws-poc
 cp sandbox.tfvars.example sandbox.tfvars      # set your Owner tag
 ```
 
-Set `Owner`/`Requester` to **your** email. If your account enforces guardrails
-(mandatory tag keys, an IAM naming prefix such as `limited-`), the template
-comments explain where each goes. To keep the file elsewhere:
+Set `Owner`/`Requester` to **your** email. The **cluster name** is not in tfvars —
+it comes from `AWS_CLUSTER_NAME` (see the overrides table below) so it stays in
+sync with the kube context; if your account needs an IAM naming prefix such as
+`limited-`, set that via `AWS_CLUSTER_NAME`. To keep the tfvars elsewhere:
 `export AWS_TFVARS_FILE=/abs/path/to/your.tfvars`.
 
 ### 3. Common overrides (optional)
