@@ -64,6 +64,17 @@ def test_aws_contracts_blank_local_only_fields_and_derive_glue_fqns() -> None:
     assert exports["OPENLAKEFORGE_STORAGE_OM_SERVICE"] == "aws_s3"
     assert exports["OPENLAKEFORGE_STORAGE_DISPLAY_NAME"] == "AWS S3"
     assert exports["CODE_BUCKET_NAME"] == "openlakeforge-poc-ops"
+    # AWS_REGION must follow the resolved contract storage region, not the
+    # us-east-1 default from the pre-contract pass.
+    assert exports["AWS_REGION"] == "eu-west-1"
+    assert exports["AWS_DEFAULT_REGION"] == "eu-west-1"
+
+
+def test_caller_exported_aws_region_is_preserved() -> None:
+    exports, _ = build_contract_env(
+        {"AWS_REGION": "us-west-2"}, load_fixture("aws-provider-contracts.json")
+    )
+    assert exports["AWS_REGION"] == "us-west-2"
 
 
 def test_caller_environment_wins_for_user_settable_variables() -> None:

@@ -20,11 +20,13 @@ def test_discover_tracked_manifests(tmp_path: Path) -> None:
 
 
 def test_discover_runtime_manifests(tmp_path: Path) -> None:
-    manifest = tmp_path / "supply_chain/inventory_reliability.manifest.json"
+    # floe-manifest.sh persists the two-level <domain>/<product>/ layout.
+    manifest = tmp_path / "supply_chain/inventory_reliability/inventory_reliability.manifest.json"
     manifest.parent.mkdir(parents=True)
     manifest.write_text("{}")
     uploads = s3.discover_runtime_manifests(tmp_path)
     assert len(uploads) == 1
+    assert uploads[0].path == manifest
     assert uploads[0].key == (
         "floe/manifests/supply_chain/inventory_reliability/inventory_reliability.manifest.json"
     )

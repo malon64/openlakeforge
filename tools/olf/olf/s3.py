@@ -41,10 +41,17 @@ def discover_tracked_manifests(repo_root: Path) -> list[ManifestUpload]:
 
 
 def discover_runtime_manifests(manifest_root: Path) -> list[ManifestUpload]:
-    """Rendered manifests under <artifact-dir>/manifests/<domain>/<product>.manifest.json."""
+    """Rendered manifests under <artifact-dir>/manifests/<domain>/<product>/<product>.manifest.json.
+
+    floe-manifest.sh persists the two-level ``<domain>/<product>/`` layout, so
+    the search recurses and takes the domain from the first path segment
+    relative to the manifest root (matching the original find-based upload).
+    """
     uploads: list[ManifestUpload] = []
-    for manifest_path in sorted(manifest_root.glob("*/*.manifest.json")):
-        domain = manifest_path.parent.name
+    for manifest_path in sorted(manifest_root.rglob("*.manifest.json")):
+        if not manifest_path.is_file():
+            continue
+        domain = manifest_path.relative_to(manifest_root).parts[0]
         product = manifest_path.name[: -len(".manifest.json")]
         uploads.append(ManifestUpload(manifest_path, manifest_key(domain, product)))
     return uploads

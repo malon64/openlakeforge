@@ -361,6 +361,8 @@ def build_contract_env(
     om_catalog_service_user_set = "OPENMETADATA_CATALOG_SERVICE" in base
     storage_om_service_user_set = "OPENLAKEFORGE_STORAGE_OM_SERVICE" in base
     storage_display_name_user_set = "OPENLAKEFORGE_STORAGE_DISPLAY_NAME" in base
+    aws_region_user_set = "AWS_REGION" in base
+    aws_default_region_user_set = "AWS_DEFAULT_REGION" in base
 
     env = _Env(base)
     _apply_default_contract_env(env, base)
@@ -431,6 +433,16 @@ def build_contract_env(
             env.set("OPENLAKEFORGE_STORAGE_OM_SERVICE", "seaweedfs")
         if not storage_display_name_user_set:
             env.set("OPENLAKEFORGE_STORAGE_DISPLAY_NAME", "SeaweedFS S3")
+
+    # Re-derive AWS_REGION from the *resolved* storage region. The first default
+    # pass runs before provider contracts apply (storage region still at the
+    # us-east-1 default), and the resolver runs in a subprocess that cannot see
+    # a shell-local AWS_REGION, so without this a cloud stack would keep the
+    # stale default. A caller that exported AWS_REGION still wins.
+    if not aws_region_user_set:
+        env.set("AWS_REGION", env.get("OPENLAKEFORGE_STORAGE_REGION"))
+    if not aws_default_region_user_set:
+        env.set("AWS_DEFAULT_REGION", env.get("AWS_REGION"))
 
     env.default("CODE_BUCKET_NAME", env.get("OPENLAKEFORGE_ARTIFACT_BUCKET_NAME"))
     env.default("OPENMETADATA_CATALOG_DATABASE", env.get("OPENLAKEFORGE_CATALOG_NAME"))
