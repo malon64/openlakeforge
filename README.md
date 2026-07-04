@@ -64,7 +64,8 @@ openlakeforge/
 ├── domains/
 │   ├── sales/
 │   └── supply_chain/
-└── scripts/
+├── scripts/
+└── tools/olf/          # uv-managed deployment tooling (olf CLI)
 ```
 
 Each domain follows this shape:
@@ -144,6 +145,7 @@ Install these tools on the host:
 | Terraform | Creates the kind foundation and platform infrastructure. |
 | Helm | Installs Kubernetes applications through Terraform Helm releases. |
 | Python 3 | Runs local metadata and manifest helper scripts. |
+| uv | Runs the `tools/olf` deployment tooling (contracts, artifacts, REST calls). Install from https://docs.astral.sh/uv/. |
 | Make | Provides the local workflow entrypoints. |
 
 The `floe` CLI is optional locally because manifest generation falls back to the
@@ -154,7 +156,7 @@ deployment if the active host Python does not already include `PyYAML`.
 For a new macOS/Colima setup, a typical tool bootstrap is:
 
 ```sh
-brew install colima docker kind kubectl terraform helm python make
+brew install colima docker kind kubectl terraform helm python uv make
 colima start --cpu 6 --memory 12 --disk 100
 docker ps
 ```
@@ -193,14 +195,21 @@ Apply the platform and deploy dynamic artifacts:
 make local-up
 ```
 
-`make local-up` runs two phases:
+`make local-up` is the full wrapper. It runs the foundation, then the stack:
 
-1. `make local-infra-up` builds and loads the local Superset image, then applies
+1. `make local-foundation-up` creates the kind foundation (a no-op when it
+   already exists).
+2. `make local-infra-up` builds and loads the local Superset image, then applies
    Terraform for SeaweedFS, PostgreSQL, Polaris, Trino, OpenMetadata, Superset,
    and Dagster.
-2. `make local-artifacts-deploy` builds and loads the project-code image,
+3. `make local-artifacts-deploy` builds and loads the project-code image,
    generates and uploads Floe manifests, imports Superset reports, deploys
    OpenMetadata governance metadata, and restarts Dagster workloads.
+
+`make local-prefetch` is still run manually — it is network-dependent and
+strongly recommended before `make local-up` on macOS, Colima, and constrained
+networks. Use `make local-stack-up` to run only infra + artifacts without
+re-applying the foundation.
 
 Check the cluster at any point with:
 
@@ -274,11 +283,16 @@ RDS PostgreSQL, Glue, and EKS Pod Identity. Default region is `eu-west-1`; overr
 `AWS_REGION` and the related `AWS_*` Make variables as needed.
 
 ```sh
-make aws-foundation-up
 make aws-up
 make aws-forward
 make aws-e2e
 ```
+
+`make aws-up` is the full wrapper: it runs `aws-foundation-up` (VPC, EKS, ECR,
+Pod Identity), then the stack (`aws-infra-up` + `aws-artifacts-deploy`). The
+foundation apply is a no-op once it exists. Use `make aws-stack-up` to redeploy
+only the stack, or `make aws-foundation-up` on its own to provision the cluster
+first. Azure follows the same pattern (`make azure-up` / `make azure-stack-up`).
 
 Teardown runs in the opposite order:
 

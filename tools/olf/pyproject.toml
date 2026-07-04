@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "openlakeforge-tools"
+version = "0.1.0"
+description = "OpenLakeForge deployment tooling: cross-environment contract, API, and artifact helpers behind the olf CLI."
+requires-python = ">=3.12"
+dependencies = [
+  "boto3>=1.34,<2",
+  "PyYAML>=6,<7",
+  "requests>=2.32,<3",
+  "typer>=0.12,<1",
+]
+
+[project.scripts]
+olf = "olf.cli:main"
+
+[dependency-groups]
+dev = [
+  "pytest>=8,<9",
+  "ruff>=0.6",
+]
+
+[tool.setuptools.packages.find]
+include = ["olf*"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+# The rendered Floe profile YAML embeds credential template lines that must
+# stay byte-identical to the schema Floe expects.
+"olf/floe.py" = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

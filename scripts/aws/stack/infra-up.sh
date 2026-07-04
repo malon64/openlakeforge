@@ -18,58 +18,21 @@ TFVARS_ARGS=()
 PROJECT_CODE_IMAGE_PULL_POLICY="${PROJECT_CODE_IMAGE_PULL_POLICY:-Always}"
 PROJECT_CODE_IMAGE_REVISION="${PROJECT_CODE_IMAGE_REVISION:-manual}"
 SUPERSET_IMAGE_PULL_POLICY="${SUPERSET_IMAGE_PULL_POLICY:-Always}"
-HELM_REPOSITORY_CONFIG="${HELM_REPOSITORY_CONFIG:-${REPO_ROOT}/.tmp/helm/repositories.yaml}"
-HELM_REPOSITORY_CACHE="${HELM_REPOSITORY_CACHE:-${REPO_ROOT}/.tmp/helm/repository-cache}"
-HELM_CHART_CACHE_DIR="${HELM_CHART_CACHE_DIR:-${REPO_ROOT}/.tmp/helm/charts}"
 TRINO_CHART_REPOSITORY="${TRINO_CHART_REPOSITORY:-https://trinodb.github.io/charts}"
 TRINO_CHART_VERSION="${TRINO_CHART_VERSION:-1.42.2}"
-TRINO_CHART_PACKAGE_PATH="${TRINO_CHART_PACKAGE_PATH:-${HELM_CHART_CACHE_DIR}/trino-${TRINO_CHART_VERSION}.tgz}"
 DAGSTER_CHART_REPOSITORY="${DAGSTER_CHART_REPOSITORY:-https://dagster-io.github.io/helm}"
 DAGSTER_CHART_VERSION="${DAGSTER_CHART_VERSION:-1.13.6}"
+
+RUN_RETRY_ATTEMPTS="${AWS_UP_RETRY_ATTEMPTS:-4}"
+RUN_RETRY_DELAY_SECONDS="${AWS_UP_RETRY_DELAY_SECONDS:-20}"
+
+# shellcheck source=scripts/lib/common.sh
+source "${REPO_ROOT}/scripts/lib/common.sh"
+# shellcheck source=scripts/lib/helm.sh
+source "${REPO_ROOT}/scripts/lib/helm.sh"
+
+TRINO_CHART_PACKAGE_PATH="${TRINO_CHART_PACKAGE_PATH:-${HELM_CHART_CACHE_DIR}/trino-${TRINO_CHART_VERSION}.tgz}"
 DAGSTER_CHART_PACKAGE_PATH="${DAGSTER_CHART_PACKAGE_PATH:-${HELM_CHART_CACHE_DIR}/dagster-${DAGSTER_CHART_VERSION}-no-schema.tgz}"
-
-git_or_time_tag() {
-  git -C "${REPO_ROOT}" rev-parse --short HEAD 2>/dev/null || date -u +%Y%m%d%H%M%S
-}
-
-check_prereqs() {
-  local missing=0
-  for cmd in aws docker helm kubectl terraform; do
-    if ! command -v "${cmd}" &>/dev/null; then
-      echo "ERROR: '${cmd}' not found on PATH" >&2
-      missing=1
-    fi
-  done
-  [[ "${missing}" -eq 0 ]] || exit 1
-}
-
-run_with_retry() {
-  local description="$1"
-  shift
-  local max_attempts="${AWS_UP_RETRY_ATTEMPTS:-4}"
-  local delay_seconds="${AWS_UP_RETRY_DELAY_SECONDS:-20}"
-  local attempt=1
-
-  while true; do
-    if "$@"; then
-      return 0
-    fi
-    local status=$?
-    if ((attempt >= max_attempts)); then
-      echo "ERROR: ${description} failed after ${attempt} attempt(s)." >&2
-      return "${status}"
-    fi
-    echo "WARN: ${description} failed on attempt ${attempt}/${max_attempts}; retrying in ${delay_seconds}s..." >&2
-    sleep "${delay_seconds}"
-    attempt=$((attempt + 1))
-  done
-}
-
-helm_cached() {
-  HELM_REPOSITORY_CONFIG="${HELM_REPOSITORY_CONFIG}" \
-    HELM_REPOSITORY_CACHE="${HELM_REPOSITORY_CACHE}" \
-    helm "$@"
-}
 
 prepare_eks_context() {
   if [[ ! -f "${FOUNDATION_STATE_PATH}" ]]; then
@@ -93,37 +56,6 @@ prepare_eks_context() {
   fi
 
   kubectl config use-context "${KUBE_CONTEXT}" >/dev/null
-}
-
-prepare_helm_chart_cache() {
-  mkdir -p "$(dirname "${HELM_REPOSITORY_CONFIG}")" "${HELM_REPOSITORY_CACHE}" "${HELM_CHART_CACHE_DIR}"
-
-  if [[ -f "${TRINO_CHART_PACKAGE_PATH}" ]] && helm show chart "${TRINO_CHART_PACKAGE_PATH}" >/dev/null 2>&1; then
-    echo "==> Using cached Trino Helm chart: ${TRINO_CHART_PACKAGE_PATH}"
-  else
-    rm -f "${TRINO_CHART_PACKAGE_PATH}"
-    echo "==> Downloading Trino Helm chart ${TRINO_CHART_VERSION} into local cache..."
-    run_with_retry "Helm repo add Trino" helm_cached repo add trino "${TRINO_CHART_REPOSITORY}" --force-update
-    run_with_retry "Helm repo update" helm_cached repo update
-    run_with_retry "Trino Helm chart download" helm_cached pull trino/trino --version "${TRINO_CHART_VERSION}" --destination "${HELM_CHART_CACHE_DIR}"
-  fi
-
-  if [[ -f "${DAGSTER_CHART_PACKAGE_PATH}" ]] && helm show chart "${DAGSTER_CHART_PACKAGE_PATH}" >/dev/null 2>&1; then
-    echo "==> Using cached Dagster Helm chart: ${DAGSTER_CHART_PACKAGE_PATH}"
-    return 0
-  fi
-
-  local dagster_work_dir
-  dagster_work_dir="$(mktemp -d "${REPO_ROOT}/.tmp/dagster-chart.XXXXXX")"
-  rm -f "${DAGSTER_CHART_PACKAGE_PATH}"
-  echo "==> Downloading Dagster Helm chart ${DAGSTER_CHART_VERSION} into local cache..."
-  run_with_retry "Helm repo add Dagster" helm_cached repo add dagster "${DAGSTER_CHART_REPOSITORY}" --force-update
-  run_with_retry "Helm repo update" helm_cached repo update
-  run_with_retry "Dagster Helm chart download" helm_cached pull dagster/dagster --version "${DAGSTER_CHART_VERSION}" --untar --untardir "${dagster_work_dir}"
-  find "${dagster_work_dir}/dagster" -name "values.schema.json" -delete
-  helm package "${dagster_work_dir}/dagster" --destination "${HELM_CHART_CACHE_DIR}" >/dev/null
-  mv "${HELM_CHART_CACHE_DIR}/dagster-${DAGSTER_CHART_VERSION}.tgz" "${DAGSTER_CHART_PACKAGE_PATH}"
-  rm -rf "${dagster_work_dir}"
 }
 
 prepare_image_variables() {
@@ -162,11 +94,15 @@ terraform_apply_once() {
 }
 
 echo "==> Checking AWS infrastructure prerequisites..."
-check_prereqs
+check_prereqs aws docker helm kubectl terraform
 prepare_eks_context
 prepare_image_variables
 prepare_superset_image
-prepare_helm_chart_cache
+prepare_helm_cache_dirs
+prepare_cached_chart "Trino" trino "${TRINO_CHART_REPOSITORY}" trino/trino \
+  "${TRINO_CHART_VERSION}" "${TRINO_CHART_PACKAGE_PATH}"
+prepare_cached_dagster_chart_no_schema dagster "${DAGSTER_CHART_REPOSITORY}" \
+  "${DAGSTER_CHART_VERSION}" "${DAGSTER_CHART_PACKAGE_PATH}"
 
 echo "==> Initializing Terraform AWS POC platform..."
 terraform -chdir="${TERRAFORM_DIR}" init

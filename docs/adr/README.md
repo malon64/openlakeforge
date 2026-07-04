@@ -56,3 +56,9 @@ identity behind the existing OpenLakeForge contracts.
 `0016-aws-eks-pod-identity-over-irsa.md` amends 0015 to use EKS Pod Identity
 instead of IRSA, because the lab sandbox denies `iam:CreateOpenIDConnectProvider`;
 it also moves sandbox naming/tags into `.tfvars` files.
+
+`0017-shared-python-deploy-tooling.md` records the split between shell (CLI
+orchestration) and a uv-managed Python package `tools/olf` (cross-environment
+API, file, and contract logic), and redefines `make <env>-up` as a full
+foundation+infra+artifacts wrapper. It amends the wrapper semantics of ADR 0008
+without changing the two-phase boundary.

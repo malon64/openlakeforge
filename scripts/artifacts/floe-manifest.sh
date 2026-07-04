@@ -3,7 +3,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 NAMESPACE="${NAMESPACE:-lakehouse}"
 FLOE_VERSION="${FLOE_VERSION:-0.6.5}"
 FLOE_IMAGE="${FLOE_IMAGE:-ghcr.io/malon64/floe:${FLOE_VERSION}}"
@@ -14,8 +14,12 @@ FLOE_IMAGE="${FLOE_IMAGE:-ghcr.io/malon64/floe:${FLOE_VERSION}}"
 FLOE_PLATFORM="${FLOE_PLATFORM:-linux/amd64}"
 USING_DOCKER="false"
 
+# shellcheck source=scripts/lib/common.sh
+source "${REPO_ROOT}/scripts/lib/common.sh"
+# shellcheck source=scripts/lib/python.sh
+source "${REPO_ROOT}/scripts/lib/python.sh"
 # shellcheck source=/dev/null
-source "${REPO_ROOT}/scripts/local/contracts/load-runtime-env.sh"
+source "${REPO_ROOT}/scripts/contracts/load-runtime-env.sh"
 
 cd "${REPO_ROOT}"
 
@@ -118,7 +122,7 @@ elif [[ -z "${PROFILE_PATH}" ]]; then
     PROFILE_TMP_DIR="$(mktemp -d .tmp/floe-profile.XXXXXX)"
     GENERATED_PROFILE_PATH="${PROFILE_TMP_DIR}/$(basename "${FLOE_RUNTIME_PROFILE_URI}")"
   fi
-  python3 "${REPO_ROOT}/scripts/local/contracts/render-floe-profile.py" > "${GENERATED_PROFILE_PATH}"
+  olf_run floe render-profile > "${GENERATED_PROFILE_PATH}"
 elif [[ "${NAMESPACE}" != "lakehouse" ]]; then
   if [[ "${PERSIST_RUNTIME_ARTIFACTS}" == "true" ]]; then
     GENERATED_PROFILE_PATH="${FLOE_RUNTIME_ARTIFACT_DIR}/profiles/$(basename "${FLOE_RUNTIME_PROFILE_URI}")"
@@ -188,7 +192,7 @@ profile_for_config() {
   mkdir -p "$(dirname "${profile_path}")"
   echo "==> Rendering AWS Floe profile for ${product_key} with Glue database ${silver_namespace}" >&2
   OPENLAKEFORGE_CATALOG_GLUE_DATABASE="${silver_namespace}" \
-    python3 "${REPO_ROOT}/scripts/local/contracts/render-floe-profile.py" > "${profile_path}"
+    olf_run floe render-profile > "${profile_path}"
 
   printf '%s\n' "${profile_path}"
 }

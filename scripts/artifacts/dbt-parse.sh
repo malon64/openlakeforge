@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
 require_cmd() {
   local cmd="$1"
@@ -16,7 +16,7 @@ require_cmd dbt
 require_cmd python3
 
 # shellcheck source=/dev/null
-source "${REPO_ROOT}/scripts/local/contracts/load-runtime-env.sh"
+source "${REPO_ROOT}/scripts/contracts/load-runtime-env.sh"
 
 export AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID:-openlakeforge}"
 export AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY:-openlakeforge}"
