@@ -94,6 +94,7 @@ terraform_apply_once() {
 refresh_trino_if_catalog_credentials_are_stale() {
   local deployment="trino-coordinator"
   local check_output
+  local bootstrap_generation_before
 
   if ! kubectl get deployment "${deployment}" -n "${NAMESPACE}" >/dev/null 2>&1; then
     return 0
@@ -119,7 +120,26 @@ refresh_trino_if_catalog_credentials_are_stale() {
   kubectl rollout restart "deployment/${deployment}" -n "${NAMESPACE}"
   kubectl rollout status "deployment/${deployment}" -n "${NAMESPACE}" --timeout=300s
 
-  run_with_retry "Trino Iceberg catalog credential check" \
+  if run_with_retry "Trino Iceberg catalog credential check" \
+    kubectl exec "deployment/${deployment}" -n "${NAMESPACE}" -- \
+      trino --server http://localhost:8080 --execute "SHOW SCHEMAS FROM iceberg"; then
+    return 0
+  fi
+
+  bootstrap_generation_before="${POLARIS_BOOTSTRAP_GENERATION}"
+  prepare_polaris_bootstrap_generation
+  if [[ "${POLARIS_BOOTSTRAP_GENERATION}" == "${bootstrap_generation_before}" ]]; then
+    echo "ERROR: Trino still cannot obtain Iceberg metadata after restart, and Polaris rebootstrap was not triggered." >&2
+    return 1
+  fi
+
+  echo "WARN: Trino still has stale Polaris credentials; reapplying local infrastructure with Polaris rebootstrap..." >&2
+  run_with_retry "Terraform apply" terraform_apply_once
+
+  kubectl rollout restart "deployment/${deployment}" -n "${NAMESPACE}"
+  kubectl rollout status "deployment/${deployment}" -n "${NAMESPACE}" --timeout=300s
+
+  run_with_retry "Trino Iceberg catalog credential check after Polaris rebootstrap" \
     kubectl exec "deployment/${deployment}" -n "${NAMESPACE}" -- \
       trino --server http://localhost:8080 --execute "SHOW SCHEMAS FROM iceberg"
 }

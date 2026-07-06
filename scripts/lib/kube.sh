@@ -89,13 +89,17 @@ prepare_polaris_bootstrap_generation() {
 
   if olf_run polaris check-credentials; then
     return 0
+  else
+    status=$?
   fi
-  status=$?
 
   if [[ "${status}" -eq 3 ]]; then
     POLARIS_BOOTSTRAP_GENERATION="rebootstrap-$(date -u +%Y%m%d%H%M%S)"
     cleanup_jobs_by_prefix "polaris-bootstrap-"
     cleanup_jobs_by_prefix "openmetadata-bootstrap-"
     cleanup_failed_jobs_by_prefix "openmetadata-polaris-refresh-"
+    return 0
   fi
+
+  return "${status}"
 }

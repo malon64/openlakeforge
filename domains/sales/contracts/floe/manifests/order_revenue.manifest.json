@@ -1,15 +1,15 @@
 {
   "schema": "floe.manifest.v1",
   "generated_at_ts_ms": 0,
-  "floe_version": "0.6.6",
+  "floe_version": "0.6.3",
   "spec_version": "0.2",
   "manifest_name": "sales.order_revenue.local",
   "manifest_id": "mfv1-1faf0a276d5999f5",
-  "manifest_revision": "sha256:0cf42565862858a475c729a2f2d253d033dca19b320015e65f4ca59fe7685e73",
+  "manifest_revision": "sha256:bfa3249cde5da98437e4128c9c3cab8ba9fbd5719426c5822112b2da13934aa1",
   "config_uri": "local:///work/domains/sales/contracts/floe/order_revenue.yml",
   "config_checksum": "sha256:4ec74b837e4ba6204ba34e5f5031b655d679984e76c4824f345c41d69e2b09de",
   "profile_uri": "local:///work/libs/floe/profiles/local-k8s.yml",
-  "profile_checksum": "sha256:58573fe005026cbdf3d95a2e61fa74b843d23d62e8376b7d18f81a4c8e2e2e2c",
+  "profile_checksum": "sha256:2da09d6d0371661747745ae89b2d95af18e5ec8a7179950a5e479d55cd4f6149",
   "report_base_uri": "s3://openlakeforge-ops/floe/reports/sales/order_revenue",
   "domains": [],
   "execution": {
@@ -76,7 +76,7 @@
             "key": "POLARIS_FLOE_CLIENT_SECRET"
           }
         ],
-        "image": "ghcr.io/malon64/floe:0.6.6",
+        "image": "ghcr.io/malon64/floe:0.6.3",
         "namespace": "lakehouse",
         "service_account": "dagster",
         "resources": null,

@@ -5,8 +5,6 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 NAMESPACE="${NAMESPACE:-lakehouse}"
-FLOE_VERSION="${FLOE_VERSION:-0.6.6}"
-FLOE_IMAGE="${FLOE_IMAGE:-ghcr.io/malon64/floe:${FLOE_VERSION}}"
 FLOE_PLATFORM="${FLOE_PLATFORM:-}"
 USING_DOCKER="false"
 
@@ -18,6 +16,13 @@ source "${REPO_ROOT}/scripts/lib/python.sh"
 source "${REPO_ROOT}/scripts/contracts/load-runtime-env.sh"
 
 cd "${REPO_ROOT}"
+
+default_floe_version="0.6.6"
+if [[ "${OPENLAKEFORGE_STORAGE_PROVIDER:-}" == "local" ]]; then
+  default_floe_version="0.6.3"
+fi
+FLOE_VERSION="${FLOE_VERSION:-${default_floe_version}}"
+FLOE_IMAGE="${FLOE_IMAGE:-ghcr.io/malon64/floe:${FLOE_VERSION}}"
 
 if [[ -z "${FLOE_RUNTIME_PROFILE_URI:-}" ]]; then
   if [[ "${OPENLAKEFORGE_STORAGE_IMPLEMENTATION}" == "storage.aws_s3" &&

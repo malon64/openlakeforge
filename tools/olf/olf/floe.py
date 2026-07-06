@@ -39,6 +39,7 @@ def render_profile(environ: Mapping[str, str]) -> str:
         "OPENLAKEFORGE_OPS_BUCKET_NAME", env("OPENLAKEFORGE_ARTIFACT_BUCKET_NAME", "openlakeforge-ops")
     )
     storage_region = env("OPENLAKEFORGE_STORAGE_REGION", "us-east-1")
+    storage_provider = env("OPENLAKEFORGE_STORAGE_PROVIDER", "local")
     storage_implementation = env(
         "OPENLAKEFORGE_STORAGE_IMPLEMENTATION", "storage.s3_compatible.seaweedfs"
     )
@@ -80,7 +81,12 @@ def render_profile(environ: Mapping[str, str]) -> str:
         "OPENLAKEFORGE_CATALOG_GLUE_WAREHOUSE_PREFIX", "warehouse/iceberg"
     )
     catalog_scope = env("OPENLAKEFORGE_CATALOG_OAUTH_SCOPE", "PRINCIPAL_ROLE:ALL")
-    floe_image = env("FLOE_IMAGE", "ghcr.io/malon64/floe:0.6.6")
+    default_floe_image = (
+        "ghcr.io/malon64/floe:0.6.3"
+        if storage_provider == "local"
+        else "ghcr.io/malon64/floe:0.6.6"
+    )
+    floe_image = env("FLOE_IMAGE", default_floe_image)
     storage_secret = env(
         "OPENLAKEFORGE_STORAGE_CREDENTIALS_SECRET_NAME", "" if is_aws_s3 else "seaweedfs-s3-creds"
     )
