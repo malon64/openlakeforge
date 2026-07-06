@@ -8,30 +8,52 @@ contract. `check-infra.sh` runs Terraform formatting/validation and renders the
 upstream Helm charts with local values.
 `check-contracts.sh` validates the provider contract boundary, logical product
 aliases, and generated runtime profile expectations.
-Shared shell helpers live under `scripts/lib/`; `docker.sh` wraps Docker pulls,
-builds, and pushes with retry behavior for transient registry/network failures.
+## Shell vs. Python boundary
+
+Shell scripts orchestrate the CLIs (terraform, kubectl, helm, docker, dbt,
+floe, aws, az). Cross-environment logic that is not a CLI call — REST/API
+requests, object-storage uploads, report bundle manipulation, credential
+handling, and provider-contract parsing — lives in the uv-managed Python
+package `tools/olf`, exposed through the `olf` CLI. Shell reaches it through
+`scripts/lib/python.sh` (`olf_run`), which runs `uv run --project tools/olf`.
+See [ADR 0017](../docs/adr/0017-shared-python-deploy-tooling.md).
+
+Shared shell helpers live under `scripts/lib/`:
+
+- `common.sh` — `require_cmd`, `check_prereqs`, `run_with_retry`, tag helpers.
+- `helm.sh` — Helm chart cache download/reuse.
+- `kube.sh` — kubectl helpers: secret reads, rollout/restart, failed-job
+  cleanup, Dagster code-location discovery, and the Polaris bootstrap preflight.
+- `python.sh` — `olf_run` entrypoint for the `tools/olf` package.
+- `docker.sh` — Docker pulls/builds/pushes with retry for transient failures.
+
+Environment-neutral shell lives outside `scripts/local/`:
+
+- `scripts/contracts/load-runtime-env.sh` — sourced by every phase; evaluates
+  `olf contracts env` to export the provider-contract runtime environment.
+- `scripts/artifacts/floe-manifest.sh` — generates manifest-first product Floe
+  contracts from the shared profile in `libs/floe/profiles/`.
+- `scripts/artifacts/dbt-parse.sh` — renders product dbt profiles from
+  `libs/dbt/profiles/` before parsing.
+- `scripts/artifacts/olf.sh` — loads the contract environment, then runs an
+  `olf` subcommand (used by the standalone artifact Make targets).
 
 `check-project-code.sh` installs project-code dependencies into a local cache and
 verifies that the domain Dagster definitions load.
-`scripts/local/artifacts/floe-manifest.sh` generates manifest-first product Floe
-contracts from the shared profile in `libs/floe/profiles/`.
-`scripts/local/artifacts/dbt-parse.sh` renders product dbt profiles from
-`libs/dbt/profiles/` before parsing, matching the profile selection used by
-project-code image builds.
 
 Local stack scripts under `scripts/local/` are grouped by lifecycle:
 
-- `stack/` contains the usual local orchestration entrypoints: infra up,
-  dynamic artifact deploy, full setup, and teardown.
+- `stack/` contains the local orchestration entrypoints: infra up, dynamic
+  artifact deploy, full setup, and teardown.
 - `foundation/` contains Terraform wrappers for the local kind foundation.
-- `contracts/` contains helpers that load Terraform provider contracts and
-  render local runtime profiles.
 - `cluster/` contains kind image prefetch helpers.
 - `images/` contains local image build/load helpers for project-code and
   Superset.
-- `artifacts/` contains local/CD-style domain artifact helpers: Floe manifest
-  generation/upload, dbt parse, Superset report deploy/export, and
-  OpenMetadata metadata deploy.
+
+Manifest upload, Superset report deploy/export, and OpenMetadata metadata
+deploy are now `olf` subcommands (`artifacts upload-manifests`,
+`superset deploy-reports` / `export-reports`, `openmetadata deploy-metadata`),
+invoked by the per-environment `stack/deploy-artifacts.sh` orchestrators.
 
 Azure POC scripts under `scripts/azure/` mirror the local lifecycle without
 overloading local behavior:

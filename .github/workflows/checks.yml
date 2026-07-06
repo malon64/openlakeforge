@@ -44,6 +44,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+
       - name: Check provider contract compatibility
         run: make check-contracts
 
@@ -65,6 +68,25 @@ jobs:
       - name: Build project-code image
         run: make project-code-image
 
+  tooling:
+    name: Validate deployment tooling
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Sync tooling environment
+        run: uv sync --project tools/olf
+
+      - name: Lint tooling
+        run: uv run --project tools/olf ruff check tools/olf
+
+      - name: Test tooling
+        run: uv run --project tools/olf pytest tools/olf/tests
+
   dbt:
     name: Validate product dbt projects
     runs-on: ubuntu-latest
@@ -76,6 +98,9 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
 
       - name: Check product dbt projects
         run: make check-dbt

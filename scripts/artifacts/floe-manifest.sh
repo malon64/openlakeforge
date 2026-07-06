@@ -3,19 +3,19 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 NAMESPACE="${NAMESPACE:-lakehouse}"
-FLOE_VERSION="${FLOE_VERSION:-0.6.5}"
+FLOE_VERSION="${FLOE_VERSION:-0.6.6}"
 FLOE_IMAGE="${FLOE_IMAGE:-ghcr.io/malon64/floe:${FLOE_VERSION}}"
-# The floe 0.6.5 arm64 image is built against glibc 2.38/2.39 while its Debian 12
-# base ships glibc 2.36, so the arm64 binary will not start. Pin the manifest
-# generation container to amd64 (matches the EKS runner arch) and let Docker
-# emulate it on Apple Silicon. Override with FLOE_PLATFORM if a fixed image ships.
-FLOE_PLATFORM="${FLOE_PLATFORM:-linux/amd64}"
+FLOE_PLATFORM="${FLOE_PLATFORM:-}"
 USING_DOCKER="false"
 
+# shellcheck source=scripts/lib/common.sh
+source "${REPO_ROOT}/scripts/lib/common.sh"
+# shellcheck source=scripts/lib/python.sh
+source "${REPO_ROOT}/scripts/lib/python.sh"
 # shellcheck source=/dev/null
-source "${REPO_ROOT}/scripts/local/contracts/load-runtime-env.sh"
+source "${REPO_ROOT}/scripts/contracts/load-runtime-env.sh"
 
 cd "${REPO_ROOT}"
 
@@ -30,15 +30,8 @@ if [[ -z "${FLOE_RUNTIME_PROFILE_URI:-}" ]]; then
 fi
 export FLOE_RUNTIME_PROFILE_URI
 
-# Runner selection.
-#
-# Default is the Docker image because it runs floe from /work, so the committed
-# manifests this script writes embed machine-independent `local:///work/...`
-# config/profile URIs. The native CLI embeds host-absolute paths (e.g.
-# `local:///Users/you/...`), which changes config_uri/profile_uri/manifest_id/
-# manifest_revision per machine — fine for local iteration, but not what should be
-# committed. Set FLOE_PREFER_CLI=true to use the native `brew` floe CLI (handy on
-# Apple Silicon where the 0.6.5 arm64 container is broken — see FLOE_PLATFORM).
+# Runner selection. Docker is the default so manifest generation does not require
+# a host-installed Floe CLI; set FLOE_PREFER_CLI=true to use the native CLI.
 FLOE_PREFER_CLI="${FLOE_PREFER_CLI:-false}"
 floe_cli_version_matches() {
   command -v floe &>/dev/null || return 1
@@ -49,7 +42,27 @@ if [[ "${FLOE_PREFER_CLI}" == "true" ]] && floe_cli_version_matches; then
   FLOE_CMD=(floe)
 elif command -v docker &>/dev/null; then
   USING_DOCKER="true"
-  FLOE_CMD=(docker run --rm --platform "${FLOE_PLATFORM}" -v "${REPO_ROOT}:/work" -w /work "${FLOE_IMAGE}")
+  FLOE_CMD=(docker run --rm)
+  if [[ -n "${FLOE_PLATFORM}" ]]; then
+    FLOE_CMD+=(--platform "${FLOE_PLATFORM}")
+  fi
+  for env_name in \
+    AWS_ACCESS_KEY_ID \
+    AWS_SECRET_ACCESS_KEY \
+    AWS_SESSION_TOKEN \
+    AWS_REGION \
+    AWS_DEFAULT_REGION \
+    AWS_ENDPOINT_URL \
+    AWS_ENDPOINT_URL_S3 \
+    AWS_S3_FORCE_PATH_STYLE \
+    AWS_ALLOW_HTTP \
+    AWS_EC2_METADATA_DISABLED
+  do
+    if [[ -n "${!env_name:-}" ]]; then
+      FLOE_CMD+=(-e "${env_name}")
+    fi
+  done
+  FLOE_CMD+=(-v "${REPO_ROOT}:/work" -w / "${FLOE_IMAGE}")
 elif floe_cli_version_matches; then
   FLOE_CMD=(floe)
 else
@@ -72,8 +85,11 @@ floe_path() {
     "${REPO_ROOT}/"*)
       printf '/work/%s\n' "${path#"${REPO_ROOT}/"}"
       ;;
-    *)
+    /*)
       printf '%s\n' "${path}"
+      ;;
+    *)
+      printf '/work/%s\n' "${path}"
       ;;
   esac
 }
@@ -84,6 +100,7 @@ PROFILE_TMP_DIR=""
 IS_AWS_FLOE_PROFILE="false"
 FLOE_RUNTIME_ARTIFACT_DIR="${FLOE_RUNTIME_ARTIFACT_DIR:-.tmp/floe-runtime}"
 PERSIST_RUNTIME_ARTIFACTS="${FLOE_PERSIST_RUNTIME_ARTIFACTS:-false}"
+FLOE_REMOTE_RUNTIME_BASE_URI="${FLOE_REMOTE_RUNTIME_BASE_URI:-}"
 cleanup() {
   if [[ -n "${PROFILE_TMP_DIR}" ]]; then
     rm -rf "${PROFILE_TMP_DIR}"
@@ -99,6 +116,7 @@ fi
 if [[ "${PERSIST_RUNTIME_ARTIFACTS}" == "true" ]]; then
   rm -rf "${FLOE_RUNTIME_ARTIFACT_DIR}"
   mkdir -p \
+    "${FLOE_RUNTIME_ARTIFACT_DIR}/configs" \
     "${FLOE_RUNTIME_ARTIFACT_DIR}/manifests" \
     "${FLOE_RUNTIME_ARTIFACT_DIR}/profiles"
 fi
@@ -118,7 +136,7 @@ elif [[ -z "${PROFILE_PATH}" ]]; then
     PROFILE_TMP_DIR="$(mktemp -d .tmp/floe-profile.XXXXXX)"
     GENERATED_PROFILE_PATH="${PROFILE_TMP_DIR}/$(basename "${FLOE_RUNTIME_PROFILE_URI}")"
   fi
-  python3 "${REPO_ROOT}/scripts/local/contracts/render-floe-profile.py" > "${GENERATED_PROFILE_PATH}"
+  olf_run floe render-profile > "${GENERATED_PROFILE_PATH}"
 elif [[ "${NAMESPACE}" != "lakehouse" ]]; then
   if [[ "${PERSIST_RUNTIME_ARTIFACTS}" == "true" ]]; then
     GENERATED_PROFILE_PATH="${FLOE_RUNTIME_ARTIFACT_DIR}/profiles/$(basename "${FLOE_RUNTIME_PROFILE_URI}")"
@@ -174,6 +192,11 @@ profile_for_config() {
   local silver_namespace
 
   if [[ -n "${PROFILE_PATH}" || "${IS_AWS_FLOE_PROFILE}" != "true" ]]; then
+    if [[ "${PERSIST_RUNTIME_ARTIFACTS}" == "true" ]]; then
+      profile_path="${FLOE_RUNTIME_ARTIFACT_DIR}/profiles/${domain}/${product}/$(basename "${profile_path}")"
+      mkdir -p "$(dirname "${profile_path}")"
+      cp "${GENERATED_PROFILE_PATH}" "${profile_path}"
+    fi
     printf '%s\n' "${profile_path}"
     return
   fi
@@ -188,9 +211,44 @@ profile_for_config() {
   mkdir -p "$(dirname "${profile_path}")"
   echo "==> Rendering AWS Floe profile for ${product_key} with Glue database ${silver_namespace}" >&2
   OPENLAKEFORGE_CATALOG_GLUE_DATABASE="${silver_namespace}" \
-    python3 "${REPO_ROOT}/scripts/local/contracts/render-floe-profile.py" > "${profile_path}"
+    olf_run floe render-profile > "${profile_path}"
 
   printf '%s\n' "${profile_path}"
+}
+
+config_for_manifest() {
+  local config_path="$1"
+  local domain="$2"
+  local product="$3"
+  local runtime_config_path
+
+  if [[ "${PERSIST_RUNTIME_ARTIFACTS}" != "true" ]]; then
+    printf '%s\n' "${config_path}"
+    return
+  fi
+
+  runtime_config_path="${FLOE_RUNTIME_ARTIFACT_DIR}/configs/${domain}/${product}/$(basename "${config_path}")"
+  mkdir -p "$(dirname "${runtime_config_path}")"
+  cp "${config_path}" "${runtime_config_path}"
+  printf '%s\n' "${runtime_config_path}"
+}
+
+remote_runtime_uri() {
+  local kind="$1"
+  local domain="$2"
+  local product="$3"
+  local filename="$4"
+
+  if [[ -z "${FLOE_REMOTE_RUNTIME_BASE_URI}" ]]; then
+    return 1
+  fi
+
+  printf '%s/%s/%s/%s/%s\n' \
+    "${FLOE_REMOTE_RUNTIME_BASE_URI%/}" \
+    "${kind}" \
+    "${domain}" \
+    "${product}" \
+    "${filename}"
 }
 
 generate_manifest() {
@@ -200,6 +258,7 @@ generate_manifest() {
   local domain
   local manifest_path
   local profile_path
+  local generation_config_path
   local floe_config_path
   local floe_profile_path
   local floe_manifest_path
@@ -213,11 +272,17 @@ generate_manifest() {
 
   mkdir -p "$(dirname "${manifest_path}")"
   profile_path="$(profile_for_config "${domain}" "${product}")"
+  generation_config_path="$(config_for_manifest "${config_path}" "${domain}" "${product}")"
 
   echo "==> Validating Floe config: ${config_path}"
-  floe_config_path="$(floe_path "${config_path}")"
-  floe_profile_path="$(floe_path "${profile_path}")"
-  floe_manifest_path="$(floe_path "${manifest_path}")"
+  if floe_config_path="$(remote_runtime_uri "configs" "${domain}" "${product}" "$(basename "${generation_config_path}")")"; then
+    floe_profile_path="$(remote_runtime_uri "profiles" "${domain}" "${product}" "$(basename "${profile_path}")")"
+    floe_manifest_path="$(remote_runtime_uri "manifests" "${domain}" "${product}" "$(basename "${manifest_path}")")"
+  else
+    floe_config_path="$(floe_path "${generation_config_path}")"
+    floe_profile_path="$(floe_path "${profile_path}")"
+    floe_manifest_path="$(floe_path "${manifest_path}")"
+  fi
   "${FLOE_CMD[@]}" validate -c "${floe_config_path}" -p "${floe_profile_path}"
 
   echo "==> Generating Floe manifest: ${manifest_path}"

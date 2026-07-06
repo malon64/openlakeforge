@@ -20,6 +20,9 @@ dependencies = [
   "dbt-duckdb>=1.10.0,<1.11",
   "dlt>=1.17,<2",
   "duckdb>=1.4.5,<1.5",
+  # Keep grpc health-check protobuf gencode compatible with Dagster's protobuf<7
+  # runtime constraint.
+  "grpcio-health-checking<1.77",
   "kubernetes<36",
   # Required by DuckDB's Python scalar UDF registration (duckdb.create_function),
   # which the libs.dbt.duckdb_plugins.glue_iceberg plugin uses to work around the

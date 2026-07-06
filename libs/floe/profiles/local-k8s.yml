@@ -3,7 +3,7 @@ kind: EnvironmentProfile
 metadata:
   name: "local-k8s"
   env: "local"
-  description: "Local kind Kubernetes runner profile for OpenLakeForge Floe assets."
+  description: "Contract-rendered local Kubernetes runner profile for OpenLakeForge Floe assets."
 variables:
   OPENLAKEFORGE_STORAGE_BRONZE_BUCKET: "lakehouse-bronze"
   OPENLAKEFORGE_STORAGE_SILVER_BUCKET: "lakehouse-silver"
@@ -20,26 +20,26 @@ catalogs:
       oauth2_server_uri: "http://polaris:8181/api/catalog/v1/oauth/tokens"
       scope: "PRINCIPAL_ROLE:ALL"
       warehouse_storage: "lakehouse_silver"
-      warehouse_prefix: "warehouse/iceberg"
+      warehouse_prefix: "s3://lakehouse-silver"
 execution:
   orchestration:
     strategy: sequential
   runner:
     type: kubernetes_job
-    image: ghcr.io/malon64/floe:0.6.5
+    image: ghcr.io/malon64/floe:0.6.6
     namespace: lakehouse
     service_account: dagster
     timeout_seconds: 600
     ttl_seconds_after_finished: 3600
     poll_interval_seconds: 5
     env:
-      AWS_REGION: us-east-1
-      AWS_DEFAULT_REGION: us-east-1
-      AWS_ENDPOINT_URL: http://seaweedfs-s3:8333
-      AWS_ENDPOINT_URL_S3: http://lakehouse.svc.cluster.local:8333
+      AWS_REGION: "us-east-1"
+      AWS_DEFAULT_REGION: "us-east-1"
       AWS_S3_FORCE_PATH_STYLE: "true"
-      AWS_ALLOW_HTTP: "true"
       AWS_EC2_METADATA_DISABLED: "true"
+      AWS_ALLOW_HTTP: "true"
+      AWS_ENDPOINT_URL: "http://seaweedfs-s3:8333"
+      AWS_ENDPOINT_URL_S3: "http://lakehouse.svc.cluster.local:8333"
     secrets:
       - name: AWS_ACCESS_KEY_ID
         secret_name: seaweedfs-s3-creds

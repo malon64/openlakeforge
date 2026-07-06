@@ -12,7 +12,7 @@ require_cmd() {
 require_cmd python3
 
 # shellcheck source=/dev/null
-source "scripts/local/contracts/load-runtime-env.sh"
+source "scripts/contracts/load-runtime-env.sh"
 
 CACHE_ROOT="${DBT_CHECK_CACHE_DIR:-.cache/dbt-check}"
 python_tag="$(python3 -c 'import sys; print(f"py{sys.version_info.major}{sys.version_info.minor}")')"

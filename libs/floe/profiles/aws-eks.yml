@@ -17,14 +17,14 @@ catalogs:
       region: "eu-west-1"
       database: "sales_customer_health_silver"
       warehouse_storage: "lakehouse_silver"
-      warehouse_prefix: "warehouse/iceberg"
+      warehouse_prefix: "s3://openlakeforge-poc-silver/warehouse/iceberg"
       create_database_if_missing: false
 execution:
   orchestration:
     strategy: sequential
   runner:
     type: kubernetes_job
-    image: ghcr.io/malon64/floe:0.6.5
+    image: ghcr.io/malon64/floe:0.6.6
     namespace: lakehouse
     service_account: dagster
     timeout_seconds: 600

@@ -453,22 +453,21 @@ for path in sorted(Path("domains").glob("*/transformations/dbt/*/models/sources.
         errors.append(f"{path}: source identifiers must be product-local because the schema carries the product")
 
 for path in [
-    Path("scripts/local/artifacts/floe-manifest.sh"),
-    Path("scripts/local/artifacts/upload-floe-manifest.sh"),
-    Path("scripts/local/artifacts/dbt-parse.sh"),
-    Path("scripts/local/artifacts/superset-reports-deploy.sh"),
-    Path("scripts/local/artifacts/openmetadata-metadata-deploy.sh"),
+    Path("scripts/artifacts/floe-manifest.sh"),
+    Path("scripts/artifacts/dbt-parse.sh"),
+    Path("scripts/artifacts/olf.sh"),
+    Path("scripts/local/stack/deploy-artifacts.sh"),
     Path("scripts/test/check-dbt.sh"),
 ]:
     body = path.read_text()
-    if "scripts/local/contracts/load-runtime-env.sh" not in body:
+    if "scripts/contracts/load-runtime-env.sh" not in body:
         errors.append(f"{path}: must source the runtime contract environment")
-for path in [Path("scripts/local/artifacts/dbt-parse.sh"), Path("scripts/test/check-dbt.sh")]:
+for path in [Path("scripts/artifacts/dbt-parse.sh"), Path("scripts/test/check-dbt.sh")]:
     body = path.read_text()
     if "libs.dbt.render_profiles" not in body:
         errors.append(f"{path}: must render dbt profiles from libs/dbt/profiles before invoking dbt")
 
-floe_manifest_script = Path("scripts/local/artifacts/floe-manifest.sh")
+floe_manifest_script = Path("scripts/artifacts/floe-manifest.sh")
 floe_manifest_body = floe_manifest_script.read_text()
 for required in [
     "FLOE_RUNTIME_PROFILE_URI",
@@ -564,7 +563,7 @@ for required in [
     'region: "eu-west-1"',
     'database: "sales_customer_health_silver"',
     'warehouse_storage: "lakehouse_silver"',
-    'warehouse_prefix: "warehouse/iceberg"',
+    'warehouse_prefix: "s3://openlakeforge-poc-silver/warehouse/iceberg"',
     'create_database_if_missing: false',
     'AWS_S3_FORCE_PATH_STYLE: "false"',
     'secrets: []',
@@ -595,29 +594,36 @@ for floe_profile in [Path("libs/floe/profiles/local-k8s.yml"), aws_floe_profile]
         if required not in body:
             errors.append(f"{floe_profile}: missing Floe profile.schema.yaml section {required}")
 
-openmetadata_metadata_script = Path("scripts/local/artifacts/openmetadata-metadata-deploy.sh")
-openmetadata_metadata_body = openmetadata_metadata_script.read_text()
+openmetadata_module = Path("tools/olf/olf/openmetadata.py")
+openmetadata_module_body = openmetadata_module.read_text()
 for required in [
     "OPENLAKEFORGE_STORAGE_BRONZE_BUCKET",
     "OPENLAKEFORGE_STORAGE_SILVER_BUCKET",
     "OPENLAKEFORGE_STORAGE_GOLD_BUCKET",
-    "OPENLAKEFORGE_CATALOG_DATABASE_FQN",
     "OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON",
     "OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON",
-    "CATALOG_SILVER_SCHEMA_FQNS",
-    "CATALOG_GOLD_SCHEMA_FQNS",
+    "catalog_database_fqn",
+    "catalog_silver_schema_fqns",
+    "catalog_gold_schema_fqns",
     "provider_asset_fqn",
     "storage_bucket_specs",
 ]:
-    if required not in openmetadata_metadata_body:
-        errors.append(f"{openmetadata_metadata_script}: must seed OpenMetadata medallion bucket containers using {required}")
-if "product_bronze_containers" in openmetadata_metadata_body:
-    errors.append(f"{openmetadata_metadata_script}: must not seed path-level product Bronze containers")
-if "f\"{STORAGE_SERVICE}.{STORAGE_BUCKET}\"" in openmetadata_metadata_body:
-    errors.append(f"{openmetadata_metadata_script}: must not parent product containers under a single storage bucket")
+    if required not in openmetadata_module_body:
+        errors.append(f"{openmetadata_module}: must seed OpenMetadata medallion bucket containers using {required}")
+if "product_bronze_containers" in openmetadata_module_body:
+    errors.append(f"{openmetadata_module}: must not seed path-level product Bronze containers")
+# Medallion bucket containers are seeded per-bucket at the storage-service root
+# (parent None), never nested under a single storage bucket.
+if 'ensure_container(container["name"], None' not in openmetadata_module_body:
+    errors.append(f"{openmetadata_module}: must parent medallion bucket containers at the storage-service root")
 
-load_runtime_env_script = Path("scripts/local/contracts/load-runtime-env.sh")
+load_runtime_env_script = Path("scripts/contracts/load-runtime-env.sh")
 load_runtime_env_body = load_runtime_env_script.read_text()
+if "olf contracts env" not in load_runtime_env_body:
+    errors.append(f"{load_runtime_env_script}: must resolve the runtime contract environment through olf contracts env")
+
+contracts_module = Path("tools/olf/olf/contracts.py")
+contracts_module_body = contracts_module.read_text()
 for required in [
     "OPENLAKEFORGE_CATALOG_DATABASE_FQN",
     "OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON",
@@ -627,25 +633,14 @@ for required in [
     "OPENLAKEFORGE_CATALOG_GLUE_REST_WAREHOUSE",
     "OPENLAKEFORGE_STORAGE_OM_SERVICE",
     "OPENLAKEFORGE_STORAGE_DISPLAY_NAME",
-]:
-    if required not in load_runtime_env_body:
-        errors.append(f"{load_runtime_env_script}: must emit OpenMetadata provider runtime setting {required}")
-
-emit_contract_env_script = Path("scripts/local/contracts/emit-contract-env.py")
-emit_contract_env_body = emit_contract_env_script.read_text()
-for required in [
-    "OPENLAKEFORGE_CATALOG_DATABASE_FQN",
-    "OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON",
-    "OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON",
-    "OPENLAKEFORGE_CATALOG_GLUE_REST_WAREHOUSE",
     "is_glue_catalog",
     "catalog_warehouse",
     "catalog_database_fqn",
     "silver_schema_fqns",
     "gold_schema_fqns",
 ]:
-    if required not in emit_contract_env_body:
-        errors.append(f"{emit_contract_env_script}: must export OpenMetadata catalog FQN contract field {required}")
+    if required not in contracts_module_body:
+        errors.append(f"{contracts_module}: must emit OpenMetadata provider runtime setting {required}")
 
 azure_artifact_script = Path("scripts/azure/stack/deploy-artifacts.sh")
 azure_artifact_body = azure_artifact_script.read_text()
@@ -664,8 +659,6 @@ if "OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR" not in azure_artifact_body:
     errors.append(f"{azure_artifact_script}: must pass OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR to reused artifact scripts")
 if azure_artifact_body.find("floe-manifest.sh") > azure_artifact_body.find("build-push-project-code.sh"):
     errors.append(f"{azure_artifact_script}: must generate Floe manifests before building the project-code image")
-if "update_dagster_project_code_image" not in azure_artifact_body:
-    errors.append(f"{azure_artifact_script}: must update Dagster deployments to the project-code image pushed by azure-artifacts-deploy")
 if "PROJECT_CODE_IMAGE=\"${PROJECT_CODE_IMAGE_REPOSITORY}:${PROJECT_CODE_IMAGE_TAG}\"" not in azure_artifact_body:
     errors.append(f"{azure_artifact_script}: must derive the exact pushed project-code image")
 for path, expected_env in [
@@ -678,26 +671,16 @@ for path, expected_env in [
         errors.append(f"{path}: must default project-code dbt profile rendering to {expected_env}")
     if '--build-arg "DBT_PROFILE_ENV=${PROJECT_CODE_DBT_PROFILE_ENV}"' not in body:
         errors.append(f"{path}: must pass DBT_PROFILE_ENV into the project-code Docker build")
-if "regular containers to patch" not in azure_artifact_body or '"containers": [' not in azure_artifact_body:
-    errors.append(f"{azure_artifact_script}: must patch only regular container images before rollout restart")
-if "dagster-instance" not in azure_artifact_body or "job_image:" not in azure_artifact_body:
-    errors.append(f"{azure_artifact_script}: must patch Dagster run launcher job_image before rollout restart")
-if "patch_cronjob_image_if_exists" not in azure_artifact_body or "openlakeforge-k8s-log-archive" not in azure_artifact_body:
-    errors.append(f"{azure_artifact_script}: must patch the Kubernetes log archive CronJob image after pushing project-code")
 if "infra/terraform/environments/aws-poc" not in aws_artifact_body:
     errors.append(f"{aws_artifact_script}: must default runtime contracts to the AWS POC Terraform root")
-if "aws s3api put-object" not in aws_artifact_body or "floe/manifests/${domain}/${product}/${product}.manifest.json" not in aws_artifact_body:
-    errors.append(f"{aws_artifact_script}: must upload product Floe manifests directly to the AWS S3 ops bucket")
 for required in [
-    "manifest_root",
+    "--runtime-root",
     "FLOE_PERSIST_RUNTIME_ARTIFACTS",
 ]:
     if required not in aws_artifact_body:
         errors.append(f"{aws_artifact_script}: must generate and upload Floe-generated AWS manifests using {required}")
 for forbidden in [
     "upload_floe_runtime_artifacts_to_s3",
-    "floe/configs",
-    "floe/profiles/aws-eks.yml",
     "FLOE_REMOTE_CONFIG_BASE_URI",
     "FLOE_REMOTE_PROFILE_URI",
 ]:
@@ -709,24 +692,51 @@ if "build-push-project-code.sh" not in aws_artifact_body:
     errors.append(f"{aws_artifact_script}: must build and push the AWS project-code image")
 if "PROJECT_CODE_IMAGE=\"${PROJECT_CODE_IMAGE_REPOSITORY}:${PROJECT_CODE_IMAGE_TAG}\"" not in aws_artifact_body:
     errors.append(f"{aws_artifact_script}: must derive the exact pushed project-code image")
-if "regular containers to patch" not in aws_artifact_body or '"containers": [' not in aws_artifact_body:
-    errors.append(f"{aws_artifact_script}: must patch only regular container images before rollout restart")
-if "dagster-instance" not in aws_artifact_body or "job_image:" not in aws_artifact_body:
-    errors.append(f"{aws_artifact_script}: must patch Dagster run launcher job_image before rollout restart")
-if "patch_cronjob_image_if_exists" not in aws_artifact_body or "openlakeforge-k8s-log-archive" not in aws_artifact_body:
-    errors.append(f"{aws_artifact_script}: must patch the Kubernetes log archive CronJob image after pushing project-code")
+
+# Manifest publication and Dagster image bookkeeping moved into the shared olf
+# tooling. Each cloud deploy script now delegates through the olf CLI, and the
+# behavioral invariants are asserted against the Python modules that own them.
 for path, body in [(azure_artifact_script, azure_artifact_body), (aws_artifact_script, aws_artifact_body)]:
-    if "kubectl set image" in body or "*=${PROJECT_CODE_IMAGE}" in body:
-        errors.append(f"{path}: must not use wildcard image patching because it rewrites chart-managed init containers")
-for path, body in [(local_artifact_script, local_artifact_body), (azure_artifact_script, azure_artifact_body), (aws_artifact_script, aws_artifact_body)]:
-    if "dagster-user-deployments-.+-dagster" not in body:
-        errors.append(f"{path}: must discover domain Dagster user deployments instead of hardcoding names")
-if "floe/manifests/%s/%s/%s.manifest.json" not in Path("scripts/local/artifacts/upload-floe-manifest.sh").read_text():
-    errors.append("scripts/local/artifacts/upload-floe-manifest.sh: must upload manifests under floe/manifests")
+    if "olf_run k8s set-project-code-image" not in body:
+        errors.append(f"{path}: must update the Dagster project-code image through 'olf k8s set-project-code-image'")
+    if "olf_run artifacts upload-manifests" not in body:
+        errors.append(f"{path}: must publish Floe manifests through 'olf artifacts upload-manifests'")
+    if "restart_dagster_project_code_deployments" not in body:
+        errors.append(f"{path}: must restart Dagster project-code deployments after the artifact deploy")
+if "olf_run artifacts upload-manifests --via port-forward" not in azure_artifact_body:
+    errors.append(f"{azure_artifact_script}: Azure SeaweedFS ops bucket upload must use --via port-forward")
+if "olf_run artifacts upload-manifests --via direct" not in aws_artifact_body:
+    errors.append(f"{aws_artifact_script}: AWS S3 ops bucket upload must use --via direct")
+
+k8s_module = Path("tools/olf/olf/k8s.py")
+k8s_module_body = k8s_module.read_text()
+for required in [
+    "def dagster_yaml_with_job_image",
+    "job_image:",
+    "dagster-instance",
+    "DAGSTER_CURRENT_IMAGE",
+    "openlakeforge-k8s-log-archive",
+    "dagster-user-deployments-",
+    "-dagster",
+    "has no regular containers to patch",
+]:
+    if required not in k8s_module_body:
+        errors.append(f"{k8s_module}: must own the Dagster project-code image bookkeeping using {required}")
+if "kubectl set image" in k8s_module_body or "*=${PROJECT_CODE_IMAGE}" in k8s_module_body:
+    errors.append(f"{k8s_module}: must not use wildcard image patching because it rewrites chart-managed init containers")
+
+s3_module = Path("tools/olf/olf/s3.py")
+s3_module_body = s3_module.read_text()
+if 'floe/manifests/{domain}/{product}/{product}.manifest.json' not in s3_module_body:
+    errors.append(f"{s3_module}: must upload manifests under floe/manifests/<domain>/<product>/")
+
+RENDER_FLOE_PROFILE_CMD = [
+    "uv", "run", "--project", "tools/olf", "--quiet", "olf", "floe", "render-profile",
+]
 
 with tempfile.NamedTemporaryFile("w+", encoding="utf-8") as handle:
     subprocess.run(
-        ["python3", "scripts/local/contracts/render-floe-profile.py"],
+        RENDER_FLOE_PROFILE_CMD,
         check=True,
         stdout=handle,
     )
@@ -742,7 +752,7 @@ for required in [
     'OPENLAKEFORGE_OPS_BUCKET_NAME: "openlakeforge-ops"',
     'OPENLAKEFORGE_STORAGE_REGION: "us-east-1"',
     'warehouse_storage: "lakehouse_silver"',
-    'warehouse_prefix: "warehouse/iceberg"',
+    'warehouse_prefix: "s3://lakehouse-silver"',
 ]:
     if required not in profile:
         errors.append(f"rendered Floe profile must include schema-valid setting {required}")
@@ -781,7 +791,7 @@ aws_profile_env.update(
 )
 with tempfile.NamedTemporaryFile("w+", encoding="utf-8") as handle:
     subprocess.run(
-        ["python3", "scripts/local/contracts/render-floe-profile.py"],
+        RENDER_FLOE_PROFILE_CMD,
         check=True,
         stdout=handle,
         env=aws_profile_env,
