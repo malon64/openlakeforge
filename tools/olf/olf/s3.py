@@ -1,4 +1,4 @@
-"""Object-storage helpers for publishing product Floe manifests.
+"""Object-storage helpers for publishing product Floe runtime artifacts.
 
 Replaces scripts/local/artifacts/upload-floe-manifest.sh (SeaweedFS via
 kubectl port-forward) and upload_floe_manifests_to_s3() from the AWS artifact
@@ -29,6 +29,14 @@ def manifest_key(domain: str, product: str) -> str:
     return f"floe/manifests/{domain}/{product}/{product}.manifest.json"
 
 
+def config_key(domain: str, product: str, filename: str) -> str:
+    return f"floe/configs/{domain}/{product}/{filename}"
+
+
+def profile_key(domain: str, product: str, filename: str) -> str:
+    return f"floe/profiles/{domain}/{product}/{filename}"
+
+
 def discover_tracked_manifests(repo_root: Path) -> list[ManifestUpload]:
     """Source-controlled manifests under domains/*/contracts/floe/manifests/."""
     uploads: list[ManifestUpload] = []
@@ -54,6 +62,32 @@ def discover_runtime_manifests(manifest_root: Path) -> list[ManifestUpload]:
         domain = manifest_path.relative_to(manifest_root).parts[0]
         product = manifest_path.name[: -len(".manifest.json")]
         uploads.append(ManifestUpload(manifest_path, manifest_key(domain, product)))
+    return uploads
+
+
+def discover_runtime_artifacts(runtime_root: Path) -> list[ManifestUpload]:
+    """Rendered Floe configs, profiles, and manifests under a runtime artifact root."""
+    uploads: list[ManifestUpload] = []
+
+    for config_path in sorted((runtime_root / "configs").rglob("*.yml")):
+        if not config_path.is_file():
+            continue
+        relative = config_path.relative_to(runtime_root / "configs")
+        if len(relative.parts) < 3:
+            continue
+        domain, product = relative.parts[0], relative.parts[1]
+        uploads.append(ManifestUpload(config_path, config_key(domain, product, config_path.name)))
+
+    for profile_path in sorted((runtime_root / "profiles").rglob("*.yml")):
+        if not profile_path.is_file():
+            continue
+        relative = profile_path.relative_to(runtime_root / "profiles")
+        if len(relative.parts) < 3:
+            continue
+        domain, product = relative.parts[0], relative.parts[1]
+        uploads.append(ManifestUpload(profile_path, profile_key(domain, product, profile_path.name)))
+
+    uploads.extend(discover_runtime_manifests(runtime_root / "manifests"))
     return uploads
 
 

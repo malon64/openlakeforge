@@ -18,6 +18,8 @@ def _yaml_string(value: str) -> str:
 def _absolute_s3_prefix(bucket: str, prefix: str) -> str:
     if "://" in prefix:
         return prefix
+    if not prefix:
+        return f"s3://{bucket}"
     return f"s3://{bucket}/{prefix.lstrip('/')}"
 
 
@@ -72,13 +74,13 @@ def render_profile(environ: Mapping[str, str]) -> str:
     catalog_warehouse = env(
         "OPENLAKEFORGE_CATALOG_WAREHOUSE", env("OPENLAKEFORGE_CATALOG_NAME", "lakehouse_dev")
     )
-    catalog_warehouse_prefix = env("OPENLAKEFORGE_CATALOG_WAREHOUSE_PREFIX", "warehouse/iceberg")
+    catalog_warehouse_prefix = env("OPENLAKEFORGE_CATALOG_WAREHOUSE_PREFIX", "")
     catalog_glue_database = env("OPENLAKEFORGE_CATALOG_GLUE_DATABASE", "")
     catalog_glue_warehouse_prefix = env(
         "OPENLAKEFORGE_CATALOG_GLUE_WAREHOUSE_PREFIX", "warehouse/iceberg"
     )
     catalog_scope = env("OPENLAKEFORGE_CATALOG_OAUTH_SCOPE", "PRINCIPAL_ROLE:ALL")
-    floe_image = env("FLOE_IMAGE", "ghcr.io/malon64/floe:0.6.5")
+    floe_image = env("FLOE_IMAGE", "ghcr.io/malon64/floe:0.6.6")
     storage_secret = env(
         "OPENLAKEFORGE_STORAGE_CREDENTIALS_SECRET_NAME", "" if is_aws_s3 else "seaweedfs-s3-creds"
     )
@@ -90,7 +92,7 @@ def render_profile(environ: Mapping[str, str]) -> str:
         "OPENLAKEFORGE_CATALOG_FLOE_CLIENT_SECRET_KEY", "POLARIS_FLOE_CLIENT_SECRET"
     )
 
-    if is_aws_s3:
+    if storage_implementation.startswith("storage.") and "s3" in storage_implementation:
         catalog_warehouse_prefix = _absolute_s3_prefix(storage_silver_bucket, catalog_warehouse_prefix)
         catalog_glue_warehouse_prefix = _absolute_s3_prefix(
             storage_silver_bucket, catalog_glue_warehouse_prefix

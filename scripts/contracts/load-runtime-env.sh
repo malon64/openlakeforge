@@ -25,5 +25,14 @@ if ! command -v uv >/dev/null 2>&1; then
   return 1 2>/dev/null || exit 1
 fi
 
-eval "$(uv run --project "${OLF_PROJECT_DIR}" --quiet olf contracts env \
-  --terraform-dir "${OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR}")"
+if ! _olf_contract_env_exports="$(uv run --project "${OLF_PROJECT_DIR}" --quiet olf contracts env \
+  --terraform-dir "${OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR}")"; then
+  echo "ERROR: failed to resolve OpenLakeForge runtime contracts." >&2
+  return 1 2>/dev/null || exit 1
+fi
+
+if ! eval "${_olf_contract_env_exports}"; then
+  echo "ERROR: failed to load OpenLakeForge runtime contract exports." >&2
+  return 1 2>/dev/null || exit 1
+fi
+unset _olf_contract_env_exports

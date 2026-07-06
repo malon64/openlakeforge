@@ -300,7 +300,14 @@ def _manifest_path_for_dagster(spec: ProductDefinitionSpec) -> str:
                 f"{_FLOE_MANIFEST_ACCESS_MODE_ENV}=remote for {spec.asset_prefix}, "
                 "but no remote Floe manifest URI could be resolved for Dagster definitions."
             )
-        return _cache_remote_manifest_for_dagster(spec, manifest_uri)
+        try:
+            return _cache_remote_manifest_for_dagster(spec, manifest_uri)
+        except RuntimeError:
+            if _explicit_floe_dagster_manifest_source() == _FLOE_MANIFEST_ACCESS_MODE_REMOTE:
+                raise
+            if spec.manifest_path.exists():
+                return str(spec.manifest_path)
+            raise
 
     if not spec.manifest_path.exists():
         raise RuntimeError(
@@ -311,7 +318,7 @@ def _manifest_path_for_dagster(spec: ProductDefinitionSpec) -> str:
 
 
 def _use_remote_manifest_for_dagster_definitions() -> bool:
-    override = os.environ.get("OPENLAKEFORGE_FLOE_DAGSTER_MANIFEST_SOURCE", "").strip().lower()
+    override = _explicit_floe_dagster_manifest_source()
     if override:
         if override not in {"local", "remote"}:
             raise RuntimeError(
@@ -320,13 +327,11 @@ def _use_remote_manifest_for_dagster_definitions() -> bool:
             )
         return override == "remote"
 
-    if _floe_manifest_access_mode() != _FLOE_MANIFEST_ACCESS_MODE_REMOTE:
-        return False
+    return _floe_manifest_access_mode() == _FLOE_MANIFEST_ACCESS_MODE_REMOTE
 
-    return (
-        os.environ.get("OPENLAKEFORGE_CATALOG_TYPE", "").strip().lower() == "glue"
-        and os.environ.get("OPENLAKEFORGE_CATALOG_PROVIDER", "").strip().lower() == "aws-glue"
-    )
+
+def _explicit_floe_dagster_manifest_source() -> str:
+    return os.environ.get("OPENLAKEFORGE_FLOE_DAGSTER_MANIFEST_SOURCE", "").strip().lower()
 
 
 def _cache_remote_manifest_for_dagster(spec: ProductDefinitionSpec, manifest_uri: str) -> str:

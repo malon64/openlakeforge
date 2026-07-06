@@ -92,8 +92,13 @@ def artifacts_upload_manifests(
         "--manifest-root",
         help="Rendered-manifest directory for --via direct (default: .tmp/floe-runtime/aws/manifests).",
     ),
+    runtime_root: str = typer.Option(
+        "",
+        "--runtime-root",
+        help="Rendered Floe runtime artifact root containing configs/, profiles/, and manifests/.",
+    ),
 ) -> None:
-    """Publish product Floe manifests to the operational artifact bucket."""
+    """Publish product Floe runtime artifacts to the operational artifact bucket."""
     from olf import s3
 
     repo_root = _repo_root()
@@ -103,15 +108,22 @@ def artifacts_upload_manifests(
         raise typer.Exit(code=_fail("no ops/artifact bucket resolved from the contract environment."))
 
     if via == "direct":
-        root = Path(manifest_root) if manifest_root else repo_root / ".tmp/floe-runtime/aws/manifests"
-        uploads = s3.discover_runtime_manifests(root)
+        if runtime_root:
+            uploads = s3.discover_runtime_artifacts(Path(runtime_root))
+        else:
+            root = Path(manifest_root) if manifest_root else repo_root / ".tmp/floe-runtime/aws/manifests"
+            uploads = s3.discover_runtime_manifests(root)
         if not uploads:
-            raise typer.Exit(code=_fail(f"no rendered Floe manifests found under {root}."))
+            root = runtime_root or manifest_root or str(repo_root / ".tmp/floe-runtime/aws/manifests")
+            raise typer.Exit(code=_fail(f"no rendered Floe artifacts found under {root}."))
         s3.upload_direct(bucket, uploads, region=config.env("OPENLAKEFORGE_STORAGE_REGION"))
     elif via == "port-forward":
-        uploads = s3.discover_tracked_manifests(repo_root)
+        if runtime_root:
+            uploads = s3.discover_runtime_artifacts(Path(runtime_root))
+        else:
+            uploads = s3.discover_tracked_manifests(repo_root)
         if not uploads:
-            raise typer.Exit(code=_fail("no generated product Floe manifests found. Run 'make floe-manifest' first."))
+            raise typer.Exit(code=_fail("no generated product Floe artifacts found. Run 'make floe-manifest' first."))
         secret_name = config.env("OPENLAKEFORGE_STORAGE_CREDENTIALS_SECRET_NAME")
         service = config.env("OPENLAKEFORGE_STORAGE_S3_SERVICE_NAME", "seaweedfs-s3")
         remote_port = int(config.env("OPENLAKEFORGE_STORAGE_S3_SERVICE_PORT", "8333"))

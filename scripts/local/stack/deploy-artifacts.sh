@@ -9,6 +9,7 @@ CLUSTER_NAME="${CLUSTER_NAME:-openlakeforge-local}"
 KUBE_CONTEXT="${KUBE_CONTEXT:-kind-${CLUSTER_NAME}}"
 PROJECT_CODE_IMAGE_REPOSITORY="${PROJECT_CODE_IMAGE_REPOSITORY:-ghcr.io/openlakeforge/project-code}"
 PROJECT_CODE_IMAGE_TAG="${PROJECT_CODE_IMAGE_TAG:-local}"
+FLOE_RUNTIME_ARTIFACT_DIR="${FLOE_RUNTIME_ARTIFACT_DIR:-${REPO_ROOT}/.tmp/floe-runtime/local}"
 export OPENLAKEFORGE_REPO_ROOT="${REPO_ROOT}"
 
 # shellcheck source=scripts/lib/common.sh
@@ -54,12 +55,14 @@ kubectl config use-context "${KUBE_CONTEXT}" >/dev/null
 source "${REPO_ROOT}/scripts/contracts/load-runtime-env.sh"
 
 echo "==> Generating local product Floe manifests for namespace '${NAMESPACE}'..."
+export FLOE_RUNTIME_ARTIFACT_DIR
+export FLOE_PERSIST_RUNTIME_ARTIFACTS="true"
 NAMESPACE="${NAMESPACE}" bash "${REPO_ROOT}/scripts/artifacts/floe-manifest.sh"
 
 prepare_local_project_code_image
 
 echo "==> Publishing product Floe manifests to local ops bucket..."
-olf_run artifacts upload-manifests --via port-forward
+olf_run artifacts upload-manifests --via port-forward --runtime-root "${FLOE_RUNTIME_ARTIFACT_DIR}"
 
 echo "==> Deploying product Superset report assets..."
 olf_run superset deploy-reports

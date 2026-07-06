@@ -563,7 +563,7 @@ for required in [
     'region: "eu-west-1"',
     'database: "sales_customer_health_silver"',
     'warehouse_storage: "lakehouse_silver"',
-    'warehouse_prefix: "warehouse/iceberg"',
+    'warehouse_prefix: "s3://openlakeforge-poc-silver/warehouse/iceberg"',
     'create_database_if_missing: false',
     'AWS_S3_FORCE_PATH_STYLE: "false"',
     'secrets: []',
@@ -674,15 +674,13 @@ for path, expected_env in [
 if "infra/terraform/environments/aws-poc" not in aws_artifact_body:
     errors.append(f"{aws_artifact_script}: must default runtime contracts to the AWS POC Terraform root")
 for required in [
-    "manifest_root",
+    "--runtime-root",
     "FLOE_PERSIST_RUNTIME_ARTIFACTS",
 ]:
     if required not in aws_artifact_body:
         errors.append(f"{aws_artifact_script}: must generate and upload Floe-generated AWS manifests using {required}")
 for forbidden in [
     "upload_floe_runtime_artifacts_to_s3",
-    "floe/configs",
-    "floe/profiles/aws-eks.yml",
     "FLOE_REMOTE_CONFIG_BASE_URI",
     "FLOE_REMOTE_PROFILE_URI",
 ]:
@@ -754,7 +752,7 @@ for required in [
     'OPENLAKEFORGE_OPS_BUCKET_NAME: "openlakeforge-ops"',
     'OPENLAKEFORGE_STORAGE_REGION: "us-east-1"',
     'warehouse_storage: "lakehouse_silver"',
-    'warehouse_prefix: "warehouse/iceberg"',
+    'warehouse_prefix: "s3://lakehouse-silver"',
 ]:
     if required not in profile:
         errors.append(f"rendered Floe profile must include schema-valid setting {required}")

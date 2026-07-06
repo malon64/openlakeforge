@@ -26,7 +26,7 @@ def test_local_profile_uses_polaris_rest_catalog_and_secrets() -> None:
     assert 'name: "local-k8s"' in profile
     assert 'type: "rest"' in profile
     assert 'default: "iceberg_catalog"' in profile
-    assert 'warehouse_prefix: "warehouse/iceberg"' in profile
+    assert 'warehouse_prefix: "s3://lakehouse-silver"' in profile
     assert "secret_name: seaweedfs-s3-creds" in profile
     assert "secret_name: polaris-floe-creds" in profile
     assert 'AWS_ALLOW_HTTP: "true"' in profile

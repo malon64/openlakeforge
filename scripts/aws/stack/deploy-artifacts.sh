@@ -73,9 +73,8 @@ PROJECT_CODE_IMAGE_REPOSITORY="${PROJECT_CODE_IMAGE_REPOSITORY}" \
 PROJECT_CODE_IMAGE_TAG="${PROJECT_CODE_IMAGE_TAG}" \
   bash "${SCRIPT_DIR}/../images/build-push-project-code.sh"
 
-echo "==> Publishing product Floe manifests to the AWS S3 ops bucket..."
-manifest_root="${FLOE_RUNTIME_ARTIFACT_DIR}/manifests"
-olf_run artifacts upload-manifests --via direct --manifest-root "${manifest_root}"
+echo "==> Publishing product Floe runtime artifacts to the AWS S3 ops bucket..."
+olf_run artifacts upload-manifests --via direct --runtime-root "${FLOE_RUNTIME_ARTIFACT_DIR}"
 
 echo "==> Deploying product Superset report assets..."
 olf_run superset deploy-reports

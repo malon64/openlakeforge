@@ -9,6 +9,7 @@ CONTRACT_TERRAFORM_DIR="${OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR:-${REPO_ROOT}/inf
 NAMESPACE="${NAMESPACE:-lakehouse}"
 AZURE_CLUSTER_NAME="${AZURE_CLUSTER_NAME:-aks-openlakeforge-poc}"
 KUBE_CONTEXT="${KUBE_CONTEXT:-}"
+FLOE_RUNTIME_ARTIFACT_DIR="${FLOE_RUNTIME_ARTIFACT_DIR:-${REPO_ROOT}/.tmp/floe-runtime/azure}"
 export OPENLAKEFORGE_REPO_ROOT="${REPO_ROOT}"
 export OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR="${CONTRACT_TERRAFORM_DIR}"
 
@@ -61,6 +62,8 @@ prepare_image_variables
 source "${REPO_ROOT}/scripts/contracts/load-runtime-env.sh"
 
 echo "==> Generating product Floe manifests before baking the project-code image..."
+export FLOE_RUNTIME_ARTIFACT_DIR
+export FLOE_PERSIST_RUNTIME_ARTIFACTS="true"
 NAMESPACE="${NAMESPACE}" bash "${REPO_ROOT}/scripts/artifacts/floe-manifest.sh"
 
 echo "==> Building and pushing Azure project-code image..."
@@ -72,7 +75,7 @@ PROJECT_CODE_IMAGE_TAG="${PROJECT_CODE_IMAGE_TAG}" \
   bash "${SCRIPT_DIR}/../images/build-push-project-code.sh"
 
 echo "==> Publishing product Floe manifests to the Azure POC SeaweedFS ops bucket..."
-olf_run artifacts upload-manifests --via port-forward
+olf_run artifacts upload-manifests --via port-forward --runtime-root "${FLOE_RUNTIME_ARTIFACT_DIR}"
 
 echo "==> Deploying product Superset report assets..."
 olf_run superset deploy-reports
