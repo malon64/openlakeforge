@@ -26,10 +26,13 @@ def test_local_profile_uses_polaris_rest_catalog_and_secrets() -> None:
     assert 'name: "local-k8s"' in profile
     assert 'type: "rest"' in profile
     assert 'default: "iceberg_catalog"' in profile
+    assert "image: ghcr.io/malon64/floe:0.6.7" in profile
     assert 'warehouse_prefix: "s3://lakehouse-silver"' in profile
     assert "secret_name: seaweedfs-s3-creds" in profile
     assert "secret_name: polaris-floe-creds" in profile
     assert 'AWS_ALLOW_HTTP: "true"' in profile
+    assert 'AWS_ENDPOINT_URL: "http://seaweedfs-s3:8333"' in profile
+    assert 'AWS_ENDPOINT_URL_S3: "http://seaweedfs-s3:8333"' in profile
     assert "\nstorages:" not in profile
 
 
@@ -37,6 +40,7 @@ def test_aws_profile_uses_glue_catalog_without_secrets() -> None:
     profile = render_profile(AWS_ENV)
     assert 'name: "aws-eks"' in profile
     assert 'type: "glue"' in profile
+    assert "image: ghcr.io/malon64/floe:0.6.7" in profile
     assert 'database: "sales_customer_health_silver"' in profile
     assert 'warehouse_prefix: "s3://openlakeforge-poc-silver/warehouse/iceberg"' in profile
     assert "secrets: []" in profile

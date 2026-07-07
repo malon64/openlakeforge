@@ -26,7 +26,10 @@ volume:
   dataDirs:
     - name: data1
       type: "emptyDir"
-      maxVolumes: 0
+      # The local demo uses one volume server for multiple collections
+      # (ops plus bronze/silver/gold). Keep enough writable slots available
+      # so first writes to the medallion buckets do not stall on assignment.
+      maxVolumes: 32
   logs:
     type: "emptyDir"
   resources:

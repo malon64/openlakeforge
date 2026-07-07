@@ -17,12 +17,10 @@ source "${REPO_ROOT}/scripts/contracts/load-runtime-env.sh"
 
 cd "${REPO_ROOT}"
 
-default_floe_version="0.6.6"
-if [[ "${OPENLAKEFORGE_STORAGE_PROVIDER:-}" == "local" ]]; then
-  default_floe_version="0.6.3"
-fi
+default_floe_version="0.6.7"
 FLOE_VERSION="${FLOE_VERSION:-${default_floe_version}}"
 FLOE_IMAGE="${FLOE_IMAGE:-ghcr.io/malon64/floe:${FLOE_VERSION}}"
+FLOE_RUNTIME="${FLOE_RUNTIME:-image}"
 
 if [[ -z "${FLOE_RUNTIME_PROFILE_URI:-}" ]]; then
   if [[ "${OPENLAKEFORGE_STORAGE_IMPLEMENTATION}" == "storage.aws_s3" &&
@@ -35,6 +33,9 @@ if [[ -z "${FLOE_RUNTIME_PROFILE_URI:-}" ]]; then
 fi
 export FLOE_RUNTIME_PROFILE_URI
 
+# Manifest generation is image-targeted by default because OpenLakeForge replays
+# these manifests in separate Floe runner images. Set FLOE_RUNTIME=cli for
+# same-host debugging where relative paths are preferable.
 # Runner selection. Docker is the default so manifest generation does not require
 # a host-installed Floe CLI; set FLOE_PREFER_CLI=true to use the native CLI.
 FLOE_PREFER_CLI="${FLOE_PREFER_CLI:-false}"
@@ -298,6 +299,7 @@ generate_manifest() {
     --manifest-name "${domain}.${product}.local" \
     --default-domain "${domain}_${product}" \
     --manifest-path-mode resolved-uri \
+    --runtime "${FLOE_RUNTIME}" \
     --output "${floe_manifest_path}"
 
   echo "Generated ${manifest_path}"
