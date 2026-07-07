@@ -4,7 +4,7 @@ OpenLakeForge is a cloud-agnostic, open-source, self-hostable modern lakehouse
 platform. It assembles open-source data platform components on Kubernetes with
 Terraform and Helm.
 
-![OpenLakeForge Architecture](/docs/assets/openlakeforge_archi.png)
+![OpenLakeForge Architecture](/docs/assets/openlakeforge_v1.png)
 
 The v1 proof of concept focuses on a local Kubernetes lakehouse path across
 multiple domain-owned data products:
