@@ -39,7 +39,6 @@ def render_profile(environ: Mapping[str, str]) -> str:
         "OPENLAKEFORGE_OPS_BUCKET_NAME", env("OPENLAKEFORGE_ARTIFACT_BUCKET_NAME", "openlakeforge-ops")
     )
     storage_region = env("OPENLAKEFORGE_STORAGE_REGION", "us-east-1")
-    storage_provider = env("OPENLAKEFORGE_STORAGE_PROVIDER", "local")
     storage_implementation = env(
         "OPENLAKEFORGE_STORAGE_IMPLEMENTATION", "storage.s3_compatible.seaweedfs"
     )
