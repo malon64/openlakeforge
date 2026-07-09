@@ -484,7 +484,6 @@ for required in [
     '-v "${REPO_ROOT}:/work"',
     '"${FLOE_RUNTIME_ARTIFACT_DIR}/manifests"',
     'FLOE_RUNTIME="${FLOE_RUNTIME:-image}"',
-    "--manifest-path-mode resolved-uri",
     '--runtime "${FLOE_RUNTIME}"',
 ]:
     if required not in floe_manifest_body:
