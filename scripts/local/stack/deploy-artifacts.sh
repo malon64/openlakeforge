@@ -43,11 +43,6 @@ prepare_local_project_code_image() {
 require_cmd kubectl
 require_cmd uv
 
-if ! kubectl cluster-info --context "${KUBE_CONTEXT}" >/dev/null 2>&1; then
-  echo "ERROR: Kubernetes context '${KUBE_CONTEXT}' is not reachable." >&2
-  echo "Run 'make local-foundation-up' before deploying local artifacts." >&2
-  exit 1
-fi
 kubectl config use-context "${KUBE_CONTEXT}" >/dev/null
 
 # Load the provider contract environment for the olf artifact commands.

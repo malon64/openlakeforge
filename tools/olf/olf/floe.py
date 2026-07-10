@@ -80,7 +80,8 @@ def render_profile(environ: Mapping[str, str]) -> str:
         "OPENLAKEFORGE_CATALOG_GLUE_WAREHOUSE_PREFIX", "warehouse/iceberg"
     )
     catalog_scope = env("OPENLAKEFORGE_CATALOG_OAUTH_SCOPE", "PRINCIPAL_ROLE:ALL")
-    floe_image = env("FLOE_IMAGE", "ghcr.io/malon64/floe:0.6.6")
+    default_floe_image = "ghcr.io/malon64/floe:0.6.8"
+    floe_image = env("FLOE_IMAGE", default_floe_image)
     storage_secret = env(
         "OPENLAKEFORGE_STORAGE_CREDENTIALS_SECRET_NAME", "" if is_aws_s3 else "seaweedfs-s3-creds"
     )
@@ -112,7 +113,15 @@ def render_profile(environ: Mapping[str, str]) -> str:
     if storage_endpoint:
         runner_env["AWS_ENDPOINT_URL"] = storage_endpoint
     if storage_virtual_endpoint:
-        runner_env["AWS_ENDPOINT_URL_S3"] = storage_virtual_endpoint
+        # Floe's runner reads manifests and source objects from the local
+        # S3-compatible store using the AWS SDK. In the local path-style setup,
+        # the service endpoint must remain the concrete SeaweedFS S3 service,
+        # not the bucket-virtual host base.
+        runner_env["AWS_ENDPOINT_URL_S3"] = (
+            storage_endpoint
+            if env("OPENLAKEFORGE_STORAGE_PATH_STYLE_ACCESS", "false" if is_aws_s3 else "true") == "true"
+            else storage_virtual_endpoint
+        )
 
     runner_env_yaml = "\n".join(
         f"      {key}: {_yaml_string(value)}" for key, value in runner_env.items()

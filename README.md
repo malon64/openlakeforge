@@ -148,9 +148,11 @@ Install these tools on the host:
 | uv | Runs the `tools/olf` deployment tooling (contracts, artifacts, REST calls). Install from https://docs.astral.sh/uv/. |
 | Make | Provides the local workflow entrypoints. |
 
-The `floe` CLI is optional locally because manifest generation falls back to the
-Floe runner image. The helper scripts create local caches under `.tmp/` as
-needed, including a small Python virtual environment for OpenMetadata metadata
+The `floe` CLI is optional locally because OpenLakeForge can generate manifests
+through a Dockerized Floe CLI. Runtime execution does not depend on a host
+installation: Dagster launches the manifest-declared Floe runner image in
+Kubernetes. The helper scripts create local caches under `.tmp/` as needed,
+including a small Python virtual environment for OpenMetadata metadata
 deployment if the active host Python does not already include `PyYAML`.
 
 For a new macOS/Colima setup, a typical tool bootstrap is:

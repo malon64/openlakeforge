@@ -483,7 +483,8 @@ for required in [
     'profiles/${domain}/${product}',
     '-v "${REPO_ROOT}:/work"',
     '"${FLOE_RUNTIME_ARTIFACT_DIR}/manifests"',
-    "--manifest-path-mode resolved-uri",
+    'FLOE_RUNTIME="${FLOE_RUNTIME:-image}"',
+    '--runtime "${FLOE_RUNTIME}"',
 ]:
     if required not in floe_manifest_body:
         errors.append(f"{floe_manifest_script}: missing provider-aware Floe runtime profile handling {required}")

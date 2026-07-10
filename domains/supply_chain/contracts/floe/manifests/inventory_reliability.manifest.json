@@ -1,15 +1,17 @@
 {
   "schema": "floe.manifest.v1",
   "generated_at_ts_ms": 0,
-  "floe_version": "0.6.6",
+  "floe_version": "0.6.8",
   "spec_version": "0.2",
   "manifest_name": "supply_chain.inventory_reliability.local",
   "manifest_id": "mfv1-33ef4a55e13b0add",
-  "manifest_revision": "sha256:8e92de5a3ead53493a0cc8aae140a9557b006a10d3311b9fd6f8a2aeac75d799",
+  "manifest_revision": "sha256:2b3aeb230674077df669bfb5b60497342ef1867715ca9027c2c80cb5a4ef2248",
+  "runtime_env": "image",
+  "work_root": "/work",
   "config_uri": "local:///work/domains/supply_chain/contracts/floe/inventory_reliability.yml",
   "config_checksum": "sha256:2991619176cc8f8990bbde7a34bb76fa494e9fc72c72b8b62a905f0519d4d399",
   "profile_uri": "local:///work/libs/floe/profiles/local-k8s.yml",
-  "profile_checksum": "sha256:58573fe005026cbdf3d95a2e61fa74b843d23d62e8376b7d18f81a4c8e2e2e2c",
+  "profile_checksum": "sha256:d46aa2bbd1e660aed1da7b62b3c74037cda7e7e602f717bf3ae6c6424d60530e",
   "report_base_uri": "s3://openlakeforge-ops/floe/reports/supply_chain/inventory_reliability",
   "domains": [],
   "execution": {
@@ -76,7 +78,7 @@
             "key": "POLARIS_FLOE_CLIENT_SECRET"
           }
         ],
-        "image": "ghcr.io/malon64/floe:0.6.6",
+        "image": "ghcr.io/malon64/floe:0.6.8",
         "namespace": "lakehouse",
         "service_account": "dagster",
         "resources": null,
@@ -85,7 +87,7 @@
           "AWS_DEFAULT_REGION": "us-east-1",
           "AWS_EC2_METADATA_DISABLED": "true",
           "AWS_ENDPOINT_URL": "http://seaweedfs-s3:8333",
-          "AWS_ENDPOINT_URL_S3": "http://lakehouse.svc.cluster.local:8333",
+          "AWS_ENDPOINT_URL_S3": "http://seaweedfs-s3:8333",
           "AWS_REGION": "us-east-1",
           "AWS_S3_FORCE_PATH_STYLE": "true"
         },
@@ -116,7 +118,7 @@
         "format": "csv",
         "storage": "lakehouse_bronze",
         "uri": "s3://lakehouse-bronze/supply_chain/inventory_reliability/inventory_snapshots",
-        "path": "s3://lakehouse-bronze/supply_chain/inventory_reliability/inventory_snapshots",
+        "path": "supply_chain/inventory_reliability/inventory_snapshots",
         "resolved": true,
         "cast_mode": "strict",
         "options": {
@@ -142,7 +144,7 @@
           "format": "iceberg",
           "storage": "lakehouse_silver",
           "uri": "s3://lakehouse-silver/supply_chain/inventory_reliability/inventory_snapshots",
-          "path": "s3://lakehouse-silver/supply_chain/inventory_reliability/inventory_snapshots",
+          "path": "supply_chain/inventory_reliability/inventory_snapshots",
           "resolved": true,
           "iceberg": {
             "catalog": "iceberg_catalog",
@@ -155,7 +157,7 @@
           "format": "csv",
           "storage": "lakehouse_silver",
           "uri": "s3://lakehouse-silver/floe/rejected/supply_chain/inventory_reliability/inventory_snapshots",
-          "path": "s3://lakehouse-silver/floe/rejected/supply_chain/inventory_reliability/inventory_snapshots",
+          "path": "floe/rejected/supply_chain/inventory_reliability/inventory_snapshots",
           "resolved": true
         },
         "archive": null
@@ -228,7 +230,7 @@
         "format": "csv",
         "storage": "lakehouse_bronze",
         "uri": "s3://lakehouse-bronze/supply_chain/inventory_reliability/purchase_orders",
-        "path": "s3://lakehouse-bronze/supply_chain/inventory_reliability/purchase_orders",
+        "path": "supply_chain/inventory_reliability/purchase_orders",
         "resolved": true,
         "cast_mode": "strict",
         "options": {
@@ -254,7 +256,7 @@
           "format": "iceberg",
           "storage": "lakehouse_silver",
           "uri": "s3://lakehouse-silver/supply_chain/inventory_reliability/purchase_orders",
-          "path": "s3://lakehouse-silver/supply_chain/inventory_reliability/purchase_orders",
+          "path": "supply_chain/inventory_reliability/purchase_orders",
           "resolved": true,
           "iceberg": {
             "catalog": "iceberg_catalog",
@@ -267,7 +269,7 @@
           "format": "csv",
           "storage": "lakehouse_silver",
           "uri": "s3://lakehouse-silver/floe/rejected/supply_chain/inventory_reliability/purchase_orders",
-          "path": "s3://lakehouse-silver/floe/rejected/supply_chain/inventory_reliability/purchase_orders",
+          "path": "floe/rejected/supply_chain/inventory_reliability/purchase_orders",
           "resolved": true
         },
         "archive": null
@@ -340,7 +342,7 @@
         "format": "csv",
         "storage": "lakehouse_bronze",
         "uri": "s3://lakehouse-bronze/supply_chain/inventory_reliability/shipments",
-        "path": "s3://lakehouse-bronze/supply_chain/inventory_reliability/shipments",
+        "path": "supply_chain/inventory_reliability/shipments",
         "resolved": true,
         "cast_mode": "strict",
         "options": {
@@ -366,7 +368,7 @@
           "format": "iceberg",
           "storage": "lakehouse_silver",
           "uri": "s3://lakehouse-silver/supply_chain/inventory_reliability/shipments",
-          "path": "s3://lakehouse-silver/supply_chain/inventory_reliability/shipments",
+          "path": "supply_chain/inventory_reliability/shipments",
           "resolved": true,
           "iceberg": {
             "catalog": "iceberg_catalog",
@@ -379,7 +381,7 @@
           "format": "csv",
           "storage": "lakehouse_silver",
           "uri": "s3://lakehouse-silver/floe/rejected/supply_chain/inventory_reliability/shipments",
-          "path": "s3://lakehouse-silver/floe/rejected/supply_chain/inventory_reliability/shipments",
+          "path": "floe/rejected/supply_chain/inventory_reliability/shipments",
           "resolved": true
         },
         "archive": null
@@ -442,7 +444,7 @@
         "format": "csv",
         "storage": "lakehouse_bronze",
         "uri": "s3://lakehouse-bronze/supply_chain/inventory_reliability/stockout_events",
-        "path": "s3://lakehouse-bronze/supply_chain/inventory_reliability/stockout_events",
+        "path": "supply_chain/inventory_reliability/stockout_events",
         "resolved": true,
         "cast_mode": "strict",
         "options": {
@@ -468,7 +470,7 @@
           "format": "iceberg",
           "storage": "lakehouse_silver",
           "uri": "s3://lakehouse-silver/supply_chain/inventory_reliability/stockout_events",
-          "path": "s3://lakehouse-silver/supply_chain/inventory_reliability/stockout_events",
+          "path": "supply_chain/inventory_reliability/stockout_events",
           "resolved": true,
           "iceberg": {
             "catalog": "iceberg_catalog",
@@ -481,7 +483,7 @@
           "format": "csv",
           "storage": "lakehouse_silver",
           "uri": "s3://lakehouse-silver/floe/rejected/supply_chain/inventory_reliability/stockout_events",
-          "path": "s3://lakehouse-silver/floe/rejected/supply_chain/inventory_reliability/stockout_events",
+          "path": "floe/rejected/supply_chain/inventory_reliability/stockout_events",
           "resolved": true
         },
         "archive": null
@@ -549,7 +551,7 @@
         "format": "csv",
         "storage": "lakehouse_bronze",
         "uri": "s3://lakehouse-bronze/supply_chain/inventory_reliability/suppliers",
-        "path": "s3://lakehouse-bronze/supply_chain/inventory_reliability/suppliers",
+        "path": "supply_chain/inventory_reliability/suppliers",
         "resolved": true,
         "cast_mode": "strict",
         "options": {
@@ -575,7 +577,7 @@
           "format": "iceberg",
           "storage": "lakehouse_silver",
           "uri": "s3://lakehouse-silver/supply_chain/inventory_reliability/suppliers",
-          "path": "s3://lakehouse-silver/supply_chain/inventory_reliability/suppliers",
+          "path": "supply_chain/inventory_reliability/suppliers",
           "resolved": true,
           "iceberg": {
             "catalog": "iceberg_catalog",
@@ -588,7 +590,7 @@
           "format": "csv",
           "storage": "lakehouse_silver",
           "uri": "s3://lakehouse-silver/floe/rejected/supply_chain/inventory_reliability/suppliers",
-          "path": "s3://lakehouse-silver/floe/rejected/supply_chain/inventory_reliability/suppliers",
+          "path": "floe/rejected/supply_chain/inventory_reliability/suppliers",
           "resolved": true
         },
         "archive": null
@@ -646,7 +648,7 @@
         "format": "csv",
         "storage": "lakehouse_bronze",
         "uri": "s3://lakehouse-bronze/supply_chain/inventory_reliability/warehouses",
-        "path": "s3://lakehouse-bronze/supply_chain/inventory_reliability/warehouses",
+        "path": "supply_chain/inventory_reliability/warehouses",
         "resolved": true,
         "cast_mode": "strict",
         "options": {
@@ -672,7 +674,7 @@
           "format": "iceberg",
           "storage": "lakehouse_silver",
           "uri": "s3://lakehouse-silver/supply_chain/inventory_reliability/warehouses",
-          "path": "s3://lakehouse-silver/supply_chain/inventory_reliability/warehouses",
+          "path": "supply_chain/inventory_reliability/warehouses",
           "resolved": true,
           "iceberg": {
             "catalog": "iceberg_catalog",
@@ -685,7 +687,7 @@
           "format": "csv",
           "storage": "lakehouse_silver",
           "uri": "s3://lakehouse-silver/floe/rejected/supply_chain/inventory_reliability/warehouses",
-          "path": "s3://lakehouse-silver/floe/rejected/supply_chain/inventory_reliability/warehouses",
+          "path": "floe/rejected/supply_chain/inventory_reliability/warehouses",
           "resolved": true
         },
         "archive": null

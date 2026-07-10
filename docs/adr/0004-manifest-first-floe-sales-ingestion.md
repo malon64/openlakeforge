@@ -31,7 +31,7 @@ Kubernetes Floe execution uses explicit remote manifest access:
 `OPENLAKEFORGE_FLOE_MANIFEST_ACCESS_MODE=remote`. Local/CD artifact upload
 publishes the same generated product manifests to the SeaweedFS ops bucket, and
 Dagster passes those `s3://...` manifest URIs to the separate
-`ghcr.io/malon64/floe:0.6.3` runner pods. `local` manifest access is reserved
+`ghcr.io/malon64/floe:0.6.8` runner pods. `local` manifest access is reserved
 for same-container local-process execution because the separate runner image
 cannot read the project-code image filesystem.
 
