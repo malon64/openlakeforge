@@ -1,0 +1,316 @@
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+from olf import e2e
+
+
+def cfg(tmp_path: Path, env: e2e.Environment = "local", suite: e2e.Suite = "full") -> e2e.E2EConfig:
+    return e2e.E2EConfig(
+        env=env,
+        suite=suite,
+        namespace="lakehouse",
+        kube_context="kind-openlakeforge-local",
+        repo_root=tmp_path,
+        foundation_terraform_dir=tmp_path / "foundation",
+        contract_terraform_dir=tmp_path / "contract",
+        aws_region="eu-west-1" if env == "aws" else None,
+    )
+
+
+def test_unhealthy_pod_messages_accepts_ready_running_and_succeeded() -> None:
+    payload = {
+        "items": [
+            {
+                "metadata": {"name": "service"},
+                "status": {"phase": "Running", "containerStatuses": [{"name": "app", "ready": True}]},
+            },
+            {"metadata": {"name": "bootstrap"}, "status": {"phase": "Succeeded"}},
+        ]
+    }
+
+    assert e2e.unhealthy_pod_messages(payload) == []
+
+
+def test_unhealthy_pod_messages_reports_unready_and_failed_pods() -> None:
+    payload = {
+        "items": [
+            {
+                "metadata": {"name": "service"},
+                "status": {"phase": "Running", "containerStatuses": [{"name": "app", "ready": False}]},
+            },
+            {"metadata": {"name": "bad-job"}, "status": {"phase": "Failed"}},
+        ]
+    }
+
+    assert e2e.unhealthy_pod_messages(payload) == [
+        "service: Running but containers not ready: app",
+        "bad-job: Failed",
+    ]
+
+
+def test_check_pods_ready_retries_until_pods_are_ready(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    payloads = [
+        '{"items":[{"metadata":{"name":"service"},"status":{"phase":"Running","containerStatuses":[{"name":"app","ready":false}]}}]}',
+        '{"items":[{"metadata":{"name":"service"},"status":{"phase":"Running","containerStatuses":[{"name":"app","ready":true}]}}]}',
+    ]
+    monkeypatch.setattr(e2e, "kubectl", lambda _cfg, _args, capture=False: payloads.pop(0))
+    monkeypatch.setattr(e2e.time, "sleep", lambda _delay: None)
+
+    e2e.check_pods_ready(cfg(tmp_path))
+    assert payloads == []
+
+
+def test_parse_trino_scalar_returns_last_non_empty_line() -> None:
+    assert e2e.parse_trino_scalar("\n15\r\n") == "15"
+
+
+def test_assert_scalar_equals_reports_mismatch() -> None:
+    with pytest.raises(e2e.E2EError, match="expected Gold mart count 9, got 8"):
+        e2e.assert_scalar_equals("8", "9", "Gold mart count")
+
+
+def test_superset_dashboard_assertion_accepts_slug_or_title_match() -> None:
+    e2e.assert_superset_dashboards(
+        [
+            {"slug": "sales-order-revenue", "dashboard_title": "Sales Order Revenue"},
+            {"slug": "different-slug", "dashboard_title": "Sales Customer Health"},
+            {
+                "slug": "supply-chain-inventory-reliability",
+                "dashboard_title": "Supply Chain Inventory Reliability",
+            },
+        ]
+    )
+
+
+def test_superset_dashboard_assertion_reports_missing_dashboard() -> None:
+    with pytest.raises(e2e.E2EError, match="missing Superset dashboards"):
+        e2e.assert_superset_dashboards([])
+
+
+def test_openmetadata_data_product_candidates_try_short_and_domain_names() -> None:
+    seen: list[str] = []
+
+    class Client(e2e.OpenMetadataE2EClient):
+        def _request(
+            self,
+            method: str,
+            path: str,
+            token: str,
+            *,
+            payload: dict[str, Any] | None = None,
+            ok_statuses: tuple[int, ...] = (200,),
+        ) -> tuple[int, dict[str, Any]]:
+            seen.append(path)
+            if path.endswith("/sales.sales_order_revenue"):
+                return 200, {}
+            return 404, {}
+
+    client = Client("http://openmetadata")
+
+    assert client._first_existing_data_product(("sales_order_revenue", "sales.sales_order_revenue"), "token") == (
+        "sales.sales_order_revenue"
+    )
+    assert seen == [
+        "/api/v1/dataProducts/name/sales_order_revenue",
+        "/api/v1/dataProducts/name/sales.sales_order_revenue",
+    ]
+
+
+def test_dagster_repository_discovery_finds_pipeline_location() -> None:
+    client = e2e.DagsterClient(
+        "http://dagster/graphql",
+        request_json=lambda _query, _variables=None: {
+            "data": {
+                "workspaceOrError": {
+                    "__typename": "Workspace",
+                    "locationEntries": [
+                        {
+                            "name": "sales-dagster",
+                            "locationOrLoadError": {
+                                "__typename": "RepositoryLocation",
+                                "repositories": [
+                                    {
+                                        "name": "__repository__",
+                                        "pipelines": [{"name": "sales_order_revenue_pipeline"}],
+                                    }
+                                ],
+                            },
+                        }
+                    ],
+                }
+            }
+        },
+    )
+
+    assert client.discover_repository("sales_order_revenue_pipeline") == ("sales-dagster", "__repository__")
+
+
+def test_dagster_repository_discovery_falls_back_by_domain() -> None:
+    client = e2e.DagsterClient(
+        "http://dagster/graphql",
+        request_json=lambda _query, _variables=None: {"errors": [{"message": "workspace unavailable"}]},
+    )
+
+    assert client.discover_repository("supply_chain_inventory_reliability_pipeline") == (
+        "supply-chain-dagster",
+        "__repository__",
+    )
+
+
+def test_dagster_launch_uses_discovered_repository() -> None:
+    calls: list[dict[str, Any]] = []
+
+    def request_json(query: str, variables: dict[str, Any] | None = None) -> dict[str, Any]:
+        calls.append({"query": query, "variables": variables})
+        if "query Workspace" in query:
+            return {
+                "data": {
+                    "workspaceOrError": {
+                        "__typename": "Workspace",
+                        "locationEntries": [
+                            {
+                                "name": "sales-dagster",
+                                "locationOrLoadError": {
+                                    "__typename": "RepositoryLocation",
+                                    "repositories": [
+                                        {
+                                            "name": "__repository__",
+                                            "pipelines": [{"name": "sales_order_revenue_pipeline"}],
+                                        }
+                                    ],
+                                },
+                            }
+                        ],
+                    }
+                }
+            }
+        return {"data": {"launchRun": {"__typename": "LaunchRunSuccess", "run": {"runId": "run-1"}}}}
+
+    client = e2e.DagsterClient("http://dagster/graphql", request_json=request_json)
+
+    assert client.launch("sales_order_revenue_pipeline") == "run-1"
+    selector = calls[-1]["variables"]["executionParams"]["selector"]
+    assert selector == {
+        "repositoryLocationName": "sales-dagster",
+        "repositoryName": "__repository__",
+        "pipelineName": "sales_order_revenue_pipeline",
+    }
+
+
+def test_dagster_poll_reports_failure() -> None:
+    client = e2e.DagsterClient(
+        "http://dagster/graphql",
+        request_json=lambda _query, _variables=None: {
+            "data": {"runOrError": {"__typename": "Run", "status": "FAILURE"}}
+        },
+    )
+
+    with pytest.raises(e2e.E2EError, match="ended with FAILURE"):
+        client.poll("sales_order_revenue_pipeline", "run-1", attempts=1, delay=0)
+
+
+def test_dagster_poll_retries_transient_graphql_errors() -> None:
+    responses: list[Exception | dict[str, Any]] = [
+        e2e.DagsterTransientError("read timeout"),
+        {"data": {"runOrError": {"__typename": "Run", "status": "SUCCESS"}}},
+    ]
+
+    def request_json(_query: str, _variables: dict[str, Any] | None = None) -> dict[str, Any]:
+        response = responses.pop(0)
+        if isinstance(response, Exception):
+            raise response
+        return response
+
+    client = e2e.DagsterClient("http://dagster/graphql", request_json=request_json)
+
+    client.poll("sales_order_revenue_pipeline", "run-1", attempts=2, delay=0)
+    assert responses == []
+
+
+def test_dagster_poll_times_out_quickly_for_non_terminal_runs() -> None:
+    client = e2e.DagsterClient(
+        "http://dagster/graphql",
+        request_json=lambda _query, _variables=None: {
+            "data": {"runOrError": {"__typename": "Run", "status": "STARTED"}}
+        },
+    )
+
+    with pytest.raises(e2e.E2EError, match="did not finish within 180 seconds"):
+        client.poll("sales_order_revenue_pipeline", "run-1", attempts=1, delay=0)
+
+
+def test_glue_database_names_requires_expected_schema_and_database_names() -> None:
+    contracts = {
+        "catalog": {
+            "catalog_schema_names": sorted(e2e.EXPECTED_GLUE_SCHEMAS),
+            "glue_database_names": sorted(e2e.EXPECTED_GLUE_SCHEMAS),
+        }
+    }
+
+    assert e2e.glue_database_names(contracts) == e2e.EXPECTED_GLUE_SCHEMAS
+
+
+def test_glue_database_names_reports_missing_database() -> None:
+    contracts = {
+        "catalog": {
+            "catalog_schema_names": sorted(e2e.EXPECTED_GLUE_SCHEMAS),
+            "glue_database_names": [],
+        }
+    }
+
+    with pytest.raises(e2e.E2EError, match="missing Glue database names"):
+        e2e.glue_database_names(contracts)
+
+
+def test_aws_provider_contract_smoke_check(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    provider_contracts = {
+        "storage": {"implementation": "storage.aws_s3"},
+        "metadata_database": {"implementation": "metadata_database.aws_rds_postgresql"},
+        "catalog": {"implementation": "catalog.aws_glue", "catalog_type": "glue"},
+        "artifacts": {"implementation": "artifacts.aws_ecr_and_s3"},
+    }
+    monkeypatch.setattr(e2e, "load_provider_contracts_or_raise", lambda _cfg: provider_contracts)
+
+    e2e.check_aws_provider_contracts(cfg(tmp_path, env="aws", suite="smoke"))
+
+
+def test_aws_storage_and_glue_smoke_check_uses_bucket_and_databases(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    provider_contracts = {
+        "artifact_bucket": {"bucket_name": "openlakeforge-ops"},
+        "catalog": {
+            "catalog_schema_names": sorted(e2e.EXPECTED_GLUE_SCHEMAS),
+            "glue_database_names": sorted(e2e.EXPECTED_GLUE_SCHEMAS),
+        },
+    }
+    commands: list[list[str]] = []
+    monkeypatch.setattr(e2e, "load_provider_contracts_or_raise", lambda _cfg: provider_contracts)
+    monkeypatch.setattr(e2e, "_run", lambda args, capture=False: commands.append(args) or "")
+
+    e2e.check_aws_storage_and_glue(cfg(tmp_path, env="aws", suite="smoke"))
+
+    assert ["aws", "s3api", "head-bucket", "--bucket", "openlakeforge-ops"] in commands
+    glue_commands = [command for command in commands if command[:3] == ["aws", "glue", "get-database"]]
+    assert len(glue_commands) == len(e2e.EXPECTED_GLUE_SCHEMAS)
+
+
+def test_run_retry_retries_transient_command_errors(monkeypatch: pytest.MonkeyPatch) -> None:
+    attempts = 0
+
+    def run(args: list[str], *, capture: bool = False) -> str:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise e2e.E2EError("temporary failure")
+        return "ok"
+
+    monkeypatch.setattr(e2e, "_run", run)
+    monkeypatch.setattr(e2e.time, "sleep", lambda _delay: None)
+
+    assert e2e._run_retry(["kubectl", "cluster-info"], capture=True, attempts=2, delay=0) == "ok"
+    assert attempts == 2

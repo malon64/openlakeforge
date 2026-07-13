@@ -136,6 +136,7 @@ required_paths=(
   "tools/olf/olf/contracts.py"
   "tools/olf/olf/floe.py"
   "tools/olf/olf/k8s.py"
+  "tools/olf/olf/e2e.py"
   "tools/olf/olf/s3.py"
   "tools/olf/olf/superset.py"
   "tools/olf/olf/openmetadata.py"

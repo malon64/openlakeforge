@@ -1,7 +1,7 @@
 """The olf CLI: entrypoint for OpenLakeForge deployment tooling.
 
 Subcommand groups are registered here as they are implemented:
-contracts, floe, artifacts, superset, openmetadata, polaris, k8s.
+contracts, floe, artifacts, superset, openmetadata, polaris, k8s, e2e.
 """
 
 from __future__ import annotations
@@ -30,6 +30,7 @@ superset_app = typer.Typer(help="Superset report deploy/export helpers.")
 openmetadata_app = typer.Typer(help="OpenMetadata governance metadata helpers.")
 k8s_app = typer.Typer(help="Kubernetes image bookkeeping helpers.")
 polaris_app = typer.Typer(help="Polaris catalog credential helpers.")
+e2e_app = typer.Typer(help="End-to-end environment validation.")
 app.add_typer(contracts_app, name="contracts")
 app.add_typer(floe_app, name="floe")
 app.add_typer(artifacts_app, name="artifacts")
@@ -37,6 +38,7 @@ app.add_typer(superset_app, name="superset")
 app.add_typer(openmetadata_app, name="openmetadata")
 app.add_typer(k8s_app, name="k8s")
 app.add_typer(polaris_app, name="polaris")
+app.add_typer(e2e_app, name="e2e")
 
 
 def _repo_root() -> Path:
@@ -279,6 +281,31 @@ def polaris_check_credentials(
         log.warn("Polaris service-principal credentials are stale; forcing Polaris bootstrap.")
         raise typer.Exit(code=polaris.STALE_EXIT_CODE)
     log.warn(f"Polaris credential preflight returned HTTP {status}; leaving bootstrap generation unchanged.")
+
+
+@e2e_app.command("run")
+def e2e_run(
+    env: str = typer.Option(..., "--env", help="Environment to validate: local, azure, or aws."),
+    suite: str = typer.Option("", "--suite", help="Suite to run: full or smoke. Defaults by environment."),
+) -> None:
+    """Run end-to-end validation for a deployed OpenLakeForge environment."""
+    from olf import e2e
+
+    valid_envs = {"local", "azure", "aws"}
+    valid_suites = {"", "full", "smoke"}
+    if env not in valid_envs:
+        raise typer.Exit(code=_fail(f"unknown --env {env!r}; expected one of: {', '.join(sorted(valid_envs))}."))
+    if suite not in valid_suites:
+        raise typer.Exit(code=_fail(f"unknown --suite {suite!r}; expected 'full' or 'smoke'."))
+    try:
+        e2e.run(
+            env,  # type: ignore[arg-type]
+            suite=suite or None,  # type: ignore[arg-type]
+            namespace=config.namespace(),
+            kube_context=config.env("KUBE_CONTEXT"),
+        )
+    except e2e.E2EError as exc:
+        raise typer.Exit(code=_fail(str(exc))) from exc
 
 
 def _truthy(value: str) -> bool:

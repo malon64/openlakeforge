@@ -1,4 +1,4 @@
-.PHONY: help tree check-structure check-contracts check-infra check-project-code check-dbt floe-manifest floe-manifest-upload dbt-parse project-code-image project-code-load superset-image superset-load superset-reports-deploy superset-reports-export openmetadata-metadata-deploy local-foundation-up local-foundation-down local-platform-up local-artifacts-deploy local-up local-down local-status local-forward local-prefetch azure-foundation-up azure-platform-up azure-artifacts-deploy azure-up azure-forward azure-e2e azure-down azure-foundation-down aws-foundation-up aws-platform-up aws-artifacts-deploy aws-up aws-forward aws-e2e aws-down aws-foundation-down
+.PHONY: help tree check-structure check-contracts check-infra check-project-code check-dbt floe-manifest floe-manifest-upload dbt-parse project-code-image project-code-load superset-image superset-load superset-reports-deploy superset-reports-export openmetadata-metadata-deploy local-foundation-up local-foundation-down local-platform-up local-artifacts-deploy local-up local-down local-status local-forward local-prefetch local-e2e azure-foundation-up azure-platform-up azure-artifacts-deploy azure-up azure-forward azure-e2e azure-down azure-foundation-down aws-foundation-up aws-platform-up aws-artifacts-deploy aws-up aws-forward aws-e2e aws-down aws-foundation-down
 
 NAMESPACE ?= lakehouse
 CLUSTER_NAME ?= openlakeforge-local
@@ -66,6 +66,7 @@ help:
 	@printf '%s\n' '  make local-down       Terraform-destroy the local stack'
 	@printf '%s\n' '  make local-status     Show pod and service status in the configured namespace'
 	@printf '%s\n' '  make local-forward    Port-forward all services to localhost (Dagster :3000, Superset :8088, OpenMetadata :8585, Trino :8080, Polaris :8181, S3 :9000, SeaweedFS Filer :8888, Master :9333)'
+	@printf '%s\n' '  make local-e2e        Run local end-to-end validation through olf'
 	@printf '%s\n' ''
 	@printf '%s\n' 'Azure AKS POC stack:'
 	@printf '%s\n' '  make azure-foundation-up    Terraform-create Azure resource group, AKS, and ACR'
@@ -196,6 +197,9 @@ local-forward:
 	seaweedfs_master_pid=$$!; \
 	trap 'kill $$seaweedfs_pid $$polaris_pid $$trino_pid $$dagster_pid $$superset_pid $$om_pid $$seaweedfs_filer_pid $$seaweedfs_master_pid 2>/dev/null || true' INT TERM EXIT; \
 	wait
+
+local-e2e:
+	@NAMESPACE=$(NAMESPACE) CLUSTER_NAME=$(CLUSTER_NAME) KUBE_CONTEXT=$(KUBE_CONTEXT) OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR=infra/terraform/environments/local bash scripts/artifacts/olf.sh e2e run --env local
 
 azure-foundation-up:
 	@AZURE_RESOURCE_GROUP=$(AZURE_RESOURCE_GROUP) AZURE_CREATE_RESOURCE_GROUP=$(AZURE_CREATE_RESOURCE_GROUP) AZURE_LOCATION=$(AZURE_LOCATION) AZURE_CLUSTER_NAME=$(AZURE_CLUSTER_NAME) AZURE_NODE_COUNT=$(AZURE_NODE_COUNT) AZURE_NODE_VM_SIZE=$(AZURE_NODE_VM_SIZE) AZURE_ACR_NAME_PREFIX=$(AZURE_ACR_NAME_PREFIX) bash scripts/azure/foundation/up.sh
