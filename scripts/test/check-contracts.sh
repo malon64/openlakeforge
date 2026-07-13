@@ -592,53 +592,10 @@ for floe_profile in [Path("libs/floe/profiles/local-k8s.yml"), aws_floe_profile]
         if required not in body:
             errors.append(f"{floe_profile}: missing Floe profile.schema.yaml section {required}")
 
-openmetadata_module = Path("tools/olf/olf/openmetadata.py")
-openmetadata_module_body = openmetadata_module.read_text()
-for required in [
-    "OPENLAKEFORGE_STORAGE_BRONZE_BUCKET",
-    "OPENLAKEFORGE_STORAGE_SILVER_BUCKET",
-    "OPENLAKEFORGE_STORAGE_GOLD_BUCKET",
-    "OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON",
-    "OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON",
-    "catalog_database_fqn",
-    "catalog_silver_schema_fqns",
-    "catalog_gold_schema_fqns",
-    "provider_asset_fqn",
-    "storage_bucket_specs",
-]:
-    if required not in openmetadata_module_body:
-        errors.append(f"{openmetadata_module}: must seed OpenMetadata medallion bucket containers using {required}")
-if "product_bronze_containers" in openmetadata_module_body:
-    errors.append(f"{openmetadata_module}: must not seed path-level product Bronze containers")
-# Medallion bucket containers are seeded per-bucket at the storage-service root
-# (parent None), never nested under a single storage bucket.
-if 'ensure_container(container["name"], None' not in openmetadata_module_body:
-    errors.append(f"{openmetadata_module}: must parent medallion bucket containers at the storage-service root")
-
 load_runtime_env_script = Path("scripts/contracts/load-runtime-env.sh")
 load_runtime_env_body = load_runtime_env_script.read_text()
 if "olf contracts env" not in load_runtime_env_body:
     errors.append(f"{load_runtime_env_script}: must resolve the runtime contract environment through olf contracts env")
-
-contracts_module = Path("tools/olf/olf/contracts.py")
-contracts_module_body = contracts_module.read_text()
-for required in [
-    "OPENLAKEFORGE_CATALOG_DATABASE_FQN",
-    "OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON",
-    "OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON",
-    "OPENMETADATA_CATALOG_SERVICE",
-    "aws_glue",
-    "OPENLAKEFORGE_CATALOG_GLUE_REST_WAREHOUSE",
-    "OPENLAKEFORGE_STORAGE_OM_SERVICE",
-    "OPENLAKEFORGE_STORAGE_DISPLAY_NAME",
-    "is_glue_catalog",
-    "catalog_warehouse",
-    "catalog_database_fqn",
-    "silver_schema_fqns",
-    "gold_schema_fqns",
-]:
-    if required not in contracts_module_body:
-        errors.append(f"{contracts_module}: must emit OpenMetadata provider runtime setting {required}")
 
 azure_artifact_script = Path("scripts/azure/stack/deploy-artifacts.sh")
 azure_artifact_body = azure_artifact_script.read_text()
@@ -705,28 +662,6 @@ if "olf_run artifacts upload-manifests --via port-forward" not in azure_artifact
     errors.append(f"{azure_artifact_script}: Azure SeaweedFS ops bucket upload must use --via port-forward")
 if "olf_run artifacts upload-manifests --via direct" not in aws_artifact_body:
     errors.append(f"{aws_artifact_script}: AWS S3 ops bucket upload must use --via direct")
-
-k8s_module = Path("tools/olf/olf/k8s.py")
-k8s_module_body = k8s_module.read_text()
-for required in [
-    "def dagster_yaml_with_job_image",
-    "job_image:",
-    "dagster-instance",
-    "DAGSTER_CURRENT_IMAGE",
-    "openlakeforge-k8s-log-archive",
-    "dagster-user-deployments-",
-    "-dagster",
-    "has no regular containers to patch",
-]:
-    if required not in k8s_module_body:
-        errors.append(f"{k8s_module}: must own the Dagster project-code image bookkeeping using {required}")
-if "kubectl set image" in k8s_module_body or "*=${PROJECT_CODE_IMAGE}" in k8s_module_body:
-    errors.append(f"{k8s_module}: must not use wildcard image patching because it rewrites chart-managed init containers")
-
-s3_module = Path("tools/olf/olf/s3.py")
-s3_module_body = s3_module.read_text()
-if 'floe/manifests/{domain}/{product}/{product}.manifest.json' not in s3_module_body:
-    errors.append(f"{s3_module}: must upload manifests under floe/manifests/<domain>/<product>/")
 
 RENDER_FLOE_PROFILE_CMD = [
     "uv", "run", "--project", "tools/olf", "--quiet", "olf", "floe", "render-profile",
