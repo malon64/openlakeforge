@@ -153,7 +153,15 @@ def test_deploy_seeds_medallion_buckets_at_storage_service_root(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     (tmp_path / "sales").mkdir()
-    (tmp_path / "sales" / "domain.yaml").write_text("name: sales\ndata_products: []\n")
+    (tmp_path / "sales" / "domain.yaml").write_text(
+        """name: sales
+data_products:
+  - name: sales_order_revenue
+    bronze:
+      - name: raw_orders
+        path: s3://lakehouse-bronze/sales/order_revenue/orders.csv
+"""
+    )
     cfg = om.OpenMetadataConfig.from_environment(
         {},
         base_url="http://x",
@@ -173,6 +181,11 @@ def test_deploy_seeds_medallion_buckets_at_storage_service_root(
     monkeypatch.setattr(deployer, "login", lambda: None)
     monkeypatch.setattr(deployer, "ensure_storage_service", lambda: None)
     monkeypatch.setattr(deployer.client, "request", lambda *args, **kwargs: {})
+    monkeypatch.setattr(
+        deployer,
+        "resolve_domain_ref",
+        lambda domain_name: {"id": "domain-id", "name": domain_name, "fullyQualifiedName": domain_name},
+    )
 
     def record_container(name, parent_fqn, full_path, description) -> None:
         seeded_containers.append((name, parent_fqn, full_path, description))

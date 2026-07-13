@@ -83,6 +83,31 @@ def test_patch_deployment_image_if_exists_uses_strategic_patch(monkeypatch: pyte
     ]
 
 
+def test_discover_dagster_user_deployments_filters_chart_generated_names(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        k8s,
+        "_kubectl",
+        lambda args, **kwargs: "\n".join(
+            [
+                "dagster-user-deployments-sales-dagster",
+                "dagster-user-deployments-supply-chain-dagster",
+                "dagster-webserver",
+                "dagster-user-deployments-sales",
+                "custom-dagster",
+            ]
+        ),
+    )
+
+    deployments = k8s.discover_dagster_user_deployments("lakehouse")
+
+    assert deployments == [
+        "dagster-user-deployments-sales-dagster",
+        "dagster-user-deployments-supply-chain-dagster",
+    ]
+
+
 def test_set_project_code_image_updates_all_dagster_surfaces(monkeypatch: pytest.MonkeyPatch) -> None:
     configmap_images = []
     deployment_images = []
