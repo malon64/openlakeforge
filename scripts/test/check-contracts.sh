@@ -251,8 +251,7 @@ for required in [
 local_variables_tf = Path("infra/terraform/environments/local/variables.tf").read_text()
 local_outputs_tf = Path("infra/terraform/environments/local/outputs.tf").read_text()
 makefile_body = Path("Makefile").read_text()
-local_infra_script = Path("scripts/local/stack/infra-up.sh").read_text()
-local_setup_script = Path("scripts/local/stack/setup.sh").read_text()
+local_platform_script = Path("scripts/local/stack/platform-up.sh").read_text()
 seaweedfs_outputs = Path("infra/terraform/modules/storage/seaweedfs/outputs.tf").read_text()
 for required in [
     "filer_service_name",
@@ -265,19 +264,17 @@ for required in [
     if required not in seaweedfs_outputs:
         errors.append(f"infra/terraform/modules/storage/seaweedfs/outputs.tf: missing SeaweedFS UI contract field {required}")
 for required in [
-    "local-seaweed-ui-forward",
     "svc/seaweedfs-filer-client 8888:8888",
     "svc/seaweedfs-master 9333:9333",
 ]:
     if required not in makefile_body:
-        errors.append(f"Makefile: missing SeaweedFS UI wrapper support {required}")
+        errors.append(f"Makefile: local-forward must include SeaweedFS UI port-forward support {required}")
 for path, body in [
     (Path("infra/terraform/environments/local/variables.tf"), local_variables_tf),
     (local_main_tf, local_main_text),
     (contracts_tf, text),
     (Path("infra/terraform/environments/local/outputs.tf"), local_outputs_tf),
-    (Path("scripts/local/stack/infra-up.sh"), local_infra_script),
-    (Path("scripts/local/stack/setup.sh"), local_setup_script),
+    (Path("scripts/local/stack/platform-up.sh"), local_platform_script),
 ]:
     legacy_dev_ui = "file" + "stash"
     legacy_dev_ui_env = "ENABLE_" + "FILESTASH"

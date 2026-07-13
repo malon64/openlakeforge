@@ -75,12 +75,13 @@ Deploy the platform:
 make azure-up
 ```
 
-`make azure-up` runs two phases:
+`make azure-up` runs three steps:
 
-1. `make azure-infra-up` builds and pushes the Superset image to ACR, then runs
+1. `make azure-foundation-up` creates or refreshes the AKS and ACR foundation.
+2. `make azure-platform-up` builds and pushes the Superset image to ACR, then runs
    Terraform in `infra/terraform/environments/azure-poc`. Superset is pushed
    before Terraform because the Helm release waits for Superset pods.
-2. `make azure-artifacts-deploy` generates Floe manifests, builds and pushes
+3. `make azure-artifacts-deploy` generates Floe manifests, builds and pushes
    the project-code image to ACR, uploads Floe manifests through the SeaweedFS
    S3-compatible API via port-forward, imports Superset report bundles, deploys
    OpenMetadata metadata, and restarts Dagster deployments.

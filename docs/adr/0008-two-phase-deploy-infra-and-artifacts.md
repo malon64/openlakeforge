@@ -23,7 +23,7 @@ Running both in a single script created friction:
 
 The local bring-up process is split into two explicit phases:
 
-**Phase 1 — Static infrastructure (`make local-infra-up` / `infra-up.sh`)**
+**Phase 1 — Static platform (`make local-platform-up` / `platform-up.sh`)**
 
 Terraform owns all infrastructure that has a platform lifetime:
 
@@ -54,8 +54,8 @@ A shell deploy step owns all artifacts that have a domain code lifetime:
 Phase 2 maps directly to the CD pipeline. Every domain code commit triggers Phase 2
 only. Terraform is not invoked by CI for domain changes.
 
-`make local-up` runs Phase 1 then Phase 2 in sequence for a full local bring-up from
-scratch.
+`make local-up` runs the foundation, local image prefetch, Phase 1, and Phase 2
+in sequence for a full local bring-up from scratch.
 
 ## Consequences
 

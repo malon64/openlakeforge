@@ -60,10 +60,9 @@ not production access controls:
 - Master UI: `svc/seaweedfs-master:9333`, port-forwarded to
   `http://localhost:9333`
 
-Use `make local-forward` for all local services or
-`make local-seaweed-ui-forward` for only the SeaweedFS UIs. The Filer UI talks
-directly to SeaweedFS, so it avoids a second S3 browser component and manual S3
-backend credential setup.
+Use `make local-forward` for all local services, including the SeaweedFS Filer
+and Master UIs. The Filer UI talks directly to SeaweedFS, so it avoids a second
+S3 browser component and manual S3 backend credential setup.
 
 ## Metadata Database Contract
 
@@ -167,7 +166,7 @@ The orchestration module owns:
 - the product Floe manifest base URI `s3://openlakeforge-ops/floe/manifests`
 - S3-backed Dagster compute logs under `s3://openlakeforge-ops/logs/dagster/compute`
 
-Local development uses `make local-infra-up` for Terraform-managed platform
+Local development uses `make local-platform-up` for Terraform-managed platform
 resources and `make local-artifacts-deploy` for dynamic domain artifacts.
 Dagster loads the Floe asset graphs from manifests baked into the project-code
 image. Terraform provisions the ops bucket and passes remote artifact base URIs

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Apply the static OpenLakeForge local infrastructure.
+# Apply the static OpenLakeForge local platform.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -133,7 +133,7 @@ refresh_trino_if_catalog_credentials_are_stale() {
     return 1
   fi
 
-  echo "WARN: Trino still has stale Polaris credentials; reapplying local infrastructure with Polaris rebootstrap..." >&2
+  echo "WARN: Trino still has stale Polaris credentials; reapplying local platform with Polaris rebootstrap..." >&2
   run_with_retry "Terraform apply" terraform_apply_once
 
   kubectl rollout restart "deployment/${deployment}" -n "${NAMESPACE}"
@@ -144,7 +144,7 @@ refresh_trino_if_catalog_credentials_are_stale() {
       trino --server http://localhost:8080 --execute "SHOW SCHEMAS FROM iceberg"
 }
 
-echo "==> Checking static infrastructure prerequisites..."
+echo "==> Checking static platform prerequisites..."
 check_prereqs terraform kubectl helm uv base64
 check_cluster
 kubectl config use-context "${KUBE_CONTEXT}" >/dev/null
@@ -158,8 +158,8 @@ prepare_polaris_bootstrap_generation
 echo "==> Initializing Terraform..."
 terraform -chdir="${TERRAFORM_DIR}" init
 
-echo "==> Applying Terraform local infrastructure..."
+echo "==> Applying Terraform local platform..."
 run_with_retry "Terraform apply" terraform_apply_once
 refresh_trino_if_catalog_credentials_are_stale
 
-echo "Static OpenLakeForge local infrastructure is applied."
+echo "Static OpenLakeForge local platform is applied."

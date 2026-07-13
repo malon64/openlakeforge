@@ -58,11 +58,11 @@ lifecycle while the cluster definition remains in `infra/kind/local`.
 `make local-up` runs two platform phases:
 
 ```bash
-make local-infra-up
+make local-platform-up
 make local-artifacts-deploy
 ```
 
-`make local-infra-up` runs `terraform init` and a normal `terraform apply` in
+`make local-platform-up` runs `terraform init` and a normal `terraform apply` in
 `infra/terraform/environments/local`. Terraform owns:
 
 - Kubernetes namespace creation
@@ -130,11 +130,11 @@ and leaves the resource group itself untouched during foundation destroy.
 `make azure-up` runs:
 
 ```bash
-make azure-infra-up
+make azure-platform-up
 make azure-artifacts-deploy
 ```
 
-`make azure-infra-up` builds and pushes the custom Superset image to ACR before
+`make azure-platform-up` builds and pushes the custom Superset image to ACR before
 Terraform apply because the Superset Helm release waits for pods during install.
 `make azure-artifacts-deploy` generates Floe manifests, builds and pushes the
 project-code image, uploads manifests to the in-cluster SeaweedFS ops bucket,
@@ -163,11 +163,11 @@ The wrapper then runs `aws eks update-kubeconfig`.
 `make aws-up` runs:
 
 ```bash
-make aws-infra-up
+make aws-platform-up
 make aws-artifacts-deploy
 ```
 
-`make aws-infra-up` builds and pushes the custom Superset image to ECR before
+`make aws-platform-up` builds and pushes the custom Superset image to ECR before
 Terraform apply. The AWS platform root creates S3 medallion and ops buckets,
 RDS PostgreSQL, product-layer Glue databases/namespaces, Pod Identity workload
 access, and the shared Helm services on EKS.

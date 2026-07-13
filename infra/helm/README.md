@@ -35,7 +35,7 @@ infra/helm/
 
 ```bash
 make local-foundation-up
-make local-infra-up
+make local-platform-up
 make local-artifacts-deploy
 make local-up
 make local-forward
