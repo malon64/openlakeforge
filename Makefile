@@ -243,7 +243,7 @@ azure-forward:
 	wait
 
 azure-e2e:
-	@NAMESPACE=$(NAMESPACE) AZURE_CLUSTER_NAME=$(AZURE_CLUSTER_NAME) KUBE_CONTEXT=$(AZURE_KUBE_CONTEXT) bash scripts/azure/test/e2e.sh
+	@NAMESPACE=$(NAMESPACE) AZURE_CLUSTER_NAME=$(AZURE_CLUSTER_NAME) KUBE_CONTEXT=$(AZURE_KUBE_CONTEXT) OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR=infra/terraform/environments/azure-poc bash scripts/artifacts/olf.sh e2e run --env azure
 
 azure-down:
 	@NAMESPACE=$(NAMESPACE) AZURE_CLUSTER_NAME=$(AZURE_CLUSTER_NAME) KUBE_CONTEXT=$(AZURE_KUBE_CONTEXT) bash scripts/azure/stack/teardown.sh
@@ -287,7 +287,7 @@ aws-forward:
 	wait
 
 aws-e2e:
-	@NAMESPACE=$(NAMESPACE) AWS_REGION=$(AWS_REGION) AWS_CLUSTER_NAME=$(AWS_CLUSTER_NAME) KUBE_CONTEXT=$(AWS_KUBE_CONTEXT) bash scripts/aws/test/e2e.sh
+	@NAMESPACE=$(NAMESPACE) AWS_REGION=$(AWS_REGION) AWS_CLUSTER_NAME=$(AWS_CLUSTER_NAME) KUBE_CONTEXT=$(AWS_KUBE_CONTEXT) OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR=infra/terraform/environments/aws-poc bash scripts/artifacts/olf.sh e2e run --env aws
 
 aws-down:
 	@NAMESPACE=$(NAMESPACE) AWS_REGION=$(AWS_REGION) AWS_CLUSTER_NAME=$(AWS_CLUSTER_NAME) KUBE_CONTEXT=$(AWS_KUBE_CONTEXT) bash scripts/aws/stack/teardown.sh
