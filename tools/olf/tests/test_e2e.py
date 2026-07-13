@@ -149,16 +149,68 @@ def test_dagster_repository_discovery_finds_pipeline_location() -> None:
     assert client.discover_repository("sales_order_revenue_pipeline") == ("sales-dagster", "__repository__")
 
 
-def test_dagster_repository_discovery_falls_back_by_domain() -> None:
+def test_dagster_repository_discovery_finds_job_location() -> None:
+    client = e2e.DagsterClient(
+        "http://dagster/graphql",
+        request_json=lambda _query, _variables=None: {
+            "data": {
+                "workspaceOrError": {
+                    "__typename": "Workspace",
+                    "locationEntries": [
+                        {
+                            "name": "sales-dagster",
+                            "locationOrLoadError": {
+                                "__typename": "RepositoryLocation",
+                                "repositories": [
+                                    {
+                                        "name": "__repository__",
+                                        "jobs": [{"name": "sales_order_revenue_pipeline"}],
+                                    }
+                                ],
+                            },
+                        }
+                    ],
+                }
+            }
+        },
+    )
+
+    assert client.discover_repository("sales_order_revenue_pipeline") == ("sales-dagster", "__repository__")
+
+
+def test_dagster_repository_discovery_raises_on_workspace_error() -> None:
     client = e2e.DagsterClient(
         "http://dagster/graphql",
         request_json=lambda _query, _variables=None: {"errors": [{"message": "workspace unavailable"}]},
     )
 
-    assert client.discover_repository("supply_chain_inventory_reliability_pipeline") == (
-        "supply-chain-dagster",
-        "__repository__",
+    with pytest.raises(e2e.E2EError, match="workspace unavailable"):
+        client.discover_repository("supply_chain_inventory_reliability_pipeline")
+
+
+def test_dagster_repository_discovery_reports_load_errors() -> None:
+    client = e2e.DagsterClient(
+        "http://dagster/graphql",
+        request_json=lambda _query, _variables=None: {
+            "data": {
+                "workspaceOrError": {
+                    "__typename": "Workspace",
+                    "locationEntries": [
+                        {
+                            "name": "sales-dagster",
+                            "locationOrLoadError": {
+                                "__typename": "PythonError",
+                                "message": "user code unreachable",
+                            },
+                        }
+                    ],
+                }
+            }
+        },
     )
+
+    with pytest.raises(e2e.E2EError, match="user code unreachable"):
+        client.discover_repository("sales_order_revenue_pipeline")
 
 
 def test_dagster_launch_uses_discovered_repository() -> None:
@@ -199,6 +251,74 @@ def test_dagster_launch_uses_discovered_repository() -> None:
         "repositoryName": "__repository__",
         "pipelineName": "sales_order_revenue_pipeline",
     }
+
+
+def test_dagster_wait_for_repository_retries_until_job_is_available() -> None:
+    responses = [
+        {
+            "data": {
+                "workspaceOrError": {
+                    "__typename": "Workspace",
+                    "locationEntries": [
+                        {
+                            "name": "sales-dagster",
+                            "locationOrLoadError": {
+                                "__typename": "PythonError",
+                                "message": "user code unreachable",
+                            },
+                        }
+                    ],
+                }
+            }
+        },
+        {
+            "data": {
+                "reloadRepositoryLocation": {
+                    "__typename": "WorkspaceLocationEntry",
+                    "name": "sales-dagster",
+                }
+            }
+        },
+        {
+            "data": {
+                "workspaceOrError": {
+                    "__typename": "Workspace",
+                    "locationEntries": [
+                        {
+                            "name": "sales-dagster",
+                            "locationOrLoadError": {
+                                "__typename": "RepositoryLocation",
+                                "repositories": [
+                                    {
+                                        "name": "__repository__",
+                                        "jobs": [{"name": "sales_order_revenue_pipeline"}],
+                                    }
+                                ],
+                            },
+                        }
+                    ],
+                }
+            }
+        },
+    ]
+
+    def request_json(_query: str, _variables: dict[str, Any] | None = None) -> dict[str, Any]:
+        return responses.pop(0)
+
+    client = e2e.DagsterClient("http://dagster/graphql", request_json=request_json)
+
+    assert client.wait_for_repository("sales_order_revenue_pipeline", timeout_seconds=1, delay=0) == (
+        "sales-dagster",
+        "__repository__",
+    )
+
+
+def test_expected_repository_location_name_uses_domain_prefix() -> None:
+    assert e2e.expected_repository_location_name("sales_order_revenue_pipeline") == "sales-dagster"
+    assert (
+        e2e.expected_repository_location_name("supply_chain_inventory_reliability_pipeline")
+        == "supply-chain-dagster"
+    )
 
 
 def test_dagster_poll_reports_failure() -> None:

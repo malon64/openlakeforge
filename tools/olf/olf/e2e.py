@@ -406,7 +406,7 @@ class DagsterClient:
         self._request_json = request_json or self._requests_graphql
 
     def launch(self, job_name: str) -> str:
-        location_name, repository_name = self.discover_repository(job_name)
+        location_name, repository_name = self.wait_for_repository(job_name)
         result = self.graphql(
             """
             mutation LaunchRun($executionParams: ExecutionParams!) {
@@ -433,6 +433,47 @@ class DagsterClient:
         if result["__typename"] != "LaunchRunSuccess":
             raise E2EError(f"failed to launch {job_name}: {json.dumps(result, indent=2)}")
         return result["run"]["runId"]
+
+    def wait_for_repository(
+        self,
+        job_name: str,
+        *,
+        timeout_seconds: int = 90,
+        delay: float = 2.0,
+    ) -> tuple[str, str]:
+        deadline = time.monotonic() + timeout_seconds
+        last_error: E2EError | None = None
+        while time.monotonic() < deadline:
+            try:
+                return self.discover_repository(job_name)
+            except E2EError as exc:
+                last_error = exc
+                self.try_reload_repository_location(expected_repository_location_name(job_name))
+                time.sleep(delay)
+        detail = f": {last_error}" if last_error else ""
+        raise E2EError(
+            f"Dagster repository for {job_name} did not become ready "
+            f"within {timeout_seconds} seconds{detail}"
+        )
+
+    def try_reload_repository_location(self, location_name: str) -> None:
+        try:
+            self.graphql(
+                """
+                mutation ReloadRepositoryLocation($repositoryLocationName: String!) {
+                  reloadRepositoryLocation(repositoryLocationName: $repositoryLocationName) {
+                    __typename
+                    ... on WorkspaceLocationEntry { name }
+                    ... on ReloadNotSupported { message }
+                    ... on RepositoryLocationNotFound { message }
+                    ... on PythonError { message }
+                  }
+                }
+                """,
+                {"repositoryLocationName": location_name},
+            )
+        except E2EError:
+            return
 
     def poll(
         self,
@@ -485,40 +526,49 @@ class DagsterClient:
         raise E2EError(f"{job_name} run {run_id} did not finish within {timeout_seconds} seconds{detail}")
 
     def discover_repository(self, job_name: str) -> tuple[str, str]:
-        try:
-            workspace = self.graphql(
-                """
-                query Workspace {
-                  workspaceOrError {
-                    __typename
-                    ... on Workspace {
-                      locationEntries {
-                        name
-                        locationOrLoadError {
-                          __typename
-                          ... on RepositoryLocation {
-                            repositories { name pipelines { name } }
-                          }
-                          ... on PythonError { message }
+        workspace = self.graphql(
+            """
+            query Workspace {
+              workspaceOrError {
+                __typename
+                ... on Workspace {
+                  locationEntries {
+                    name
+                    locationOrLoadError {
+                      __typename
+                      ... on RepositoryLocation {
+                        repositories {
+                          name
+                          pipelines { name }
+                          jobs { name }
                         }
                       }
+                      ... on PythonError { message }
                     }
                   }
                 }
-                """,
-            )["workspaceOrError"]
-        except Exception:
-            return fallback_repository(job_name)
+              }
+            }
+            """,
+        )["workspaceOrError"]
+        if workspace.get("__typename") != "Workspace":
+            raise E2EError(f"Dagster workspace query failed: {workspace}")
 
+        load_errors: list[str] = []
         for entry in workspace.get("locationEntries", []):
             location = entry.get("locationOrLoadError") or {}
             if location.get("__typename") != "RepositoryLocation":
+                if location.get("__typename") == "PythonError":
+                    message = location.get("message", "unknown Dagster workspace error").strip()
+                    load_errors.append(f"{entry.get('name')}: {message}")
                 continue
             for repo in location.get("repositories", []):
+                job_names = {job["name"] for job in repo.get("jobs", [])}
                 pipeline_names = {pipeline["name"] for pipeline in repo.get("pipelines", [])}
-                if job_name in pipeline_names:
+                if job_name in job_names or job_name in pipeline_names:
                     return entry["name"], repo["name"]
-        return fallback_repository(job_name)
+        detail = f" Workspace load errors: {'; '.join(load_errors)}" if load_errors else ""
+        raise E2EError(f"Dagster job {job_name} is not available yet.{detail}")
 
     def graphql(self, query: str, variables: Mapping[str, Any] | None = None) -> Mapping[str, Any]:
         data = self._request_json(query, variables)
@@ -538,14 +588,6 @@ class DagsterClient:
         except requests.RequestException as exc:
             raise DagsterTransientError(f"Dagster GraphQL request failed: {exc}") from exc
         return response.json()
-
-
-def fallback_repository(job_name: str) -> tuple[str, str]:
-    if job_name.startswith("supply_chain_"):
-        return "supply-chain-dagster", "__repository__"
-    return "sales-dagster", "__repository__"
-
-
 def check_superset_dashboards(cfg: E2EConfig) -> None:
     log.step("Checking Superset report imports...")
     assert cfg.superset_local_port is not None
@@ -556,6 +598,12 @@ def check_superset_dashboards(cfg: E2EConfig) -> None:
             raise E2EError("Superset endpoint did not become reachable.")
         dashboards = SupersetClient(base_url).dashboards()
     assert_superset_dashboards(dashboards, EXPECTED_DASHBOARDS)
+
+
+def expected_repository_location_name(job_name: str) -> str:
+    if job_name.startswith("supply_chain_"):
+        return "supply-chain-dagster"
+    return "sales-dagster"
 
 
 class SupersetClient:

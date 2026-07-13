@@ -1,4 +1,4 @@
-.PHONY: help tree check-structure check-contracts check-infra check-project-code check-dbt floe-manifest floe-manifest-upload dbt-parse project-code-image project-code-load superset-image superset-load superset-reports-deploy superset-reports-export openmetadata-metadata-deploy local-foundation-up local-foundation-down local-platform-up local-artifacts-deploy local-up local-down local-status local-forward local-prefetch local-e2e azure-foundation-up azure-platform-up azure-artifacts-deploy azure-up azure-forward azure-e2e azure-down azure-foundation-down aws-foundation-up aws-platform-up aws-artifacts-deploy aws-up aws-forward aws-e2e aws-down aws-foundation-down
+.PHONY: help tree check-structure check-contracts check-infra check-project-code check-dbt floe-manifest floe-manifest-upload dbt-parse project-code-image project-code-load superset-image superset-load superset-reports-deploy superset-reports-export openmetadata-metadata-deploy local-foundation-up local-foundation-down local-platform-up local-platform-down local-artifacts-deploy local-up local-down local-status local-forward local-prefetch local-e2e azure-foundation-up azure-platform-up azure-platform-down azure-artifacts-deploy azure-up azure-forward azure-e2e azure-down azure-foundation-down aws-foundation-up aws-platform-up aws-platform-down aws-artifacts-deploy aws-up aws-forward aws-e2e aws-down aws-foundation-down
 
 NAMESPACE ?= lakehouse
 CLUSTER_NAME ?= openlakeforge-local
@@ -61,9 +61,10 @@ help:
 	@printf '%s\n' '  make local-foundation-down  Terraform-destroy the local kind foundation'
 	@printf '%s\n' '  make local-prefetch    Pre-pull heavy images (OpenSearch, OM ingestion, Superset helpers) into kind'
 	@printf '%s\n' '  make local-platform-up  Apply local lakehouse platform services'
+	@printf '%s\n' '  make local-platform-down  Terraform-destroy local lakehouse platform services'
 	@printf '%s\n' '  make local-artifacts-deploy  Deploy dynamic local/CD artifacts'
 	@printf '%s\n' '  make local-up         Full wrapper: foundation, prefetch, platform, artifacts'
-	@printf '%s\n' '  make local-down       Terraform-destroy the local stack'
+	@printf '%s\n' '  make local-down       Alias for local-platform-down'
 	@printf '%s\n' '  make local-status     Show pod and service status in the configured namespace'
 	@printf '%s\n' '  make local-forward    Port-forward all services to localhost (Dagster :3000, Superset :8088, OpenMetadata :8585, Trino :8080, Polaris :8181, S3 :9000, SeaweedFS Filer :8888, Master :9333)'
 	@printf '%s\n' '  make local-e2e        Run local end-to-end validation through olf'
@@ -71,21 +72,23 @@ help:
 	@printf '%s\n' 'Azure AKS POC stack:'
 	@printf '%s\n' '  make azure-foundation-up    Terraform-create Azure resource group, AKS, and ACR'
 	@printf '%s\n' '  make azure-platform-up      Build/push Superset image, then apply AKS platform services'
+	@printf '%s\n' '  make azure-platform-down    Terraform-destroy AKS platform services, leaving AKS/ACR'
 	@printf '%s\n' '  make azure-artifacts-deploy Deploy Floe manifests, project-code image, Superset reports, and OpenMetadata metadata'
 	@printf '%s\n' '  make azure-up               Full wrapper: foundation, platform, artifacts'
 	@printf '%s\n' '  make azure-forward          Port-forward all Azure POC services to localhost'
 	@printf '%s\n' '  make azure-e2e              Run Azure POC end-to-end validation'
-	@printf '%s\n' '  make azure-down             Terraform-destroy the Azure POC platform, leaving AKS/ACR'
+	@printf '%s\n' '  make azure-down             Alias for azure-platform-down'
 	@printf '%s\n' '  make azure-foundation-down  Terraform-destroy AKS, ACR, and resource group resources'
 	@printf '%s\n' ''
 	@printf '%s\n' 'AWS EKS managed-services POC stack:'
 	@printf '%s\n' '  make aws-foundation-up      Terraform-create AWS VPC, EKS, ECR, and IRSA foundation'
 	@printf '%s\n' '  make aws-platform-up        Build/push Superset image, then apply EKS platform services'
+	@printf '%s\n' '  make aws-platform-down      Terraform-destroy AWS platform services, leaving EKS/ECR'
 	@printf '%s\n' '  make aws-artifacts-deploy   Deploy Floe manifests, project-code image, Superset reports, and OpenMetadata metadata'
 	@printf '%s\n' '  make aws-up                 Full wrapper: foundation, platform, artifacts'
 	@printf '%s\n' '  make aws-forward            Port-forward AWS POC services to localhost'
 	@printf '%s\n' '  make aws-e2e                Run AWS POC smoke validation'
-	@printf '%s\n' '  make aws-down               Terraform-destroy the AWS POC platform, leaving EKS/ECR'
+	@printf '%s\n' '  make aws-down               Alias for aws-platform-down'
 	@printf '%s\n' '  make aws-foundation-down    Terraform-destroy AWS EKS, ECR, and VPC resources'
 
 tree:
@@ -155,6 +158,9 @@ local-up:
 	@$(MAKE) local-artifacts-deploy
 
 local-down:
+	@$(MAKE) local-platform-down
+
+local-platform-down:
 	@NAMESPACE=$(NAMESPACE) CLUSTER_NAME=$(CLUSTER_NAME) KUBE_CONTEXT=$(KUBE_CONTEXT) bash scripts/local/stack/teardown.sh
 
 local-status:
@@ -246,6 +252,9 @@ azure-e2e:
 	@NAMESPACE=$(NAMESPACE) AZURE_CLUSTER_NAME=$(AZURE_CLUSTER_NAME) KUBE_CONTEXT=$(AZURE_KUBE_CONTEXT) OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR=infra/terraform/environments/azure-poc bash scripts/artifacts/olf.sh e2e run --env azure
 
 azure-down:
+	@$(MAKE) azure-platform-down
+
+azure-platform-down:
 	@NAMESPACE=$(NAMESPACE) AZURE_CLUSTER_NAME=$(AZURE_CLUSTER_NAME) KUBE_CONTEXT=$(AZURE_KUBE_CONTEXT) bash scripts/azure/stack/teardown.sh
 
 azure-foundation-down:
@@ -290,6 +299,9 @@ aws-e2e:
 	@NAMESPACE=$(NAMESPACE) AWS_REGION=$(AWS_REGION) AWS_CLUSTER_NAME=$(AWS_CLUSTER_NAME) KUBE_CONTEXT=$(AWS_KUBE_CONTEXT) OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR=infra/terraform/environments/aws-poc bash scripts/artifacts/olf.sh e2e run --env aws
 
 aws-down:
+	@$(MAKE) aws-platform-down
+
+aws-platform-down:
 	@NAMESPACE=$(NAMESPACE) AWS_REGION=$(AWS_REGION) AWS_CLUSTER_NAME=$(AWS_CLUSTER_NAME) KUBE_CONTEXT=$(AWS_KUBE_CONTEXT) bash scripts/aws/stack/teardown.sh
 
 aws-foundation-down:

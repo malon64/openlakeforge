@@ -27,7 +27,7 @@ check_prereqs
 
 if [[ ! -f "${FOUNDATION_STATE_PATH}" ]]; then
   echo "ERROR: Azure foundation Terraform state is missing: ${FOUNDATION_STATE_PATH}" >&2
-  echo "The platform state depends on the foundation contract; restore or recreate it before running azure-down." >&2
+  echo "The platform state depends on the foundation contract; restore or recreate it before running azure-platform-down." >&2
   exit 1
 fi
 

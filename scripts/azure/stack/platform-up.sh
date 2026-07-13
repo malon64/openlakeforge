@@ -117,6 +117,7 @@ prepare_polaris_bootstrap_generation
 
 echo "==> Initializing Terraform Azure POC platform..."
 terraform -chdir="${TERRAFORM_DIR}" init
+import_namespace_if_missing_in_state "${TERRAFORM_DIR}" "kubernetes_namespace_v1.lakehouse" "${NAMESPACE}"
 
 echo "==> Applying Terraform Azure POC platform..."
 run_with_retry "Terraform apply" terraform_apply_once

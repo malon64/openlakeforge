@@ -58,7 +58,7 @@ fi
 if [[ "${AWS_FOUNDATION_FORCE_DOWN}" != "true" ]] &&
   kubectl --context "${cluster_name}" get namespace "${NAMESPACE}" >/dev/null 2>&1; then
   echo "ERROR: namespace '${NAMESPACE}' still exists on '${cluster_name}'." >&2
-  echo "Run 'make aws-down' before destroying the AWS foundation." >&2
+  echo "Run 'make aws-platform-down' before destroying the AWS foundation." >&2
   echo "Set AWS_FOUNDATION_FORCE_DOWN=true only if you intentionally want to delete the foundation with platform resources still present." >&2
   exit 1
 fi

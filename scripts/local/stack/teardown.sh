@@ -33,7 +33,7 @@ if ! kubectl cluster-info --context "${KUBE_CONTEXT}" >/dev/null 2>&1; then
 fi
 if [[ ! -f "${FOUNDATION_STATE_PATH}" ]]; then
   echo "ERROR: local foundation Terraform state is missing: ${FOUNDATION_STATE_PATH}" >&2
-  echo "The platform state depends on the foundation contract; restore or recreate it before running local-down." >&2
+  echo "The platform state depends on the foundation contract; restore or recreate it before running local-platform-down." >&2
   exit 1
 fi
 kubectl config use-context "${KUBE_CONTEXT}" >/dev/null

@@ -30,6 +30,8 @@ RUN_RETRY_DELAY_SECONDS="${AWS_UP_RETRY_DELAY_SECONDS:-20}"
 source "${REPO_ROOT}/scripts/lib/common.sh"
 # shellcheck source=scripts/lib/helm.sh
 source "${REPO_ROOT}/scripts/lib/helm.sh"
+# shellcheck source=scripts/lib/kube.sh
+source "${REPO_ROOT}/scripts/lib/kube.sh"
 
 TRINO_CHART_PACKAGE_PATH="${TRINO_CHART_PACKAGE_PATH:-${HELM_CHART_CACHE_DIR}/trino-${TRINO_CHART_VERSION}.tgz}"
 DAGSTER_CHART_PACKAGE_PATH="${DAGSTER_CHART_PACKAGE_PATH:-${HELM_CHART_CACHE_DIR}/dagster-${DAGSTER_CHART_VERSION}-no-schema.tgz}"
@@ -106,6 +108,7 @@ prepare_cached_dagster_chart_no_schema dagster "${DAGSTER_CHART_REPOSITORY}" \
 
 echo "==> Initializing Terraform AWS POC platform..."
 terraform -chdir="${TERRAFORM_DIR}" init
+import_namespace_if_missing_in_state "${TERRAFORM_DIR}" "kubernetes_namespace_v1.lakehouse" "${NAMESPACE}"
 
 echo "==> Applying Terraform AWS POC platform..."
 run_with_retry "Terraform apply" terraform_apply_once
