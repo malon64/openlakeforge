@@ -69,16 +69,16 @@ All have sane defaults; override via environment variables:
 
 ### 4. Deploy
 
-Two-phase deploy (foundation, then platform + artifacts — see ADR 0008):
+Three-step deploy (foundation, platform, then artifacts):
 
 ```bash
 make aws-foundation-up      # VPC, EKS, ECR, IAM; writes your kubeconfig context
-make aws-infra-up           # RDS, S3, Glue, Trino, Superset, Dagster, OpenMetadata
+make aws-platform-up        # RDS, S3, Glue, Trino, Superset, Dagster, OpenMetadata
 make aws-artifacts-deploy   # build/push images, upload Floe manifests, load code
 make aws-forward            # port-forward Superset/Dagster/etc. to localhost
 ```
 
-`make aws-up` runs infra + artifacts together after the foundation exists.
+`make aws-up` runs foundation, platform, and artifacts in sequence.
 
 ### 5. Tear down
 
@@ -121,7 +121,7 @@ All have defaults; override via environment variables:
 
 ```bash
 make azure-foundation-up
-make azure-up               # infra + artifacts
+make azure-up               # foundation + platform + artifacts
 make azure-forward
 # ...
 make azure-down

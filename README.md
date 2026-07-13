@@ -123,8 +123,6 @@ domain, data-product, Bronze, Silver, and Gold metadata in
 ```sh
 make check-structure
 make check-contracts
-make local-foundation-up
-make local-prefetch
 make local-up
 ```
 
@@ -178,40 +176,39 @@ make check-structure
 make check-contracts
 ```
 
-Create the local kind foundation once:
+Create the local kind foundation once, or let `make local-up` do it:
 
 ```sh
 make local-foundation-up
 ```
 
-Preload heavy runtime images into the kind nodes. This is strongly recommended
-on macOS, Colima, slow networks, and corporate networks:
+Preload heavy runtime images into the kind nodes when you want to do it
+explicitly. `make local-up` also runs this step after the foundation exists:
 
 ```sh
 make local-prefetch
 ```
 
-Apply the platform and deploy dynamic artifacts:
+Apply the full local stack:
 
 ```sh
 make local-up
 ```
 
-`make local-up` is the full wrapper. It runs the foundation, then the stack:
+`make local-up` is the full wrapper:
 
 1. `make local-foundation-up` creates the kind foundation (a no-op when it
    already exists).
-2. `make local-infra-up` builds and loads the local Superset image, then applies
+2. `make local-prefetch` pre-pulls heavy images into the kind nodes.
+3. `make local-platform-up` builds and loads the local Superset image, then applies
    Terraform for SeaweedFS, PostgreSQL, Polaris, Trino, OpenMetadata, Superset,
    and Dagster.
-3. `make local-artifacts-deploy` builds and loads the project-code image,
+4. `make local-artifacts-deploy` builds and loads the project-code image,
    generates and uploads Floe manifests, imports Superset reports, deploys
    OpenMetadata governance metadata, and restarts Dagster workloads.
 
-`make local-prefetch` is still run manually — it is network-dependent and
-strongly recommended before `make local-up` on macOS, Colima, and constrained
-networks. Use `make local-stack-up` to run only infra + artifacts without
-re-applying the foundation.
+Use `make local-platform-up` or `make local-artifacts-deploy` directly when you
+only need to refresh one phase.
 
 Check the cluster at any point with:
 
@@ -291,10 +288,9 @@ make aws-e2e
 ```
 
 `make aws-up` is the full wrapper: it runs `aws-foundation-up` (VPC, EKS, ECR,
-Pod Identity), then the stack (`aws-infra-up` + `aws-artifacts-deploy`). The
-foundation apply is a no-op once it exists. Use `make aws-stack-up` to redeploy
-only the stack, or `make aws-foundation-up` on its own to provision the cluster
-first. Azure follows the same pattern (`make azure-up` / `make azure-stack-up`).
+Pod Identity), `aws-platform-up`, and `aws-artifacts-deploy`. The foundation
+apply is a no-op once it exists. Azure follows the same three-step pattern with
+`azure-foundation-up`, `azure-platform-up`, and `azure-artifacts-deploy`.
 
 Teardown runs in the opposite order:
 

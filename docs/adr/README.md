@@ -24,7 +24,7 @@ Polaris bootstrap workaround.
 Superset deployment model, custom image, and YAML-based report bundle lifecycle.
 
 `0008-two-phase-deploy-infra-and-artifacts.md` records the split between
-Terraform-owned static infrastructure (Phase 1) and domain artifact deployment
+Terraform-owned static platform resources (Phase 1) and domain artifact deployment
 (Phase 2), and defines the CD boundary.
 
 `0009-openmetadata-lineage-direct-rest-push.md` supersedes ADR 0006. It
@@ -60,5 +60,5 @@ it also moves sandbox naming/tags into `.tfvars` files.
 `0017-shared-python-deploy-tooling.md` records the split between shell (CLI
 orchestration) and a uv-managed Python package `tools/olf` (cross-environment
 API, file, and contract logic), and redefines `make <env>-up` as a full
-foundation+infra+artifacts wrapper. It amends the wrapper semantics of ADR 0008
+foundation+platform+artifacts wrapper. It amends the wrapper semantics of ADR 0008
 without changing the two-phase boundary.

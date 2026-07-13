@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deploy dynamic local domain artifacts after the static infrastructure exists.
+# Deploy dynamic local domain artifacts after the static platform exists.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

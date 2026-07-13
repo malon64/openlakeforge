@@ -3,7 +3,7 @@
 ## Status
 
 Accepted. Amends the wrapper semantics of ADR 0008 without changing its
-two-phase infra/artifacts boundary.
+static platform / dynamic artifacts boundary.
 
 ## Context
 
@@ -42,11 +42,11 @@ Split responsibilities by strength of each tool:
   variable names are unchanged, so every consumer keeps working.
 - **Environment-neutral shell moves out of `scripts/local`.** Shared artifact
   helpers now live under `scripts/artifacts/` and `scripts/contracts/`.
-- **`make <env>-up` is a full wrapper**: foundation, then infra, then artifacts.
+- **`make <env>-up` is a full wrapper**: foundation, then platform, then artifacts.
   Terraform makes the foundation apply a no-op when the cluster already exists.
-  The former infra+artifacts behavior is preserved as `make <env>-stack-up`,
-  and every granular target (`<env>-foundation-up`, `<env>-infra-up`,
-  `<env>-artifacts-deploy`) remains.
+  The granular targets are `<env>-foundation-up`, `<env>-platform-up`, and
+  `<env>-artifacts-deploy`; local also runs `local-prefetch` between foundation
+  and platform.
 
 The host gains one prerequisite: `uv` (https://docs.astral.sh/uv/).
 

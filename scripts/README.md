@@ -43,8 +43,8 @@ verifies that the domain Dagster definitions load.
 
 Local stack scripts under `scripts/local/` are grouped by lifecycle:
 
-- `stack/` contains the local orchestration entrypoints: infra up, dynamic
-  artifact deploy, full setup, and teardown.
+- `stack/` contains the local orchestration entrypoints: platform up, dynamic
+  artifact deploy, and teardown.
 - `foundation/` contains Terraform wrappers for the local kind foundation.
 - `cluster/` contains kind image prefetch helpers.
 - `images/` contains local image build/load helpers for project-code and
@@ -59,8 +59,8 @@ Azure POC scripts under `scripts/azure/` mirror the local lifecycle without
 overloading local behavior:
 
 - `foundation/` contains Terraform wrappers for AKS and ACR.
-- `stack/` contains Azure infra up, dynamic artifact deploy, full setup, and
-  teardown wrappers.
+- `stack/` contains Azure platform up, dynamic artifact deploy, and teardown
+  wrappers.
 - `images/` builds and pushes Superset and project-code images to ACR.
 - `test/` runs the AKS e2e validation against Dagster, Trino, Superset, and
   OpenMetadata.
@@ -69,8 +69,8 @@ AWS POC scripts under `scripts/aws/` mirror Azure while using AWS managed
 services:
 
 - `foundation/` contains Terraform wrappers for EKS, ECR, and EKS Pod Identity readiness.
-- `stack/` contains AWS infra up, S3/ECR artifact deploy, full setup, and
-  teardown wrappers.
+- `stack/` contains AWS platform up, S3/ECR artifact deploy, and teardown
+  wrappers.
 - `images/` builds and pushes Superset and project-code images to ECR.
   `PROJECT_CODE_PYTHON_BASE_IMAGE` defaults to the ECR Public Docker Library
   mirror for AWS project-code builds to avoid depending on Docker Hub during

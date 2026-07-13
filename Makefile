@@ -1,4 +1,4 @@
-.PHONY: help tree check-structure check-contracts check-infra check-project-code check-dbt floe-manifest floe-manifest-upload dbt-parse project-code-image project-code-load superset-image superset-load superset-reports-deploy superset-reports-export openmetadata-metadata-deploy local-foundation-up local-foundation-down local-infra-up local-artifacts-deploy local-up local-stack-up local-down local-status local-forward local-seaweed-ui-forward local-prefetch azure-foundation-up azure-infra-up azure-artifacts-deploy azure-up azure-stack-up azure-forward azure-e2e azure-down azure-foundation-down aws-foundation-up aws-infra-up aws-artifacts-deploy aws-up aws-stack-up aws-forward aws-e2e aws-down aws-foundation-down
+.PHONY: help tree check-structure check-contracts check-infra check-project-code check-dbt floe-manifest floe-manifest-upload dbt-parse project-code-image project-code-load superset-image superset-load superset-reports-deploy superset-reports-export openmetadata-metadata-deploy local-foundation-up local-foundation-down local-platform-up local-artifacts-deploy local-up local-down local-status local-forward local-prefetch azure-foundation-up azure-platform-up azure-artifacts-deploy azure-up azure-forward azure-e2e azure-down azure-foundation-down aws-foundation-up aws-platform-up aws-artifacts-deploy aws-up aws-forward aws-e2e aws-down aws-foundation-down
 
 NAMESPACE ?= lakehouse
 CLUSTER_NAME ?= openlakeforge-local
@@ -60,21 +60,18 @@ help:
 	@printf '%s\n' '  make superset-load    Load the Superset image into kind'
 	@printf '%s\n' '  make local-foundation-down  Terraform-destroy the local kind foundation'
 	@printf '%s\n' '  make local-prefetch    Pre-pull heavy images (OpenSearch, OM ingestion, Superset helpers) into kind'
-	@printf '%s\n' '  make local-infra-up   Apply static Terraform infrastructure only'
+	@printf '%s\n' '  make local-platform-up  Apply local lakehouse platform services'
 	@printf '%s\n' '  make local-artifacts-deploy  Deploy dynamic local/CD artifacts'
-	@printf '%s\n' '  make local-up         Full wrapper: foundation, then infra, then artifacts'
-	@printf '%s\n' '  make local-stack-up   Run local-infra-up, then local-artifacts-deploy (no foundation)'
+	@printf '%s\n' '  make local-up         Full wrapper: foundation, prefetch, platform, artifacts'
 	@printf '%s\n' '  make local-down       Terraform-destroy the local stack'
 	@printf '%s\n' '  make local-status     Show pod and service status in the configured namespace'
 	@printf '%s\n' '  make local-forward    Port-forward all services to localhost (Dagster :3000, Superset :8088, OpenMetadata :8585, Trino :8080, Polaris :8181, S3 :9000, SeaweedFS Filer :8888, Master :9333)'
-	@printf '%s\n' '  make local-seaweed-ui-forward  Port-forward SeaweedFS Filer :8888 and Master :9333'
 	@printf '%s\n' ''
 	@printf '%s\n' 'Azure AKS POC stack:'
 	@printf '%s\n' '  make azure-foundation-up    Terraform-create Azure resource group, AKS, and ACR'
-	@printf '%s\n' '  make azure-infra-up         Build/push Superset image, then apply static AKS platform infrastructure'
+	@printf '%s\n' '  make azure-platform-up      Build/push Superset image, then apply AKS platform services'
 	@printf '%s\n' '  make azure-artifacts-deploy Deploy Floe manifests, project-code image, Superset reports, and OpenMetadata metadata'
-	@printf '%s\n' '  make azure-up               Full wrapper: foundation, then infra, then artifacts'
-	@printf '%s\n' '  make azure-stack-up         Run azure-infra-up, then azure-artifacts-deploy (no foundation)'
+	@printf '%s\n' '  make azure-up               Full wrapper: foundation, platform, artifacts'
 	@printf '%s\n' '  make azure-forward          Port-forward all Azure POC services to localhost'
 	@printf '%s\n' '  make azure-e2e              Run Azure POC end-to-end validation'
 	@printf '%s\n' '  make azure-down             Terraform-destroy the Azure POC platform, leaving AKS/ACR'
@@ -82,10 +79,9 @@ help:
 	@printf '%s\n' ''
 	@printf '%s\n' 'AWS EKS managed-services POC stack:'
 	@printf '%s\n' '  make aws-foundation-up      Terraform-create AWS VPC, EKS, ECR, and IRSA foundation'
-	@printf '%s\n' '  make aws-infra-up           Build/push Superset image, then apply S3/RDS/Glue/EKS platform infrastructure'
+	@printf '%s\n' '  make aws-platform-up        Build/push Superset image, then apply EKS platform services'
 	@printf '%s\n' '  make aws-artifacts-deploy   Deploy Floe manifests, project-code image, Superset reports, and OpenMetadata metadata'
-	@printf '%s\n' '  make aws-up                 Full wrapper: foundation, then infra, then artifacts'
-	@printf '%s\n' '  make aws-stack-up           Run aws-infra-up, then aws-artifacts-deploy (no foundation)'
+	@printf '%s\n' '  make aws-up                 Full wrapper: foundation, platform, artifacts'
 	@printf '%s\n' '  make aws-forward            Port-forward AWS POC services to localhost'
 	@printf '%s\n' '  make aws-e2e                Run AWS POC smoke validation'
 	@printf '%s\n' '  make aws-down               Terraform-destroy the AWS POC platform, leaving EKS/ECR'
@@ -145,18 +141,17 @@ local-foundation-up:
 local-foundation-down:
 	@NAMESPACE=$(NAMESPACE) CLUSTER_NAME=$(CLUSTER_NAME) KUBE_CONTEXT=$(KUBE_CONTEXT) bash scripts/local/foundation/down.sh
 
-local-infra-up:
-	@NAMESPACE=$(NAMESPACE) CLUSTER_NAME=$(CLUSTER_NAME) KUBE_CONTEXT=$(KUBE_CONTEXT) PROJECT_CODE_IMAGE_REPOSITORY=$(PROJECT_CODE_IMAGE_REPOSITORY) PROJECT_CODE_IMAGE_TAG=$(PROJECT_CODE_IMAGE_TAG) PROJECT_CODE_IMAGE_PULL_POLICY=$(PROJECT_CODE_IMAGE_PULL_POLICY) SUPERSET_IMAGE_REPOSITORY=$(SUPERSET_IMAGE_REPOSITORY) SUPERSET_IMAGE_TAG=$(SUPERSET_IMAGE_TAG) SUPERSET_IMAGE_PULL_POLICY=$(SUPERSET_IMAGE_PULL_POLICY) bash scripts/local/stack/infra-up.sh
+local-platform-up:
+	@NAMESPACE=$(NAMESPACE) CLUSTER_NAME=$(CLUSTER_NAME) KUBE_CONTEXT=$(KUBE_CONTEXT) PROJECT_CODE_IMAGE_REPOSITORY=$(PROJECT_CODE_IMAGE_REPOSITORY) PROJECT_CODE_IMAGE_TAG=$(PROJECT_CODE_IMAGE_TAG) PROJECT_CODE_IMAGE_PULL_POLICY=$(PROJECT_CODE_IMAGE_PULL_POLICY) SUPERSET_IMAGE_REPOSITORY=$(SUPERSET_IMAGE_REPOSITORY) SUPERSET_IMAGE_TAG=$(SUPERSET_IMAGE_TAG) SUPERSET_IMAGE_PULL_POLICY=$(SUPERSET_IMAGE_PULL_POLICY) bash scripts/local/stack/platform-up.sh
 
 local-artifacts-deploy:
 	@NAMESPACE=$(NAMESPACE) CLUSTER_NAME=$(CLUSTER_NAME) KUBE_CONTEXT=$(KUBE_CONTEXT) PROJECT_CODE_IMAGE_REPOSITORY=$(PROJECT_CODE_IMAGE_REPOSITORY) PROJECT_CODE_IMAGE_TAG=$(PROJECT_CODE_IMAGE_TAG) bash scripts/local/stack/deploy-artifacts.sh
 
 local-up:
 	@$(MAKE) local-foundation-up
-	@$(MAKE) local-stack-up
-
-local-stack-up:
-	@NAMESPACE=$(NAMESPACE) CLUSTER_NAME=$(CLUSTER_NAME) KUBE_CONTEXT=$(KUBE_CONTEXT) PROJECT_CODE_IMAGE_REPOSITORY=$(PROJECT_CODE_IMAGE_REPOSITORY) PROJECT_CODE_IMAGE_TAG=$(PROJECT_CODE_IMAGE_TAG) PROJECT_CODE_IMAGE_PULL_POLICY=$(PROJECT_CODE_IMAGE_PULL_POLICY) SUPERSET_IMAGE_REPOSITORY=$(SUPERSET_IMAGE_REPOSITORY) SUPERSET_IMAGE_TAG=$(SUPERSET_IMAGE_TAG) SUPERSET_IMAGE_PULL_POLICY=$(SUPERSET_IMAGE_PULL_POLICY) bash scripts/local/stack/setup.sh
+	@$(MAKE) local-prefetch
+	@$(MAKE) local-platform-up
+	@$(MAKE) local-artifacts-deploy
 
 local-down:
 	@NAMESPACE=$(NAMESPACE) CLUSTER_NAME=$(CLUSTER_NAME) KUBE_CONTEXT=$(KUBE_CONTEXT) bash scripts/local/stack/teardown.sh
@@ -202,34 +197,21 @@ local-forward:
 	trap 'kill $$seaweedfs_pid $$polaris_pid $$trino_pid $$dagster_pid $$superset_pid $$om_pid $$seaweedfs_filer_pid $$seaweedfs_master_pid 2>/dev/null || true' INT TERM EXIT; \
 	wait
 
-local-seaweed-ui-forward:
-	@echo "Starting SeaweedFS UI port-forwards (Ctrl-C to stop)..."
-	@echo "  SeaweedFS Filer:  http://localhost:8888"
-	@echo "  SeaweedFS Master: http://localhost:9333"
-	@set -e; \
-	context="$(KUBE_CONTEXT)"; \
-	kubectl --context $$context port-forward svc/seaweedfs-filer-client 8888:8888 -n $(NAMESPACE) & \
-	filer_pid=$$!; \
-	kubectl --context $$context port-forward svc/seaweedfs-master 9333:9333 -n $(NAMESPACE) & \
-	master_pid=$$!; \
-	trap 'kill $$filer_pid $$master_pid 2>/dev/null || true' INT TERM EXIT; \
-	wait
-
 azure-foundation-up:
 	@AZURE_RESOURCE_GROUP=$(AZURE_RESOURCE_GROUP) AZURE_CREATE_RESOURCE_GROUP=$(AZURE_CREATE_RESOURCE_GROUP) AZURE_LOCATION=$(AZURE_LOCATION) AZURE_CLUSTER_NAME=$(AZURE_CLUSTER_NAME) AZURE_NODE_COUNT=$(AZURE_NODE_COUNT) AZURE_NODE_VM_SIZE=$(AZURE_NODE_VM_SIZE) AZURE_ACR_NAME_PREFIX=$(AZURE_ACR_NAME_PREFIX) bash scripts/azure/foundation/up.sh
 
-azure-infra-up:
-	@NAMESPACE=$(NAMESPACE) AZURE_CLUSTER_NAME=$(AZURE_CLUSTER_NAME) KUBE_CONTEXT=$(AZURE_KUBE_CONTEXT) AZURE_IMAGE_TAG=$(AZURE_IMAGE_TAG) PROJECT_CODE_IMAGE_REPOSITORY="$(AZURE_PROJECT_CODE_IMAGE_REPOSITORY)" PROJECT_CODE_IMAGE_TAG="$(AZURE_PROJECT_CODE_IMAGE_TAG)" PROJECT_CODE_IMAGE_PULL_POLICY=Always SUPERSET_IMAGE_REPOSITORY="$(AZURE_SUPERSET_IMAGE_REPOSITORY)" SUPERSET_IMAGE_TAG="$(AZURE_SUPERSET_IMAGE_TAG)" SUPERSET_IMAGE_PULL_POLICY=Always bash scripts/azure/stack/infra-up.sh
+azure-platform-up:
+	@NAMESPACE=$(NAMESPACE) AZURE_CLUSTER_NAME=$(AZURE_CLUSTER_NAME) KUBE_CONTEXT=$(AZURE_KUBE_CONTEXT) AZURE_IMAGE_TAG=$(AZURE_IMAGE_TAG) PROJECT_CODE_IMAGE_REPOSITORY="$(AZURE_PROJECT_CODE_IMAGE_REPOSITORY)" PROJECT_CODE_IMAGE_TAG="$(AZURE_PROJECT_CODE_IMAGE_TAG)" PROJECT_CODE_IMAGE_PULL_POLICY=Always SUPERSET_IMAGE_REPOSITORY="$(AZURE_SUPERSET_IMAGE_REPOSITORY)" SUPERSET_IMAGE_TAG="$(AZURE_SUPERSET_IMAGE_TAG)" SUPERSET_IMAGE_PULL_POLICY=Always bash scripts/azure/stack/platform-up.sh
 
 azure-artifacts-deploy:
 	@NAMESPACE=$(NAMESPACE) AZURE_CLUSTER_NAME=$(AZURE_CLUSTER_NAME) KUBE_CONTEXT=$(AZURE_KUBE_CONTEXT) AZURE_IMAGE_TAG=$(AZURE_IMAGE_TAG) PROJECT_CODE_IMAGE_REPOSITORY="$(AZURE_PROJECT_CODE_IMAGE_REPOSITORY)" PROJECT_CODE_IMAGE_TAG="$(AZURE_PROJECT_CODE_IMAGE_TAG)" bash scripts/azure/stack/deploy-artifacts.sh
 
 azure-up:
-	@$(MAKE) azure-foundation-up
-	@$(MAKE) azure-stack-up
-
-azure-stack-up:
-	@NAMESPACE=$(NAMESPACE) AZURE_CLUSTER_NAME=$(AZURE_CLUSTER_NAME) KUBE_CONTEXT=$(AZURE_KUBE_CONTEXT) AZURE_IMAGE_TAG=$(AZURE_IMAGE_TAG) PROJECT_CODE_IMAGE_REPOSITORY="$(AZURE_PROJECT_CODE_IMAGE_REPOSITORY)" PROJECT_CODE_IMAGE_TAG="$(AZURE_PROJECT_CODE_IMAGE_TAG)" PROJECT_CODE_IMAGE_PULL_POLICY=Always SUPERSET_IMAGE_REPOSITORY="$(AZURE_SUPERSET_IMAGE_REPOSITORY)" SUPERSET_IMAGE_TAG="$(AZURE_SUPERSET_IMAGE_TAG)" SUPERSET_IMAGE_PULL_POLICY=Always bash scripts/azure/stack/setup.sh
+	@set -e; \
+	image_tag="$(AZURE_IMAGE_TAG)"; \
+	$(MAKE) azure-foundation-up AZURE_IMAGE_TAG="$$image_tag"; \
+	$(MAKE) azure-platform-up AZURE_IMAGE_TAG="$$image_tag"; \
+	$(MAKE) azure-artifacts-deploy AZURE_IMAGE_TAG="$$image_tag"
 
 azure-forward:
 	@echo "Starting Azure POC port-forwards (Ctrl-C to stop all)..."
@@ -268,18 +250,18 @@ azure-foundation-down:
 aws-foundation-up:
 	@AWS_REGION=$(AWS_REGION) AWS_CLUSTER_NAME=$(AWS_CLUSTER_NAME) AWS_NODE_DESIRED_SIZE=$(AWS_NODE_DESIRED_SIZE) AWS_NODE_MIN_SIZE=$(AWS_NODE_MIN_SIZE) AWS_NODE_MAX_SIZE=$(AWS_NODE_MAX_SIZE) AWS_NODE_INSTANCE_TYPES=$(AWS_NODE_INSTANCE_TYPES) bash scripts/aws/foundation/up.sh
 
-aws-infra-up:
-	@NAMESPACE=$(NAMESPACE) AWS_REGION=$(AWS_REGION) AWS_CLUSTER_NAME=$(AWS_CLUSTER_NAME) KUBE_CONTEXT=$(AWS_KUBE_CONTEXT) AWS_IMAGE_TAG=$(AWS_IMAGE_TAG) PROJECT_CODE_IMAGE_REPOSITORY="$(AWS_PROJECT_CODE_IMAGE_REPOSITORY)" PROJECT_CODE_IMAGE_TAG="$(AWS_PROJECT_CODE_IMAGE_TAG)" PROJECT_CODE_IMAGE_PULL_POLICY=Always SUPERSET_IMAGE_REPOSITORY="$(AWS_SUPERSET_IMAGE_REPOSITORY)" SUPERSET_IMAGE_TAG="$(AWS_SUPERSET_IMAGE_TAG)" SUPERSET_IMAGE_PULL_POLICY=Always bash scripts/aws/stack/infra-up.sh
+aws-platform-up:
+	@NAMESPACE=$(NAMESPACE) AWS_REGION=$(AWS_REGION) AWS_CLUSTER_NAME=$(AWS_CLUSTER_NAME) KUBE_CONTEXT=$(AWS_KUBE_CONTEXT) AWS_IMAGE_TAG=$(AWS_IMAGE_TAG) PROJECT_CODE_IMAGE_REPOSITORY="$(AWS_PROJECT_CODE_IMAGE_REPOSITORY)" PROJECT_CODE_IMAGE_TAG="$(AWS_PROJECT_CODE_IMAGE_TAG)" PROJECT_CODE_IMAGE_PULL_POLICY=Always SUPERSET_IMAGE_REPOSITORY="$(AWS_SUPERSET_IMAGE_REPOSITORY)" SUPERSET_IMAGE_TAG="$(AWS_SUPERSET_IMAGE_TAG)" SUPERSET_IMAGE_PULL_POLICY=Always bash scripts/aws/stack/platform-up.sh
 
 aws-artifacts-deploy:
 	@NAMESPACE=$(NAMESPACE) AWS_REGION=$(AWS_REGION) AWS_CLUSTER_NAME=$(AWS_CLUSTER_NAME) KUBE_CONTEXT=$(AWS_KUBE_CONTEXT) AWS_IMAGE_TAG=$(AWS_IMAGE_TAG) PROJECT_CODE_IMAGE_REPOSITORY="$(AWS_PROJECT_CODE_IMAGE_REPOSITORY)" PROJECT_CODE_IMAGE_TAG="$(AWS_PROJECT_CODE_IMAGE_TAG)" bash scripts/aws/stack/deploy-artifacts.sh
 
 aws-up:
-	@$(MAKE) aws-foundation-up
-	@$(MAKE) aws-stack-up
-
-aws-stack-up:
-	@NAMESPACE=$(NAMESPACE) AWS_REGION=$(AWS_REGION) AWS_CLUSTER_NAME=$(AWS_CLUSTER_NAME) KUBE_CONTEXT=$(AWS_KUBE_CONTEXT) AWS_IMAGE_TAG=$(AWS_IMAGE_TAG) PROJECT_CODE_IMAGE_REPOSITORY="$(AWS_PROJECT_CODE_IMAGE_REPOSITORY)" PROJECT_CODE_IMAGE_TAG="$(AWS_PROJECT_CODE_IMAGE_TAG)" PROJECT_CODE_IMAGE_PULL_POLICY=Always SUPERSET_IMAGE_REPOSITORY="$(AWS_SUPERSET_IMAGE_REPOSITORY)" SUPERSET_IMAGE_TAG="$(AWS_SUPERSET_IMAGE_TAG)" SUPERSET_IMAGE_PULL_POLICY=Always bash scripts/aws/stack/setup.sh
+	@set -e; \
+	image_tag="$(AWS_IMAGE_TAG)"; \
+	$(MAKE) aws-foundation-up AWS_IMAGE_TAG="$$image_tag"; \
+	$(MAKE) aws-platform-up AWS_IMAGE_TAG="$$image_tag"; \
+	$(MAKE) aws-artifacts-deploy AWS_IMAGE_TAG="$$image_tag"
 
 aws-forward:
 	@echo "Starting AWS POC port-forwards (Ctrl-C to stop all)..."

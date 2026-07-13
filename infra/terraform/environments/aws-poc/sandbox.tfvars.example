@@ -4,7 +4,7 @@
 # The stack scripts pick it up automatically via -var-file:
 #
 #     cp sandbox.tfvars.example sandbox.tfvars
-#     make aws-infra-up
+#     make aws-platform-up
 #
 # `sandbox.tfvars` is gitignored so your account details never land in the repo.
 # Override the path with AWS_TFVARS_FILE=/path/to/your.tfvars if you prefer.

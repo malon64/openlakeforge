@@ -90,11 +90,11 @@ make aws-down
 make aws-foundation-down
 ```
 
-`make aws-up` runs `aws-infra-up` and `aws-artifacts-deploy`. The artifact phase
-generates Floe manifests, builds and pushes project-code to ECR, uploads Floe
-manifests directly to the S3 ops bucket, imports Superset report assets, deploys
-OpenMetadata metadata, patches Dagster runtime images, and restarts Dagster
-workloads.
+`make aws-up` runs `aws-foundation-up`, `aws-platform-up`, and
+`aws-artifacts-deploy`. The artifact phase generates Floe manifests, builds and
+pushes project-code to ECR, uploads Floe manifests directly to the S3 ops
+bucket, imports Superset report assets, deploys OpenMetadata metadata, patches
+Dagster runtime images, and restarts Dagster workloads.
 
 ## Compatibility Gate
 
