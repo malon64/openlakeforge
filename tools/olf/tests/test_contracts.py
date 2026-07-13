@@ -20,6 +20,20 @@ def test_defaults_without_contracts_match_local_profile() -> None:
     assert exports["OPENLAKEFORGE_CATALOG_WAREHOUSE"] == "lakehouse_dev"
     assert exports["OPENLAKEFORGE_ARTIFACT_BASE_URI"] == "s3://openlakeforge-ops"
     assert exports["OPENLAKEFORGE_CATALOG_DATABASE_FQN"] == "polaris.lakehouse_dev"
+    assert json.loads(exports["OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON"]) == {
+        "sales_order_revenue": "polaris.lakehouse_dev.sales_order_revenue_silver",
+        "sales_customer_health": "polaris.lakehouse_dev.sales_customer_health_silver",
+        "supply_chain_inventory_reliability": (
+            "polaris.lakehouse_dev.supply_chain_inventory_reliability_silver"
+        ),
+    }
+    assert json.loads(exports["OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON"]) == {
+        "sales_order_revenue": "polaris.lakehouse_dev.sales_order_revenue_gold",
+        "sales_customer_health": "polaris.lakehouse_dev.sales_customer_health_gold",
+        "supply_chain_inventory_reliability": (
+            "polaris.lakehouse_dev.supply_chain_inventory_reliability_gold"
+        ),
+    }
     assert exports["OPENMETADATA_CATALOG_SERVICE"] == "polaris"
     assert exports["OPENLAKEFORGE_STORAGE_OM_SERVICE"] == "seaweedfs"
     assert exports["OPENLAKEFORGE_STORAGE_DISPLAY_NAME"] == "SeaweedFS S3"
@@ -39,6 +53,14 @@ def test_local_contracts_apply_seaweedfs_values() -> None:
     assert exports["OPENLAKEFORGE_STORAGE_PATH_STYLE_ACCESS"] == "true"
     assert exports["OPENLAKEFORGE_QUERY_TRINO_HOST"] == "trino"
     assert exports["OPENLAKEFORGE_QUERY_TRINO_PORT"] == "8080"
+    assert exports["OPENLAKEFORGE_CATALOG_DATABASE_FQN"] == "polaris.lakehouse_dev"
+    assert json.loads(exports["OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON"]) == {
+        "sales_order_revenue": "polaris.lakehouse_dev.sales_order_revenue_silver",
+        "sales_customer_health": "polaris.lakehouse_dev.sales_customer_health_silver",
+        "supply_chain_inventory_reliability": (
+            "polaris.lakehouse_dev.supply_chain_inventory_reliability_silver"
+        ),
+    }
     assert json.loads(exports["OPENLAKEFORGE_CATALOG_SILVER_NAMESPACES_JSON"]) == {
         "sales_order_revenue": "sales_order_revenue_silver"
     }
@@ -55,11 +77,25 @@ def test_aws_contracts_blank_local_only_fields_and_derive_glue_fqns() -> None:
     assert "OPENLAKEFORGE_DUCKDB_S3_ENDPOINT" in unsets
     # glue catalog blanks Polaris OAuth plumbing
     assert exports["OPENLAKEFORGE_CATALOG_TOKEN_URI"] == ""
+    assert exports["OPENLAKEFORGE_CATALOG_OAUTH_SCOPE"] == ""
     assert exports["OPENLAKEFORGE_CATALOG_FLOE_CREDENTIALS_SECRET_NAME"] == ""
+    assert exports["OPENLAKEFORGE_CATALOG_FLOE_CLIENT_ID_KEY"] == ""
+    assert exports["OPENLAKEFORGE_CATALOG_FLOE_CLIENT_SECRET_KEY"] == ""
+    assert exports["OPENLAKEFORGE_CATALOG_DBT_CREDENTIALS_SECRET_NAME"] == ""
+    assert exports["OPENLAKEFORGE_CATALOG_DBT_CLIENT_ID_KEY"] == ""
+    assert exports["OPENLAKEFORGE_CATALOG_DBT_CLIENT_SECRET_KEY"] == ""
     assert exports["OPENLAKEFORGE_CATALOG_WAREHOUSE"] == "lakehouse_dev"
+    assert exports["OPENLAKEFORGE_CATALOG_GLUE_REST_URI"] == "https://glue.eu-west-1.amazonaws.com/iceberg"
     assert exports["OPENLAKEFORGE_CATALOG_GLUE_REST_WAREHOUSE"] == "123456789012"
+    assert exports["OPENLAKEFORGE_CATALOG_GLUE_WAREHOUSE_PREFIX"] == "warehouse/iceberg"
     # OpenMetadata mappings follow the Glue provider
     assert exports["OPENLAKEFORGE_CATALOG_DATABASE_FQN"] == "aws_glue.lakehouse_dev"
+    assert json.loads(exports["OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON"]) == {
+        "sales_order_revenue": "aws_glue.lakehouse_dev.sales_order_revenue_silver"
+    }
+    assert json.loads(exports["OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON"]) == {
+        "sales_order_revenue": "aws_glue.lakehouse_dev.sales_order_revenue_gold"
+    }
     assert exports["OPENMETADATA_CATALOG_SERVICE"] == "aws_glue"
     assert exports["OPENLAKEFORGE_STORAGE_OM_SERVICE"] == "aws_s3"
     assert exports["OPENLAKEFORGE_STORAGE_DISPLAY_NAME"] == "AWS S3"
