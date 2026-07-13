@@ -42,6 +42,51 @@ def test_cronjob_patch_shape() -> None:
     assert containers == [{"name": "archive", "image": "new:tag"}]
 
 
+def test_patch_dagster_instance_configmap_rewrites_dagster_yaml(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = []
+    dagster_yaml = "run_launcher:\n  config:\n    job_image: \"repo/project-code:old\"\n"
+
+    monkeypatch.setattr(
+        k8s,
+        "resource_exists",
+        lambda kind, name, namespace: (kind, name, namespace) == ("configmap", "dagster-instance", "lakehouse"),
+    )
+    monkeypatch.setattr(
+        k8s,
+        "_get_json",
+        lambda kind, name, namespace: {"data": {"dagster.yaml": dagster_yaml}},
+    )
+    monkeypatch.setattr(k8s, "_kubectl", lambda args, **kwargs: calls.append(args) or "")
+
+    k8s.patch_dagster_instance_configmap("repo/project-code:new", "lakehouse")
+
+    assert calls == [
+        [
+            "patch",
+            "configmap",
+            "dagster-instance",
+            "-n",
+            "lakehouse",
+            "--type",
+            "merge",
+            "-p",
+            json.dumps(
+                {
+                    "data": {
+                        "dagster.yaml": (
+                            "run_launcher:\n"
+                            "  config:\n"
+                            "    job_image: \"repo/project-code:new\"\n"
+                        )
+                    }
+                }
+            ),
+        ]
+    ]
+
+
 def test_patch_deployment_image_if_exists_uses_strategic_patch(monkeypatch: pytest.MonkeyPatch) -> None:
     calls = []
     monkeypatch.setattr(k8s, "resource_exists", lambda kind, name, namespace: True)
