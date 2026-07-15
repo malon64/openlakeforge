@@ -252,6 +252,8 @@ local_variables_tf = Path("infra/terraform/environments/local/variables.tf").rea
 local_outputs_tf = Path("infra/terraform/environments/local/outputs.tf").read_text()
 makefile_body = Path("Makefile").read_text()
 local_platform_script = Path("scripts/local/stack/platform-up.sh").read_text()
+azure_platform_script = Path("scripts/azure/stack/platform-up.sh").read_text()
+aws_platform_script = Path("scripts/aws/stack/platform-up.sh").read_text()
 seaweedfs_outputs = Path("infra/terraform/modules/storage/seaweedfs/outputs.tf").read_text()
 for required in [
     "filer_service_name",
@@ -280,6 +282,27 @@ for path, body in [
     legacy_dev_ui_env = "ENABLE_" + "FILESTASH"
     if legacy_dev_ui in body.lower() or legacy_dev_ui_env in body:
         errors.append(f"{path}: must not contain legacy S3 browser wiring")
+
+for path, body in [
+    (Path("scripts/local/stack/platform-up.sh"), local_platform_script),
+    (Path("scripts/azure/stack/platform-up.sh"), azure_platform_script),
+    (Path("scripts/aws/stack/platform-up.sh"), aws_platform_script),
+]:
+    if "import_namespace_if_missing_in_state" not in body:
+        errors.append(f"{path}: namespace drift recovery must import existing namespaces")
+    if "terraform_import_namespace_args" not in body:
+        errors.append(f"{path}: namespace import must receive platform Terraform variables")
+    for required in [
+        '-var="namespace=${NAMESPACE}"',
+        '-var="kube_context=${KUBE_CONTEXT}"',
+        '-var="foundation_state_path=${FOUNDATION_STATE_PATH}"',
+    ]:
+        if required not in body:
+            errors.append(f"{path}: namespace import must pass {required}")
+if '${TFVARS_ARGS[@]+"${TFVARS_ARGS[@]}"}' not in aws_platform_script:
+    errors.append("scripts/aws/stack/platform-up.sh: namespace import must include AWS tfvars/default tags")
+if '-var="aws_region=${AWS_REGION}"' not in aws_platform_script:
+    errors.append("scripts/aws/stack/platform-up.sh: namespace import must pass aws_region")
 
 required_checks = [
     'check "foundation_contract_matches_platform_context"',

@@ -184,7 +184,25 @@ prepare_polaris_bootstrap_generation
 echo "==> Initializing Terraform..."
 terraform -chdir="${TERRAFORM_DIR}" init
 reset_drifted_local_platform_if_needed
-import_namespace_if_missing_in_state "${TERRAFORM_DIR}" "kubernetes_namespace_v1.lakehouse" "${NAMESPACE}"
+terraform_import_namespace_args=(
+  -var="namespace=${NAMESPACE}"
+  -var="kube_context=${KUBE_CONTEXT}"
+  -var="foundation_state_path=${FOUNDATION_STATE_PATH}"
+  -var="project_code_image_repository=${PROJECT_CODE_IMAGE_REPOSITORY}"
+  -var="project_code_image_tag=${PROJECT_CODE_IMAGE_TAG}"
+  -var="project_code_image_pull_policy=${PROJECT_CODE_IMAGE_PULL_POLICY}"
+  -var="project_code_image_revision=${PROJECT_CODE_IMAGE_REVISION}"
+  -var="superset_image_repository=${SUPERSET_IMAGE_REPOSITORY}"
+  -var="superset_image_tag=${SUPERSET_IMAGE_TAG}"
+  -var="superset_image_pull_policy=${SUPERSET_IMAGE_PULL_POLICY}"
+  -var="polaris_bootstrap_generation=${POLARIS_BOOTSTRAP_GENERATION}"
+  -var="trino_chart_package_path=${TRINO_CHART_PACKAGE_PATH}"
+)
+import_namespace_if_missing_in_state \
+  "${TERRAFORM_DIR}" \
+  "kubernetes_namespace_v1.lakehouse" \
+  "${NAMESPACE}" \
+  "${terraform_import_namespace_args[@]}"
 
 echo "==> Applying Terraform local platform..."
 run_with_retry "Terraform apply" terraform_apply_once

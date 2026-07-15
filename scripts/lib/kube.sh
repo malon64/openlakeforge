@@ -85,6 +85,7 @@ import_namespace_if_missing_in_state() {
   local terraform_dir="$1"
   local resource_addr="$2"
   local namespace="$3"
+  shift 3
 
   if terraform -chdir="${terraform_dir}" state show "${resource_addr}" >/dev/null 2>&1; then
     return 0
@@ -95,7 +96,7 @@ import_namespace_if_missing_in_state() {
   fi
 
   echo "==> Importing existing namespace '${namespace}' into Terraform state..."
-  terraform -chdir="${terraform_dir}" import "${resource_addr}" "${namespace}" >/dev/null
+  terraform -chdir="${terraform_dir}" import "$@" "${resource_addr}" "${namespace}" >/dev/null
 }
 
 # Preflight the Polaris service-principal credentials. When Polaris restarted
