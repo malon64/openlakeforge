@@ -64,6 +64,61 @@ def test_check_pods_ready_retries_until_pods_are_ready(
     assert payloads == []
 
 
+def test_prepare_kube_context_reuses_existing_aws_context(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    commands: list[list[str]] = []
+
+    def run(args: list[str], *, capture: bool = False) -> str:
+        commands.append(args)
+        return ""
+
+    monkeypatch.setattr(e2e, "_run", run)
+
+    e2e.prepare_kube_context(cfg(tmp_path, env="aws", suite="smoke"))
+
+    assert ["kubectl", "cluster-info", "--context", "kind-openlakeforge-local"] in commands
+    assert ["kubectl", "config", "use-context", "kind-openlakeforge-local"] in commands
+    assert not any(command[:3] == ["aws", "eks", "update-kubeconfig"] for command in commands)
+
+
+def test_prepare_kube_context_updates_aws_context_when_existing_context_is_unusable(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    commands: list[list[str]] = []
+
+    def run(args: list[str], *, capture: bool = False) -> str:
+        commands.append(args)
+        if args[:2] == ["kubectl", "cluster-info"] and len(commands) == 1:
+            raise e2e.E2EError("context missing")
+        return ""
+
+    monkeypatch.setattr(e2e, "_run", run)
+    monkeypatch.setattr(e2e.time, "sleep", lambda _delay: None)
+    monkeypatch.setattr(
+        e2e,
+        "terraform_output",
+        lambda _dir, name: {
+            "aws_region": "eu-west-1",
+            "cluster_name": "limited-eks-openlakeforge-poc",
+        }[name],
+    )
+
+    e2e.prepare_kube_context(cfg(tmp_path, env="aws", suite="smoke"))
+
+    assert [
+        "aws",
+        "eks",
+        "update-kubeconfig",
+        "--region",
+        "eu-west-1",
+        "--name",
+        "limited-eks-openlakeforge-poc",
+        "--alias",
+        "kind-openlakeforge-local",
+    ] in commands
+
+
 def test_parse_trino_scalar_returns_last_non_empty_line() -> None:
     assert e2e.parse_trino_scalar("\n15\r\n") == "15"
 
@@ -410,6 +465,7 @@ def test_aws_storage_and_glue_smoke_check_uses_bucket_and_databases(
     }
     commands: list[list[str]] = []
     monkeypatch.setattr(e2e, "load_provider_contracts_or_raise", lambda _cfg: provider_contracts)
+    monkeypatch.setattr(e2e, "terraform_output", lambda _dir, name: "eu-central-1" if name == "aws_region" else "")
     monkeypatch.setattr(e2e, "_run", lambda args, capture=False: commands.append(args) or "")
 
     e2e.check_aws_storage_and_glue(cfg(tmp_path, env="aws", suite="smoke"))
@@ -417,6 +473,66 @@ def test_aws_storage_and_glue_smoke_check_uses_bucket_and_databases(
     assert ["aws", "s3api", "head-bucket", "--bucket", "openlakeforge-ops"] in commands
     glue_commands = [command for command in commands if command[:3] == ["aws", "glue", "get-database"]]
     assert len(glue_commands) == len(e2e.EXPECTED_GLUE_SCHEMAS)
+    assert all(command[4] == "eu-central-1" for command in glue_commands)
+
+
+def test_aws_stack_region_prefers_foundation_output(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("AWS_REGION", "us-east-1")
+    monkeypatch.setattr(e2e, "terraform_output", lambda _dir, name: "eu-central-1" if name == "aws_region" else "")
+
+    assert e2e.aws_stack_region(cfg(tmp_path, env="aws", suite="smoke")) == "eu-central-1"
+
+
+def test_check_ops_artifacts_uses_configured_bucket_for_local(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    bucket_waits: list[tuple[str, str]] = []
+    artifact_checks: list[tuple[str, str]] = []
+
+    class FakeS3Client:
+        pass
+
+    local_cfg = e2e.E2EConfig(
+        env="local",
+        suite="full",
+        namespace="lakehouse",
+        kube_context="kind-openlakeforge-local",
+        repo_root=tmp_path,
+        foundation_terraform_dir=tmp_path / "foundation",
+        contract_terraform_dir=tmp_path / "contract",
+        seaweedfs_local_port=19000,
+    )
+
+    monkeypatch.setattr(e2e, "trigger_log_archive_job", lambda _cfg: None)
+    monkeypatch.setattr(
+        e2e,
+        "load_provider_contracts_or_raise",
+        lambda _cfg: {"artifact_bucket": {"bucket_name": "custom-ops-bucket"}},
+    )
+    monkeypatch.setattr(e2e.k8s, "secret_value", lambda *_args, **_kwargs: "secret")
+    monkeypatch.setattr(
+        e2e.k8s,
+        "port_forward",
+        lambda *_args, **_kwargs: __import__("contextlib").nullcontext(),
+    )
+    monkeypatch.setattr(e2e.boto3, "client", lambda *_args, **_kwargs: FakeS3Client())
+    monkeypatch.setattr(
+        e2e,
+        "wait_for_bucket",
+        lambda _client, bucket, endpoint: bucket_waits.append((bucket, endpoint)),
+    )
+    monkeypatch.setattr(
+        e2e,
+        "assert_ops_artifacts",
+        lambda _client, bucket, namespace: artifact_checks.append((bucket, namespace)),
+    )
+
+    e2e.check_ops_artifacts(local_cfg)
+
+    assert bucket_waits == [("custom-ops-bucket", "http://127.0.0.1:19000")]
+    assert artifact_checks == [("custom-ops-bucket", "lakehouse")]
 
 
 def test_run_retry_retries_transient_command_errors(monkeypatch: pytest.MonkeyPatch) -> None:

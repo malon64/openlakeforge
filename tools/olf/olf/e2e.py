@@ -203,6 +203,10 @@ def check_commands(cfg: E2EConfig) -> None:
 
 
 def prepare_kube_context(cfg: E2EConfig) -> None:
+    if cfg.env in ("azure", "aws") and kube_context_is_ready(cfg.kube_context):
+        _run(["kubectl", "config", "use-context", cfg.kube_context], capture=True)
+        return
+
     if cfg.env == "azure":
         if cfg.foundation_terraform_dir is None:
             raise E2EError("Azure e2e requires a foundation Terraform directory.")
@@ -240,6 +244,14 @@ def prepare_kube_context(cfg: E2EConfig) -> None:
         )
     _run_retry(["kubectl", "cluster-info", "--context", cfg.kube_context], capture=True, attempts=6, delay=5)
     _run(["kubectl", "config", "use-context", cfg.kube_context], capture=True)
+
+
+def kube_context_is_ready(kube_context: str) -> bool:
+    try:
+        _run(["kubectl", "cluster-info", "--context", kube_context], capture=True)
+    except E2EError:
+        return False
+    return True
 
 
 def run_smoke(cfg: E2EConfig) -> None:
@@ -727,10 +739,10 @@ class OpenMetadataE2EClient:
 def check_ops_artifacts(cfg: E2EConfig) -> None:
     log.step("Checking ops artifact bucket contents...")
     trigger_log_archive_job(cfg)
+    provider_contracts = load_provider_contracts_or_raise(cfg)
+    bucket = provider_contracts["artifact_bucket"]["bucket_name"]
     if cfg.env == "aws":
-        provider_contracts = load_provider_contracts_or_raise(cfg)
-        bucket = provider_contracts["artifact_bucket"]["bucket_name"]
-        client = boto3.client("s3", region_name=cfg.aws_region or os.environ.get("AWS_REGION") or None)
+        client = boto3.client("s3", region_name=aws_stack_region(cfg))
         assert_ops_artifacts(client, bucket, cfg.namespace)
         return
 
@@ -748,8 +760,8 @@ def check_ops_artifacts(cfg: E2EConfig) -> None:
             region_name="us-east-1",
             config=Config(s3={"addressing_style": "path"}),
         )
-        wait_for_bucket(client, "openlakeforge-ops", endpoint)
-        assert_ops_artifacts(client, "openlakeforge-ops", cfg.namespace)
+        wait_for_bucket(client, bucket, endpoint)
+        assert_ops_artifacts(client, bucket, cfg.namespace)
 
 
 def trigger_log_archive_job(cfg: E2EConfig) -> None:
@@ -824,7 +836,7 @@ def check_aws_storage_and_glue(cfg: E2EConfig) -> None:
     log.step("Checking S3 artifact bucket and Glue catalog databases...")
     provider_contracts = load_provider_contracts_or_raise(cfg)
     bucket = provider_contracts["artifact_bucket"]["bucket_name"]
-    region = cfg.aws_region or terraform_output(cfg.foundation_terraform_dir, "aws_region")
+    region = aws_stack_region(cfg)
     _run(["aws", "s3api", "head-bucket", "--bucket", bucket], capture=True)
     for database in glue_database_names(provider_contracts):
         _run(["aws", "glue", "get-database", "--region", region, "--name", database], capture=True)
@@ -848,6 +860,16 @@ def load_provider_contracts_or_raise(cfg: E2EConfig) -> Mapping[str, Any]:
     if provider_contracts is None:
         raise E2EError(f"could not load provider_contracts from {cfg.contract_terraform_dir}")
     return provider_contracts
+
+
+def aws_stack_region(cfg: E2EConfig) -> str:
+    if cfg.foundation_terraform_dir is not None:
+        return terraform_output(cfg.foundation_terraform_dir, "aws_region")
+    if cfg.aws_region:
+        return cfg.aws_region
+    if os.environ.get("AWS_REGION"):
+        return os.environ["AWS_REGION"]
+    raise E2EError("AWS e2e requires a stack region from Terraform output or AWS_REGION.")
 
 
 def terraform_output(terraform_dir: Path | None, name: str) -> str:
