@@ -82,6 +82,23 @@ def test_prepare_kube_context_reuses_existing_aws_context(
     assert not any(command[:3] == ["aws", "eks", "update-kubeconfig"] for command in commands)
 
 
+def test_prepare_kube_context_selects_existing_local_context(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    commands: list[list[str]] = []
+
+    def run(args: list[str], *, capture: bool = False) -> str:
+        commands.append(args)
+        return ""
+
+    monkeypatch.setattr(e2e, "_run", run)
+
+    e2e.prepare_kube_context(cfg(tmp_path))
+
+    assert ["kubectl", "cluster-info", "--context", "kind-openlakeforge-local"] in commands
+    assert ["kubectl", "config", "use-context", "kind-openlakeforge-local"] in commands
+
+
 def test_prepare_kube_context_updates_aws_context_when_existing_context_is_unusable(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -414,8 +431,48 @@ def test_dagster_poll_times_out_quickly_for_non_terminal_runs() -> None:
         },
     )
 
-    with pytest.raises(e2e.E2EError, match="did not finish within 180 seconds"):
+    with pytest.raises(e2e.E2EError, match="did not finish within 1800 seconds"):
         client.poll("sales_order_revenue_pipeline", "run-1", attempts=1, delay=0)
+
+
+def test_launch_and_poll_dagster_jobs_defaults_to_previous_shell_timeout(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    timeouts: list[int] = []
+
+    class Client:
+        def __init__(self, _url: str) -> None:
+            pass
+
+        def launch(self, _job: str) -> str:
+            return "run-1"
+
+        def poll(self, _job: str, _run_id: str, *, timeout_seconds: int) -> None:
+            timeouts.append(timeout_seconds)
+
+    monkeypatch.delenv("DAGSTER_JOB_TIMEOUT_SECONDS", raising=False)
+    monkeypatch.setattr(e2e, "DagsterClient", Client)
+    monkeypatch.setattr(e2e.k8s, "http_wait", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(
+        e2e.k8s,
+        "port_forward",
+        lambda *_args, **_kwargs: __import__("contextlib").nullcontext(),
+    )
+
+    local_cfg = e2e.E2EConfig(
+        env="local",
+        suite="full",
+        namespace="lakehouse",
+        kube_context="kind-openlakeforge-local",
+        repo_root=tmp_path,
+        foundation_terraform_dir=tmp_path / "foundation",
+        contract_terraform_dir=tmp_path / "contract",
+        dagster_local_port=13000,
+    )
+
+    e2e.launch_and_poll_dagster_jobs(local_cfg)
+
+    assert timeouts == [e2e.DAGSTER_JOB_TIMEOUT_SECONDS] * len(e2e.PRODUCT_JOBS)
 
 
 def test_glue_database_names_requires_expected_schema_and_database_names() -> None:

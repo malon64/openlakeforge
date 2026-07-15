@@ -81,6 +81,8 @@ ARTIFACT_PREFIXES = (
     "logs/dagster/compute/",
 )
 
+DAGSTER_JOB_TIMEOUT_SECONDS = 1800
+
 
 class E2EError(RuntimeError):
     pass
@@ -203,7 +205,7 @@ def check_commands(cfg: E2EConfig) -> None:
 
 
 def prepare_kube_context(cfg: E2EConfig) -> None:
-    if cfg.env in ("azure", "aws") and kube_context_is_ready(cfg.kube_context):
+    if kube_context_is_ready(cfg.kube_context):
         _run(["kubectl", "config", "use-context", cfg.kube_context], capture=True)
         return
 
@@ -400,7 +402,7 @@ def launch_and_poll_dagster_jobs(cfg: E2EConfig) -> None:
         if not k8s.http_wait(f"{base_url}/server_info", attempts=90, delay=2):
             raise E2EError("Dagster endpoint did not become reachable.")
         client = DagsterClient(f"{base_url}/graphql")
-        timeout_seconds = int(os.environ.get("DAGSTER_JOB_TIMEOUT_SECONDS", "180"))
+        timeout_seconds = int(os.environ.get("DAGSTER_JOB_TIMEOUT_SECONDS", str(DAGSTER_JOB_TIMEOUT_SECONDS)))
         for job in PRODUCT_JOBS:
             run_id = client.launch(job)
             log.info(f"{job}: launched ({run_id})")
@@ -492,7 +494,7 @@ class DagsterClient:
         job_name: str,
         run_id: str,
         *,
-        timeout_seconds: int = 180,
+        timeout_seconds: int = DAGSTER_JOB_TIMEOUT_SECONDS,
         delay: float = 10.0,
         attempts: int | None = None,
     ) -> None:
