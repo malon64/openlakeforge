@@ -87,7 +87,6 @@ make aws-up
 make aws-forward
 make aws-e2e
 make aws-down
-make aws-foundation-down
 ```
 
 `make aws-up` runs `aws-foundation-up`, `aws-platform-up`, and
@@ -95,6 +94,10 @@ make aws-foundation-down
 pushes project-code to ECR, uploads Floe manifests directly to the S3 ops
 bucket, imports Superset report assets, deploys OpenMetadata metadata, patches
 Dagster runtime images, and restarts Dagster workloads.
+
+Use `make aws-platform-down` followed by `make aws-foundation-down` only when
+you want to tear down the two Terraform roots manually; `make aws-down` wraps
+both in that order.
 
 ## Compatibility Gate
 

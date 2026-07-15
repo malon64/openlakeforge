@@ -83,8 +83,9 @@ make aws-forward            # port-forward Superset/Dagster/etc. to localhost
 ### 5. Tear down
 
 ```bash
-make aws-down               # platform environment (RDS, buckets, Helm releases)
+make aws-platform-down      # platform environment (RDS, buckets, Helm releases)
 make aws-foundation-down    # EKS, ECR, networking
+make aws-down               # full teardown wrapper: platform, then foundation
 ```
 
 ECR repos use `force_delete` and the Superset module has a destroy-time guard, so
@@ -124,8 +125,9 @@ make azure-foundation-up
 make azure-up               # foundation + platform + artifacts
 make azure-forward
 # ...
-make azure-down
-make azure-foundation-down
+make azure-platform-down    # platform services only
+make azure-foundation-down  # AKS, ACR, and resource group resources
+make azure-down             # full teardown wrapper: platform, then foundation
 ```
 
 ---

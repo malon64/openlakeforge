@@ -64,7 +64,7 @@ help:
 	@printf '%s\n' '  make local-platform-down  Terraform-destroy local lakehouse platform services'
 	@printf '%s\n' '  make local-artifacts-deploy  Deploy dynamic local/CD artifacts'
 	@printf '%s\n' '  make local-up         Full wrapper: foundation, prefetch, platform, artifacts'
-	@printf '%s\n' '  make local-down       Alias for local-platform-down'
+	@printf '%s\n' '  make local-down       Full teardown wrapper: platform, foundation'
 	@printf '%s\n' '  make local-status     Show pod and service status in the configured namespace'
 	@printf '%s\n' '  make local-forward    Port-forward all services to localhost (Dagster :3000, Superset :8088, OpenMetadata :8585, Trino :8080, Polaris :8181, S3 :9000, SeaweedFS Filer :8888, Master :9333)'
 	@printf '%s\n' '  make local-e2e        Run local end-to-end validation through olf'
@@ -77,7 +77,7 @@ help:
 	@printf '%s\n' '  make azure-up               Full wrapper: foundation, platform, artifacts'
 	@printf '%s\n' '  make azure-forward          Port-forward all Azure POC services to localhost'
 	@printf '%s\n' '  make azure-e2e              Run Azure POC end-to-end validation'
-	@printf '%s\n' '  make azure-down             Alias for azure-platform-down'
+	@printf '%s\n' '  make azure-down             Full teardown wrapper: platform, foundation'
 	@printf '%s\n' '  make azure-foundation-down  Terraform-destroy AKS, ACR, and resource group resources'
 	@printf '%s\n' ''
 	@printf '%s\n' 'AWS EKS managed-services POC stack:'
@@ -88,7 +88,7 @@ help:
 	@printf '%s\n' '  make aws-up                 Full wrapper: foundation, platform, artifacts'
 	@printf '%s\n' '  make aws-forward            Port-forward AWS POC services to localhost'
 	@printf '%s\n' '  make aws-e2e                Run AWS POC smoke validation'
-	@printf '%s\n' '  make aws-down               Alias for aws-platform-down'
+	@printf '%s\n' '  make aws-down               Full teardown wrapper: platform, foundation'
 	@printf '%s\n' '  make aws-foundation-down    Terraform-destroy AWS EKS, ECR, and VPC resources'
 
 tree:
@@ -159,6 +159,7 @@ local-up:
 
 local-down:
 	@$(MAKE) local-platform-down
+	@$(MAKE) local-foundation-down
 
 local-platform-down:
 	@NAMESPACE=$(NAMESPACE) CLUSTER_NAME=$(CLUSTER_NAME) KUBE_CONTEXT=$(KUBE_CONTEXT) bash scripts/local/stack/teardown.sh
@@ -253,6 +254,7 @@ azure-e2e:
 
 azure-down:
 	@$(MAKE) azure-platform-down
+	@$(MAKE) azure-foundation-down
 
 azure-platform-down:
 	@NAMESPACE=$(NAMESPACE) AZURE_CLUSTER_NAME=$(AZURE_CLUSTER_NAME) KUBE_CONTEXT=$(AZURE_KUBE_CONTEXT) bash scripts/azure/stack/teardown.sh
@@ -300,6 +302,7 @@ aws-e2e:
 
 aws-down:
 	@$(MAKE) aws-platform-down
+	@$(MAKE) aws-foundation-down
 
 aws-platform-down:
 	@NAMESPACE=$(NAMESPACE) AWS_REGION=$(AWS_REGION) AWS_CLUSTER_NAME=$(AWS_CLUSTER_NAME) KUBE_CONTEXT=$(AWS_KUBE_CONTEXT) bash scripts/aws/stack/teardown.sh

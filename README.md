@@ -276,13 +276,13 @@ kubectl --context kind-openlakeforge-local -n lakehouse rollout restart deployme
 To remove the local platform while keeping the kind foundation:
 
 ```sh
-make local-down
+make local-platform-down
 ```
 
-To remove the foundation cluster as well:
+To remove the platform and foundation cluster:
 
 ```sh
-make local-foundation-down
+make local-down
 ```
 
 ## AWS POC
@@ -309,8 +309,10 @@ Teardown runs in the opposite order:
 
 ```sh
 make aws-down
-make aws-foundation-down
 ```
+
+Use `make aws-platform-down` when you want to remove only the platform while
+leaving EKS, ECR, and networking in place.
 
 See [docs/architecture/aws-eks-poc.md](docs/architecture/aws-eks-poc.md) for the
 AWS contract shape, managed-service boundaries, and current compatibility gate.

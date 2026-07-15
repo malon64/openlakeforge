@@ -145,16 +145,22 @@ defaults to the full suite. The e2e check:
 
 ## Teardown
 
-Destroy the platform first:
+Destroy only the platform:
 
 ```bash
-make azure-down
+make azure-platform-down
 ```
 
 Then destroy AKS, ACR, and the resource group resources:
 
 ```bash
 make azure-foundation-down
+```
+
+For a full teardown wrapper, run:
+
+```bash
+make azure-down
 ```
 
 The foundation destroy target refuses to run while the `lakehouse` namespace
