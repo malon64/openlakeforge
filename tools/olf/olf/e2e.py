@@ -205,7 +205,7 @@ def check_commands(cfg: E2EConfig) -> None:
 
 
 def prepare_kube_context(cfg: E2EConfig) -> None:
-    if kube_context_is_ready(cfg.kube_context):
+    if cfg.env == "local" and kube_context_is_ready(cfg.kube_context):
         _run(["kubectl", "config", "use-context", cfg.kube_context], capture=True)
         return
 

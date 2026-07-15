@@ -64,7 +64,7 @@ def test_check_pods_ready_retries_until_pods_are_ready(
     assert payloads == []
 
 
-def test_prepare_kube_context_reuses_existing_aws_context(
+def test_prepare_kube_context_refreshes_existing_aws_context(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     commands: list[list[str]] = []
@@ -74,12 +74,30 @@ def test_prepare_kube_context_reuses_existing_aws_context(
         return ""
 
     monkeypatch.setattr(e2e, "_run", run)
+    monkeypatch.setattr(
+        e2e,
+        "terraform_output",
+        lambda _dir, name: {
+            "aws_region": "eu-west-1",
+            "cluster_name": "limited-eks-openlakeforge-poc",
+        }[name],
+    )
 
     e2e.prepare_kube_context(cfg(tmp_path, env="aws", suite="smoke"))
 
     assert ["kubectl", "cluster-info", "--context", "kind-openlakeforge-local"] in commands
     assert ["kubectl", "config", "use-context", "kind-openlakeforge-local"] in commands
-    assert not any(command[:3] == ["aws", "eks", "update-kubeconfig"] for command in commands)
+    assert [
+        "aws",
+        "eks",
+        "update-kubeconfig",
+        "--region",
+        "eu-west-1",
+        "--name",
+        "limited-eks-openlakeforge-poc",
+        "--alias",
+        "kind-openlakeforge-local",
+    ] in commands
 
 
 def test_prepare_kube_context_selects_existing_local_context(
