@@ -64,6 +64,20 @@ def test_check_pods_ready_retries_until_pods_are_ready(
     assert payloads == []
 
 
+def test_aws_full_suite_includes_smoke_checks(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    calls: list[str] = []
+
+    monkeypatch.setattr(e2e, "check_commands", lambda _cfg: None)
+    monkeypatch.setattr(e2e, "prepare_kube_context", lambda _cfg: None)
+    monkeypatch.setattr(e2e, "check_pods_ready", lambda _cfg: None)
+    monkeypatch.setattr(e2e, "run_smoke", lambda _cfg: calls.append("smoke"))
+    monkeypatch.setattr(e2e, "run_full", lambda _cfg: calls.append("full"))
+
+    e2e.run("aws", suite="full", repo_root=tmp_path)
+
+    assert calls == ["smoke", "full"]
+
+
 def test_prepare_kube_context_refreshes_existing_aws_context(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

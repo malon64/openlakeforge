@@ -123,6 +123,8 @@ def run(
     if cfg.suite == "smoke":
         run_smoke(cfg)
     else:
+        if cfg.env == "aws":
+            run_smoke(cfg)
         run_full(cfg)
     log.info(f"{cfg.env.capitalize()} OpenLakeForge {cfg.suite} e2e validation passed.")
 
