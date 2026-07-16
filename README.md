@@ -216,6 +216,16 @@ Check the cluster at any point with:
 make local-status
 ```
 
+Run the local end-to-end suite after `make local-up`:
+
+```sh
+make local-e2e
+```
+
+This launches the three product Dagster pipelines, verifies Silver and Gold
+tables through Trino, checks Superset dashboards, checks OpenMetadata domains
+and data products, and confirms ops-bucket artifacts and logs exist.
+
 ### Access Local Services
 
 Start port-forwards in a long-running terminal:
@@ -266,13 +276,13 @@ kubectl --context kind-openlakeforge-local -n lakehouse rollout restart deployme
 To remove the local platform while keeping the kind foundation:
 
 ```sh
-make local-down
+make local-platform-down
 ```
 
-To remove the foundation cluster as well:
+To remove the platform and foundation cluster:
 
 ```sh
-make local-foundation-down
+make local-down
 ```
 
 ## AWS POC
@@ -291,13 +301,18 @@ make aws-e2e
 Pod Identity), `aws-platform-up`, and `aws-artifacts-deploy`. The foundation
 apply is a no-op once it exists. Azure follows the same three-step pattern with
 `azure-foundation-up`, `azure-platform-up`, and `azure-artifacts-deploy`.
+`make aws-e2e` runs the current AWS smoke suite through `olf e2e run --env aws`;
+the full Dagster/Superset/OpenMetadata e2e suite remains a rollout gate for the
+AWS Glue/S3 path.
 
 Teardown runs in the opposite order:
 
 ```sh
 make aws-down
-make aws-foundation-down
 ```
+
+Use `make aws-platform-down` when you want to remove only the platform while
+leaving EKS, ECR, and networking in place.
 
 See [docs/architecture/aws-eks-poc.md](docs/architecture/aws-eks-poc.md) for the
 AWS contract shape, managed-service boundaries, and current compatibility gate.

@@ -136,6 +136,7 @@ required_paths=(
   "tools/olf/olf/contracts.py"
   "tools/olf/olf/floe.py"
   "tools/olf/olf/k8s.py"
+  "tools/olf/olf/e2e.py"
   "tools/olf/olf/s3.py"
   "tools/olf/olf/superset.py"
   "tools/olf/olf/openmetadata.py"
@@ -155,7 +156,6 @@ required_paths=(
   "scripts/azure/stack/teardown.sh"
   "scripts/azure/images/build-push-project-code.sh"
   "scripts/azure/images/build-push-superset.sh"
-  "scripts/azure/test/e2e.sh"
   "scripts/aws/foundation/up.sh"
   "scripts/aws/foundation/down.sh"
   "scripts/aws/stack/platform-up.sh"
@@ -163,7 +163,6 @@ required_paths=(
   "scripts/aws/stack/teardown.sh"
   "scripts/aws/images/build-push-project-code.sh"
   "scripts/aws/images/build-push-superset.sh"
-  "scripts/aws/test/e2e.sh"
 )
 
 forbidden_paths=(

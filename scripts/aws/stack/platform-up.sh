@@ -30,6 +30,8 @@ RUN_RETRY_DELAY_SECONDS="${AWS_UP_RETRY_DELAY_SECONDS:-20}"
 source "${REPO_ROOT}/scripts/lib/common.sh"
 # shellcheck source=scripts/lib/helm.sh
 source "${REPO_ROOT}/scripts/lib/helm.sh"
+# shellcheck source=scripts/lib/kube.sh
+source "${REPO_ROOT}/scripts/lib/kube.sh"
 
 TRINO_CHART_PACKAGE_PATH="${TRINO_CHART_PACKAGE_PATH:-${HELM_CHART_CACHE_DIR}/trino-${TRINO_CHART_VERSION}.tgz}"
 DAGSTER_CHART_PACKAGE_PATH="${DAGSTER_CHART_PACKAGE_PATH:-${HELM_CHART_CACHE_DIR}/dagster-${DAGSTER_CHART_VERSION}-no-schema.tgz}"
@@ -106,6 +108,27 @@ prepare_cached_dagster_chart_no_schema dagster "${DAGSTER_CHART_REPOSITORY}" \
 
 echo "==> Initializing Terraform AWS POC platform..."
 terraform -chdir="${TERRAFORM_DIR}" init
+terraform_import_namespace_args=(
+  ${TFVARS_ARGS[@]+"${TFVARS_ARGS[@]}"}
+  -var="namespace=${NAMESPACE}"
+  -var="aws_region=${AWS_REGION}"
+  -var="kube_context=${KUBE_CONTEXT}"
+  -var="foundation_state_path=${FOUNDATION_STATE_PATH}"
+  -var="project_code_image_repository=${PROJECT_CODE_IMAGE_REPOSITORY}"
+  -var="project_code_image_tag=${PROJECT_CODE_IMAGE_TAG}"
+  -var="project_code_image_pull_policy=${PROJECT_CODE_IMAGE_PULL_POLICY}"
+  -var="project_code_image_revision=${PROJECT_CODE_IMAGE_REVISION}"
+  -var="superset_image_repository=${SUPERSET_IMAGE_REPOSITORY}"
+  -var="superset_image_tag=${SUPERSET_IMAGE_TAG}"
+  -var="superset_image_pull_policy=${SUPERSET_IMAGE_PULL_POLICY}"
+  -var="trino_chart_package_path=${TRINO_CHART_PACKAGE_PATH}"
+  -var="dagster_chart_package_path=${DAGSTER_CHART_PACKAGE_PATH}"
+)
+import_namespace_if_missing_in_state \
+  "${TERRAFORM_DIR}" \
+  "kubernetes_namespace_v1.lakehouse" \
+  "${NAMESPACE}" \
+  "${terraform_import_namespace_args[@]}"
 
 echo "==> Applying Terraform AWS POC platform..."
 run_with_retry "Terraform apply" terraform_apply_once

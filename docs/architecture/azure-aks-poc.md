@@ -127,7 +127,8 @@ After `make azure-up`, run:
 make azure-e2e
 ```
 
-The e2e check:
+`make azure-e2e` is a thin wrapper around `olf e2e run --env azure`, which
+defaults to the full suite. The e2e check:
 
 - Confirms pods are `Running` or completed bootstrap pods are `Succeeded`.
 - Launches and polls these Dagster jobs to `SUCCESS`:
@@ -139,19 +140,27 @@ The e2e check:
 - Confirms the three Superset dashboard slugs are imported.
 - Confirms OpenMetadata contains the `sales` and `supply_chain` domains and the
   three data products.
+- Confirms the ops artifact bucket contains product manifests, Floe reports,
+  dbt run artifacts, Dagster compute logs, and a fresh Kubernetes log archive.
 
 ## Teardown
 
-Destroy the platform first:
+Destroy only the platform:
 
 ```bash
-make azure-down
+make azure-platform-down
 ```
 
 Then destroy AKS, ACR, and the resource group resources:
 
 ```bash
 make azure-foundation-down
+```
+
+For a full teardown wrapper, run:
+
+```bash
+make azure-down
 ```
 
 The foundation destroy target refuses to run while the `lakehouse` namespace

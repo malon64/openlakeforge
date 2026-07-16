@@ -78,6 +78,27 @@ restart_dagster_project_code_deployments() {
   done < <(discover_dagster_user_deployments)
 }
 
+# If the namespace already exists in the cluster but the Terraform state lost
+# its kubernetes_namespace resource, import it before apply to avoid a hard
+# "already exists" failure on re-bootstrap.
+import_namespace_if_missing_in_state() {
+  local terraform_dir="$1"
+  local resource_addr="$2"
+  local namespace="$3"
+  shift 3
+
+  if terraform -chdir="${terraform_dir}" state show "${resource_addr}" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  if ! kubectl get namespace "${namespace}" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  echo "==> Importing existing namespace '${namespace}' into Terraform state..."
+  terraform -chdir="${terraform_dir}" import "$@" "${resource_addr}" "${namespace}" >/dev/null
+}
+
 # Preflight the Polaris service-principal credentials. When Polaris restarted
 # with in-memory persistence, previously minted client credentials are stale;
 # force a new bootstrap generation so Terraform re-runs the bootstrap job.

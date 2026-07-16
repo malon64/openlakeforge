@@ -87,7 +87,6 @@ make aws-up
 make aws-forward
 make aws-e2e
 make aws-down
-make aws-foundation-down
 ```
 
 `make aws-up` runs `aws-foundation-up`, `aws-platform-up`, and
@@ -95,6 +94,10 @@ make aws-foundation-down
 pushes project-code to ECR, uploads Floe manifests directly to the S3 ops
 bucket, imports Superset report assets, deploys OpenMetadata metadata, patches
 Dagster runtime images, and restarts Dagster workloads.
+
+Use `make aws-platform-down` followed by `make aws-foundation-down` only when
+you want to tear down the two Terraform roots manually; `make aws-down` wraps
+both in that order.
 
 ## Compatibility Gate
 
@@ -105,10 +108,11 @@ Before promoting the AWS POC beyond smoke validation, prove:
 - Trino can query both layers through Glue;
 - OpenMetadata can seed and crawl Glue-backed namespaces.
 
-The first AWS e2e target is a smoke test for cluster health, provider
-contracts, S3, Glue, Trino, and core workloads. Full Dagster job execution and
-dashboard/data quality assertions should be added after the Glue/S3 write path
-is proven.
+`make aws-e2e` runs `olf e2e run --env aws`, which defaults to a smoke test for
+cluster health, provider contracts, S3, Glue, Trino, and core workloads. Full
+Dagster job execution and dashboard/data quality assertions are available
+behind `olf e2e run --env aws --suite full`, but should become the default only
+after the Glue/S3 write path is proven.
 
 ## POC Limits
 

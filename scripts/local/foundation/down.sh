@@ -43,7 +43,7 @@ if [[ "${FORCE_DOWN}" != "true" ]] &&
   kind get clusters 2>/dev/null | grep -qx "${CLUSTER_NAME}" &&
   kubectl --context "${KUBE_CONTEXT}" get namespace "${NAMESPACE}" >/dev/null 2>&1; then
   echo "ERROR: namespace '${NAMESPACE}' still exists on '${KUBE_CONTEXT}'." >&2
-  echo "Run 'make local-down' before destroying the local foundation." >&2
+  echo "Run 'make local-platform-down' before destroying the local foundation." >&2
   echo "Set LOCAL_FOUNDATION_FORCE_DOWN=true only if you intentionally want to delete the cluster with platform resources still present." >&2
   exit 1
 fi

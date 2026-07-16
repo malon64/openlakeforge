@@ -17,6 +17,8 @@ handling, and provider-contract parsing — lives in the uv-managed Python
 package `tools/olf`, exposed through the `olf` CLI. Shell reaches it through
 `scripts/lib/python.sh` (`olf_run`), which runs `uv run --project tools/olf`.
 See [ADR 0017](../docs/adr/0017-shared-python-deploy-tooling.md).
+End-to-end validation also lives in `olf` (`olf e2e run`); the public Make
+targets call it directly with environment-specific defaults.
 
 Shared shell helpers live under `scripts/lib/`:
 
@@ -62,8 +64,9 @@ overloading local behavior:
 - `stack/` contains Azure platform up, dynamic artifact deploy, and teardown
   wrappers.
 - `images/` builds and pushes Superset and project-code images to ACR.
-- `test/` runs the AKS e2e validation against Dagster, Trino, Superset, and
-  OpenMetadata.
+- e2e validation is exposed directly through `make azure-e2e`, which runs
+  `olf e2e run --env azure` against Dagster, Trino, Superset, OpenMetadata,
+  and ops artifacts.
 
 AWS POC scripts under `scripts/aws/` mirror Azure while using AWS managed
 services:
@@ -75,8 +78,9 @@ services:
   `PROJECT_CODE_PYTHON_BASE_IMAGE` defaults to the ECR Public Docker Library
   mirror for AWS project-code builds to avoid depending on Docker Hub during
   `make aws-artifacts-deploy`.
-- `test/` runs the EKS smoke validation against provider contracts, pods, S3,
-  Glue, and Trino.
+- e2e validation is exposed directly through `make aws-e2e`, which runs
+  `olf e2e run --env aws` and defaults to the EKS smoke validation against
+  provider contracts, pods, S3, Glue, and Trino.
 
 The Makefile is the public interface for normal use. The shell scripts stay
 focused implementation details behind those targets.

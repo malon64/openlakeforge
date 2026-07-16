@@ -59,5 +59,6 @@ The host gains one prerequisite: `uv` (https://docs.astral.sh/uv/).
   `olf` subcommand — the deploy shell does not fan out again.
 - `olf` logic is unit-tested (`tools/olf/tests`) and linted (ruff) in CI, which
   the previous heredocs could not be.
-- `check-*` and e2e scripts remain bash for now; rewriting them on top of
-  `tools/olf` is tracked in `docs/technical-debt.md`.
+- Runtime e2e validation is now owned by `olf e2e run`; the Makefile invokes
+  the shared Python implementation directly. Broader
+  `check-*` migration remains tracked in `docs/technical-debt.md`.

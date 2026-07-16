@@ -19,6 +19,7 @@ parsing. See [ADR 0017](../../docs/adr/0017-shared-python-deploy-tooling.md).
 | `olf k8s set-project-code-image --image X` | Point every Dagster surface at a pushed project-code image. |
 | `olf k8s restart-dagster` | Restart Dagster webserver, daemon, and domain code-location deployments. |
 | `olf polaris check-credentials` | Preflight Polaris service-principal credentials (exit 3 = stale). |
+| `olf e2e run --env local\|azure\|aws [--suite full\|smoke]` | Run shared end-to-end validation. Local/Azure default to `full`; AWS defaults to `smoke`. |
 
 ## Development
 
