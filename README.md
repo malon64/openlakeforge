@@ -109,6 +109,12 @@ domain, data-product, Bronze, Silver, and Gold metadata in
 
 ## Roadmap
 
+The proposed path from the current POC to a supportable distribution is defined
+in the [OpenLakeForge Industrialization Roadmap](docs/industrialization-roadmap.md).
+The GitHub project remains the execution view after the proposal is approved.
+
+The iterations below record the POC delivery history:
+
 - Iteration 0: repository skeleton, architecture documentation, and validation automation.
 - Iteration 1: local kind foundation with namespaces, SeaweedFS, Polaris, and Trino.
 - Iteration 2: project-code image and Dagster deployment with Kubernetes run launcher.
