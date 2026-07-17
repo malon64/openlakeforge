@@ -9,7 +9,7 @@ source "${REPO_ROOT}/scripts/lib/docker.sh"
 IMAGE_REPOSITORY="${SUPERSET_IMAGE_REPOSITORY:-ghcr.io/openlakeforge/superset}"
 IMAGE_TAG="${SUPERSET_IMAGE_TAG:-local}"
 IMAGE="${SUPERSET_IMAGE:-${IMAGE_REPOSITORY}:${IMAGE_TAG}}"
-SUPERSET_BASE_IMAGE="${SUPERSET_BASE_IMAGE:-apache/superset:6.1.0}"
+SUPERSET_BASE_IMAGE="${SUPERSET_BASE_IMAGE:-apache/superset:6.1.0@sha256:fb3464528ec7076f91195f0ff7835755aa023e281f1bb78a84782ce7a36b3705}"
 
 if ! command -v docker &>/dev/null; then
   echo "ERROR: 'docker' not found on PATH" >&2
