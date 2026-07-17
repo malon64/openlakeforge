@@ -26,5 +26,5 @@ select
     cast(sum(order_lines.quantity * products.unit_cost) as double) as total_cost,
     cast(sum(order_lines.quantity * order_lines.unit_price - order_lines.discount_amount - order_lines.quantity * products.unit_cost) as double) as gross_margin
 from order_lines
-join products using (product_id)
+join products on order_lines.product_id = products.product_id
 group by products.product_id, products.product_name, products.category

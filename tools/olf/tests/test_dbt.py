@@ -1,3 +1,4 @@
+import re
 import sys
 from pathlib import Path
 
@@ -27,8 +28,9 @@ def test_all_models_request_atomic_trino_replacement() -> None:
         assert "OPENLAKEFORGE_QUERY_TRINO_CATALOG" in project_text
 
 
-def test_customer_health_uses_explicit_join_keys_for_trino() -> None:
-    customer_health = REPO_ROOT / "domains/sales/transformations/dbt/customer_health/models/gold"
-    for model in customer_health.glob("*.sql"):
+def test_all_gold_models_use_explicit_join_keys_for_trino() -> None:
+    gold_models = [model for project in PROJECTS for model in (project / "models/gold").glob("*.sql")]
+    assert gold_models
+    for model in gold_models:
         sql = model.read_text(encoding="utf-8")
-        assert " using (" not in sql.lower()
+        assert not re.search(r"\busing\s*\(", sql, flags=re.IGNORECASE), model

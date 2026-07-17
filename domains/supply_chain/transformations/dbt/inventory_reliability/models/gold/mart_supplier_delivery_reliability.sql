@@ -33,6 +33,6 @@ select
     cast(avg(date_diff('day', purchase_orders.expected_date, shipments.delivered_date)) as double) as avg_days_late,
     cast(avg(case when shipments.delivered_date <= purchase_orders.expected_date then 1.0 else 0.0 end) as double) as on_time_rate
 from purchase_orders
-join shipments using (purchase_order_id)
-join suppliers using (supplier_id)
+join shipments on purchase_orders.purchase_order_id = shipments.purchase_order_id
+join suppliers on purchase_orders.supplier_id = suppliers.supplier_id
 group by suppliers.supplier_id, suppliers.supplier_name, suppliers.country, suppliers.risk_tier

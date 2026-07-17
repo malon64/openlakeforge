@@ -37,4 +37,6 @@ select
         else 'low'
     end as stockout_risk
 from inventory_position
-left join stockout_rollup using (warehouse_id, product_id)
+left join stockout_rollup
+    on inventory_position.warehouse_id = stockout_rollup.warehouse_id
+    and inventory_position.product_id = stockout_rollup.product_id
