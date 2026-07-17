@@ -21,10 +21,6 @@ locals {
         name  = "AWS_ENDPOINT_URL_S3"
         value = var.storage_contract.endpoint
       },
-      {
-        name  = "OPENLAKEFORGE_DUCKDB_S3_ENDPOINT"
-        value = replace(var.storage_contract.endpoint, "http://", "")
-      },
     ],
     var.storage_contract.path_style_access == null ? [] : [
       {
@@ -209,8 +205,24 @@ locals {
       value = "/tmp/openlakeforge-dbt-profiles"
     },
     {
-      name  = "OPENLAKEFORGE_DBT_ATTACH_POLARIS"
-      value = tostring(local.catalog_type == "rest" && local.catalog_provider == "polaris")
+      name  = "OPENLAKEFORGE_DBT_EXECUTABLE"
+      value = "dbt-ol"
+    },
+    {
+      name  = "OPENLAKEFORGE_DBT_TRINO_USER"
+      value = "openlakeforge-dbt"
+    },
+    {
+      name  = "OPENLINEAGE_URL"
+      value = "http://openmetadata:${try(var.governance_contract.http_port, 8585)}"
+    },
+    {
+      name  = "OPENLINEAGE_ENDPOINT"
+      value = "api/v1/openlineage/lineage"
+    },
+    {
+      name  = "OPENLINEAGE_NAMESPACE"
+      value = "dagster"
     },
     {
       name  = "OPENLAKEFORGE_POSTGRES_SSL_MODE"
@@ -218,22 +230,13 @@ locals {
     },
   ]
 
-  dbt_secret_env = try(var.catalog_contract.dbt_credentials_secret_name, null) == null ? [] : [
+  dbt_secret_env = [
     {
-      name = "OPENLAKEFORGE_CATALOG_DBT_CLIENT_ID"
+      name = "OPENLINEAGE_API_KEY"
       valueFrom = {
         secretKeyRef = {
-          name = var.catalog_contract.dbt_credentials_secret_name
-          key  = coalesce(try(var.catalog_contract.dbt_client_id_key, null), "POLARIS_DBT_CLIENT_ID")
-        }
-      }
-    },
-    {
-      name = "OPENLAKEFORGE_CATALOG_DBT_CLIENT_SECRET"
-      valueFrom = {
-        secretKeyRef = {
-          name = var.catalog_contract.dbt_credentials_secret_name
-          key  = coalesce(try(var.catalog_contract.dbt_client_secret_key, null), "POLARIS_DBT_CLIENT_SECRET")
+          name = var.governance_contract.ingestion_bot_secret_name
+          key  = var.governance_contract.ingestion_bot_jwt_key
         }
       }
     },
@@ -296,9 +299,9 @@ locals {
         name = var.catalog_contract.floe_credentials_secret_name
       },
     ],
-    try(var.catalog_contract.dbt_credentials_secret_name, null) == null ? [] : [
+    var.governance_contract.ingestion_bot_secret_name == null ? [] : [
       {
-        name = var.catalog_contract.dbt_credentials_secret_name
+        name = var.governance_contract.ingestion_bot_secret_name
       },
     ],
   )

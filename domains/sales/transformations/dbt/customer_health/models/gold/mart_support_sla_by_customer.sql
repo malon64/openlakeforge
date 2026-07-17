@@ -23,5 +23,5 @@ select
     cast(sum(case when tickets.sla_met then 1 else 0 end) as bigint) as tickets_met_sla,
     cast(avg(case when tickets.sla_met then 1.0 else 0.0 end) as double) as sla_rate
 from accounts
-join tickets using (account_id)
+join tickets on accounts.account_id = tickets.account_id
 group by accounts.account_id, accounts.account_name, accounts.segment, accounts.region, tickets.priority

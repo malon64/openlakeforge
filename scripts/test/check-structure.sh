@@ -68,7 +68,6 @@ required_paths=(
   "libs/dbt/__init__.py"
   "libs/dbt/openlakeforge_dbt/dbt_project.yml"
   "libs/dbt/openlakeforge_dbt/macros/generate_schema_name.sql"
-  "libs/dbt/openlakeforge_dbt/macros/iceberg_table.sql"
   "libs/dbt/profiles/local.yml"
   "libs/dbt/profiles/azure.yml"
   "libs/dbt/profiles/aws.yml"

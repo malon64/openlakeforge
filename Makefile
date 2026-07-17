@@ -44,7 +44,7 @@ help:
 	@printf '%s\n' '  make check-contracts  Validate provider contract compatibility'
 	@printf '%s\n' '  make check-infra      Validate Terraform and render Helm values'
 	@printf '%s\n' '  make check-project-code  Validate the project-code Dagster package'
-	@printf '%s\n' '  make check-dbt        Validate all product dbt-duckdb projects'
+	@printf '%s\n' '  make check-dbt        Validate all product dbt-trino projects'
 	@printf '%s\n' '  make floe-manifest   Generate product Floe Dagster manifests'
 	@printf '%s\n' '  make floe-manifest-upload  Upload product Floe manifests to the local ops bucket'
 	@printf '%s\n' '  make dbt-parse       Generate product dbt manifests'

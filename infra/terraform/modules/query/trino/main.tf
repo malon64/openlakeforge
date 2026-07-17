@@ -4,6 +4,8 @@ locals {
   version              = var.chart_package_path != null ? null : var.chart_version
   iceberg_catalog_type = coalesce(try(var.catalog_contract.catalog_type, null), "rest")
   trino_catalog_name   = coalesce(try(var.catalog_contract.trino_catalog_name, null), "iceberg")
+  lineage_catalog_name = coalesce(try(var.catalog_contract.catalog_name, null), "lakehouse_dev")
+  trino_catalog_names  = toset([local.trino_catalog_name, local.lineage_catalog_name])
   glue_region          = coalesce(try(var.catalog_contract.glue_region, null), var.storage_contract.region)
 
   storage_secret_env_from = var.storage_contract.credentials_secret_name == null ? [] : [
@@ -102,7 +104,7 @@ resource "helm_release" "trino" {
       env     = local.catalog_secret_env
 
       catalogs = {
-        (local.trino_catalog_name) = local.iceberg_catalog_properties
+        for catalog_name in local.trino_catalog_names : catalog_name => local.iceberg_catalog_properties
       }
 
       serviceAccount = {

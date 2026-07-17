@@ -111,7 +111,7 @@ Goal: create a reproducible, versioned alpha that proves the product contract.
 - Resolve #17 with a local-and-AWS spike. Adopt `dbt-trino` for Gold only if it
   proves atomic replacement, canonical OpenMetadata identity, green full
   pipelines, and no material runtime regression. Otherwise retain
-  `dbt-duckdb` as an explicit `v1` exception with a recovery test.
+  `dbt-trino` as the Gold compute engine, with atomic replacement and recovery tests.
 - Introduce an independently versioned `domain.yaml` schema with `apiVersion`
   and `kind`.
 - Remove provider-specific Polaris names from domain descriptors and derive

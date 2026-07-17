@@ -352,8 +352,10 @@ resource "kubernetes_job_v1" "bootstrap" {
             create_principal_secret "${var.floe_principal_name}" "${var.floe_credentials_secret_name}" "POLARIS_FLOE_CLIENT_ID" "POLARIS_FLOE_CLIENT_SECRET"
             grant_catalog_access "${var.floe_principal_name}" "${var.floe_principal_role}" "${var.floe_catalog_role}"
 
-            create_principal_secret "${var.dbt_principal_name}" "${var.dbt_credentials_secret_name}" "POLARIS_DBT_CLIENT_ID" "POLARIS_DBT_CLIENT_SECRET"
-            grant_catalog_access "${var.dbt_principal_name}" "${var.dbt_principal_role}" "${var.dbt_catalog_role}"
+            # dbt Gold now writes through Trino. Remove credentials created by
+            # pre-migration deployments while keeping shared Floe roles intact.
+            request DELETE "/principals/dbt" "204 404"
+            kubectl delete secret "polaris-dbt-creds" -n "$NAMESPACE" --ignore-not-found
 
             create_principal_secret "${var.om_principal_name}" "${var.om_credentials_secret_name}" "POLARIS_OM_CLIENT_ID" "POLARIS_OM_CLIENT_SECRET"
             grant_catalog_access "${var.om_principal_name}" "${var.om_principal_role}" "${var.om_catalog_role}"

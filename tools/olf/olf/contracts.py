@@ -165,9 +165,6 @@ def _apply_default_contract_env(env: _Env, base: Mapping[str, str]) -> None:
     env.default("OPENLAKEFORGE_CATALOG_FLOE_CREDENTIALS_SECRET_NAME", "polaris-floe-creds")
     env.default("OPENLAKEFORGE_CATALOG_FLOE_CLIENT_ID_KEY", "POLARIS_FLOE_CLIENT_ID")
     env.default("OPENLAKEFORGE_CATALOG_FLOE_CLIENT_SECRET_KEY", "POLARIS_FLOE_CLIENT_SECRET")
-    env.default("OPENLAKEFORGE_CATALOG_DBT_CREDENTIALS_SECRET_NAME", "polaris-dbt-creds")
-    env.default("OPENLAKEFORGE_CATALOG_DBT_CLIENT_ID_KEY", "POLARIS_DBT_CLIENT_ID")
-    env.default("OPENLAKEFORGE_CATALOG_DBT_CLIENT_SECRET_KEY", "POLARIS_DBT_CLIENT_SECRET")
 
     env.default(
         "OPENLAKEFORGE_OPS_BUCKET_NAME",
@@ -207,14 +204,9 @@ def _apply_default_contract_env(env: _Env, base: Mapping[str, str]) -> None:
     env.default("AWS_DEFAULT_REGION", env.get("AWS_REGION"))
     if env.get("OPENLAKEFORGE_STORAGE_IMPLEMENTATION") == "storage.aws_s3":
         env.unset("AWS_ENDPOINT_URL_S3")
-        env.unset("OPENLAKEFORGE_DUCKDB_S3_ENDPOINT")
         env.default("AWS_S3_FORCE_PATH_STYLE", "false")
     else:
         env.default("AWS_ENDPOINT_URL_S3", env.get("OPENLAKEFORGE_STORAGE_ENDPOINT"))
-        env.default(
-            "OPENLAKEFORGE_DUCKDB_S3_ENDPOINT",
-            env.get("OPENLAKEFORGE_STORAGE_ENDPOINT").removeprefix("http://"),
-        )
         env.default("AWS_S3_FORCE_PATH_STYLE", env.get("OPENLAKEFORGE_STORAGE_PATH_STYLE_ACCESS"))
     if env.get("OPENLAKEFORGE_STORAGE_SSL_MODE") == "disabled":
         env.default("AWS_ALLOW_HTTP", "true")
@@ -224,14 +216,11 @@ def _apply_default_contract_env(env: _Env, base: Mapping[str, str]) -> None:
     env.default("POLARIS_TOKEN_URI", env.get("OPENLAKEFORGE_CATALOG_TOKEN_URI"))
     env.default("POLARIS_WAREHOUSE", env.get("OPENLAKEFORGE_CATALOG_WAREHOUSE"))
     env.default("POLARIS_OAUTH_SCOPE", env.get("OPENLAKEFORGE_CATALOG_OAUTH_SCOPE"))
-    env.default(
-        "OPENLAKEFORGE_CATALOG_DBT_CLIENT_ID",
-        env.get("POLARIS_DBT_CLIENT_ID", "openlakeforge-dbt"),
-    )
-    env.default(
-        "OPENLAKEFORGE_CATALOG_DBT_CLIENT_SECRET",
-        env.get("POLARIS_DBT_CLIENT_SECRET", "openlakeforge-dbt"),
-    )
+    env.default("OPENLAKEFORGE_DBT_TRINO_USER", "openlakeforge-dbt")
+    env.default("OPENLAKEFORGE_DBT_EXECUTABLE", "dbt-ol")
+    env.default("OPENLINEAGE_URL", "http://openmetadata:8585")
+    env.default("OPENLINEAGE_ENDPOINT", "api/v1/openlineage/lineage")
+    env.default("OPENLINEAGE_NAMESPACE", "dagster")
 
 
 def _apply_provider_contracts(env: _Env, contracts: dict[str, Any]) -> None:
@@ -312,12 +301,6 @@ def _apply_provider_contracts(env: _Env, contracts: dict[str, Any]) -> None:
     )
     emit("OPENLAKEFORGE_CATALOG_FLOE_CLIENT_ID_KEY", catalog.get("floe_client_id_key"))
     emit("OPENLAKEFORGE_CATALOG_FLOE_CLIENT_SECRET_KEY", catalog.get("floe_client_secret_key"))
-    emit(
-        "OPENLAKEFORGE_CATALOG_DBT_CREDENTIALS_SECRET_NAME",
-        catalog.get("dbt_credentials_secret_name"),
-    )
-    emit("OPENLAKEFORGE_CATALOG_DBT_CLIENT_ID_KEY", catalog.get("dbt_client_id_key"))
-    emit("OPENLAKEFORGE_CATALOG_DBT_CLIENT_SECRET_KEY", catalog.get("dbt_client_secret_key"))
 
     ops_bucket = artifact_bucket.get("bucket_name") or artifact_bucket.get("ops_bucket_name")
     emit("OPENLAKEFORGE_OPS_BUCKET_NAME", ops_bucket)
@@ -380,7 +363,6 @@ def build_contract_env(
         env.set("OPENLAKEFORGE_STORAGE_S3_SERVICE_NAME", "")
         env.set("OPENLAKEFORGE_STORAGE_S3_SERVICE_PORT", "")
         env.unset("AWS_ENDPOINT_URL_S3")
-        env.unset("OPENLAKEFORGE_DUCKDB_S3_ENDPOINT")
         env.default("AWS_S3_FORCE_PATH_STYLE", "false")
 
     is_glue = (
@@ -400,9 +382,6 @@ def build_contract_env(
         env.set("OPENLAKEFORGE_CATALOG_FLOE_CREDENTIALS_SECRET_NAME", "")
         env.set("OPENLAKEFORGE_CATALOG_FLOE_CLIENT_ID_KEY", "")
         env.set("OPENLAKEFORGE_CATALOG_FLOE_CLIENT_SECRET_KEY", "")
-        env.set("OPENLAKEFORGE_CATALOG_DBT_CREDENTIALS_SECRET_NAME", "")
-        env.set("OPENLAKEFORGE_CATALOG_DBT_CLIENT_ID_KEY", "")
-        env.set("OPENLAKEFORGE_CATALOG_DBT_CLIENT_SECRET_KEY", "")
 
     catalog_om_service_name = "aws_glue" if is_glue else "polaris"
     catalog_name = env.get("OPENLAKEFORGE_CATALOG_NAME")

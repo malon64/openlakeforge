@@ -400,11 +400,9 @@ for path in sorted(Path("domains").glob("*/transformations/dbt/*/profiles.yml"))
     if "local_runtime:" not in body:
         errors.append(f"{path}: checked-in product dbt profiles must keep the local runtime target")
     for required in [
-        "OPENLAKEFORGE_CATALOG_DBT_CLIENT_ID",
-        "OPENLAKEFORGE_CATALOG_DBT_CLIENT_SECRET",
-        "OPENLAKEFORGE_CATALOG_REST_URI",
-        "OPENLAKEFORGE_CATALOG_WAREHOUSE",
-        "OPENLAKEFORGE_DUCKDB_S3_ENDPOINT",
+        "OPENLAKEFORGE_QUERY_TRINO_HOST",
+        "OPENLAKEFORGE_QUERY_TRINO_PORT",
+        "OPENLAKEFORGE_CATALOG_NAME",
     ]:
         if required not in body:
             errors.append(f"{path}: missing runtime contract env var {required}")
@@ -418,28 +416,15 @@ for name, path in dbt_profile_templates.items():
     body = path.read_text()
     for required in [
         "{{PROFILE_NAME}}",
-        "{{DEFAULT_DUCKDB_PATH}}",
         "{{GOLD_SCHEMA}}",
-        "OPENLAKEFORGE_CATALOG_WAREHOUSE",
+        "OPENLAKEFORGE_CATALOG_NAME",
+        "OPENLAKEFORGE_DBT_TRINO_USER",
+        "type: trino",
     ]:
         if required not in body:
             errors.append(f"{path}: missing shared dbt profile template field {required}")
-    if name == "aws":
-        for required in [
-            "aws_runtime:",
-            "provider: credential_chain",
-            "OPENLAKEFORGE_CATALOG_GLUE_CATALOG_ID",
-            "OPENLAKEFORGE_CATALOG_GLUE_REST_URI",
-            "endpoint_type: glue",
-            "alias: \"{{ env_var('OPENLAKEFORGE_CATALOG_WAREHOUSE', env_var('OPENLAKEFORGE_CATALOG_GLUE_DATABASE', 'lakehouse_dev')) }}\"",
-        ]:
-            if required not in body:
-                errors.append(f"{path}: missing AWS Glue/SigV4 dbt runtime setting {required}")
-        for forbidden in ["authorization_type", "signing_region", "signing_name"]:
-            if forbidden in body:
-                errors.append(f"{path}: endpoint_type glue must not be combined with {forbidden}")
-    elif "aws_runtime:" in body:
-        errors.append(f"{path}: non-AWS dbt profile templates must not define aws_runtime")
+    if name == "aws" and "aws_runtime:" not in body:
+        errors.append(f"{path}: AWS dbt profile template must define aws_runtime")
 
 dbt_profile_renderer = Path("libs/dbt/render_profiles.py").read_text()
 for required in [

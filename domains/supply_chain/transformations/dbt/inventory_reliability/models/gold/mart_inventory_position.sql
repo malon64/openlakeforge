@@ -33,5 +33,5 @@ select
         else 'healthy'
     end as inventory_status
 from ranked_snapshots
-join warehouses using (warehouse_id)
+join warehouses on ranked_snapshots.warehouse_id = warehouses.warehouse_id
 where ranked_snapshots.snapshot_rank = 1

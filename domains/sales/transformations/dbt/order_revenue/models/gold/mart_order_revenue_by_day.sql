@@ -25,5 +25,5 @@ select
     cast(sum(order_lines.discount_amount) as double) as discount_amount,
     cast(sum(order_lines.quantity * order_lines.unit_price - order_lines.discount_amount) as double) as net_revenue
 from orders
-join order_lines using (order_id)
+join order_lines on orders.order_id = order_lines.order_id
 group by orders.order_date, orders.region

@@ -73,7 +73,6 @@ def render_profile(project_dir: Path, environment: str | None = None, env: Mappi
     product = project_dir.name
     replacements = {
         "{{PROFILE_NAME}}": profile_name,
-        "{{DEFAULT_DUCKDB_PATH}}": f"/tmp/openlakeforge-{profile_name.replace('_', '-')}-dbt.duckdb",
         "{{GOLD_SCHEMA}}": f"{domain}_{product}_gold",
     }
 

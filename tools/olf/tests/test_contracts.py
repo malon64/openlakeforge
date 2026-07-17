@@ -74,16 +74,15 @@ def test_aws_contracts_blank_local_only_fields_and_derive_glue_fqns() -> None:
     assert exports["OPENLAKEFORGE_STORAGE_CREDENTIALS_SECRET_NAME"] == ""
     assert exports["OPENLAKEFORGE_STORAGE_PATH_STYLE_ACCESS"] == "false"
     assert "AWS_ENDPOINT_URL_S3" in unsets
-    assert "OPENLAKEFORGE_DUCKDB_S3_ENDPOINT" in unsets
     # glue catalog blanks Polaris OAuth plumbing
     assert exports["OPENLAKEFORGE_CATALOG_TOKEN_URI"] == ""
     assert exports["OPENLAKEFORGE_CATALOG_OAUTH_SCOPE"] == ""
     assert exports["OPENLAKEFORGE_CATALOG_FLOE_CREDENTIALS_SECRET_NAME"] == ""
     assert exports["OPENLAKEFORGE_CATALOG_FLOE_CLIENT_ID_KEY"] == ""
     assert exports["OPENLAKEFORGE_CATALOG_FLOE_CLIENT_SECRET_KEY"] == ""
-    assert exports["OPENLAKEFORGE_CATALOG_DBT_CREDENTIALS_SECRET_NAME"] == ""
-    assert exports["OPENLAKEFORGE_CATALOG_DBT_CLIENT_ID_KEY"] == ""
-    assert exports["OPENLAKEFORGE_CATALOG_DBT_CLIENT_SECRET_KEY"] == ""
+    assert "OPENLAKEFORGE_CATALOG_DBT_CREDENTIALS_SECRET_NAME" not in exports
+    assert "OPENLAKEFORGE_CATALOG_DBT_CLIENT_ID_KEY" not in exports
+    assert "OPENLAKEFORGE_CATALOG_DBT_CLIENT_SECRET_KEY" not in exports
     assert exports["OPENLAKEFORGE_CATALOG_WAREHOUSE"] == "lakehouse_dev"
     assert exports["OPENLAKEFORGE_CATALOG_GLUE_REST_URI"] == "https://glue.eu-west-1.amazonaws.com/iceberg"
     assert exports["OPENLAKEFORGE_CATALOG_GLUE_REST_WAREHOUSE"] == "123456789012"

@@ -52,32 +52,14 @@ variable "floe_principal_name" {
   default     = "floe"
 }
 
-variable "dbt_principal_name" {
-  description = "Polaris service principal name for dbt."
-  type        = string
-  default     = "dbt"
-}
-
 variable "floe_principal_role" {
   description = "Polaris principal role granted to Floe."
   type        = string
   default     = "data-writer"
 }
 
-variable "dbt_principal_role" {
-  description = "Polaris principal role granted to dbt."
-  type        = string
-  default     = "data-writer"
-}
-
 variable "floe_catalog_role" {
   description = "Polaris catalog role granted to the Floe principal role."
-  type        = string
-  default     = "catalog-writer"
-}
-
-variable "dbt_catalog_role" {
-  description = "Polaris catalog role granted to the dbt principal role."
   type        = string
   default     = "catalog-writer"
 }
@@ -127,12 +109,6 @@ variable "floe_credentials_secret_name" {
   description = "Kubernetes Secret written by the bootstrap job with Floe OAuth credentials."
   type        = string
   default     = "polaris-floe-creds"
-}
-
-variable "dbt_credentials_secret_name" {
-  description = "Kubernetes Secret written by the bootstrap job with dbt OAuth credentials."
-  type        = string
-  default     = "polaris-dbt-creds"
 }
 
 variable "bootstrap_job_image" {

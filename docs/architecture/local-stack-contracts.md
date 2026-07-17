@@ -174,7 +174,7 @@ to Dagster; the artifact deploy phase publishes generated product Floe
 manifests under `floe/manifests/` so the separate Floe runner pod can read them.
 Dagster launches Floe Kubernetes jobs from the image declared in the generated
 Floe manifests.
-dbt-duckdb runs inside Dagster Kubernetes run pods from the project-code image
+dbt-trino runs inside Dagster Kubernetes run pods from the project-code image
 and writes Gold Iceberg marts to each product's Gold namespace in the
 `lakehouse_dev` Polaris warehouse.
 

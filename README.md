@@ -14,7 +14,7 @@ CSV examples
   -> Bronze landing
   -> Floe validation
   -> Silver Iceberg tables through Polaris
-  -> dbt-duckdb Gold marts
+  -> dbt-trino Gold marts
   -> Trino query
   -> Superset reports
   -> Dagster asset graph
@@ -30,7 +30,7 @@ The current seed POC contains two Sales data products, `order_revenue` and
 | --- | --- | --- |
 | Extraction | dlt | Default ingestion framework |
 | Technical contracts | Floe | Bronze-to-Silver validation and Silver materialization |
-| Transformation | dbt-duckdb | Silver-to-Gold business models |
+| Transformation | dbt-trino | Silver-to-Gold business models |
 | Table format | Apache Iceberg | Open table format |
 | Catalog | Apache Polaris / AWS Glue | Polaris for local/Azure POC, Glue for AWS POC |
 | Object storage | SeaweedFS / S3 | SeaweedFS for local/Azure POC, S3 for AWS POC |
@@ -119,7 +119,7 @@ The iterations below record the POC delivery history:
 - Iteration 1: local kind foundation with namespaces, SeaweedFS, Polaris, and Trino.
 - Iteration 2: project-code image and Dagster deployment with Kubernetes run launcher.
 - Iteration 3: Sales POC ingestion and Floe Silver materialization.
-- Iteration 4: dbt-duckdb Gold models and Dagster-dbt integration.
+- Iteration 4: dbt-trino Gold models and Dagster-dbt integration.
 - Iteration 5: OpenMetadata governance, catalog discovery, and OpenLineage ingestion (OL removed in Iteration 6 — see ADR 0009).
 - Iteration 6: Superset reporting over Gold marts; OpenLineage integration deferred pending upstream connector fixes.
 - Iteration 7: multi-product seed POC with product-owned dlt, Floe, dbt, Dagster, Superset, and OpenMetadata artifacts.
@@ -260,7 +260,7 @@ setup is needed. The Master UI is useful for quick cluster and volume status.
 In Dagster, launch `sales_order_revenue_pipeline`,
 `sales_customer_health_pipeline`, or
 `supply_chain_inventory_reliability_pipeline` to run the product
-`dlt -> Floe -> dbt-duckdb` pipelines. Superset dashboards query the Gold
+`dlt -> Floe -> dbt-trino` pipelines. Superset dashboards query the Gold
 Iceberg marts through Trino.
 
 ### Common Local Recovery

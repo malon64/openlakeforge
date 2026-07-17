@@ -2,43 +2,20 @@ sales_customer_health:
   target: local
   outputs:
     local:
-      type: duckdb
-      path: "{{ env_var('OPENLAKEFORGE_DBT_DUCKDB_PATH', '/tmp/openlakeforge-sales-customer-health-dbt.duckdb') }}"
+      type: trino
+      method: none
+      host: "{{ env_var('OPENLAKEFORGE_QUERY_TRINO_HOST', 'trino') }}"
+      port: "{{ env_var('OPENLAKEFORGE_QUERY_TRINO_PORT', '8080') | int }}"
+      user: "{{ env_var('OPENLAKEFORGE_DBT_TRINO_USER', 'openlakeforge-dbt') }}"
+      database: "{{ env_var('OPENLAKEFORGE_CATALOG_NAME', 'lakehouse_dev') }}"
       schema: sales_customer_health_gold
       threads: 1
-      extensions:
-        - httpfs
-        - parquet
-        - iceberg
     local_runtime:
-      type: duckdb
-      path: "{{ env_var('OPENLAKEFORGE_DBT_DUCKDB_PATH', '/tmp/openlakeforge-sales-customer-health-dbt.duckdb') }}"
+      type: trino
+      method: none
+      host: "{{ env_var('OPENLAKEFORGE_QUERY_TRINO_HOST', 'trino') }}"
+      port: "{{ env_var('OPENLAKEFORGE_QUERY_TRINO_PORT', '8080') | int }}"
+      user: "{{ env_var('OPENLAKEFORGE_DBT_TRINO_USER', 'openlakeforge-dbt') }}"
+      database: "{{ env_var('OPENLAKEFORGE_CATALOG_NAME', 'lakehouse_dev') }}"
       schema: sales_customer_health_gold
       threads: 1
-      extensions:
-        - httpfs
-        - parquet
-        - iceberg
-      secrets:
-        - type: s3
-          name: openlakeforge_s3_secret
-          key_id: "{{ env_var('AWS_ACCESS_KEY_ID') }}"
-          secret: "{{ env_var('AWS_SECRET_ACCESS_KEY') }}"
-          region: "{{ env_var('AWS_REGION', 'us-east-1') }}"
-          endpoint: "{{ env_var('OPENLAKEFORGE_DUCKDB_S3_ENDPOINT') }}"
-          url_style: path
-          use_ssl: false
-        - type: iceberg
-          name: openlakeforge_iceberg_catalog_secret
-          client_id: "{{ env_var('OPENLAKEFORGE_CATALOG_DBT_CLIENT_ID') }}"
-          client_secret: "{{ env_var('OPENLAKEFORGE_CATALOG_DBT_CLIENT_SECRET') }}"
-          oauth2_server_uri: "{{ env_var('OPENLAKEFORGE_CATALOG_TOKEN_URI') }}"
-          oauth2_scope: "{{ env_var('OPENLAKEFORGE_CATALOG_OAUTH_SCOPE', 'PRINCIPAL_ROLE:ALL') }}"
-      attach:
-        - path: "{{ env_var('OPENLAKEFORGE_CATALOG_WAREHOUSE', 'lakehouse_dev') }}"
-          alias: "{{ env_var('OPENLAKEFORGE_CATALOG_WAREHOUSE', 'lakehouse_dev') }}"
-          options:
-            type: iceberg
-            secret: openlakeforge_iceberg_catalog_secret
-            endpoint: "{{ env_var('OPENLAKEFORGE_CATALOG_REST_URI') }}"
-            access_delegation_mode: none

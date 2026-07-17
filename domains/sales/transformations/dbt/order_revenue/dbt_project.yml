@@ -11,8 +11,9 @@ clean-targets: ["target", "dbt_packages"]
 
 models:
   sales_order_revenue:
-    +database: "{{ env_var('OPENLAKEFORGE_CATALOG_WAREHOUSE', 'lakehouse_dev') }}"
-    +materialized: iceberg_table
+    +database: "{{ env_var('OPENLAKEFORGE_CATALOG_NAME', 'lakehouse_dev') }}"
+    +materialized: table
+    +on_table_exists: replace
     +meta:
       dagster:
         group: sales_order_revenue

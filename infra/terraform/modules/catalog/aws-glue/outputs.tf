@@ -31,9 +31,6 @@ output "contract" {
     floe_credentials_secret_name = null
     floe_client_id_key           = null
     floe_client_secret_key       = null
-    dbt_credentials_secret_name  = null
-    dbt_client_id_key            = null
-    dbt_client_secret_key        = null
   }
 
   depends_on = [

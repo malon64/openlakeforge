@@ -12,7 +12,7 @@ CSV examples
   -> Bronze landing
   -> Floe validation
   -> Silver Iceberg tables through Polaris
-  -> dbt-duckdb Gold marts
+  -> dbt-trino Gold marts
   -> Trino query
   -> Superset reports
   -> Dagster asset graph
@@ -96,7 +96,7 @@ run pods. The v1 domain code locations are `sales-dagster`, loading
 `sales_order_revenue_pipeline`, `sales_customer_health_pipeline`, and
 `supply_chain_inventory_reliability_pipeline`. Each job materializes product
 Bronze source assets, executes manifest-loaded Floe assets, then runs
-dbt-duckdb Gold marts in product Gold Polaris namespaces of the `lakehouse_dev`
+dbt-trino Gold marts in product Gold Polaris namespaces of the `lakehouse_dev`
 warehouse.
 
 Superset is deployed as a BI consumer of those Gold marts through Trino.
