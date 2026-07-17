@@ -283,7 +283,7 @@ resource "aws_eks_addon" "ebs_csi" {
 
 resource "aws_ecr_repository" "project_code" {
   name                 = var.project_code_ecr_repository_name
-  image_tag_mutability = "IMMUTABLE"
+  image_tag_mutability = "MUTABLE"
 
   # force_delete lets `terraform destroy` (aws-foundation-down) remove the
   # repository even when it still holds pushed images. Without it, teardown
@@ -299,7 +299,7 @@ resource "aws_ecr_repository" "project_code" {
 
 resource "aws_ecr_repository" "superset" {
   name                 = var.superset_ecr_repository_name
-  image_tag_mutability = "IMMUTABLE"
+  image_tag_mutability = "MUTABLE"
 
   # See project_code above: allow destroy to drop a non-empty repository.
   force_delete = true

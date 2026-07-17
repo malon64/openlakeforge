@@ -16,14 +16,28 @@ if command -v terraform >/dev/null 2>&1; then
 fi
 
 bad=0
-while IFS=: read -r file line; do
-  if [[ "$line" =~ ^[[:space:]]*uses:[[:space:]]*[^@]+@[vV]?[0-9] ]]; then
+while IFS= read -r match; do
+  file="${match%%:*}"
+  remainder="${match#*:}"
+  line="${remainder#*:}"
+  if [[ "$line" =~ uses:[[:space:]]*[^@]+@([^[:space:]]+) ]]; then
+    ref="${BASH_REMATCH[1]}"
+  else
+    ref=""
+  fi
+  if [[ ! "$ref" =~ ^[0-9a-f]{40}$ ]]; then
     printf 'Unpinned GitHub Action in %s: %s\n' "$file" "$line" >&2
     bad=1
   fi
 done < <(rg -n '^[[:space:]]*uses:' .github/workflows)
 
-while IFS=: read -r file line; do
+while IFS= read -r match; do
+  file="${match%%:*}"
+  remainder="${match#*:}"
+  line="${remainder#*:}"
+  if [[ "$line" =~ ^[[:space:]]*FROM[[:space:]]+\$\{ ]]; then
+    continue
+  fi
   if [[ "$line" =~ ^[[:space:]]*FROM[[:space:]] ]] && [[ ! "$line" =~ @sha256:[0-9a-f]{64} ]]; then
     printf 'Unpinned container base in %s: %s\n' "$file" "$line" >&2
     bad=1
@@ -34,7 +48,10 @@ while IFS=: read -r file line; do
   fi
 done < <(rg -n '^[[:space:]]*(FROM|ARG[[:space:]]+[A-Z_]*IMAGE=)' --glob 'Dockerfile*' .)
 
-while IFS=: read -r file line; do
+while IFS= read -r match; do
+  file="${match%%:*}"
+  remainder="${match#*:}"
+  line="${remainder#*:}"
   [[ "$line" == *"#"* ]] && continue
   if [[ "$line" =~ (python:3\.12-slim|apache/superset:6\.1\.0|postgres:16-alpine|chrislusf/seaweedfs:4\.23) ]] && [[ ! "$line" =~ @sha256:[0-9a-f]{64} ]]; then
     printf 'Unpinned release image in %s: %s\n' "$file" "$line" >&2

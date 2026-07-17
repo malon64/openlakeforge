@@ -16,6 +16,26 @@ components:
       hashicorp/kubernetes: 2.38.0
       hashicorp/random: 3.9.0
       hashicorp/tls: 4.3.0
+    lockfiles:
+      infra/terraform/environments/local/.terraform.lock.hcl:
+        hashicorp/helm: 3.1.1
+        hashicorp/kubernetes: 2.38.0
+        hashicorp/random: 3.9.0
+      infra/terraform/environments/azure-poc/.terraform.lock.hcl:
+        hashicorp/helm: 3.2.0
+        hashicorp/kubernetes: 2.38.0
+        hashicorp/random: 3.9.0
+      infra/terraform/environments/aws-poc/.terraform.lock.hcl:
+        hashicorp/aws: 5.100.0
+        hashicorp/helm: 3.2.0
+        hashicorp/kubernetes: 2.38.0
+        hashicorp/random: 3.9.0
+      infra/terraform/foundations/azure-aks/.terraform.lock.hcl:
+        hashicorp/azurerm: 4.77.0
+        hashicorp/random: 3.9.0
+      infra/terraform/foundations/aws-eks/.terraform.lock.hcl:
+        hashicorp/aws: 5.100.0
+        hashicorp/tls: 4.3.0
   helm:
     seaweedfs: 4.23.0
     polaris: 1.4.1
