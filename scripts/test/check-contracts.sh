@@ -402,7 +402,7 @@ for path in sorted(Path("domains").glob("*/transformations/dbt/*/profiles.yml"))
     for required in [
         "OPENLAKEFORGE_QUERY_TRINO_HOST",
         "OPENLAKEFORGE_QUERY_TRINO_PORT",
-        "OPENLAKEFORGE_QUERY_TRINO_CATALOG",
+        "OPENLAKEFORGE_CATALOG_NAME",
     ]:
         if required not in body:
             errors.append(f"{path}: missing runtime contract env var {required}")
@@ -417,7 +417,7 @@ for name, path in dbt_profile_templates.items():
     for required in [
         "{{PROFILE_NAME}}",
         "{{GOLD_SCHEMA}}",
-        "OPENLAKEFORGE_QUERY_TRINO_CATALOG",
+        "OPENLAKEFORGE_CATALOG_NAME",
         "OPENLAKEFORGE_DBT_TRINO_USER",
         "type: trino",
     ]:

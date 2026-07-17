@@ -261,6 +261,7 @@ def _ensure_dbt_manifest(spec: ProductDefinitionSpec) -> Path:
     env.setdefault("OPENLAKEFORGE_QUERY_TRINO_HOST", "trino")
     env.setdefault("OPENLAKEFORGE_QUERY_TRINO_PORT", "8080")
     env.setdefault("OPENLAKEFORGE_QUERY_TRINO_CATALOG", "iceberg")
+    env.setdefault("OPENLAKEFORGE_CATALOG_NAME", "lakehouse_dev")
     env.setdefault("OPENLAKEFORGE_DBT_TRINO_USER", "openlakeforge-dbt")
     env.setdefault("OPENLAKEFORGE_CATALOG_TYPE", "rest")
     env.setdefault("OPENLAKEFORGE_CATALOG_PROVIDER", "polaris")

@@ -55,6 +55,7 @@ export AWS_ENDPOINT_URL_S3="${AWS_ENDPOINT_URL_S3:-${OPENLAKEFORGE_STORAGE_ENDPO
 export OPENLAKEFORGE_QUERY_TRINO_HOST="${OPENLAKEFORGE_QUERY_TRINO_HOST:-trino}"
 export OPENLAKEFORGE_QUERY_TRINO_PORT="${OPENLAKEFORGE_QUERY_TRINO_PORT:-8080}"
 export OPENLAKEFORGE_QUERY_TRINO_CATALOG="${OPENLAKEFORGE_QUERY_TRINO_CATALOG:-iceberg}"
+export OPENLAKEFORGE_CATALOG_NAME="${OPENLAKEFORGE_CATALOG_NAME:-lakehouse_dev}"
 
 projects=()
 while IFS= read -r project_dir; do
@@ -91,7 +92,7 @@ from pathlib import Path
 
 project_dir = Path(sys.argv[1])
 manifest_path = project_dir / "target" / "manifest.json"
-expected_database = os.environ["OPENLAKEFORGE_QUERY_TRINO_CATALOG"]
+expected_database = os.environ["OPENLAKEFORGE_CATALOG_NAME"]
 parts = project_dir.parts
 try:
     domain = parts[parts.index("domains") + 1]

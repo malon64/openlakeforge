@@ -13,6 +13,13 @@ uses the Trino adapter with `table` materialization and
 The DuckDB adapter, custom Iceberg materialization, Glue UDF/plugin, and dbt
 catalog credentials are removed.
 
+Trino exposes the provider catalog name (normally `lakehouse_dev`) as a second
+catalog alias with the same Iceberg connector configuration. dbt uses that
+canonical alias for both execution and its manifest database, so
+`openlineage-dbt` emits `lakehouse_dev.<schema>.<table>` names that resolve to
+the OpenMetadata entities. The `iceberg` alias remains the general query
+catalog for existing consumers.
+
 `dbt-ol` sends OpenLineage events directly to OpenMetadata's native endpoint.
 The Trino dataset namespace is mapped to the canonical provider catalog service
 (`polaris` or `aws_glue`), and the Dagster product job name is retained as the
