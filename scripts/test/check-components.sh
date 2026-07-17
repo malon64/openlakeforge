@@ -57,7 +57,7 @@ while IFS= read -r match; do
     printf 'Unpinned release image in %s: %s\n' "$file" "$line" >&2
     bad=1
   fi
-done < <(rg -n 'python:3\.12-slim|apache/superset:6\.1\.0|postgres:16-alpine|chrislusf/seaweedfs:4\.23' scripts images infra/terraform --glob '!scripts/test/check-components.sh' --glob '!**/README.md')
+done < <(rg -n 'python:3\.12-slim|apache/superset:6\.1\.0|postgres:16-alpine|chrislusf/seaweedfs:4\.23' scripts images infra/terraform infra/helm --glob '!scripts/test/check-components.sh' --glob '!**/README.md')
 
 (( bad == 0 )) || exit 1
 echo 'Component catalog and immutable input checks passed.'
