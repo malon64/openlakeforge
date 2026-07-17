@@ -18,7 +18,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import yaml
+from olf.descriptors import load_domain_descriptor
 
 
 class OpenMetadataError(RuntimeError):
@@ -265,12 +265,32 @@ class OpenMetadataDeployer:
                 return f"{schema_fqn}.{table_name}"
         return fqn
 
+    def logical_asset_fqn(self, product: dict, asset: dict) -> str:
+        """Resolve a provider-neutral table name through the contract schemas."""
+        name = asset.get("name")
+        if not name:
+            raise OpenMetadataError(f"OpenMetadata table asset is missing 'name' or 'fqn': {asset!r}")
+        matches = [
+            f"{schema_fqn}.{name}"
+            for schema_fqn, table in self.product_table_specs(product)
+            if table.get("name") == name
+        ]
+        if not matches:
+            raise OpenMetadataError(
+                f"OpenMetadata logical table asset '{name}' is not declared in the product table contract."
+            )
+        if len(matches) > 1:
+            raise OpenMetadataError(f"OpenMetadata logical table asset '{name}' is ambiguous: {matches!r}")
+        return matches[0]
+
     def asset_with_provider_fqn(self, product: dict, asset):
         if isinstance(asset, str):
             return self.provider_asset_fqn(product, asset)
         if isinstance(asset, dict):
             rewritten = dict(asset)
             fqn = rewritten.get("fqn") or rewritten.get("fullyQualifiedName")
+            if not fqn and rewritten.get("name"):
+                fqn = self.logical_asset_fqn(product, rewritten)
             if fqn:
                 rewritten["fqn"] = self.provider_asset_fqn(product, fqn)
                 rewritten.pop("fullyQualifiedName", None)
@@ -293,12 +313,16 @@ class OpenMetadataDeployer:
                 fqn = asset.get("fqn") or asset.get("fullyQualifiedName")
             else:
                 fqn = None
-            fqn = self.provider_asset_fqn(product, fqn)
+            resolved = self.asset_with_provider_fqn(product, asset)
+            if isinstance(resolved, dict):
+                fqn = resolved.get("fqn")
+            else:
+                fqn = self.provider_asset_fqn(product, fqn)
             if fqn and fqn in seen:
                 continue
             if fqn:
                 seen.add(fqn)
-            yield self.asset_with_provider_fqn(product, asset)
+            yield resolved
 
     def storage_bucket_specs(self):
         specs = [
@@ -542,7 +566,7 @@ class OpenMetadataDeployer:
         self.wait_for_openmetadata()
         self.login()
 
-        domain_specs = [(path, _load_yaml(path)) for path in self.domain_files()]
+        domain_specs = [(path, load_domain_descriptor(path)) for path in self.domain_files()]
         if not domain_specs:
             raise OpenMetadataError(
                 f"No OpenMetadata domain metadata files found under {self.config.metadata_root}/<domain>/domain.yaml"
@@ -607,8 +631,3 @@ class OpenMetadataDeployer:
                 print(f"WARN: {guidance}", file=sys.stderr)
             else:
                 raise OpenMetadataError(guidance)
-
-
-def _load_yaml(path: Path) -> dict:
-    with path.open("r", encoding="utf-8") as handle:
-        return yaml.safe_load(handle) or {}
