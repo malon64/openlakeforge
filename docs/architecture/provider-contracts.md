@@ -16,7 +16,7 @@ the exported `provider_contracts` output and fall back to local defaults before
 the stack is applied.
 
 The current hardening is provider-first, not service-replacement-first. Dagster,
-Trino, Superset, OpenMetadata, dbt-duckdb, and Floe remain the implemented v1
+Trino, Superset, OpenMetadata, dbt-trino, and Floe remain the implemented v1
 solution stack. Their runtime configuration should depend on provider contracts
 for storage, catalog, secrets, artifacts, identity, and access.
 
@@ -76,7 +76,7 @@ runtime_profile = "polaris-rest"
 
 Polaris-specific fields such as REST URI, token URI, OAuth scope, and service
 principal Secret names remain part of the local contract because local Floe,
-dbt-duckdb, Trino, and OpenMetadata use them.
+dbt-trino, Trino, and OpenMetadata use them.
 
 The AWS provider sets:
 

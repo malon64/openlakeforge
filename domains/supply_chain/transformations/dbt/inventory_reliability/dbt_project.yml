@@ -11,8 +11,9 @@ clean-targets: ["target", "dbt_packages"]
 
 models:
   supply_chain_inventory_reliability:
-    +database: "{{ env_var('OPENLAKEFORGE_CATALOG_WAREHOUSE', 'lakehouse_dev') }}"
-    +materialized: iceberg_table
+    +database: "{{ env_var('OPENLAKEFORGE_QUERY_TRINO_CATALOG', 'iceberg') }}"
+    +materialized: table
+    +on_table_exists: replace
     +meta:
       dagster:
         group: supply_chain_inventory_reliability

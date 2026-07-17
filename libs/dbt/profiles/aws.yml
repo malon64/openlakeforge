@@ -2,40 +2,20 @@
   target: local
   outputs:
     local:
-      type: duckdb
-      path: "{{ env_var('OPENLAKEFORGE_DBT_DUCKDB_PATH', '{{DEFAULT_DUCKDB_PATH}}') }}"
+      type: trino
+      method: none
+      host: "{{ env_var('OPENLAKEFORGE_QUERY_TRINO_HOST', 'trino') }}"
+      port: "{{ env_var('OPENLAKEFORGE_QUERY_TRINO_PORT', '8080') | int }}"
+      user: "{{ env_var('OPENLAKEFORGE_DBT_TRINO_USER', 'openlakeforge-dbt') }}"
+      database: "{{ env_var('OPENLAKEFORGE_QUERY_TRINO_CATALOG', 'iceberg') }}"
       schema: {{GOLD_SCHEMA}}
       threads: 1
-      extensions:
-        - httpfs
-        - parquet
-        - iceberg
     aws_runtime:
-      type: duckdb
-      path: "{{ env_var('OPENLAKEFORGE_DBT_DUCKDB_PATH', '{{DEFAULT_DUCKDB_PATH}}') }}"
+      type: trino
+      method: none
+      host: "{{ env_var('OPENLAKEFORGE_QUERY_TRINO_HOST', 'trino') }}"
+      port: "{{ env_var('OPENLAKEFORGE_QUERY_TRINO_PORT', '8080') | int }}"
+      user: "{{ env_var('OPENLAKEFORGE_DBT_TRINO_USER', 'openlakeforge-dbt') }}"
+      database: "{{ env_var('OPENLAKEFORGE_QUERY_TRINO_CATALOG', 'iceberg') }}"
       schema: {{GOLD_SCHEMA}}
       threads: 1
-      extensions:
-        - aws
-        - httpfs
-        - parquet
-        - iceberg
-      # Works around DuckDB's iceberg extension omitting `location` on createTable
-      # against the AWS Glue REST catalog; registers the olf_glue_ensure_iceberg_table
-      # UDF used by the iceberg_table materialization. See libs/dbt/duckdb_plugins.
-      plugins:
-        - module: libs.dbt.duckdb_plugins.glue_iceberg
-          alias: glue_iceberg
-      secrets:
-        - type: s3
-          name: openlakeforge_aws_s3_secret
-          provider: credential_chain
-          region: "{{ env_var('AWS_REGION', 'eu-west-1') }}"
-      attach:
-        - path: "{{ env_var('OPENLAKEFORGE_CATALOG_GLUE_CATALOG_ID') }}"
-          alias: "{{ env_var('OPENLAKEFORGE_CATALOG_WAREHOUSE', env_var('OPENLAKEFORGE_CATALOG_GLUE_DATABASE', 'lakehouse_dev')) }}"
-          options:
-            type: iceberg
-            endpoint: "{{ env_var('OPENLAKEFORGE_CATALOG_GLUE_REST_URI') }}"
-            endpoint_type: glue
-            access_delegation_mode: none

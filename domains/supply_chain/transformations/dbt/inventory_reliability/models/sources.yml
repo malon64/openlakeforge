@@ -2,7 +2,7 @@ version: 2
 
 sources:
   - name: silver
-    database: "{{ env_var('OPENLAKEFORGE_CATALOG_WAREHOUSE', 'lakehouse_dev') }}"
+    database: "{{ env_var('OPENLAKEFORGE_QUERY_TRINO_CATALOG', 'iceberg') }}"
     schema: supply_chain_inventory_reliability_silver
     description: Floe-owned Inventory Reliability Silver Iceberg tables.
     tables:

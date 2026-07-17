@@ -20,7 +20,8 @@ OpenLakeForge runtime:
 - OpenMetadata can later match the same event stream without the removed proxy.
 
 This test does not validate dbt Silver-to-Gold lineage. That remains blocked by
-the `dbt-duckdb`/`openlineage-dbt` dataset namespace issue.
+the former DuckDB/`openlineage-dbt` dataset namespace issue. dbt-trino is tested
+separately in ADR 0018; Floe remains blocked on its configurable endpoint.
 
 ## Preconditions
 

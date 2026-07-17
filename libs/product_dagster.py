@@ -129,8 +129,17 @@ def build_product_definitions(spec: ProductDefinitionSpec) -> Definitions:
             project_dir=str(spec.dbt_project_dir),
             profiles_dir=str(dbt_profiles_dir),
             target=dbt_target,
+            dbt_executable=os.environ.get("OPENLAKEFORGE_DBT_EXECUTABLE", "dbt-ol"),
         )
-        yield from dbt.cli(["build"], context=context).stream()
+        previous_job_name = os.environ.get("OPENLINEAGE_DBT_JOB_NAME")
+        os.environ["OPENLINEAGE_DBT_JOB_NAME"] = spec.job_name
+        try:
+            yield from dbt.cli(["build"], context=context).stream()
+        finally:
+            if previous_job_name is None:
+                os.environ.pop("OPENLINEAGE_DBT_JOB_NAME", None)
+            else:
+                os.environ["OPENLINEAGE_DBT_JOB_NAME"] = previous_job_name
         _upload_dbt_artifacts(context, spec)
 
     _dbt_gold_assets.__name__ = f"{spec.asset_prefix}_dbt_gold_assets"
@@ -249,16 +258,16 @@ def _ensure_dbt_manifest(spec: ProductDefinitionSpec) -> Path:
     env.setdefault("AWS_DEFAULT_REGION", env["AWS_REGION"])
     env.setdefault("OPENLAKEFORGE_STORAGE_ENDPOINT", "http://seaweedfs-s3:8333")
     env.setdefault("AWS_ENDPOINT_URL_S3", env["OPENLAKEFORGE_STORAGE_ENDPOINT"])
-    env.setdefault("OPENLAKEFORGE_DUCKDB_S3_ENDPOINT", env["OPENLAKEFORGE_STORAGE_ENDPOINT"].removeprefix("http://"))
-    env.setdefault("OPENLAKEFORGE_DBT_DUCKDB_PATH", f"/tmp/openlakeforge-{spec.asset_prefix}-dbt.duckdb")
+    env.setdefault("OPENLAKEFORGE_QUERY_TRINO_HOST", "trino")
+    env.setdefault("OPENLAKEFORGE_QUERY_TRINO_PORT", "8080")
+    env.setdefault("OPENLAKEFORGE_QUERY_TRINO_CATALOG", "iceberg")
+    env.setdefault("OPENLAKEFORGE_DBT_TRINO_USER", "openlakeforge-dbt")
     env.setdefault("OPENLAKEFORGE_CATALOG_TYPE", "rest")
     env.setdefault("OPENLAKEFORGE_CATALOG_PROVIDER", "polaris")
     env.setdefault("OPENLAKEFORGE_CATALOG_REST_URI", "http://polaris:8181/api/catalog")
     env.setdefault("OPENLAKEFORGE_CATALOG_TOKEN_URI", "http://polaris:8181/api/catalog/v1/oauth/tokens")
     env.setdefault("OPENLAKEFORGE_CATALOG_WAREHOUSE", "lakehouse_dev")
     env.setdefault("OPENLAKEFORGE_CATALOG_OAUTH_SCOPE", "PRINCIPAL_ROLE:ALL")
-    env.setdefault("OPENLAKEFORGE_CATALOG_DBT_CLIENT_ID", "openlakeforge-dbt")
-    env.setdefault("OPENLAKEFORGE_CATALOG_DBT_CLIENT_SECRET", "openlakeforge-dbt")
     profiles_dir = _ensure_dbt_profiles_dir(spec, env=env)
 
     subprocess.run(

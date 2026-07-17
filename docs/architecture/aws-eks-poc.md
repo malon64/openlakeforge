@@ -65,7 +65,8 @@ The Glue catalog contract uses `catalog_type = "glue"` and
   schema-valid native Glue profile (`type: "glue"`) per product. The profile
   uses the product Silver layer as the Glue database, so writes resolve as
   `lakehouse_dev.<product_layer_database>.<table>` in SQL engines.
-- dbt-duckdb uses an `aws_runtime` target with credential-chain S3 access and a
+- dbt-trino uses the existing Trino `aws_runtime` target and the Glue Iceberg
+  catalog; transformation pods do not carry direct catalog credentials.
   Glue/SigV4 Iceberg attach.
 - OpenMetadata registers a Glue-backed Iceberg service instead of Polaris OAuth.
 
@@ -104,7 +105,7 @@ both in that order.
 Before promoting the AWS POC beyond smoke validation, prove:
 
 - one Silver write through Floe into Glue/S3;
-- one Gold write through dbt-duckdb into Glue/S3;
+- one Gold write through dbt-trino into Glue/S3;
 - Trino can query both layers through Glue;
 - OpenMetadata can seed and crawl Glue-backed namespaces.
 

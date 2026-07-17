@@ -70,6 +70,6 @@ select
         as double
     ) as health_score
 from accounts
-join subscriptions using (account_id)
-left join ticket_rollup using (account_id)
-left join nps_rollup using (account_id)
+join subscriptions on accounts.account_id = subscriptions.account_id
+left join ticket_rollup on accounts.account_id = ticket_rollup.account_id
+left join nps_rollup on accounts.account_id = nps_rollup.account_id

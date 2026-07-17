@@ -19,8 +19,8 @@ python_tag="$(python3 -c 'import sys; print(f"py{sys.version_info.major}{sys.ver
 dependency_hash="$(python3 -c '
 import hashlib
 payload = "\n".join([
-    "dbt-duckdb>=1.10.0,<1.11",
-    "duckdb>=1.4.5,<1.5",
+    "dbt-trino==1.10.2",
+    "openlineage-dbt==1.45.0",
 ])
 print(hashlib.sha256(payload.encode()).hexdigest()[:16])
 ')"
@@ -31,14 +31,14 @@ if [[ ! -f "${stamp_path}" ]]; then
   rm -rf "${CACHE_ROOT:?}/${python_tag}-${dependency_hash}"
   mkdir -p "${site_dir}"
 
-  echo "==> Installing dbt-duckdb check dependencies into ${site_dir}"
+  echo "==> Installing dbt-trino check dependencies into ${site_dir}"
   PYTHONDONTWRITEBYTECODE=1 python3 -m pip install \
     --disable-pip-version-check \
     --no-compile \
     --prefer-binary \
     --target "${site_dir}" \
-    "dbt-duckdb>=1.10.0,<1.11" \
-    "duckdb>=1.4.5,<1.5"
+    "dbt-trino==1.10.2" \
+    "openlineage-dbt==1.45.0"
   touch "${stamp_path}"
 else
   echo "==> Reusing dbt dependency cache ${site_dir}"
@@ -52,9 +52,9 @@ export AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY:-openlakeforge}"
 export AWS_REGION="${AWS_REGION:-${OPENLAKEFORGE_STORAGE_REGION}}"
 export AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-${AWS_REGION}}"
 export AWS_ENDPOINT_URL_S3="${AWS_ENDPOINT_URL_S3:-${OPENLAKEFORGE_STORAGE_ENDPOINT}}"
-export OPENLAKEFORGE_DUCKDB_S3_ENDPOINT="${OPENLAKEFORGE_DUCKDB_S3_ENDPOINT:-${OPENLAKEFORGE_STORAGE_ENDPOINT#http://}}"
-export OPENLAKEFORGE_CATALOG_DBT_CLIENT_ID="${OPENLAKEFORGE_CATALOG_DBT_CLIENT_ID:-openlakeforge-dbt}"
-export OPENLAKEFORGE_CATALOG_DBT_CLIENT_SECRET="${OPENLAKEFORGE_CATALOG_DBT_CLIENT_SECRET:-openlakeforge-dbt}"
+export OPENLAKEFORGE_QUERY_TRINO_HOST="${OPENLAKEFORGE_QUERY_TRINO_HOST:-trino}"
+export OPENLAKEFORGE_QUERY_TRINO_PORT="${OPENLAKEFORGE_QUERY_TRINO_PORT:-8080}"
+export OPENLAKEFORGE_QUERY_TRINO_CATALOG="${OPENLAKEFORGE_QUERY_TRINO_CATALOG:-iceberg}"
 
 projects=()
 while IFS= read -r project_dir; do
@@ -80,7 +80,7 @@ for project_dir in "${projects[@]}"; do
   dbt parse --project-dir "${project_dir}" --profiles-dir "${project_dir}" --target local
 
   echo "==> dbt compile: ${project_dir}"
-  dbt compile --project-dir "${project_dir}" --profiles-dir "${project_dir}" --target local
+  dbt compile --project-dir "${project_dir}" --profiles-dir "${project_dir}" --target local --no-introspect --no-populate-cache
 
   echo "==> dbt relation contract: ${project_dir}"
   python3 - "${project_dir}" <<'PY'
@@ -91,7 +91,7 @@ from pathlib import Path
 
 project_dir = Path(sys.argv[1])
 manifest_path = project_dir / "target" / "manifest.json"
-expected_database = os.environ["OPENLAKEFORGE_CATALOG_WAREHOUSE"]
+expected_database = os.environ["OPENLAKEFORGE_QUERY_TRINO_CATALOG"]
 parts = project_dir.parts
 try:
     domain = parts[parts.index("domains") + 1]
