@@ -50,6 +50,47 @@ def test_unhealthy_pod_messages_reports_unready_and_failed_pods() -> None:
     ]
 
 
+def test_classify_pod_health_warns_for_unrelated_failed_job() -> None:
+    bad, warned = e2e.classify_pod_health(
+        {
+            "items": [
+                {
+                    "metadata": {
+                        "name": "om-job-pod",
+                        "ownerReferences": [{"kind": "Job", "name": "om-job-aws-glue-metadata-ingestion"}],
+                        "labels": {"job-name": "om-job-aws-glue-metadata-ingestion"},
+                    },
+                    "status": {"phase": "Failed"},
+                }
+            ]
+        }
+    )
+    assert bad == []
+    assert "unrelated Job om-job-pod" in warned[0]
+
+
+def test_classify_pod_health_blocks_suite_owned_job() -> None:
+    bad, warned = e2e.classify_pod_health(
+        {
+            "items": [
+                {
+                    "metadata": {
+                        "name": "run-pod",
+                        "ownerReferences": [{"kind": "Job", "name": "sales_order_revenue_pipeline-run"}],
+                    },
+                    "status": {"phase": "Failed"},
+                }
+            ]
+        }
+    )
+    assert warned == []
+    assert bad == ["run-pod: Failed"]
+
+
+def test_workload_health_classifies_required_service() -> None:
+    assert e2e.workload_health_class({"metadata": {"name": "dagster-webserver"}}) == "required-service"
+
+
 def test_check_pods_ready_retries_until_pods_are_ready(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -453,6 +494,54 @@ def test_dagster_poll_retries_transient_graphql_errors() -> None:
 
     client.poll("sales_order_revenue_pipeline", "run-1", attempts=2, delay=0)
     assert responses == []
+
+
+def test_dagster_launch_retries_transient_failure_and_keeps_launch_tag(monkeypatch: pytest.MonkeyPatch) -> None:
+    responses: list[Exception | dict[str, Any]] = [
+        e2e.DagsterTransientError("HTTP 503"),
+        {"data": {"launchRun": {"__typename": "LaunchRunSuccess", "run": {"runId": "run-1"}}}},
+    ]
+    calls: list[dict[str, Any]] = []
+
+    def request_json(query: str, variables: dict[str, Any] | None = None) -> dict[str, Any]:
+        if "query Workspace" in query:
+            return {
+                "data": {
+                    "workspaceOrError": {
+                        "__typename": "Workspace",
+                        "locationEntries": [
+                            {
+                                "name": "sales-dagster",
+                                "locationOrLoadError": {
+                                    "__typename": "RepositoryLocation",
+                                    "repositories": [
+                                        {
+                                            "name": "__repository__",
+                                            "jobs": [{"name": "sales_order_revenue_pipeline"}],
+                                        }
+                                    ],
+                                },
+                            }
+                        ],
+                    }
+                }
+            }
+        if "ExistingRun" in query:
+            return {"data": {"runsOrError": {"__typename": "Runs", "results": []}}}
+        calls.append(variables or {})
+        response = responses.pop(0)
+        if isinstance(response, Exception):
+            raise response
+        return response
+
+    monkeypatch.setattr(e2e, "LAUNCH_RETRY_DELAY_SECONDS", 0)
+    run_id = e2e.DagsterClient("http://dagster/graphql", request_json=request_json).launch(
+        "sales_order_revenue_pipeline"
+    )
+    assert run_id == "run-1"
+    assert calls[0]["executionParams"]["executionMetadata"] == calls[1]["executionParams"]["executionMetadata"]
+    assert calls[0]["executionParams"]["executionMetadata"]["tags"][0]["key"] == "openlakeforge/e2e-key"
+    assert calls[0]["executionParams"].get("tags") is None
 
 
 def test_dagster_poll_times_out_quickly_for_non_terminal_runs() -> None:

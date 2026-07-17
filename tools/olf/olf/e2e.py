@@ -12,6 +12,7 @@ import os
 import shutil
 import subprocess
 import time
+import uuid
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -82,6 +83,11 @@ ARTIFACT_PREFIXES = (
 )
 
 DAGSTER_JOB_TIMEOUT_SECONDS = 1800
+READINESS_ATTEMPTS = 60
+READINESS_DELAY_SECONDS = 5
+DIAGNOSTIC_LOG_LINES = 80
+LAUNCH_RETRY_ATTEMPTS = 4
+LAUNCH_RETRY_DELAY_SECONDS = 3
 
 
 class E2EError(RuntimeError):
@@ -90,6 +96,72 @@ class E2EError(RuntimeError):
 
 class DagsterTransientError(E2EError):
     pass
+
+
+class DagsterHTTPError(E2EError):
+    """A non-transient Dagster HTTP response (normally a client error)."""
+
+
+def workload_health_class(item: Mapping[str, Any], suite_jobs: tuple[str, ...] = PRODUCT_JOBS) -> str:
+    """Classify a Kubernetes workload for E2E readiness policy.
+
+    ReplicaSet/StatefulSet pods are required services. Job pods are warnings
+    unless their name/labels identify a job owned by this suite.
+    """
+    metadata = item.get("metadata", {})
+    owner_kinds = {str(owner.get("kind")) for owner in metadata.get("ownerReferences", [])}
+    if "Job" not in owner_kinds:
+        return "required-service"
+    labels = metadata.get("labels", {})
+    identity = " ".join(
+        str(value)
+        for value in (
+            metadata.get("name", ""),
+            labels.get("job-name", ""),
+            labels.get("dagster/job", ""),
+            *(owner.get("name", "") for owner in metadata.get("ownerReferences", [])),
+        )
+    )
+    if any(job in identity for job in suite_jobs):
+        return "suite-owned-job"
+    return "independent-job"
+
+
+def _bounded_pod_diagnostics(cfg: E2EConfig, names: list[str]) -> str:
+    lines: list[str] = []
+    for name in names[:10]:
+        try:
+            output = kubectl(
+                cfg,
+                ["logs", f"pod/{name}", "--all-containers", f"--tail={DIAGNOSTIC_LOG_LINES}"],
+                capture=True,
+            )
+        except E2EError as exc:
+            output = f"unable to collect logs: {exc}"
+        lines.append(f"{name}:\n{output[-6000:]}")
+    return "\n".join(lines)
+
+
+def _bounded_job_diagnostics(cfg: E2EConfig, payload: Mapping[str, Any]) -> str:
+    """Collect only a small tail from failed independent Jobs."""
+    diagnostics: list[str] = []
+    for item in payload.get("items", []):
+        if workload_health_class(item) != "independent-job":
+            continue
+        status = item.get("status", {}).get("phase")
+        if status not in {"Failed", "Unknown"}:
+            continue
+        metadata = item.get("metadata", {})
+        job_name = metadata.get("labels", {}).get("job-name") or next(
+            (owner.get("name") for owner in metadata.get("ownerReferences", []) if owner.get("kind") == "Job"),
+            metadata.get("name", "unknown"),
+        )
+        try:
+            output = kubectl(cfg, ["logs", f"job/{job_name}", f"--tail={DIAGNOSTIC_LOG_LINES}"], capture=True)
+        except E2EError as exc:
+            output = f"unable to collect logs: {exc}"
+        diagnostics.append(f"{job_name} ({status}):\n{output[-6000:]}")
+    return "\n".join(diagnostics)
 
 
 @dataclass(frozen=True)
@@ -276,21 +348,54 @@ def run_full(cfg: E2EConfig) -> None:
 def check_pods_ready(cfg: E2EConfig) -> None:
     log.step("Checking pod health...")
     bad: list[str] = []
+    warned: list[str] = []
     last_error: E2EError | None = None
-    for _ in range(60):
+    for _ in range(READINESS_ATTEMPTS):
         try:
             payload = json.loads(kubectl(cfg, ["get", "pods", "-n", cfg.namespace, "-o", "json"], capture=True))
         except E2EError as exc:
             last_error = exc
             time.sleep(5)
             continue
-        bad = unhealthy_pod_messages(payload)
+        bad, warned = classify_pod_health(payload, suite_jobs=PRODUCT_JOBS)
+        for message in warned:
+            log.warn(message)
+        if warned:
+            diagnostics = _bounded_job_diagnostics(cfg, payload)
+            if diagnostics:
+                log.warn(f"independent Job diagnostics:\n{diagnostics}")
         if not bad:
             return
-        time.sleep(5)
+        time.sleep(READINESS_DELAY_SECONDS)
     if last_error is not None and not bad:
         raise last_error
-    raise E2EError("unhealthy pods:\n" + "\n".join(bad))
+    required_names = [message.split(":", 1)[0] for message in bad]
+    diagnostics = _bounded_pod_diagnostics(cfg, required_names)
+    raise E2EError("unhealthy required services:\n" + "\n".join(bad) + "\nDiagnostics:\n" + diagnostics)
+
+
+def classify_pod_health(
+    payload: Mapping[str, Any], *, suite_jobs: tuple[str, ...] = PRODUCT_JOBS
+) -> tuple[list[str], list[str]]:
+    """Return blocking service failures and bounded warning messages for Jobs."""
+    bad: list[str] = []
+    warned: list[str] = []
+    for item in payload.get("items", []):
+        name = str(item.get("metadata", {}).get("name", "<unnamed>"))
+        phase = item.get("status", {}).get("phase")
+        health_class = workload_health_class(item, suite_jobs)
+        message = unhealthy_pod_messages({"items": [item]})
+        if not message:
+            continue
+        if health_class == "required-service" or health_class == "suite-owned-job":
+            bad.extend(message)
+        else:
+            labels = item.get("metadata", {}).get("labels", {})
+            warned.append(
+                f"unrelated Job {name} ({labels.get('job-name', labels.get('dagster/pipeline', 'unknown owner'))}) "
+                f"is {phase}; continuing E2E readiness"
+            )
+    return bad, warned
 
 
 def unhealthy_pod_messages(payload: Mapping[str, Any]) -> list[str]:
@@ -406,9 +511,30 @@ def launch_and_poll_dagster_jobs(cfg: E2EConfig) -> None:
         client = DagsterClient(f"{base_url}/graphql")
         timeout_seconds = int(os.environ.get("DAGSTER_JOB_TIMEOUT_SECONDS", str(DAGSTER_JOB_TIMEOUT_SECONDS)))
         for job in PRODUCT_JOBS:
-            run_id = client.launch(job)
+            try:
+                run_id = client.launch(job)
+            except E2EError as exc:
+                diagnostics = _bounded_pod_diagnostics(
+                    cfg,
+                    ["dagster-dagster-webserver", *expected_user_code_pods(cfg)],
+                )
+                raise E2EError(f"{exc}\nDagster diagnostics:\n{diagnostics}") from exc
             log.info(f"{job}: launched ({run_id})")
             client.poll(job, run_id, timeout_seconds=timeout_seconds)
+
+
+def expected_user_code_pods(cfg: E2EConfig) -> list[str]:
+    """Discover user-code deployments for bounded failure diagnostics."""
+    try:
+        raw = kubectl(cfg, ["get", "pods", "-n", cfg.namespace, "-o", "json"], capture=True)
+        payload = json.loads(raw)
+    except (E2EError, json.JSONDecodeError):
+        return []
+    return [
+        str(item.get("metadata", {}).get("name"))
+        for item in payload.get("items", [])
+        if "dagster-user-deployments" in str(item.get("metadata", {}).get("name", ""))
+    ][:5]
 
 
 class DagsterClient:
@@ -423,7 +549,25 @@ class DagsterClient:
 
     def launch(self, job_name: str) -> str:
         location_name, repository_name = self.wait_for_repository(job_name)
-        result = self.graphql(
+        launch_key = f"openlakeforge-e2e-{job_name}-{uuid.uuid4().hex}"
+        variables = {
+            "executionParams": {
+                "selector": {
+                    "repositoryLocationName": location_name,
+                    "repositoryName": repository_name,
+                    "pipelineName": job_name,
+                },
+                "runConfigData": {},
+                "mode": "default",
+                "executionMetadata": {
+                    "tags": [{"key": "openlakeforge/e2e-key", "value": launch_key}],
+                },
+            }
+        }
+        last_error: DagsterTransientError | None = None
+        for attempt in range(LAUNCH_RETRY_ATTEMPTS):
+            try:
+                result = self.graphql(
             """
             mutation LaunchRun($executionParams: ExecutionParams!) {
               launchRun(executionParams: $executionParams) {
@@ -434,21 +578,43 @@ class DagsterClient:
               }
             }
             """,
-            {
-                "executionParams": {
-                    "selector": {
-                        "repositoryLocationName": location_name,
-                        "repositoryName": repository_name,
-                        "pipelineName": job_name,
-                    },
-                    "runConfigData": {},
-                    "mode": "default",
-                }
-            },
-        )["launchRun"]
+                    variables,
+                )["launchRun"]
+                break
+            except DagsterTransientError as exc:
+                last_error = exc
+                existing = self.find_run_by_tag(launch_key)
+                if existing:
+                    return existing
+                if attempt + 1 == LAUNCH_RETRY_ATTEMPTS:
+                    raise E2EError(
+                        f"Dagster launch for {job_name} failed after {LAUNCH_RETRY_ATTEMPTS} attempts: {exc}"
+                    ) from exc
+                time.sleep(LAUNCH_RETRY_DELAY_SECONDS)
+        else:  # pragma: no cover - loop always breaks or raises
+            raise E2EError(f"Dagster launch failed: {last_error}")
         if result["__typename"] != "LaunchRunSuccess":
             raise E2EError(f"failed to launch {job_name}: {json.dumps(result, indent=2)}")
         return result["run"]["runId"]
+
+    def find_run_by_tag(self, launch_key: str) -> str | None:
+        """Find a run created before an ambiguous HTTP response."""
+        try:
+            result = self.graphql(
+                """
+                query ExistingRun($key: String!) {
+                  runsOrError(filter: {tags: [{key: "openlakeforge/e2e-key", value: $key}]}, limit: 1) {
+                    __typename
+                    ... on Runs { results { runId } }
+                  }
+                }
+                """,
+                {"key": launch_key},
+            )["runsOrError"]
+            runs = result.get("results", [])
+            return str(runs[0]["runId"]) if runs else None
+        except E2EError:
+            return None
 
     def wait_for_repository(
         self,
@@ -469,7 +635,8 @@ class DagsterClient:
         detail = f": {last_error}" if last_error else ""
         raise E2EError(
             f"Dagster repository for {job_name} did not become ready "
-            f"within {timeout_seconds} seconds{detail}"
+            f"within {timeout_seconds} seconds{detail}. Required code location may be unavailable; "
+            "inspect Dagster webserver and user-code logs."
         )
 
     def try_reload_repository_location(self, location_name: str) -> None:
@@ -601,7 +768,12 @@ class DagsterClient:
                 timeout=30,
             )
             response.raise_for_status()
-        except requests.RequestException as exc:
+        except requests.HTTPError as exc:
+            status = exc.response.status_code if exc.response is not None else None
+            if status is not None and 500 <= status < 600:
+                raise DagsterTransientError(f"Dagster GraphQL HTTP {status}: {exc}") from exc
+            raise DagsterHTTPError(f"Dagster GraphQL HTTP {status}: {exc}") from exc
+        except (requests.ConnectionError, requests.Timeout) as exc:
             raise DagsterTransientError(f"Dagster GraphQL request failed: {exc}") from exc
         return response.json()
 def check_superset_dashboards(cfg: E2EConfig) -> None:
