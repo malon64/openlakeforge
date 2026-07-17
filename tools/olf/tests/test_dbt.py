@@ -36,6 +36,15 @@ def test_all_models_request_atomic_trino_replacement() -> None:
         )
 
 
+def test_all_silver_sources_use_the_lineage_catalog() -> None:
+    for project in PROJECTS:
+        source_text = (project / "models/sources.yml").read_text(encoding="utf-8")
+        assert (
+            f"database: \"{{{{ env_var('{LINEAGE_DATABASE_ENV}', '{LINEAGE_DATABASE_DEFAULT}') }}}}\""
+            in source_text
+        )
+
+
 def test_all_gold_models_use_explicit_join_keys_for_trino() -> None:
     gold_models = [model for project in PROJECTS for model in (project / "models/gold").glob("*.sql")]
     assert gold_models

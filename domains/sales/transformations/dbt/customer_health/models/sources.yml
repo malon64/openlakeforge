@@ -2,7 +2,7 @@ version: 2
 
 sources:
   - name: silver
-    database: "{{ env_var('OPENLAKEFORGE_QUERY_TRINO_CATALOG', 'iceberg') }}"
+    database: "{{ env_var('OPENLAKEFORGE_CATALOG_NAME', 'lakehouse_dev') }}"
     schema: sales_customer_health_silver
     description: Floe-owned Customer Health Silver Iceberg tables.
     tables:

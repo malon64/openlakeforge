@@ -99,6 +99,7 @@ try:
 except (ValueError, IndexError) as exc:
     raise SystemExit(f"Cannot derive domain from dbt project path: {project_dir}") from exc
 expected_schema = f"{domain}_{project_dir.name}_gold"
+expected_source_schema = f"{domain}_{project_dir.name}_silver"
 
 manifest = json.loads(manifest_path.read_text())
 violations = []
@@ -116,6 +117,21 @@ if violations:
     raise SystemExit(
         f"{project_dir} dbt models must compile to "
         f"{expected_database}.{expected_schema}.*; got {joined}"
+    )
+
+source_violations = []
+for source in manifest["sources"].values():
+    database = source.get("database")
+    schema = source.get("schema")
+    name = source.get("name")
+    if database != expected_database or schema != expected_source_schema:
+        source_violations.append(f"{name}: {database}.{schema}")
+
+if source_violations:
+    joined = ", ".join(source_violations)
+    raise SystemExit(
+        f"{project_dir} dbt Silver sources must compile to "
+        f"{expected_database}.{expected_source_schema}.*; got {joined}"
     )
 PY
 done
