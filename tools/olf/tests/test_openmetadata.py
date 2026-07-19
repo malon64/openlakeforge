@@ -77,6 +77,51 @@ def test_config_from_environment_reads_schema_fqns() -> None:
     assert cfg.storage_gold_bucket == "openlakeforge-poc-gold"
 
 
+def test_config_from_environment_defaults_seed_schema_fqns_for_direct_cli() -> None:
+    cfg = om.OpenMetadataConfig.from_environment(
+        {},
+        base_url="http://x",
+        admin_email="a",
+        admin_password="p",
+        metadata_root="domains",
+        metadata_source_dir="",
+        allow_missing_assets=False,
+        catalog_service="",
+        catalog_database="",
+        cleanup_legacy_default_database=False,
+    )
+
+    assert cfg.catalog_service == "polaris"
+    assert cfg.catalog_database == "lakehouse_dev"
+    assert cfg.catalog_silver_schema_fqns["sales_order_revenue"] == (
+        "polaris.lakehouse_dev.sales_order_revenue_silver"
+    )
+    assert cfg.catalog_gold_schema_fqns["sales_order_revenue"] == (
+        "polaris.lakehouse_dev.sales_order_revenue_gold"
+    )
+
+
+def test_config_from_environment_preserves_explicit_empty_schema_contract() -> None:
+    cfg = om.OpenMetadataConfig.from_environment(
+        {
+            "OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON": "{}",
+            "OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON": "{}",
+        },
+        base_url="http://x",
+        admin_email="a",
+        admin_password="p",
+        metadata_root="domains",
+        metadata_source_dir="",
+        allow_missing_assets=False,
+        catalog_service="polaris",
+        catalog_database="lakehouse_dev",
+        cleanup_legacy_default_database=False,
+    )
+
+    assert cfg.catalog_silver_schema_fqns == {}
+    assert cfg.catalog_gold_schema_fqns == {}
+
+
 def test_storage_bucket_specs_dedup() -> None:
     cfg = om.OpenMetadataConfig.from_environment(
         {},

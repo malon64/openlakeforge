@@ -20,6 +20,12 @@ from pathlib import Path
 
 from olf.descriptors import load_domain_descriptor
 
+_SEED_PRODUCT_KEYS = (
+    "sales_order_revenue",
+    "sales_customer_health",
+    "supply_chain_inventory_reliability",
+)
+
 
 class OpenMetadataError(RuntimeError):
     pass
@@ -62,9 +68,13 @@ class OpenMetadataConfig:
         catalog_database: str,
         cleanup_legacy_default_database: bool,
     ) -> OpenMetadataConfig:
+        catalog_service = catalog_service or "polaris"
+        catalog_database = catalog_database or "lakehouse_dev"
         catalog_database_fqn = environ.get(
             "OPENLAKEFORGE_CATALOG_DATABASE_FQN", f"{catalog_service}.{catalog_database}"
         )
+        silver_schema_fqns_raw = environ.get("OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON")
+        gold_schema_fqns_raw = environ.get("OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON")
         return cls(
             base_url=base_url.rstrip("/"),
             admin_email=admin_email,
@@ -76,13 +86,15 @@ class OpenMetadataConfig:
             catalog_database=catalog_database,
             cleanup_legacy_default_database=cleanup_legacy_default_database,
             catalog_database_fqn=catalog_database_fqn,
-            catalog_silver_schema_fqns=_parse_json_env(
-                "OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON",
-                environ.get("OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON", "{}"),
+            catalog_silver_schema_fqns=(
+                _parse_json_env("OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON", silver_schema_fqns_raw)
+                if silver_schema_fqns_raw
+                else _default_schema_fqns(catalog_database_fqn, "silver")
             ),
-            catalog_gold_schema_fqns=_parse_json_env(
-                "OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON",
-                environ.get("OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON", "{}"),
+            catalog_gold_schema_fqns=(
+                _parse_json_env("OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON", gold_schema_fqns_raw)
+                if gold_schema_fqns_raw
+                else _default_schema_fqns(catalog_database_fqn, "gold")
             ),
             storage_service=environ.get("OPENLAKEFORGE_STORAGE_OM_SERVICE", "seaweedfs"),
             storage_display_name=environ.get("OPENLAKEFORGE_STORAGE_DISPLAY_NAME", "SeaweedFS S3"),
@@ -105,6 +117,11 @@ def _parse_json_env(name: str, raw: str) -> dict:
     if not isinstance(value, dict):
         raise OpenMetadataError(f"Environment variable {name} must contain a JSON object.")
     return value
+
+
+def _default_schema_fqns(catalog_database_fqn: str, layer: str) -> dict[str, str]:
+    """Return the seed-product contract used by direct local CLI execution."""
+    return {product: f"{catalog_database_fqn}.{product}_{layer}" for product in _SEED_PRODUCT_KEYS}
 
 
 @dataclass
