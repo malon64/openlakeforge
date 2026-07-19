@@ -64,6 +64,10 @@ def validate_domain_descriptor(document: Mapping[str, Any], *, source: str = "do
                 raise DomainDescriptorError(
                     f"{source}: data_products[{index}].assets[{asset_index}] must not contain physical FQNs"
                 )
+            if not asset.get("name"):
+                raise DomainDescriptorError(
+                    f"{source}: data_products[{index}].assets[{asset_index}] must have a logical name"
+                )
 
 
 def load_domain_descriptor(path: str | Path) -> dict[str, Any]:

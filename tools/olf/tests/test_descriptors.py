@@ -65,6 +65,29 @@ def test_domain_descriptor_rejects_legacy_string_asset() -> None:
         validate_domain_descriptor(descriptor)
 
 
+def test_domain_descriptor_rejects_logical_asset_without_name() -> None:
+    descriptor = {
+        "apiVersion": "openlakeforge.io/v1alpha1",
+        "kind": "Domain",
+        "name": "sales",
+        "displayName": "Sales",
+        "description": "Sales",
+        "status": "planned",
+        "data_products": [
+            {
+                "id": "orders",
+                "name": "sales_orders",
+                "displayName": "Orders",
+                "description": "Orders",
+                "status": "planned",
+                "assets": [{"type": "table"}],
+            }
+        ],
+    }
+    with pytest.raises(DomainDescriptorError, match="logical name"):
+        validate_domain_descriptor(descriptor)
+
+
 @pytest.mark.parametrize(
     ("group", "value"),
     [("silver_tables", {}), ("gold_tables", {"tables": ["mart_revenue"]})],
