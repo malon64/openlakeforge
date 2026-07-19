@@ -30,9 +30,9 @@ IMAGES=(
   "${POLARIS_IMAGE}"
   "docker.getcollate.io/openmetadata/server:1.12.10"
   "docker.getcollate.io/openmetadata/ingestion-base:1.12.10"
-  "postgres:16-alpine"
+  "postgres:16-alpine@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777"
   "apache/superset:dockerize"
-  "apache/superset:6.1.0"
+  "apache/superset:6.1.0@sha256:fb3464528ec7076f91195f0ff7835755aa023e281f1bb78a84782ce7a36b3705"
   "docker.io/bitnamilegacy/redis:7.0.10-debian-11-r4"
   "ghcr.io/malon64/floe:0.6.8"
 )

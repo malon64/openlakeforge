@@ -1,0 +1,70 @@
+apiVersion: openlakeforge.io/v1alpha1
+kind: ComponentCatalog
+metadata:
+  name: openlakeforge
+distribution:
+  version: 0.1.0-alpha.1
+  release_tag_policy: immutable-semver
+  development_tags: mutable
+components:
+  terraform:
+    required_version: ">= 1.6.0"
+    providers:
+      hashicorp/aws: 5.100.0
+      hashicorp/azurerm: 4.77.0
+      hashicorp/helm: 3.2.0
+      hashicorp/kubernetes: 2.38.0
+      hashicorp/random: 3.9.0
+      hashicorp/tls: 4.3.0
+    lockfiles:
+      infra/terraform/environments/local/.terraform.lock.hcl:
+        hashicorp/helm: 3.1.1
+        hashicorp/kubernetes: 2.38.0
+        hashicorp/random: 3.9.0
+      infra/terraform/environments/azure-poc/.terraform.lock.hcl:
+        hashicorp/helm: 3.2.0
+        hashicorp/kubernetes: 2.38.0
+        hashicorp/random: 3.9.0
+      infra/terraform/environments/aws-poc/.terraform.lock.hcl:
+        hashicorp/aws: 5.100.0
+        hashicorp/helm: 3.2.0
+        hashicorp/kubernetes: 2.38.0
+        hashicorp/random: 3.9.0
+      infra/terraform/foundations/azure-aks/.terraform.lock.hcl:
+        hashicorp/azurerm: 4.77.0
+        hashicorp/random: 3.9.0
+      infra/terraform/foundations/aws-eks/.terraform.lock.hcl:
+        hashicorp/aws: 5.100.0
+        hashicorp/tls: 4.3.0
+  helm:
+    seaweedfs: 4.23.0
+    polaris: 1.4.1
+    trino: 1.42.2
+    dagster: 1.13.6
+    openmetadata: 1.12.10
+    openmetadata-dependencies: 1.12.10
+    superset: 0.15.5
+  python:
+    project_code_lock: images/project-code/requirements.lock
+    tooling_lock: tools/olf/uv.lock
+  images:
+    project_code_base: python:3.12-slim@sha256:57cd7c3a7a273101a6485ba99423ee568157882804b1124b4dd04266317710de
+    superset_base: apache/superset:6.1.0@sha256:fb3464528ec7076f91195f0ff7835755aa023e281f1bb78a84782ce7a36b3705
+    postgres: postgres:16-alpine@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777
+    seaweedfs: chrislusf/seaweedfs:4.23@sha256:c6d6fb84b081f1f09bb089184ff4b45d2f163a1bfa8b354d04cf400c6e06f242
+    polaris: apache/polaris:1.4.0@sha256:ef4947a3fd005ca5b2aec2bde98682a59996d38f21c16c4660fbb79e4c20b40c
+    trino: trinodb/trino:480@sha256:1565e8cac299a32dd9177a4da2d748da4ceb9f1560a9c409d1d18fd72ea5253e
+    openmetadata_ingestion: docker.getcollate.io/openmetadata/ingestion-base:1.12.10@sha256:dadd44b28cc73488a943009c22da7b3c7a9e52d2adb47e61ed2c5ba791e2a07d
+  actions:
+    actions/checkout: 34e114876b0b11c390a56381ad16ebd13914f8d5
+    actions/setup-python: a26af69be951a213d495a4c3e4e4022e16d87065
+    astral-sh/setup-uv: e58605a9b6da7c637471fab8847a5e5a6b8df081
+    azure/setup-helm: bf6a7d304bc2fdb57e0331155b7ebf2c504acf0a
+    hashicorp/setup-terraform: b9cd54a3c349d3f38e8881555d616ced269862dd
+update_process:
+  owner: release-engineering
+  steps:
+    - Update the source version and digest in this catalog together with its lockfile.
+    - Run `make check-components` and all repository checks.
+    - Review the generated dependency diff and build both runtime images.
+    - Merge the catalog change before creating an immutable semver release tag.

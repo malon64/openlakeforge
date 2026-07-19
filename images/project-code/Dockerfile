@@ -1,4 +1,4 @@
-ARG PYTHON_BASE_IMAGE=python:3.12-slim
+ARG PYTHON_BASE_IMAGE=python:3.12-slim@sha256:57cd7c3a7a273101a6485ba99423ee568157882804b1124b4dd04266317710de
 FROM ${PYTHON_BASE_IMAGE}
 ARG DBT_PROFILE_ENV=local
 
@@ -8,10 +8,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /opt/openlakeforge
 
-COPY images/project-code/pyproject.toml ./pyproject.toml
+COPY images/project-code/pyproject.toml images/project-code/requirements.lock ./
 
-RUN pip install --no-cache-dir --upgrade pip \
-    && python -c "import subprocess, sys, tomllib; from pathlib import Path; dependencies = tomllib.load(Path('pyproject.toml').open('rb'))['project']['dependencies']; subprocess.check_call([sys.executable, '-m', 'pip', 'install', '--no-cache-dir', *dependencies])"
+# The lock contains the complete transitive set.  Avoid resolver re-evaluation
+# of upstream metadata ranges (for example SQLAlchemy's greenlet constraint).
+RUN pip install --no-cache-dir --require-hashes --no-deps -r requirements.lock
 
 COPY domains ./domains
 COPY libs ./libs
