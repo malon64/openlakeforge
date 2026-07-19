@@ -45,7 +45,12 @@
     "tableGroup": {
       "type": "object",
       "required": ["tables"],
-      "properties": {"tables": {"type": "array"}},
+      "properties": {
+        "tables": {
+          "type": "array",
+          "items": {"type": "object", "required": ["name"]}
+        }
+      },
       "not": {"required": ["schema"]}
     }
   }

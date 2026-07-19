@@ -36,7 +36,19 @@ def validate_domain_descriptor(document: Mapping[str, Any], *, source: str = "do
             if field not in product:
                 raise DomainDescriptorError(f"{source}: data_products[{index}] missing {field!r}")
         for group in ("silver_tables", "gold_tables"):
-            spec = product.get(group) or {}
+            if group not in product:
+                continue
+            spec = product[group]
+            if not isinstance(spec, Mapping):
+                raise DomainDescriptorError(f"{source}: data_products[{index}].{group} must be an object")
+            tables = spec.get("tables")
+            if not isinstance(tables, list):
+                raise DomainDescriptorError(f"{source}: data_products[{index}].{group}.tables must be an array")
+            for table_index, table in enumerate(tables):
+                if not isinstance(table, Mapping) or not table.get("name"):
+                    raise DomainDescriptorError(
+                        f"{source}: data_products[{index}].{group}.tables[{table_index}] must have a name"
+                    )
             if "schema" in spec:
                 raise DomainDescriptorError(f"{source}: {group}.schema must be derived from provider contracts")
         for asset_index, asset in enumerate(product.get("assets") or []):
