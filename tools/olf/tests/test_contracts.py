@@ -46,6 +46,15 @@ def test_defaults_without_contracts_match_local_profile() -> None:
     assert unsets == []
 
 
+def test_unsupported_provider_contract_version_is_rejected() -> None:
+    from olf.contracts import ProviderContractError
+
+    contracts = load_fixture("local-provider-contracts.json")
+    contracts["schema_version"] = "9.0.0"
+    with pytest.raises(ProviderContractError, match="unsupported"):
+        build_contract_env({}, contracts)
+
+
 def test_local_contracts_apply_seaweedfs_values() -> None:
     exports, unsets = build_contract_env({}, load_fixture("local-provider-contracts.json"))
     assert exports["OPENLAKEFORGE_STORAGE_PROVIDER"] == "local"

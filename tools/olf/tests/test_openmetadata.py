@@ -77,6 +77,51 @@ def test_config_from_environment_reads_schema_fqns() -> None:
     assert cfg.storage_gold_bucket == "openlakeforge-poc-gold"
 
 
+def test_config_from_environment_defaults_seed_schema_fqns_for_direct_cli() -> None:
+    cfg = om.OpenMetadataConfig.from_environment(
+        {},
+        base_url="http://x",
+        admin_email="a",
+        admin_password="p",
+        metadata_root="domains",
+        metadata_source_dir="",
+        allow_missing_assets=False,
+        catalog_service="",
+        catalog_database="",
+        cleanup_legacy_default_database=False,
+    )
+
+    assert cfg.catalog_service == "polaris"
+    assert cfg.catalog_database == "lakehouse_dev"
+    assert cfg.catalog_silver_schema_fqns["sales_order_revenue"] == (
+        "polaris.lakehouse_dev.sales_order_revenue_silver"
+    )
+    assert cfg.catalog_gold_schema_fqns["sales_order_revenue"] == (
+        "polaris.lakehouse_dev.sales_order_revenue_gold"
+    )
+
+
+def test_config_from_environment_preserves_explicit_empty_schema_contract() -> None:
+    cfg = om.OpenMetadataConfig.from_environment(
+        {
+            "OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON": "{}",
+            "OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON": "{}",
+        },
+        base_url="http://x",
+        admin_email="a",
+        admin_password="p",
+        metadata_root="domains",
+        metadata_source_dir="",
+        allow_missing_assets=False,
+        catalog_service="polaris",
+        catalog_database="lakehouse_dev",
+        cleanup_legacy_default_database=False,
+    )
+
+    assert cfg.catalog_silver_schema_fqns == {}
+    assert cfg.catalog_gold_schema_fqns == {}
+
+
 def test_storage_bucket_specs_dedup() -> None:
     cfg = om.OpenMetadataConfig.from_environment(
         {},
@@ -149,14 +194,152 @@ def test_product_assets_use_provider_schema_fqns_and_dedup() -> None:
     ]
 
 
+def test_logical_asset_name_resolves_through_provider_contract() -> None:
+    cfg = om.OpenMetadataConfig.from_environment(
+        {
+            "OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON":
+            '{"sales_order_revenue": "aws_glue.lakehouse_dev.sales_order_revenue_gold"}',
+        },
+        base_url="http://x",
+        admin_email="a",
+        admin_password="p",
+        metadata_root="domains",
+        metadata_source_dir="",
+        allow_missing_assets=False,
+        catalog_service="aws_glue",
+        catalog_database="lakehouse_dev",
+        cleanup_legacy_default_database=False,
+    )
+    deployer = om.OpenMetadataDeployer(cfg, om.OpenMetadataClient(cfg.base_url))
+    product = {
+        "name": "sales_order_revenue",
+        "gold_tables": {"tables": [{"name": "mart_order_revenue"}]},
+        "assets": [{"type": "table", "name": "mart_order_revenue"}],
+    }
+
+    assert list(deployer.product_asset_entries(product)) == [
+        {"type": "table", "fqn": "aws_glue.lakehouse_dev.sales_order_revenue_gold.mart_order_revenue"}
+    ]
+
+
+def test_deployment_input_validation_rejects_new_product_without_contract() -> None:
+    cfg = om.OpenMetadataConfig.from_environment(
+        {},
+        base_url="http://x",
+        admin_email="a",
+        admin_password="p",
+        metadata_root="domains",
+        metadata_source_dir="",
+        allow_missing_assets=False,
+        catalog_service="polaris",
+        catalog_database="lakehouse_dev",
+        cleanup_legacy_default_database=False,
+    )
+    deployer = om.OpenMetadataDeployer(cfg, om.OpenMetadataClient(cfg.base_url))
+    domain_specs = [
+        (
+            Path("domains/sales/domain.yaml"),
+            {
+                "name": "sales",
+                "data_products": [
+                    {
+                        "id": "new_product",
+                        "name": "sales_new_product",
+                        "gold_tables": {"tables": [{"name": "mart_new_product"}]},
+                    }
+                ],
+            },
+        )
+    ]
+
+    with pytest.raises(om.OpenMetadataError, match="not covered by the provider contract"):
+        deployer.validate_deployment_inputs(domain_specs)
+
+
+def test_deployment_input_validation_rejects_unknown_logical_asset() -> None:
+    cfg = om.OpenMetadataConfig.from_environment(
+        {
+            "OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON": (
+                '{"sales_order_revenue": "polaris.lakehouse_dev.sales_order_revenue_gold"}'
+            )
+        },
+        base_url="http://x",
+        admin_email="a",
+        admin_password="p",
+        metadata_root="domains",
+        metadata_source_dir="",
+        allow_missing_assets=False,
+        catalog_service="polaris",
+        catalog_database="lakehouse_dev",
+        cleanup_legacy_default_database=False,
+    )
+    deployer = om.OpenMetadataDeployer(cfg, om.OpenMetadataClient(cfg.base_url))
+    domain_specs = [
+        (
+            Path("domains/sales/domain.yaml"),
+            {
+                "name": "sales",
+                "data_products": [
+                    {
+                        "id": "sales_order_revenue",
+                        "name": "sales_order_revenue",
+                        "gold_tables": {"tables": [{"name": "mart_order_revenue"}]},
+                        "assets": [{"type": "table", "name": "mart_typo"}],
+                    }
+                ],
+            },
+        )
+    ]
+
+    with pytest.raises(om.OpenMetadataError, match="not declared in the product table contract"):
+        deployer.validate_deployment_inputs(domain_specs)
+
+
+def test_deployment_input_validation_rejects_malformed_bronze_before_writes() -> None:
+    cfg = om.OpenMetadataConfig.from_environment(
+        {},
+        base_url="http://x",
+        admin_email="a",
+        admin_password="p",
+        metadata_root="domains",
+        metadata_source_dir="",
+        allow_missing_assets=False,
+        catalog_service="polaris",
+        catalog_database="lakehouse_dev",
+        cleanup_legacy_default_database=False,
+    )
+    deployer = om.OpenMetadataDeployer(cfg, om.OpenMetadataClient(cfg.base_url))
+    domain_specs = [
+        (
+            Path("domains/sales/domain.yaml"),
+            {
+                "name": "sales",
+                "data_products": [{"name": "sales_order_revenue", "bronze": ["raw_orders"]}],
+            },
+        )
+    ]
+
+    with pytest.raises(om.OpenMetadataError, match="Bronze entry at index 0 must be an object"):
+        deployer.validate_deployment_inputs(domain_specs)
+
+
 def test_deploy_seeds_medallion_buckets_at_storage_service_root(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     (tmp_path / "sales").mkdir()
     (tmp_path / "sales" / "domain.yaml").write_text(
-        """name: sales
+            """apiVersion: openlakeforge.io/v1alpha1
+kind: Domain
+name: sales
+displayName: Sales
+description: Sales domain
+status: active
 data_products:
-  - name: sales_order_revenue
+  - id: sales_order_revenue
+    name: sales_order_revenue
+    displayName: Sales Order Revenue
+    description: Revenue from orders.
+    status: active
     bronze:
       - name: raw_orders
         path: s3://lakehouse-bronze/sales/order_revenue/orders.csv

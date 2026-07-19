@@ -9,6 +9,10 @@ state, ingress/TLS, or production hardening services.
 
 ## Contract Source Of Truth
 
+Provider contract exports carry `schema_version: "1.0.0"`. Consumers reject
+unknown versions rather than guessing field meanings. This version is
+independent of deployment and component versions.
+
 Terraform is the source of truth for provider contracts. The local, Azure, and
 AWS platform roots normalize explicit contract objects in their `contracts.tf`
 files and validate them with Terraform `check` blocks. Runtime scripts can read
@@ -62,6 +66,22 @@ Product-owned runtime assets use logical aliases. Local and Azure resolve
 `lakehouse_bronze` and `lakehouse_silver` to SeaweedFS-backed medallion buckets.
 AWS resolves them to S3 buckets. Local and Azure resolve `iceberg_catalog` to
 Polaris; AWS resolves it to Glue.
+
+Domain descriptors use `apiVersion: openlakeforge.io/v1alpha1` and
+`kind: Domain`; the machine-readable schema is
+[`docs/schema/domain.schema.json`](../schema/domain.schema.json). Descriptors
+contain logical product and table names only. Provider contracts derive the
+physical catalog/database/schema FQNs at runtime, so changing catalog adapters
+does not require editing business metadata.
+
+### Compatibility and migration
+
+The `v1alpha1` descriptor and provider contract versions are strict. Migrate a
+legacy descriptor by adding the version envelope, removing
+`silver_tables.schema`, `gold_tables.schema`, and physical asset FQNs, then
+validating against the schema before deployment. A future incompatible shape
+must publish a new API/version and migration guide; deployments fail closed
+when either version is unknown.
 
 ## Catalog Contract
 

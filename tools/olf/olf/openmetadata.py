@@ -18,7 +18,13 @@ from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import yaml
+from olf.descriptors import load_domain_descriptor
+
+_SEED_PRODUCT_KEYS = (
+    "sales_order_revenue",
+    "sales_customer_health",
+    "supply_chain_inventory_reliability",
+)
 
 
 class OpenMetadataError(RuntimeError):
@@ -62,9 +68,13 @@ class OpenMetadataConfig:
         catalog_database: str,
         cleanup_legacy_default_database: bool,
     ) -> OpenMetadataConfig:
+        catalog_service = catalog_service or "polaris"
+        catalog_database = catalog_database or "lakehouse_dev"
         catalog_database_fqn = environ.get(
             "OPENLAKEFORGE_CATALOG_DATABASE_FQN", f"{catalog_service}.{catalog_database}"
         )
+        silver_schema_fqns_raw = environ.get("OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON")
+        gold_schema_fqns_raw = environ.get("OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON")
         return cls(
             base_url=base_url.rstrip("/"),
             admin_email=admin_email,
@@ -76,13 +86,15 @@ class OpenMetadataConfig:
             catalog_database=catalog_database,
             cleanup_legacy_default_database=cleanup_legacy_default_database,
             catalog_database_fqn=catalog_database_fqn,
-            catalog_silver_schema_fqns=_parse_json_env(
-                "OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON",
-                environ.get("OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON", "{}"),
+            catalog_silver_schema_fqns=(
+                _parse_json_env("OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON", silver_schema_fqns_raw)
+                if silver_schema_fqns_raw
+                else _default_schema_fqns(catalog_database_fqn, "silver")
             ),
-            catalog_gold_schema_fqns=_parse_json_env(
-                "OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON",
-                environ.get("OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON", "{}"),
+            catalog_gold_schema_fqns=(
+                _parse_json_env("OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON", gold_schema_fqns_raw)
+                if gold_schema_fqns_raw
+                else _default_schema_fqns(catalog_database_fqn, "gold")
             ),
             storage_service=environ.get("OPENLAKEFORGE_STORAGE_OM_SERVICE", "seaweedfs"),
             storage_display_name=environ.get("OPENLAKEFORGE_STORAGE_DISPLAY_NAME", "SeaweedFS S3"),
@@ -105,6 +117,11 @@ def _parse_json_env(name: str, raw: str) -> dict:
     if not isinstance(value, dict):
         raise OpenMetadataError(f"Environment variable {name} must contain a JSON object.")
     return value
+
+
+def _default_schema_fqns(catalog_database_fqn: str, layer: str) -> dict[str, str]:
+    """Return the seed-product contract used by direct local CLI execution."""
+    return {product: f"{catalog_database_fqn}.{product}_{layer}" for product in _SEED_PRODUCT_KEYS}
 
 
 @dataclass
@@ -235,26 +252,34 @@ class OpenMetadataDeployer:
 
     # --- product/table spec helpers ---------------------------------------
 
-    def schema_fqn_for_product(self, product: dict, table_group_key: str, fallback):
+    def schema_fqn_for_product(self, product: dict, table_group_key: str) -> str | None:
         product_key = product_contract_key(product)
         if table_group_key == "silver_tables":
-            return self.config.catalog_silver_schema_fqns.get(product_key) or fallback
+            return self.config.catalog_silver_schema_fqns.get(product_key)
         if table_group_key == "gold_tables":
-            return self.config.catalog_gold_schema_fqns.get(product_key) or fallback
-        return fallback
+            return self.config.catalog_gold_schema_fqns.get(product_key)
+        return None
 
     def product_table_specs(self, product: dict):
         for key in ["silver_tables", "gold_tables"]:
             spec = product.get(key)
             if not spec:
                 continue
-            schema_fqn = self.schema_fqn_for_product(product, key, spec.get("schema"))
+            schema_fqn = self.schema_fqn_for_product(product, key)
             if not schema_fqn:
                 raise OpenMetadataError(
-                    f"Data product '{product.get('name')}' table group '{key}' is missing required 'schema'."
+                    f"Data product '{product_contract_key(product)}' table group '{key}' is not covered "
+                    "by the provider contract schema FQNs."
                 )
             for table in spec.get("tables", []):
                 yield schema_fqn, table
+
+    def validate_deployment_inputs(self, domain_specs: list[tuple[Path, dict]]) -> None:
+        """Resolve every declared table and logical asset before metadata writes."""
+        for _, domain in domain_specs:
+            for product in product_entries(domain):
+                list(self.product_asset_entries(product))
+        self.validate_bronze_entries(domain_specs)
 
     def provider_asset_fqn(self, product: dict, fqn):
         if not fqn:
@@ -265,12 +290,32 @@ class OpenMetadataDeployer:
                 return f"{schema_fqn}.{table_name}"
         return fqn
 
+    def logical_asset_fqn(self, product: dict, asset: dict) -> str:
+        """Resolve a provider-neutral table name through the contract schemas."""
+        name = asset.get("name")
+        if not name:
+            raise OpenMetadataError(f"OpenMetadata table asset is missing 'name' or 'fqn': {asset!r}")
+        matches = [
+            f"{schema_fqn}.{name}"
+            for schema_fqn, table in self.product_table_specs(product)
+            if table.get("name") == name
+        ]
+        if not matches:
+            raise OpenMetadataError(
+                f"OpenMetadata logical table asset '{name}' is not declared in the product table contract."
+            )
+        if len(matches) > 1:
+            raise OpenMetadataError(f"OpenMetadata logical table asset '{name}' is ambiguous: {matches!r}")
+        return matches[0]
+
     def asset_with_provider_fqn(self, product: dict, asset):
         if isinstance(asset, str):
             return self.provider_asset_fqn(product, asset)
         if isinstance(asset, dict):
             rewritten = dict(asset)
             fqn = rewritten.get("fqn") or rewritten.get("fullyQualifiedName")
+            if not fqn and rewritten.get("name"):
+                fqn = self.logical_asset_fqn(product, rewritten)
             if fqn:
                 rewritten["fqn"] = self.provider_asset_fqn(product, fqn)
                 rewritten.pop("fullyQualifiedName", None)
@@ -293,12 +338,16 @@ class OpenMetadataDeployer:
                 fqn = asset.get("fqn") or asset.get("fullyQualifiedName")
             else:
                 fqn = None
-            fqn = self.provider_asset_fqn(product, fqn)
+            resolved = self.asset_with_provider_fqn(product, asset)
+            if isinstance(resolved, dict):
+                fqn = resolved.get("fqn")
+            else:
+                fqn = self.provider_asset_fqn(product, fqn)
             if fqn and fqn in seen:
                 continue
             if fqn:
                 seen.add(fqn)
-            yield self.asset_with_provider_fqn(product, asset)
+            yield resolved
 
     def storage_bucket_specs(self):
         specs = [
@@ -493,10 +542,27 @@ class OpenMetadataDeployer:
     def validate_bronze_entries(self, domain_specs) -> None:
         for _, domain in domain_specs:
             for product in product_entries(domain):
-                for container in product.get("bronze") or []:
-                    if not container.get("path"):
+                bronze_entries = product.get("bronze")
+                if bronze_entries is None:
+                    continue
+                if not isinstance(bronze_entries, list):
+                    raise OpenMetadataError(
+                        f"Data product '{product['name']}' Bronze entries must be an array."
+                    )
+                for index, container in enumerate(bronze_entries):
+                    if not isinstance(container, dict):
                         raise OpenMetadataError(
-                            f"Data product '{product['name']}' Bronze entry is missing required 'path'."
+                            f"Data product '{product['name']}' Bronze entry at index {index} must be an object."
+                        )
+                    if not isinstance(container.get("name"), str) or not container["name"]:
+                        raise OpenMetadataError(
+                            f"Data product '{product['name']}' Bronze entry at index {index} "
+                            "is missing required 'name'."
+                        )
+                    if not isinstance(container.get("path"), str) or not container["path"]:
+                        raise OpenMetadataError(
+                            f"Data product '{product['name']}' Bronze entry at index {index} "
+                            "is missing required 'path'."
                         )
 
     def cleanup_legacy_default_database(self) -> None:
@@ -542,15 +608,15 @@ class OpenMetadataDeployer:
         self.wait_for_openmetadata()
         self.login()
 
-        domain_specs = [(path, _load_yaml(path)) for path in self.domain_files()]
+        domain_specs = [(path, load_domain_descriptor(path)) for path in self.domain_files()]
         if not domain_specs:
             raise OpenMetadataError(
                 f"No OpenMetadata domain metadata files found under {self.config.metadata_root}/<domain>/domain.yaml"
             )
+        self.validate_deployment_inputs(domain_specs)
 
         # Phase A+B: Object Store service and medallion bucket containers.
         self.ensure_storage_service()
-        self.validate_bronze_entries(domain_specs)
         for container in self.storage_bucket_specs():
             self.ensure_container(container["name"], None, container["path"], container["description"])
 
@@ -607,8 +673,3 @@ class OpenMetadataDeployer:
                 print(f"WARN: {guidance}", file=sys.stderr)
             else:
                 raise OpenMetadataError(guidance)
-
-
-def _load_yaml(path: Path) -> dict:
-    with path.open("r", encoding="utf-8") as handle:
-        return yaml.safe_load(handle) or {}
