@@ -35,6 +35,21 @@ azure_main_text = azure_main_tf.read_text()
 aws_main_tf = Path("infra/terraform/environments/aws-poc/main.tf")
 aws_main_text = aws_main_tf.read_text()
 
+for descriptor_path in sorted(Path("domains").glob("*/domain.yaml")):
+    descriptor_text = descriptor_path.read_text()
+    if "apiVersion: openlakeforge.io/v1alpha1" not in descriptor_text or "kind: Domain" not in descriptor_text:
+        errors.append(f"{descriptor_path}: unsupported or missing domain descriptor version")
+    if "polaris.lakehouse_dev" in descriptor_text or "fqn:" in descriptor_text:
+        errors.append(f"{descriptor_path}: physical catalog identities must come from provider contracts")
+
+for contracts_path, contracts_body in [
+    (contracts_tf, text),
+    (azure_contracts_tf, azure_text),
+    (aws_contracts_tf, aws_text),
+]:
+    if 'schema_version      = "1.0.0"' not in contracts_body:
+        errors.append(f"{contracts_path}: provider contracts must declare schema_version 1.0.0")
+
 required_contracts = [
     "foundation_contract",
     "kubernetes_platform_contract",

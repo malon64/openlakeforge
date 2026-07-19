@@ -25,6 +25,12 @@ import subprocess
 from collections.abc import Mapping
 from typing import Any
 
+PROVIDER_CONTRACT_SCHEMA_VERSION = "1.0.0"
+
+
+class ProviderContractError(ValueError):
+    """Raised when Terraform returns an unsupported provider contract version."""
+
 # Kept as literal compact-JSON strings for byte parity with the previous bash
 # defaults.
 _DEFAULT_CATALOG_NAMESPACES_JSON = (
@@ -67,7 +73,15 @@ def load_provider_contracts(terraform_dir: str) -> dict[str, Any] | None:
         contracts = json.loads(result.stdout)
     except json.JSONDecodeError:
         return None
-    return contracts if isinstance(contracts, dict) else None
+    if not isinstance(contracts, dict):
+        return None
+    schema_version = contracts.get("schema_version")
+    if schema_version != PROVIDER_CONTRACT_SCHEMA_VERSION:
+        raise ProviderContractError(
+            f"provider_contracts.schema_version {schema_version!r} is unsupported; "
+            f"expected {PROVIDER_CONTRACT_SCHEMA_VERSION!r}"
+        )
+    return contracts
 
 
 class _Env:
@@ -350,6 +364,12 @@ def build_contract_env(
     env = _Env(base)
     _apply_default_contract_env(env, base)
     if contracts is not None:
+        schema_version = contracts.get("schema_version")
+        if schema_version != PROVIDER_CONTRACT_SCHEMA_VERSION:
+            raise ProviderContractError(
+                f"provider_contracts.schema_version {schema_version!r} is unsupported; "
+                f"expected {PROVIDER_CONTRACT_SCHEMA_VERSION!r}"
+            )
         _apply_provider_contracts(env, contracts)
         _apply_default_contract_env(env, base)
 

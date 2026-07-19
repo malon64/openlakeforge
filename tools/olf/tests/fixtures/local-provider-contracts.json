@@ -1,4 +1,5 @@
 {
+  "schema_version": "1.0.0",
   "storage": {
     "logical_name": "lakehouse_storage",
     "provider": "local",
