@@ -291,6 +291,7 @@ locals {
   }
 
   provider_contracts = {
+    schema_version      = "1.0.0"
     foundation          = local.foundation_contract
     kubernetes_platform = local.kubernetes_platform_contract
     cluster             = local.kubernetes_platform_contract
