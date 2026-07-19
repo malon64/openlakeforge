@@ -87,6 +87,29 @@ def test_classify_pod_health_blocks_suite_owned_job() -> None:
     assert bad == ["run-pod: Failed"]
 
 
+def test_classify_pod_health_blocks_platform_bootstrap_job() -> None:
+    bad, warned = e2e.classify_pod_health(
+        {
+            "items": [
+                {
+                    "metadata": {
+                        "name": "polaris-bootstrap-pod",
+                        "ownerReferences": [{"kind": "Job", "name": "polaris-bootstrap"}],
+                        "labels": {
+                            "job-name": "polaris-bootstrap",
+                            "openlakeforge.io/job": "catalog-bootstrap",
+                        },
+                    },
+                    "status": {"phase": "Failed"},
+                }
+            ]
+        }
+    )
+
+    assert warned == []
+    assert bad == ["polaris-bootstrap-pod: Failed"]
+
+
 def test_workload_health_classifies_required_service() -> None:
     assert e2e.workload_health_class({"metadata": {"name": "dagster-webserver"}}) == "required-service"
 

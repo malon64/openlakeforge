@@ -105,14 +105,17 @@ class DagsterHTTPError(E2EError):
 def workload_health_class(item: Mapping[str, Any], suite_jobs: tuple[str, ...] = PRODUCT_JOBS) -> str:
     """Classify a Kubernetes workload for E2E readiness policy.
 
-    ReplicaSet/StatefulSet pods are required services. Job pods are warnings
-    unless their name/labels identify a job owned by this suite.
+    ReplicaSet/StatefulSet pods and OpenLakeForge bootstrap Jobs are required.
+    Other Job pods are warnings unless their name/labels identify a job owned
+    by this suite.
     """
     metadata = item.get("metadata", {})
     owner_kinds = {str(owner.get("kind")) for owner in metadata.get("ownerReferences", [])}
     if "Job" not in owner_kinds:
         return "required-service"
     labels = metadata.get("labels", {})
+    if labels.get("openlakeforge.io/job"):
+        return "platform-owned-job"
     identity = " ".join(
         str(value)
         for value in (
@@ -387,7 +390,7 @@ def classify_pod_health(
         message = unhealthy_pod_messages({"items": [item]})
         if not message:
             continue
-        if health_class == "required-service" or health_class == "suite-owned-job":
+        if health_class != "independent-job":
             bad.extend(message)
         else:
             labels = item.get("metadata", {}).get("labels", {})
