@@ -135,6 +135,29 @@ def test_domain_descriptor_rejects_non_string_table_name() -> None:
         validate_domain_descriptor(descriptor)
 
 
+def test_domain_descriptor_rejects_malformed_bronze_entry() -> None:
+    descriptor = {
+        "apiVersion": "openlakeforge.io/v1alpha1",
+        "kind": "Domain",
+        "name": "sales",
+        "displayName": "Sales",
+        "description": "Sales",
+        "status": "planned",
+        "data_products": [
+            {
+                "id": "orders",
+                "name": "sales_orders",
+                "displayName": "Orders",
+                "description": "Orders",
+                "status": "planned",
+                "bronze": ["raw_orders"],
+            }
+        ],
+    }
+    with pytest.raises(DomainDescriptorError, match="bronze\\[0\\] must be an object"):
+        validate_domain_descriptor(descriptor)
+
+
 def test_domain_descriptor_rejects_unsupported_logical_asset_type() -> None:
     descriptor = {
         "apiVersion": "openlakeforge.io/v1alpha1",

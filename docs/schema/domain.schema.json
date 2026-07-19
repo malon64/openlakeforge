@@ -11,18 +11,29 @@
     "name": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
     "displayName": {"type": "string", "minLength": 1},
     "description": {"type": "string"},
-    "status": {"type": "string"},
+    "status": {"type": "string", "minLength": 1},
     "data_products": {
       "type": "array",
       "items": {
         "type": "object",
         "required": ["id", "name", "displayName", "description", "status"],
         "properties": {
-          "id": {"type": "string"},
-          "name": {"type": "string"},
-          "displayName": {"type": "string"},
+          "id": {"type": "string", "minLength": 1},
+          "name": {"type": "string", "minLength": 1},
+          "displayName": {"type": "string", "minLength": 1},
           "description": {"type": "string"},
-          "status": {"type": "string"},
+          "status": {"type": "string", "minLength": 1},
+          "asset_prefix": {"type": "string", "minLength": 1},
+          "domain": {"type": "string", "minLength": 1},
+          "domains": {
+            "type": "array",
+            "minItems": 1,
+            "items": {"type": "string", "minLength": 1}
+          },
+          "bronze": {
+            "type": "array",
+            "items": {"$ref": "#/$defs/bronzeEntry"}
+          },
           "silver_tables": {"$ref": "#/$defs/tableGroup"},
           "gold_tables": {"$ref": "#/$defs/tableGroup"},
           "assets": {
@@ -57,7 +68,8 @@
             "type": "object",
             "required": ["name"],
             "properties": {
-              "name": {"type": "string", "minLength": 1}
+              "name": {"type": "string", "minLength": 1},
+              "description": {"type": "string"}
             },
             "not": {
               "anyOf": [
@@ -69,6 +81,15 @@
         }
       },
       "not": {"required": ["schema"]}
+    },
+    "bronzeEntry": {
+      "type": "object",
+      "required": ["name", "path"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "path": {"type": "string", "minLength": 1},
+        "description": {"type": "string"}
+      }
     }
   }
 }

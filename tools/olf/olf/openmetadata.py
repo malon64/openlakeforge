@@ -274,11 +274,12 @@ class OpenMetadataDeployer:
             for table in spec.get("tables", []):
                 yield schema_fqn, table
 
-    def validate_provider_schema_coverage(self, domain_specs: list[tuple[Path, dict]]) -> None:
-        """Fail before metadata writes when descriptors outpace provider contract namespaces."""
+    def validate_deployment_inputs(self, domain_specs: list[tuple[Path, dict]]) -> None:
+        """Resolve every declared table and logical asset before metadata writes."""
         for _, domain in domain_specs:
             for product in product_entries(domain):
-                list(self.product_table_specs(product))
+                list(self.product_asset_entries(product))
+        self.validate_bronze_entries(domain_specs)
 
     def provider_asset_fqn(self, product: dict, fqn):
         if not fqn:
@@ -541,10 +542,27 @@ class OpenMetadataDeployer:
     def validate_bronze_entries(self, domain_specs) -> None:
         for _, domain in domain_specs:
             for product in product_entries(domain):
-                for container in product.get("bronze") or []:
-                    if not container.get("path"):
+                bronze_entries = product.get("bronze")
+                if bronze_entries is None:
+                    continue
+                if not isinstance(bronze_entries, list):
+                    raise OpenMetadataError(
+                        f"Data product '{product['name']}' Bronze entries must be an array."
+                    )
+                for index, container in enumerate(bronze_entries):
+                    if not isinstance(container, dict):
                         raise OpenMetadataError(
-                            f"Data product '{product['name']}' Bronze entry is missing required 'path'."
+                            f"Data product '{product['name']}' Bronze entry at index {index} must be an object."
+                        )
+                    if not isinstance(container.get("name"), str) or not container["name"]:
+                        raise OpenMetadataError(
+                            f"Data product '{product['name']}' Bronze entry at index {index} "
+                            "is missing required 'name'."
+                        )
+                    if not isinstance(container.get("path"), str) or not container["path"]:
+                        raise OpenMetadataError(
+                            f"Data product '{product['name']}' Bronze entry at index {index} "
+                            "is missing required 'path'."
                         )
 
     def cleanup_legacy_default_database(self) -> None:
@@ -595,11 +613,10 @@ class OpenMetadataDeployer:
             raise OpenMetadataError(
                 f"No OpenMetadata domain metadata files found under {self.config.metadata_root}/<domain>/domain.yaml"
             )
-        self.validate_provider_schema_coverage(domain_specs)
+        self.validate_deployment_inputs(domain_specs)
 
         # Phase A+B: Object Store service and medallion bucket containers.
         self.ensure_storage_service()
-        self.validate_bronze_entries(domain_specs)
         for container in self.storage_bucket_specs():
             self.ensure_container(container["name"], None, container["path"], container["description"])
 

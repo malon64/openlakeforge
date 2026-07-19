@@ -222,7 +222,7 @@ def test_logical_asset_name_resolves_through_provider_contract() -> None:
     ]
 
 
-def test_provider_schema_coverage_rejects_new_product_without_contract() -> None:
+def test_deployment_input_validation_rejects_new_product_without_contract() -> None:
     cfg = om.OpenMetadataConfig.from_environment(
         {},
         base_url="http://x",
@@ -253,7 +253,74 @@ def test_provider_schema_coverage_rejects_new_product_without_contract() -> None
     ]
 
     with pytest.raises(om.OpenMetadataError, match="not covered by the provider contract"):
-        deployer.validate_provider_schema_coverage(domain_specs)
+        deployer.validate_deployment_inputs(domain_specs)
+
+
+def test_deployment_input_validation_rejects_unknown_logical_asset() -> None:
+    cfg = om.OpenMetadataConfig.from_environment(
+        {
+            "OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON": (
+                '{"sales_order_revenue": "polaris.lakehouse_dev.sales_order_revenue_gold"}'
+            )
+        },
+        base_url="http://x",
+        admin_email="a",
+        admin_password="p",
+        metadata_root="domains",
+        metadata_source_dir="",
+        allow_missing_assets=False,
+        catalog_service="polaris",
+        catalog_database="lakehouse_dev",
+        cleanup_legacy_default_database=False,
+    )
+    deployer = om.OpenMetadataDeployer(cfg, om.OpenMetadataClient(cfg.base_url))
+    domain_specs = [
+        (
+            Path("domains/sales/domain.yaml"),
+            {
+                "name": "sales",
+                "data_products": [
+                    {
+                        "id": "sales_order_revenue",
+                        "name": "sales_order_revenue",
+                        "gold_tables": {"tables": [{"name": "mart_order_revenue"}]},
+                        "assets": [{"type": "table", "name": "mart_typo"}],
+                    }
+                ],
+            },
+        )
+    ]
+
+    with pytest.raises(om.OpenMetadataError, match="not declared in the product table contract"):
+        deployer.validate_deployment_inputs(domain_specs)
+
+
+def test_deployment_input_validation_rejects_malformed_bronze_before_writes() -> None:
+    cfg = om.OpenMetadataConfig.from_environment(
+        {},
+        base_url="http://x",
+        admin_email="a",
+        admin_password="p",
+        metadata_root="domains",
+        metadata_source_dir="",
+        allow_missing_assets=False,
+        catalog_service="polaris",
+        catalog_database="lakehouse_dev",
+        cleanup_legacy_default_database=False,
+    )
+    deployer = om.OpenMetadataDeployer(cfg, om.OpenMetadataClient(cfg.base_url))
+    domain_specs = [
+        (
+            Path("domains/sales/domain.yaml"),
+            {
+                "name": "sales",
+                "data_products": [{"name": "sales_order_revenue", "bronze": ["raw_orders"]}],
+            },
+        )
+    ]
+
+    with pytest.raises(om.OpenMetadataError, match="Bronze entry at index 0 must be an object"):
+        deployer.validate_deployment_inputs(domain_specs)
 
 
 def test_deploy_seeds_medallion_buckets_at_storage_service_root(
