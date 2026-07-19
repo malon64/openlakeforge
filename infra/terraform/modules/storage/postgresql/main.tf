@@ -182,7 +182,7 @@ resource "kubernetes_stateful_set_v1" "postgresql" {
       spec {
         container {
           name  = "postgresql"
-          image = "postgres:16-alpine"
+          image = "postgres:16-alpine@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777"
 
           port {
             container_port = 5432
@@ -350,7 +350,7 @@ resource "kubernetes_job_v1" "bootstrap" {
 
         container {
           name  = "bootstrap"
-          image = "postgres:16-alpine"
+          image = "postgres:16-alpine@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777"
 
           command = ["/bin/sh", "-ec"]
           args = [<<-SCRIPT

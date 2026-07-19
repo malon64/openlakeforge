@@ -1,4 +1,4 @@
-.PHONY: help tree check-structure check-contracts check-infra check-project-code check-dbt floe-manifest floe-manifest-upload dbt-parse project-code-image project-code-load superset-image superset-load superset-reports-deploy superset-reports-export openmetadata-metadata-deploy local-foundation-up local-foundation-down local-platform-up local-platform-down local-artifacts-deploy local-up local-down local-status local-forward local-prefetch local-e2e azure-foundation-up azure-platform-up azure-platform-down azure-artifacts-deploy azure-up azure-forward azure-e2e azure-down azure-foundation-down aws-foundation-up aws-platform-up aws-platform-down aws-artifacts-deploy aws-up aws-forward aws-e2e aws-down aws-foundation-down
+.PHONY: help tree check-structure check-components check-contracts check-infra check-project-code check-dbt floe-manifest floe-manifest-upload dbt-parse project-code-image project-code-load superset-image superset-load superset-reports-deploy superset-reports-export openmetadata-metadata-deploy local-foundation-up local-foundation-down local-platform-up local-platform-down local-artifacts-deploy local-up local-down local-status local-forward local-prefetch local-e2e azure-foundation-up azure-platform-up azure-platform-down azure-artifacts-deploy azure-up azure-forward azure-e2e azure-down azure-foundation-down aws-foundation-up aws-platform-up aws-platform-down aws-artifacts-deploy aws-up aws-forward aws-e2e aws-down aws-foundation-down
 
 NAMESPACE ?= lakehouse
 CLUSTER_NAME ?= openlakeforge-local
@@ -41,6 +41,7 @@ help:
 	@printf '%s\n' 'OpenLakeForge bootstrap targets:'
 	@printf '%s\n' '  make tree             Show the repository structure'
 	@printf '%s\n' '  make check-structure  Validate the Iteration 0 repository contract'
+	@printf '%s\n' '  make check-components  Validate release catalog and immutable inputs'
 	@printf '%s\n' '  make check-contracts  Validate provider contract compatibility'
 	@printf '%s\n' '  make check-infra      Validate Terraform and render Helm values'
 	@printf '%s\n' '  make check-project-code  Validate the project-code Dagster package'
@@ -96,6 +97,9 @@ tree:
 
 check-structure:
 	@bash scripts/test/check-structure.sh
+
+check-components:
+	@bash scripts/test/check-components.sh
 
 check-contracts:
 	@bash scripts/test/check-contracts.sh
