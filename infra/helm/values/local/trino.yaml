@@ -1,6 +1,6 @@
 # Trino SQL query engine for the local kind cluster.
 image:
-  tag: "480"
+  tag: "480@sha256:1565e8cac299a32dd9177a4da2d748da4ceb9f1560a9c409d1d18fd72ea5253e"
 
 server:
   workers: 0
