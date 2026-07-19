@@ -45,9 +45,10 @@ def validate_domain_descriptor(document: Mapping[str, Any], *, source: str = "do
             if not isinstance(tables, list):
                 raise DomainDescriptorError(f"{source}: data_products[{index}].{group}.tables must be an array")
             for table_index, table in enumerate(tables):
-                if not isinstance(table, Mapping) or not table.get("name"):
+                if not isinstance(table, Mapping) or not isinstance(table.get("name"), str) or not table["name"]:
                     raise DomainDescriptorError(
-                        f"{source}: data_products[{index}].{group}.tables[{table_index}] must have a name"
+                        f"{source}: data_products[{index}].{group}.tables[{table_index}] "
+                        "must have a non-empty string name"
                     )
                 if "fqn" in table or "fullyQualifiedName" in table:
                     raise DomainDescriptorError(
@@ -69,9 +70,13 @@ def validate_domain_descriptor(document: Mapping[str, Any], *, source: str = "do
                 raise DomainDescriptorError(
                     f"{source}: data_products[{index}].assets[{asset_index}] must not contain physical FQNs"
                 )
-            if not asset.get("name"):
+            if not isinstance(asset.get("name"), str) or not asset["name"]:
                 raise DomainDescriptorError(
-                    f"{source}: data_products[{index}].assets[{asset_index}] must have a logical name"
+                    f"{source}: data_products[{index}].assets[{asset_index}] must have a non-empty logical name"
+                )
+            if asset.get("type") not in (None, "table"):
+                raise DomainDescriptorError(
+                    f"{source}: data_products[{index}].assets[{asset_index}] must have type 'table' when specified"
                 )
 
 
