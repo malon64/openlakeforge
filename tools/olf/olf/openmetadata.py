@@ -235,26 +235,33 @@ class OpenMetadataDeployer:
 
     # --- product/table spec helpers ---------------------------------------
 
-    def schema_fqn_for_product(self, product: dict, table_group_key: str, fallback):
+    def schema_fqn_for_product(self, product: dict, table_group_key: str) -> str | None:
         product_key = product_contract_key(product)
         if table_group_key == "silver_tables":
-            return self.config.catalog_silver_schema_fqns.get(product_key) or fallback
+            return self.config.catalog_silver_schema_fqns.get(product_key)
         if table_group_key == "gold_tables":
-            return self.config.catalog_gold_schema_fqns.get(product_key) or fallback
-        return fallback
+            return self.config.catalog_gold_schema_fqns.get(product_key)
+        return None
 
     def product_table_specs(self, product: dict):
         for key in ["silver_tables", "gold_tables"]:
             spec = product.get(key)
             if not spec:
                 continue
-            schema_fqn = self.schema_fqn_for_product(product, key, spec.get("schema"))
+            schema_fqn = self.schema_fqn_for_product(product, key)
             if not schema_fqn:
                 raise OpenMetadataError(
-                    f"Data product '{product.get('name')}' table group '{key}' is missing required 'schema'."
+                    f"Data product '{product_contract_key(product)}' table group '{key}' is not covered "
+                    "by the provider contract schema FQNs."
                 )
             for table in spec.get("tables", []):
                 yield schema_fqn, table
+
+    def validate_provider_schema_coverage(self, domain_specs: list[tuple[Path, dict]]) -> None:
+        """Fail before metadata writes when descriptors outpace provider contract namespaces."""
+        for _, domain in domain_specs:
+            for product in product_entries(domain):
+                list(self.product_table_specs(product))
 
     def provider_asset_fqn(self, product: dict, fqn):
         if not fqn:
@@ -571,6 +578,7 @@ class OpenMetadataDeployer:
             raise OpenMetadataError(
                 f"No OpenMetadata domain metadata files found under {self.config.metadata_root}/<domain>/domain.yaml"
             )
+        self.validate_provider_schema_coverage(domain_specs)
 
         # Phase A+B: Object Store service and medallion bucket containers.
         self.ensure_storage_service()
