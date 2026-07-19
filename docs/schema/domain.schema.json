@@ -52,7 +52,16 @@
       "properties": {
         "tables": {
           "type": "array",
-          "items": {"type": "object", "required": ["name"]}
+          "items": {
+            "type": "object",
+            "required": ["name"],
+            "not": {
+              "anyOf": [
+                {"required": ["fqn"]},
+                {"required": ["fullyQualifiedName"]}
+              ]
+            }
+          }
         }
       },
       "not": {"required": ["schema"]}

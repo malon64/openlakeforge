@@ -49,6 +49,11 @@ def validate_domain_descriptor(document: Mapping[str, Any], *, source: str = "do
                     raise DomainDescriptorError(
                         f"{source}: data_products[{index}].{group}.tables[{table_index}] must have a name"
                     )
+                if "fqn" in table or "fullyQualifiedName" in table:
+                    raise DomainDescriptorError(
+                        f"{source}: data_products[{index}].{group}.tables[{table_index}] "
+                        "must not contain physical FQNs"
+                    )
             if "schema" in spec:
                 raise DomainDescriptorError(f"{source}: {group}.schema must be derived from provider contracts")
         for asset_index, asset in enumerate(product.get("assets") or []):

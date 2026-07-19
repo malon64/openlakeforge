@@ -88,6 +88,30 @@ def test_domain_descriptor_rejects_logical_asset_without_name() -> None:
         validate_domain_descriptor(descriptor)
 
 
+@pytest.mark.parametrize("field", ["fqn", "fullyQualifiedName"])
+def test_domain_descriptor_rejects_physical_table_identity(field: str) -> None:
+    descriptor = {
+        "apiVersion": "openlakeforge.io/v1alpha1",
+        "kind": "Domain",
+        "name": "sales",
+        "displayName": "Sales",
+        "description": "Sales",
+        "status": "planned",
+        "data_products": [
+            {
+                "id": "orders",
+                "name": "sales_orders",
+                "displayName": "Orders",
+                "description": "Orders",
+                "status": "planned",
+                "gold_tables": {"tables": [{"name": "mart_orders", field: "polaris.lakehouse.mart_orders"}]},
+            }
+        ],
+    }
+    with pytest.raises(DomainDescriptorError, match="physical FQNs"):
+        validate_domain_descriptor(descriptor)
+
+
 @pytest.mark.parametrize(
     ("group", "value"),
     [("silver_tables", {}), ("gold_tables", {"tables": ["mart_revenue"]})],
