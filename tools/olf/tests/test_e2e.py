@@ -128,7 +128,14 @@ def test_check_pods_ready_retries_until_pods_are_ready(
     assert payloads == []
 
 
-def test_aws_full_suite_includes_smoke_checks(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+@pytest.mark.parametrize("env", ["local", "azure", "aws"])
+def test_default_suite_is_full(env: e2e.Environment) -> None:
+    assert e2e.default_suite(env) == "full"
+
+
+def test_aws_default_suite_includes_smoke_and_full_checks(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     calls: list[str] = []
 
     monkeypatch.setattr(e2e, "check_commands", lambda _cfg: None)
@@ -137,9 +144,25 @@ def test_aws_full_suite_includes_smoke_checks(monkeypatch: pytest.MonkeyPatch, t
     monkeypatch.setattr(e2e, "run_smoke", lambda _cfg: calls.append("smoke"))
     monkeypatch.setattr(e2e, "run_full", lambda _cfg: calls.append("full"))
 
-    e2e.run("aws", suite="full", repo_root=tmp_path)
+    e2e.run("aws", repo_root=tmp_path)
 
     assert calls == ["smoke", "full"]
+
+
+def test_aws_explicit_smoke_suite_skips_full_checks(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    calls: list[str] = []
+
+    monkeypatch.setattr(e2e, "check_commands", lambda _cfg: None)
+    monkeypatch.setattr(e2e, "prepare_kube_context", lambda _cfg: None)
+    monkeypatch.setattr(e2e, "check_pods_ready", lambda _cfg: None)
+    monkeypatch.setattr(e2e, "run_smoke", lambda _cfg: calls.append("smoke"))
+    monkeypatch.setattr(e2e, "run_full", lambda _cfg: calls.append("full"))
+
+    e2e.run("aws", suite="smoke", repo_root=tmp_path)
+
+    assert calls == ["smoke"]
 
 
 def test_prepare_kube_context_refreshes_existing_aws_context(
@@ -234,6 +257,34 @@ def test_prepare_kube_context_updates_aws_context_when_existing_context_is_unusa
 
 def test_parse_trino_scalar_returns_last_non_empty_line() -> None:
     assert e2e.parse_trino_scalar("\n15\r\n") == "15"
+
+
+def test_trino_scalar_requests_transient_kubectl_retries(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    calls: list[dict[str, Any]] = []
+
+    def kubectl(
+        _cfg: e2e.E2EConfig,
+        args: list[str],
+        *,
+        capture: bool = False,
+        retry_transient: bool = False,
+    ) -> str:
+        calls.append(
+            {
+                "args": args,
+                "capture": capture,
+                "retry_transient": retry_transient,
+            }
+        )
+        return "6\n"
+
+    monkeypatch.setattr(e2e, "kubectl", kubectl)
+
+    assert e2e.trino_scalar(cfg(tmp_path), "SELECT count(*) FROM iceberg.test.table") == "6"
+    assert calls[0]["capture"] is True
+    assert calls[0]["retry_transient"] is True
 
 
 def test_assert_scalar_equals_reports_mismatch() -> None:
@@ -751,3 +802,37 @@ def test_run_retry_retries_transient_command_errors(monkeypatch: pytest.MonkeyPa
 
     assert e2e._run_retry(["kubectl", "cluster-info"], capture=True, attempts=2, delay=0) == "ok"
     assert attempts == 2
+
+
+def test_run_retry_transient_kubectl_retries_tls_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    attempts = 0
+
+    def run(args: list[str], *, capture: bool = False) -> str:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise e2e.E2EError("Unable to connect to the server: net/http: TLS handshake timeout")
+        return "6"
+
+    monkeypatch.setattr(e2e, "_run", run)
+    monkeypatch.setattr(e2e.time, "sleep", lambda _delay: None)
+
+    assert e2e._run_retry_transient_kubectl(["kubectl", "exec"], attempts=3) == "6"
+    assert attempts == 2
+
+
+def test_run_retry_transient_kubectl_does_not_retry_query_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    attempts = 0
+
+    def run(args: list[str], *, capture: bool = False) -> str:
+        nonlocal attempts
+        attempts += 1
+        raise e2e.E2EError("Trino query failed: TABLE_NOT_FOUND")
+
+    monkeypatch.setattr(e2e, "_run", run)
+
+    with pytest.raises(e2e.E2EError, match="TABLE_NOT_FOUND"):
+        e2e._run_retry_transient_kubectl(["kubectl", "exec"], attempts=3)
+    assert attempts == 1

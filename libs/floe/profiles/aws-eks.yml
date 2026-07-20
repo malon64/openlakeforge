@@ -24,7 +24,7 @@ execution:
     strategy: sequential
   runner:
     type: kubernetes_job
-    image: ghcr.io/malon64/floe:0.6.8
+    image: ghcr.io/malon64/floe:0.6.9
     namespace: lakehouse
     service_account: dagster
     timeout_seconds: 600

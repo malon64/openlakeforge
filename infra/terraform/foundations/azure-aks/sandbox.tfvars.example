@@ -1,0 +1,20 @@
+# Azure AKS foundation — sandbox-specific configuration template.
+#
+# Copy this file to `sandbox.tfvars` in the same directory and configure the
+# temporary resource group supplied by your sandbox:
+#
+#     cp sandbox.tfvars.example sandbox.tfvars
+#     make azure-up
+#
+# `sandbox.tfvars` is gitignored. To keep it elsewhere, set
+# AZURE_TFVARS_FILE=/path/to/your.tfvars.
+#
+# For a company-provided group, replace resource_group_name and keep
+# create_resource_group false. If Terraform should create the group, set
+# create_resource_group true; the name below can be removed to use Terraform's
+# default, `rg-openlakeforge-azure-poc`.
+
+resource_group_name   = "replace-with-your-resource-group"
+create_resource_group = false
+location              = "replace-with-your-resource-group-region"
+node_vm_size           = "replace-with-an-allowed-aks-vm-size"

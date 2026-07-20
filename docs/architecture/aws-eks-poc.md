@@ -102,18 +102,18 @@ both in that order.
 
 ## Compatibility Gate
 
-Before promoting the AWS POC beyond smoke validation, prove:
+The AWS full-suite compatibility gate proves:
 
 - one Silver write through Floe into Glue/S3;
 - one Gold write through dbt-trino into Glue/S3;
 - Trino can query both layers through Glue;
 - OpenMetadata can seed and crawl Glue-backed namespaces.
 
-`make aws-e2e` runs `olf e2e run --env aws`, which defaults to a smoke test for
-cluster health, provider contracts, S3, Glue, Trino, and core workloads. Full
-Dagster job execution and dashboard/data quality assertions are available
-behind `olf e2e run --env aws --suite full`, but should become the default only
-after the Glue/S3 write path is proven.
+`make aws-e2e` runs `olf e2e run --env aws`, which first checks cluster health,
+provider contracts, S3, Glue, Trino, and core workloads, then launches all
+Dagster product jobs and validates tables, marts, dashboards, metadata, and
+runtime artifacts. Use `olf e2e run --env aws --suite smoke` to run only the
+preflight checks.
 
 ## POC Limits
 

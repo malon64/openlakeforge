@@ -9,13 +9,9 @@ PROJECT_CODE_IMAGE_PULL_POLICY ?= Never
 SUPERSET_IMAGE_REPOSITORY ?= ghcr.io/openlakeforge/superset
 SUPERSET_IMAGE_TAG ?= local
 SUPERSET_IMAGE_PULL_POLICY ?= Never
-AZURE_LOCATION ?= westeurope
-AZURE_RESOURCE_GROUP ?= rg-openlakeforge-azure-poc
-AZURE_CREATE_RESOURCE_GROUP ?= true
 AZURE_CLUSTER_NAME ?= aks-openlakeforge-poc
 AZURE_KUBE_CONTEXT ?= $(AZURE_CLUSTER_NAME)
 AZURE_NODE_COUNT ?= 3
-AZURE_NODE_VM_SIZE ?= Standard_D4s_v5
 AZURE_ACR_NAME_PREFIX ?= openlakeforgepoc
 AZURE_IMAGE_TAG ?= azure-$(shell git rev-parse --short HEAD 2>/dev/null || date -u +%Y%m%d%H%M%S)
 AZURE_PROJECT_CODE_IMAGE_REPOSITORY ?=
@@ -71,7 +67,7 @@ help:
 	@printf '%s\n' '  make local-e2e        Run local end-to-end validation through olf'
 	@printf '%s\n' ''
 	@printf '%s\n' 'Azure AKS POC stack:'
-	@printf '%s\n' '  make azure-foundation-up    Terraform-create Azure resource group, AKS, and ACR'
+	@printf '%s\n' '  make azure-foundation-up    Terraform-create the Azure AKS and ACR foundation'
 	@printf '%s\n' '  make azure-platform-up      Build/push Superset image, then apply AKS platform services'
 	@printf '%s\n' '  make azure-platform-down    Terraform-destroy AKS platform services, leaving AKS/ACR'
 	@printf '%s\n' '  make azure-artifacts-deploy Deploy Floe manifests, project-code image, Superset reports, and OpenMetadata metadata'
@@ -79,7 +75,7 @@ help:
 	@printf '%s\n' '  make azure-forward          Port-forward all Azure POC services to localhost'
 	@printf '%s\n' '  make azure-e2e              Run Azure POC end-to-end validation'
 	@printf '%s\n' '  make azure-down             Full teardown wrapper: platform, foundation'
-	@printf '%s\n' '  make azure-foundation-down  Terraform-destroy AKS, ACR, and resource group resources'
+	@printf '%s\n' '  make azure-foundation-down  Terraform-destroy the Azure AKS and ACR foundation'
 	@printf '%s\n' ''
 	@printf '%s\n' 'AWS EKS managed-services POC stack:'
 	@printf '%s\n' '  make aws-foundation-up      Terraform-create AWS VPC, EKS, ECR, and IRSA foundation'
@@ -88,7 +84,7 @@ help:
 	@printf '%s\n' '  make aws-artifacts-deploy   Deploy Floe manifests, project-code image, Superset reports, and OpenMetadata metadata'
 	@printf '%s\n' '  make aws-up                 Full wrapper: foundation, platform, artifacts'
 	@printf '%s\n' '  make aws-forward            Port-forward AWS POC services to localhost'
-	@printf '%s\n' '  make aws-e2e                Run AWS POC smoke validation'
+	@printf '%s\n' '  make aws-e2e                Run AWS POC end-to-end validation'
 	@printf '%s\n' '  make aws-down               Full teardown wrapper: platform, foundation'
 	@printf '%s\n' '  make aws-foundation-down    Terraform-destroy AWS EKS, ECR, and VPC resources'
 
@@ -213,7 +209,7 @@ local-e2e:
 	@NAMESPACE=$(NAMESPACE) CLUSTER_NAME=$(CLUSTER_NAME) KUBE_CONTEXT=$(KUBE_CONTEXT) OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR=infra/terraform/environments/local bash scripts/artifacts/olf.sh e2e run --env local
 
 azure-foundation-up:
-	@AZURE_RESOURCE_GROUP=$(AZURE_RESOURCE_GROUP) AZURE_CREATE_RESOURCE_GROUP=$(AZURE_CREATE_RESOURCE_GROUP) AZURE_LOCATION=$(AZURE_LOCATION) AZURE_CLUSTER_NAME=$(AZURE_CLUSTER_NAME) AZURE_NODE_COUNT=$(AZURE_NODE_COUNT) AZURE_NODE_VM_SIZE=$(AZURE_NODE_VM_SIZE) AZURE_ACR_NAME_PREFIX=$(AZURE_ACR_NAME_PREFIX) bash scripts/azure/foundation/up.sh
+	@AZURE_TFVARS_FILE="$(AZURE_TFVARS_FILE)" AZURE_CLUSTER_NAME=$(AZURE_CLUSTER_NAME) AZURE_NODE_COUNT=$(AZURE_NODE_COUNT) AZURE_ACR_NAME_PREFIX=$(AZURE_ACR_NAME_PREFIX) bash scripts/azure/foundation/up.sh
 
 azure-platform-up:
 	@NAMESPACE=$(NAMESPACE) AZURE_CLUSTER_NAME=$(AZURE_CLUSTER_NAME) KUBE_CONTEXT=$(AZURE_KUBE_CONTEXT) AZURE_IMAGE_TAG=$(AZURE_IMAGE_TAG) PROJECT_CODE_IMAGE_REPOSITORY="$(AZURE_PROJECT_CODE_IMAGE_REPOSITORY)" PROJECT_CODE_IMAGE_TAG="$(AZURE_PROJECT_CODE_IMAGE_TAG)" PROJECT_CODE_IMAGE_PULL_POLICY=Always SUPERSET_IMAGE_REPOSITORY="$(AZURE_SUPERSET_IMAGE_REPOSITORY)" SUPERSET_IMAGE_TAG="$(AZURE_SUPERSET_IMAGE_TAG)" SUPERSET_IMAGE_PULL_POLICY=Always bash scripts/azure/stack/platform-up.sh
@@ -264,7 +260,7 @@ azure-platform-down:
 	@NAMESPACE=$(NAMESPACE) AZURE_CLUSTER_NAME=$(AZURE_CLUSTER_NAME) KUBE_CONTEXT=$(AZURE_KUBE_CONTEXT) bash scripts/azure/stack/teardown.sh
 
 azure-foundation-down:
-	@NAMESPACE=$(NAMESPACE) AZURE_RESOURCE_GROUP=$(AZURE_RESOURCE_GROUP) AZURE_CREATE_RESOURCE_GROUP=$(AZURE_CREATE_RESOURCE_GROUP) AZURE_LOCATION=$(AZURE_LOCATION) AZURE_CLUSTER_NAME=$(AZURE_CLUSTER_NAME) AZURE_NODE_COUNT=$(AZURE_NODE_COUNT) AZURE_NODE_VM_SIZE=$(AZURE_NODE_VM_SIZE) AZURE_ACR_NAME_PREFIX=$(AZURE_ACR_NAME_PREFIX) KUBE_CONTEXT=$(AZURE_KUBE_CONTEXT) bash scripts/azure/foundation/down.sh
+	@NAMESPACE=$(NAMESPACE) AZURE_TFVARS_FILE="$(AZURE_TFVARS_FILE)" AZURE_CLUSTER_NAME=$(AZURE_CLUSTER_NAME) AZURE_NODE_COUNT=$(AZURE_NODE_COUNT) AZURE_ACR_NAME_PREFIX=$(AZURE_ACR_NAME_PREFIX) KUBE_CONTEXT=$(AZURE_KUBE_CONTEXT) bash scripts/azure/foundation/down.sh
 
 aws-foundation-up:
 	@AWS_REGION=$(AWS_REGION) AWS_CLUSTER_NAME=$(AWS_CLUSTER_NAME) AWS_NODE_DESIRED_SIZE=$(AWS_NODE_DESIRED_SIZE) AWS_NODE_MIN_SIZE=$(AWS_NODE_MIN_SIZE) AWS_NODE_MAX_SIZE=$(AWS_NODE_MAX_SIZE) AWS_NODE_INSTANCE_TYPES=$(AWS_NODE_INSTANCE_TYPES) bash scripts/aws/foundation/up.sh

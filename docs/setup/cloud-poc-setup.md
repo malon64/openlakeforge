@@ -95,7 +95,8 @@ teardown does not stall on non-empty registries or a stuck reports PVC.
 
 ## Azure (AKS)
 
-Azure is configured through **environment variables** (no tfvars file).
+Azure resource-group settings live in a local **tfvars file** so temporary
+sandbox names are not committed to the repository.
 
 ### 1. Authenticate
 
@@ -105,20 +106,34 @@ az account set --subscription "<your-subscription-id>"
 az account show          # sanity check — the scripts require this to succeed
 ```
 
-### 2. Configure (optional overrides)
+### 2. Configure the resource group
+
+Copy the tracked template and set the name and region of your sandbox resource
+group, plus an AKS VM size permitted by that subscription and region. Keep
+`create_resource_group = false` when the group is supplied by your company
+sandbox. When Terraform should create the group, set it to `true`; removing
+`resource_group_name` then uses the default `rg-openlakeforge-azure-poc`.
+
+```bash
+cd infra/terraform/foundations/azure-aks
+cp sandbox.tfvars.example sandbox.tfvars
+```
+
+The scripts load `sandbox.tfvars` automatically. To keep it elsewhere, set
+`AZURE_TFVARS_FILE=/abs/path/to/your.tfvars`.
+
+### 3. Configure optional runtime overrides
 
 All have defaults; override via environment variables:
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `AZURE_RESOURCE_GROUP` | `rg-openlakeforge-azure-poc` | Resource group |
-| `AZURE_LOCATION` | `westeurope` | Region |
+| `AZURE_TFVARS_FILE` | `<foundation-dir>/sandbox.tfvars` | Path to your resource-group tfvars |
 | `AZURE_CLUSTER_NAME` | `aks-openlakeforge-poc` | AKS cluster name |
 | `AZURE_NODE_COUNT` | `3` | Node count |
-| `AZURE_NODE_VM_SIZE` | `Standard_D4s_v5` | Node VM size |
 | `AZURE_ACR_NAME_PREFIX` | `openlakeforgepoc` | ACR name prefix (globally unique) |
 
-### 3. Deploy / tear down
+### 4. Deploy / tear down
 
 ```bash
 make azure-foundation-up
@@ -138,5 +153,5 @@ make azure-down             # full teardown wrapper: platform, then foundation
 - **`*.tfvars`** — gitignored; only the `*.tfvars.example` templates are tracked.
 - **Terraform state** (`*.tfstate`) and `.terraform/` — local only.
 
-If you add a new account-specific value, put it in your local `sandbox.tfvars`
-(AWS) or an env var (Azure) — not in a tracked file.
+If you add a new account-specific value, put it in your local `sandbox.tfvars`,
+not in a tracked file.

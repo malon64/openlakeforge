@@ -286,7 +286,7 @@ def polaris_check_credentials(
 @e2e_app.command("run")
 def e2e_run(
     env: str = typer.Option(..., "--env", help="Environment to validate: local, azure, or aws."),
-    suite: str = typer.Option("", "--suite", help="Suite to run: full or smoke. Defaults by environment."),
+    suite: str = typer.Option("", "--suite", help="Suite to run: full or smoke. Defaults to full."),
 ) -> None:
     """Run end-to-end validation for a deployed OpenLakeForge environment."""
     from olf import e2e

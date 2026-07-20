@@ -88,6 +88,15 @@ READINESS_DELAY_SECONDS = 5
 DIAGNOSTIC_LOG_LINES = 80
 LAUNCH_RETRY_ATTEMPTS = 4
 LAUNCH_RETRY_DELAY_SECONDS = 3
+KUBECTL_READ_RETRY_ATTEMPTS = 4
+KUBECTL_READ_RETRY_DELAY_SECONDS = 2
+TRANSIENT_KUBECTL_ERROR_MARKERS = (
+    "tls handshake timeout",
+    "i/o timeout",
+    "connection reset by peer",
+    "http2: client connection lost",
+    "the server is currently unable to handle the request",
+)
 
 
 class E2EError(RuntimeError):
@@ -204,8 +213,8 @@ def run(
     log.info(f"{cfg.env.capitalize()} OpenLakeForge {cfg.suite} e2e validation passed.")
 
 
-def default_suite(env: Environment) -> Suite:
-    return "smoke" if env == "aws" else "full"
+def default_suite(_env: Environment) -> Suite:
+    return "full"
 
 
 def prepare_config(
@@ -421,22 +430,7 @@ def unhealthy_pod_messages(payload: Mapping[str, Any]) -> list[str]:
 
 def check_trino_catalog(cfg: E2EConfig) -> None:
     log.step("Checking Trino catalogs...")
-    catalogs = kubectl(
-        cfg,
-        [
-            "exec",
-            "-n",
-            cfg.namespace,
-            "deploy/trino-coordinator",
-            "--",
-            "trino",
-            "--output-format",
-            "CSV_UNQUOTED",
-            "--execute",
-            "SHOW CATALOGS",
-        ],
-        capture=True,
-    )
+    catalogs = trino_query(cfg, "SHOW CATALOGS")
     if "iceberg" not in set(catalogs.splitlines()):
         raise E2EError("Trino did not expose the iceberg catalog.")
 
@@ -466,6 +460,10 @@ def check_trino_tables_and_marts(cfg: E2EConfig) -> None:
 
 
 def trino_scalar(cfg: E2EConfig, sql: str) -> str:
+    return parse_trino_scalar(trino_query(cfg, sql))
+
+
+def trino_query(cfg: E2EConfig, sql: str) -> str:
     output = kubectl(
         cfg,
         [
@@ -481,8 +479,9 @@ def trino_scalar(cfg: E2EConfig, sql: str) -> str:
             sql,
         ],
         capture=True,
+        retry_transient=True,
     )
-    return parse_trino_scalar(output)
+    return output
 
 
 def parse_trino_scalar(output: str) -> str:
@@ -507,6 +506,7 @@ def launch_and_poll_dagster_jobs(cfg: E2EConfig) -> None:
         cfg.namespace,
         local_port=cfg.dagster_local_port,
         log_path=log_path,
+        kube_context=cfg.kube_context,
     ):
         base_url = f"http://127.0.0.1:{cfg.dagster_local_port}"
         if not k8s.http_wait(f"{base_url}/server_info", attempts=90, delay=2):
@@ -783,7 +783,14 @@ def check_superset_dashboards(cfg: E2EConfig) -> None:
     log.step("Checking Superset report imports...")
     assert cfg.superset_local_port is not None
     log_path = f"/tmp/openlakeforge-{cfg.env}-superset-port-forward.log"
-    with k8s.port_forward("superset", 8088, cfg.namespace, local_port=cfg.superset_local_port, log_path=log_path):
+    with k8s.port_forward(
+        "superset",
+        8088,
+        cfg.namespace,
+        local_port=cfg.superset_local_port,
+        log_path=log_path,
+        kube_context=cfg.kube_context,
+    ):
         base_url = f"http://127.0.0.1:{cfg.superset_local_port}"
         if not k8s.http_wait(f"{base_url}/health", attempts=90, delay=2):
             raise E2EError("Superset endpoint did not become reachable.")
@@ -854,6 +861,7 @@ def check_openmetadata_assets(cfg: E2EConfig) -> None:
         cfg.namespace,
         local_port=cfg.openmetadata_local_port,
         log_path=log_path,
+        kube_context=cfg.kube_context,
     ):
         base_url = f"http://127.0.0.1:{cfg.openmetadata_local_port}"
         if not k8s.http_wait(f"{base_url}/api/v1/system/config/jwks", attempts=90, delay=2):
@@ -926,10 +934,27 @@ def check_ops_artifacts(cfg: E2EConfig) -> None:
         return
 
     assert cfg.seaweedfs_local_port is not None
-    access_key_id = k8s.secret_value("seaweedfs-s3-creds", "AWS_ACCESS_KEY_ID", cfg.namespace)
-    secret_access_key = k8s.secret_value("seaweedfs-s3-creds", "AWS_SECRET_ACCESS_KEY", cfg.namespace)
+    access_key_id = k8s.secret_value(
+        "seaweedfs-s3-creds",
+        "AWS_ACCESS_KEY_ID",
+        cfg.namespace,
+        kube_context=cfg.kube_context,
+    )
+    secret_access_key = k8s.secret_value(
+        "seaweedfs-s3-creds",
+        "AWS_SECRET_ACCESS_KEY",
+        cfg.namespace,
+        kube_context=cfg.kube_context,
+    )
     log_path = f"/tmp/openlakeforge-{cfg.env}-seaweedfs-s3-port-forward.log"
-    with k8s.port_forward("seaweedfs-s3", 8333, cfg.namespace, local_port=cfg.seaweedfs_local_port, log_path=log_path):
+    with k8s.port_forward(
+        "seaweedfs-s3",
+        8333,
+        cfg.namespace,
+        local_port=cfg.seaweedfs_local_port,
+        log_path=log_path,
+        kube_context=cfg.kube_context,
+    ):
         endpoint = f"http://127.0.0.1:{cfg.seaweedfs_local_port}"
         client = boto3.client(
             "s3",
@@ -1057,8 +1082,17 @@ def terraform_output(terraform_dir: Path | None, name: str) -> str:
     return _run(["terraform", f"-chdir={terraform_dir}", "output", "-raw", name], capture=True).strip()
 
 
-def kubectl(cfg: E2EConfig, args: list[str], *, capture: bool = False) -> str:
-    return _run(["kubectl", "--context", cfg.kube_context, *args], capture=capture)
+def kubectl(
+    cfg: E2EConfig,
+    args: list[str],
+    *,
+    capture: bool = False,
+    retry_transient: bool = False,
+) -> str:
+    command = ["kubectl", "--context", cfg.kube_context, *args]
+    if retry_transient:
+        return _run_retry_transient_kubectl(command, capture=capture)
+    return _run(command, capture=capture)
 
 
 def _run(args: list[str], *, capture: bool = False) -> str:
@@ -1082,3 +1116,29 @@ def _run_retry(args: list[str], *, capture: bool = False, attempts: int = 3, del
     if last_error is None:
         raise E2EError(f"{' '.join(args)} failed.")
     raise last_error
+
+
+def _run_retry_transient_kubectl(
+    args: list[str],
+    *,
+    capture: bool = False,
+    attempts: int = KUBECTL_READ_RETRY_ATTEMPTS,
+    delay: float = KUBECTL_READ_RETRY_DELAY_SECONDS,
+) -> str:
+    for attempt in range(1, attempts + 1):
+        try:
+            return _run(args, capture=capture)
+        except E2EError as exc:
+            if attempt == attempts or not is_transient_kubectl_error(exc):
+                raise
+            log.warn(
+                f"Transient Kubernetes API error during read-only Trino probe "
+                f"(attempt {attempt}/{attempts}); retrying..."
+            )
+            time.sleep(delay)
+    raise E2EError(f"{' '.join(args)} failed.")  # pragma: no cover
+
+
+def is_transient_kubectl_error(error: Exception) -> bool:
+    message = str(error).lower()
+    return any(marker in message for marker in TRANSIENT_KUBECTL_ERROR_MARKERS)

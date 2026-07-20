@@ -47,9 +47,21 @@ def resource_exists(kind: str, name: str, namespace: str) -> bool:
     return result.returncode == 0
 
 
-def secret_value(secret_name: str, key: str, namespace: str) -> str:
+def secret_value(
+    secret_name: str,
+    key: str,
+    namespace: str,
+    *,
+    kube_context: str | None = None,
+) -> str:
+    args = []
+    if kube_context:
+        args.extend(["--context", kube_context])
+    args.extend(
+        ["get", "secret", secret_name, "-n", namespace, "-o", f"jsonpath={{.data.{key}}}"]
+    )
     raw = _kubectl(
-        ["get", "secret", secret_name, "-n", namespace, "-o", f"jsonpath={{.data.{key}}}"],
+        args,
         capture=True,
     )
     return base64.b64decode(raw).decode("utf-8")
@@ -69,6 +81,7 @@ def port_forward(
     *,
     local_port: int | None = None,
     log_path: str = "/tmp/openlakeforge-port-forward.log",
+    kube_context: str | None = None,
 ) -> Iterator[int]:
     """Run `kubectl port-forward` for the block, yielding the local port.
 
@@ -76,16 +89,21 @@ def port_forward(
     probe (Polaris OAuth, OpenMetadata JWKS, S3 head-bucket).
     """
     port = local_port or _free_local_port()
+    command = ["kubectl"]
+    if kube_context:
+        command.extend(["--context", kube_context])
+    command.extend(
+        [
+            "port-forward",
+            f"svc/{service}",
+            f"{port}:{remote_port}",
+            "-n",
+            namespace,
+        ]
+    )
     with open(log_path, "w", encoding="utf-8") as log_file:
         process = subprocess.Popen(
-            [
-                "kubectl",
-                "port-forward",
-                f"svc/{service}",
-                f"{port}:{remote_port}",
-                "-n",
-                namespace,
-            ],
+            command,
             stdout=log_file,
             stderr=subprocess.STDOUT,
         )

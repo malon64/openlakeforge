@@ -1,17 +1,17 @@
 {
   "schema": "floe.manifest.v1",
   "generated_at_ts_ms": 0,
-  "floe_version": "0.6.8",
+  "floe_version": "0.6.9",
   "spec_version": "0.2",
   "manifest_name": "sales.customer_health.local",
   "manifest_id": "mfv1-037fc1c3058e852a",
-  "manifest_revision": "sha256:cf1d57866521b4701af46ea1d5bc02e2ee863552f1cca29aab3a68d214472d66",
+  "manifest_revision": "sha256:586b8eb9e77dd541e2e94fed1e93d52a58d1c0240b947ef64c2000f6f65e6cf6",
   "runtime_env": "image",
   "work_root": "/work",
   "config_uri": "local:///work/domains/sales/contracts/floe/customer_health.yml",
   "config_checksum": "sha256:15589410574a14d739d47f07109b55e27787ab711f82d1bb04cf82d5a911f187",
   "profile_uri": "local:///work/libs/floe/profiles/local-k8s.yml",
-  "profile_checksum": "sha256:d46aa2bbd1e660aed1da7b62b3c74037cda7e7e602f717bf3ae6c6424d60530e",
+  "profile_checksum": "sha256:c568c28b86c60f716fea53f0fd838aca85f0a2879be04e79f928c22a23d990ef",
   "report_base_uri": "s3://openlakeforge-ops/floe/reports/sales/customer_health",
   "domains": [],
   "execution": {
@@ -78,7 +78,7 @@
             "key": "POLARIS_FLOE_CLIENT_SECRET"
           }
         ],
-        "image": "ghcr.io/malon64/floe:0.6.8",
+        "image": "ghcr.io/malon64/floe:0.6.9",
         "namespace": "lakehouse",
         "service_account": "dagster",
         "resources": null,

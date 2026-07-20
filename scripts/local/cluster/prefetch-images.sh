@@ -34,7 +34,7 @@ IMAGES=(
   "apache/superset:dockerize"
   "apache/superset:6.1.0@sha256:fb3464528ec7076f91195f0ff7835755aa023e281f1bb78a84782ce7a36b3705"
   "docker.io/bitnamilegacy/redis:7.0.10-debian-11-r4"
-  "ghcr.io/malon64/floe:0.6.8"
+  "ghcr.io/malon64/floe:0.6.9"
 )
 
 WORK_DIR="$(mktemp -d)"
@@ -55,14 +55,31 @@ for image in "${IMAGES[@]}"; do
     docker_pull_with_retries "$image"
   fi
 
+  # `docker save` leaves RepoTags empty when given a tag@digest reference. In
+  # turn, `ctr images import --digests` invents an `import-<date>@...` name for
+  # that anonymous index. containerd's CRI plugin can then select the synthetic
+  # name and fail to create a container because the normalized reference does
+  # not exist. Save the tagged name instead so the archive retains its identity.
+  archive_image="${image%@sha256:*}"
+  if [[ "${archive_image}" != "${image}" ]]; then
+    docker image tag "${image}" "${archive_image}"
+  fi
+
   archive="${WORK_DIR}/$(echo "${image}" | tr '/:@' '____').tar"
-  echo "==> Saving $image..."
-  docker save "$image" -o "${archive}"
+  echo "==> Saving ${archive_image}..."
+  docker save "${archive_image}" -o "${archive}"
 
   for node in ${nodes}; do
     echo "==> Loading $image into kind node '${node}'..."
     docker exec --privileged -i "${node}" \
-      ctr --namespace=k8s.io images import --digests --snapshotter=overlayfs - <"${archive}"
+      ctr --namespace=k8s.io images import --snapshotter=overlayfs - <"${archive}"
+
+    # Register digest-pinned references through CRI after the layers are local.
+    # This only fetches registry metadata and prevents CRI from associating the
+    # image ID with an anonymous `import-<date>` reference.
+    if [[ "${archive_image}" != "${image}" ]]; then
+      docker exec "${node}" crictl pull "${image}"
+    fi
   done
 done
 

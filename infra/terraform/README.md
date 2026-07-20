@@ -105,27 +105,27 @@ make azure-foundation-down
 ```
 
 `make azure-foundation-up` runs Terraform in
-`infra/terraform/foundations/azure-aks` to create the resource group, AKS
-cluster, ACR registry, AKS-to-ACR `AcrPull` role assignment, and AKS OIDC /
-Workload Identity readiness. The wrapper then runs `az aks get-credentials`.
+`infra/terraform/foundations/azure-aks` to create the AKS cluster, ACR registry,
+AKS-to-ACR `AcrPull` role assignment, and AKS OIDC / Workload Identity
+readiness. The wrapper then runs `az aks get-credentials`.
 
-The default Azure foundation model owns the resource group because that keeps
-the POC lifecycle self-contained: `make azure-foundation-down` can remove the
-whole foundation after `make azure-down` removes the in-cluster platform.
-Restricted corporate sandboxes may provide a resource group and only allow
-resource creation inside that scope. For that case, run the same foundation with
-an externally managed resource group:
+Resource-group settings are required in a local, gitignored tfvars file. Copy
+the template and configure the group supplied by your sandbox:
 
 ```bash
-AZURE_RESOURCE_GROUP=<existing-resource-group> \
-AZURE_CREATE_RESOURCE_GROUP=false \
-AZURE_LOCATION=<resource-group-region> \
+cd infra/terraform/foundations/azure-aks
+cp sandbox.tfvars.example sandbox.tfvars
+# Edit resource_group_name, create_resource_group, location, and node_vm_size.
+cd ../../../..
 make azure-foundation-up
 ```
 
-Use the same environment overrides for the rest of the Azure lifecycle. In this
-mode Terraform reads the resource group as data, creates AKS and ACR inside it,
-and leaves the resource group itself untouched during foundation destroy.
+With `create_resource_group = false`, Terraform reads the resource group as
+data, creates AKS and ACR inside it, and leaves the group untouched during
+foundation destroy. Set `AZURE_TFVARS_FILE` to use a file outside the default
+foundation directory. With `create_resource_group = true`, Terraform creates
+the group and uses `rg-openlakeforge-azure-poc` when `resource_group_name` is
+omitted.
 
 `make azure-up` runs:
 

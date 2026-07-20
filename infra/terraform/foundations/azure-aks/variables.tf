@@ -1,5 +1,5 @@
 variable "resource_group_name" {
-  description = "Azure resource group for the AKS POC foundation."
+  description = "Azure resource group for the AKS POC foundation. Override this for an existing sandbox resource group."
   type        = string
   default     = "rg-openlakeforge-azure-poc"
 }
@@ -41,9 +41,8 @@ variable "node_count" {
 }
 
 variable "node_vm_size" {
-  description = "Default AKS node pool VM size."
+  description = "AKS node pool VM size allowed by the target subscription and region."
   type        = string
-  default     = "Standard_D4s_v5"
 }
 
 variable "node_os_disk_size_gb" {

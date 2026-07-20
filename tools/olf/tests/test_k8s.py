@@ -1,8 +1,75 @@
+import base64
 import json
+from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 
 from olf import k8s
+
+
+def test_secret_value_uses_explicit_kube_context(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[list[str]] = []
+    encoded = base64.b64encode(b"secret").decode("ascii")
+    monkeypatch.setattr(
+        k8s,
+        "_kubectl",
+        lambda args, **_kwargs: calls.append(args) or encoded,
+    )
+
+    value = k8s.secret_value(
+        "seaweedfs-s3-creds",
+        "AWS_ACCESS_KEY_ID",
+        "lakehouse",
+        kube_context="kind-openlakeforge-local",
+    )
+
+    assert value == "secret"
+    assert calls == [
+        [
+            "--context",
+            "kind-openlakeforge-local",
+            "get",
+            "secret",
+            "seaweedfs-s3-creds",
+            "-n",
+            "lakehouse",
+            "-o",
+            "jsonpath={.data.AWS_ACCESS_KEY_ID}",
+        ]
+    ]
+
+
+def test_port_forward_uses_explicit_kube_context(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    process = Mock()
+    process.poll.return_value = 0
+    popen = Mock(return_value=process)
+    monkeypatch.setattr(k8s.subprocess, "Popen", popen)
+
+    with k8s.port_forward(
+        "superset",
+        8088,
+        "lakehouse",
+        local_port=18088,
+        log_path=str(tmp_path / "port-forward.log"),
+        kube_context="kind-openlakeforge-local",
+    ) as local_port:
+        assert local_port == 18088
+
+    assert popen.call_args.args[0] == [
+        "kubectl",
+        "--context",
+        "kind-openlakeforge-local",
+        "port-forward",
+        "svc/superset",
+        "18088:8088",
+        "-n",
+        "lakehouse",
+    ]
+    process.terminate.assert_called_once_with()
+    process.wait.assert_called_once_with(timeout=10)
 
 
 def test_dagster_yaml_job_image_rewrite_preserves_indent_and_trailing_newline() -> None:

@@ -307,9 +307,10 @@ make aws-e2e
 Pod Identity), `aws-platform-up`, and `aws-artifacts-deploy`. The foundation
 apply is a no-op once it exists. Azure follows the same three-step pattern with
 `azure-foundation-up`, `azure-platform-up`, and `azure-artifacts-deploy`.
-`make aws-e2e` runs the current AWS smoke suite through `olf e2e run --env aws`;
-the full Dagster/Superset/OpenMetadata e2e suite remains a rollout gate for the
-AWS Glue/S3 path.
+`make aws-e2e` runs the full shared suite through `olf e2e run --env aws`: AWS
+provider, S3, Glue, and Trino preflight checks followed by Dagster product jobs,
+table and mart assertions, Superset dashboards, OpenMetadata assets, and runtime
+artifacts. Use `olf e2e run --env aws --suite smoke` for preflight-only checks.
 
 Teardown runs in the opposite order:
 
