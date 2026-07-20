@@ -292,7 +292,6 @@ def check_commands(cfg: E2EConfig) -> None:
 
 def prepare_kube_context(cfg: E2EConfig) -> None:
     if cfg.env == "local" and kube_context_is_ready(cfg.kube_context):
-        _run(["kubectl", "config", "use-context", cfg.kube_context], capture=True)
         return
 
     if cfg.env == "azure":
@@ -309,6 +308,8 @@ def prepare_kube_context(cfg: E2EConfig) -> None:
                 resource_group,
                 "--name",
                 cluster_name,
+                "--file",
+                os.environ["KUBECONFIG"],
                 "--overwrite-existing",
             ]
         )
@@ -326,12 +327,13 @@ def prepare_kube_context(cfg: E2EConfig) -> None:
                 region,
                 "--name",
                 cluster_name,
+                "--kubeconfig",
+                os.environ["KUBECONFIG"],
                 "--alias",
                 cfg.kube_context,
             ]
         )
     _run_retry(["kubectl", "cluster-info", "--context", cfg.kube_context], capture=True, attempts=6, delay=5)
-    _run(["kubectl", "config", "use-context", cfg.kube_context], capture=True)
 
 
 def kube_context_is_ready(kube_context: str) -> bool:
@@ -571,7 +573,7 @@ class DagsterClient:
         for attempt in range(LAUNCH_RETRY_ATTEMPTS):
             try:
                 result = self.graphql(
-            """
+                    """
             mutation LaunchRun($executionParams: ExecutionParams!) {
               launchRun(executionParams: $executionParams) {
                 __typename
@@ -779,6 +781,8 @@ class DagsterClient:
         except (requests.ConnectionError, requests.Timeout) as exc:
             raise DagsterTransientError(f"Dagster GraphQL request failed: {exc}") from exc
         return response.json()
+
+
 def check_superset_dashboards(cfg: E2EConfig) -> None:
     log.step("Checking Superset report imports...")
     assert cfg.superset_local_port is not None
@@ -843,9 +847,7 @@ def assert_superset_dashboards(
     by_slug = {dashboard.get("slug"): dashboard.get("dashboard_title") for dashboard in dashboards}
     titles = {dashboard.get("dashboard_title") for dashboard in dashboards}
     missing = [
-        f"{slug} ({title})"
-        for slug, title in expected.items()
-        if by_slug.get(slug) != title and title not in titles
+        f"{slug} ({title})" for slug, title in expected.items() if by_slug.get(slug) != title and title not in titles
     ]
     if missing:
         raise E2EError("missing Superset dashboards: " + ", ".join(missing))

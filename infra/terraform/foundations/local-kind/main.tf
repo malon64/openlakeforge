@@ -6,7 +6,7 @@ locals {
   repo_root                   = abspath("${path.root}/../../../..")
   default_cluster_config_path = "${local.repo_root}/infra/kind/local/kind-cluster.yaml"
   cluster_config_path         = var.cluster_config_path != null ? abspath(pathexpand(var.cluster_config_path)) : local.default_cluster_config_path
-  kubeconfig_path             = var.kubeconfig_path != null ? pathexpand(var.kubeconfig_path) : pathexpand("~/.kube/config")
+  kubeconfig_path             = var.kubeconfig_path != null ? abspath(pathexpand(var.kubeconfig_path)) : "${local.repo_root}/.tmp/kubeconfigs/local.yaml"
   kube_context                = "kind-${var.cluster_name}"
 }
 
@@ -44,14 +44,16 @@ resource "terraform_data" "kind_cluster" {
         exit 1
       fi
 
+      mkdir -p "$(dirname "$KUBECONFIG_PATH")"
+
       if kind get clusters 2>/dev/null | grep -qx "$CLUSTER_NAME"; then
         if [[ "$RESET_EXISTING_CLUSTER" == "true" ]]; then
           echo "==> Deleting existing kind cluster '$CLUSTER_NAME'..."
           kind delete cluster --name "$CLUSTER_NAME"
         else
           echo "Kind cluster '$CLUSTER_NAME' already exists. Reusing it."
-          kubectl config use-context "kind-$CLUSTER_NAME" >/dev/null
-          kubectl cluster-info --context "kind-$CLUSTER_NAME"
+          kind export kubeconfig --name "$CLUSTER_NAME" --kubeconfig "$KUBECONFIG_PATH"
+          kubectl --kubeconfig "$KUBECONFIG_PATH" cluster-info --context "kind-$CLUSTER_NAME"
           exit 0
         fi
       fi
@@ -60,10 +62,10 @@ resource "terraform_data" "kind_cluster" {
       kind create cluster \
         --name "$CLUSTER_NAME" \
         --config "$CLUSTER_CONFIG" \
+        --kubeconfig "$KUBECONFIG_PATH" \
         --wait "$KIND_WAIT_TIMEOUT"
 
-      kubectl config use-context "kind-$CLUSTER_NAME" >/dev/null
-      kubectl get nodes --context "kind-$CLUSTER_NAME"
+      kubectl --kubeconfig "$KUBECONFIG_PATH" get nodes --context "kind-$CLUSTER_NAME"
     EOT
 
     interpreter = ["/usr/bin/env", "bash", "-c"]
@@ -72,6 +74,7 @@ resource "terraform_data" "kind_cluster" {
       CLUSTER_CONFIG         = local.cluster_config_path
       CLUSTER_NAME           = var.cluster_name
       KIND_WAIT_TIMEOUT      = var.kind_wait_timeout
+      KUBECONFIG_PATH        = local.kubeconfig_path
       RESET_EXISTING_CLUSTER = tostring(var.reset_existing_cluster)
     }
   }

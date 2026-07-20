@@ -76,7 +76,7 @@ make local-artifacts-deploy
 - Polaris Floe principal bootstrap credentials for manifest-driven Floe jobs
 - shared local PostgreSQL for Dagster, OpenMetadata, and Superset metadata
 - Dagster webserver, daemon, domain product code servers, and Kubernetes run launcher
-- Superset webserver, worker, reports volume, and local report deploy path
+- Superset webserver, worker, ephemeral report staging volume, and local report deploy path
 - OpenMetadata, Polaris service metadata, and catalog ingestion plumbing
 - SeaweedFS S3, Filer, and Master services for local object storage and inspection
 

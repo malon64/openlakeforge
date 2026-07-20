@@ -9,6 +9,8 @@ NAMESPACE="${NAMESPACE:-lakehouse}"
 AZURE_CLUSTER_NAME="${AZURE_CLUSTER_NAME:-aks-openlakeforge-poc}"
 AZURE_NODE_COUNT="${AZURE_NODE_COUNT:-3}"
 AZURE_ACR_NAME_PREFIX="${AZURE_ACR_NAME_PREFIX:-openlakeforgepoc}"
+KUBECONFIG_PATH="${KUBECONFIG_PATH:-${REPO_ROOT}/.tmp/kubeconfigs/azure.yaml}"
+export KUBECONFIG="${KUBECONFIG_PATH}"
 AZURE_FOUNDATION_FORCE_DOWN="${AZURE_FOUNDATION_FORCE_DOWN:-false}"
 TFVARS_FILE="${AZURE_TFVARS_FILE:-${TERRAFORM_DIR}/sandbox.tfvars}"
 if [[ "${TFVARS_FILE}" != /* ]]; then
@@ -47,7 +49,8 @@ cluster_name="$(terraform -chdir="${TERRAFORM_DIR}" output -raw cluster_name)"
 resource_group="$(terraform -chdir="${TERRAFORM_DIR}" output -raw resource_group_name)"
 
 if az aks show --resource-group "${resource_group}" --name "${cluster_name}" >/dev/null 2>&1; then
-  az aks get-credentials --resource-group "${resource_group}" --name "${cluster_name}" --overwrite-existing >/dev/null
+  mkdir -p "$(dirname "${KUBECONFIG_PATH}")"
+  az aks get-credentials --resource-group "${resource_group}" --name "${cluster_name}" --file "${KUBECONFIG_PATH}" --overwrite-existing >/dev/null
 fi
 
 if [[ "${AZURE_FOUNDATION_FORCE_DOWN}" != "true" ]] &&
@@ -62,6 +65,7 @@ echo "==> Destroying Terraform Azure AKS foundation..."
 terraform -chdir="${TERRAFORM_DIR}" destroy -auto-approve \
   -var-file="${TFVARS_FILE}" \
   -var="cluster_name=${AZURE_CLUSTER_NAME}" \
+  -var="kubeconfig_path=${KUBECONFIG_PATH}" \
   -var="node_count=${AZURE_NODE_COUNT}" \
   -var="acr_name_prefix=${AZURE_ACR_NAME_PREFIX}"
 

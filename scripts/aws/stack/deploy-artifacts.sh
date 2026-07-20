@@ -9,6 +9,8 @@ CONTRACT_TERRAFORM_DIR="${OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR:-${REPO_ROOT}/inf
 NAMESPACE="${NAMESPACE:-lakehouse}"
 AWS_CLUSTER_NAME="${AWS_CLUSTER_NAME:-eks-openlakeforge-poc}"
 KUBE_CONTEXT="${KUBE_CONTEXT:-}"
+KUBECONFIG_PATH="${KUBECONFIG_PATH:-${REPO_ROOT}/.tmp/kubeconfigs/aws.yaml}"
+DEPLOYMENT_SCOPE="${DEPLOYMENT_SCOPE:-aws}"
 FLOE_RUNTIME_ARTIFACT_DIR="${FLOE_RUNTIME_ARTIFACT_DIR:-${REPO_ROOT}/.tmp/floe-runtime/aws}"
 export OPENLAKEFORGE_REPO_ROOT="${REPO_ROOT}"
 export OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR="${CONTRACT_TERRAFORM_DIR}"
@@ -26,10 +28,12 @@ prepare_eks_context() {
   AWS_REGION="$(terraform -chdir="${FOUNDATION_TERRAFORM_DIR}" output -raw aws_region)"
   AWS_CLUSTER_NAME="$(terraform -chdir="${FOUNDATION_TERRAFORM_DIR}" output -raw cluster_name)"
   KUBE_CONTEXT="${KUBE_CONTEXT:-${AWS_CLUSTER_NAME}}"
+  configure_deployment_scope
 
   aws eks update-kubeconfig \
     --region "${AWS_REGION}" \
     --name "${AWS_CLUSTER_NAME}" \
+    --kubeconfig "${KUBECONFIG_PATH}" \
     --alias "${KUBE_CONTEXT}" >/dev/null
 
   if ! kubectl cluster-info --context "${KUBE_CONTEXT}" >/dev/null 2>&1; then
@@ -37,7 +41,7 @@ prepare_eks_context() {
     exit 1
   fi
 
-  kubectl config use-context "${KUBE_CONTEXT}" >/dev/null
+  require_kube_context
 }
 
 prepare_image_variables() {
@@ -85,6 +89,5 @@ OPENMETADATA_ALLOW_MISSING_ASSETS="${OPENMETADATA_ALLOW_MISSING_ASSETS:-true}" \
 
 echo "==> Pointing Dagster at project-code image ${PROJECT_CODE_IMAGE}..."
 olf_run k8s set-project-code-image --image "${PROJECT_CODE_IMAGE}"
-restart_dagster_project_code_deployments
 
 echo "Dynamic OpenLakeForge AWS POC artifacts are deployed."

@@ -1,17 +1,17 @@
 {
   "schema": "floe.manifest.v1",
   "generated_at_ts_ms": 0,
-  "floe_version": "0.6.9",
+  "floe_version": "0.6.10",
   "spec_version": "0.2",
   "manifest_name": "sales.order_revenue.local",
   "manifest_id": "mfv1-1faf0a276d5999f5",
-  "manifest_revision": "sha256:f06fec97b58849c2b2415d78e6bfc5b9fb161f108428158cb5dcc92157a11d72",
+  "manifest_revision": "sha256:9c4d3979d43ba95141864bc6773762b75a9338a5748472f769da034f591f0f3a",
   "runtime_env": "image",
   "work_root": "/work",
   "config_uri": "local:///work/domains/sales/contracts/floe/order_revenue.yml",
   "config_checksum": "sha256:4ec74b837e4ba6204ba34e5f5031b655d679984e76c4824f345c41d69e2b09de",
   "profile_uri": "local:///work/libs/floe/profiles/local-k8s.yml",
-  "profile_checksum": "sha256:c568c28b86c60f716fea53f0fd838aca85f0a2879be04e79f928c22a23d990ef",
+  "profile_checksum": "sha256:47bf54d826fa2a4a2fe2560e19ce4852fac73e773e9bc2fa984d9ae5198b2794",
   "report_base_uri": "s3://openlakeforge-ops/floe/reports/sales/order_revenue",
   "domains": [],
   "execution": {
@@ -76,9 +76,14 @@
             "name": "OPENLAKEFORGE_CATALOG_FLOE_CLIENT_SECRET",
             "secret_name": "polaris-floe-creds",
             "key": "POLARIS_FLOE_CLIENT_SECRET"
+          },
+          {
+            "name": "OPENLINEAGE_API_KEY",
+            "secret_name": "openmetadata-ingestion-bot",
+            "key": "OPENMETADATA_INGESTION_BOT_JWT"
           }
         ],
-        "image": "ghcr.io/malon64/floe:0.6.9",
+        "image": "ghcr.io/malon64/floe:0.6.10",
         "namespace": "lakehouse",
         "service_account": "dagster",
         "resources": null,
@@ -658,5 +663,16 @@
         "warehouse_storage": "lakehouse_silver"
       }
     ]
+  },
+  "lineage": {
+    "api_key": null,
+    "dataset_namespace": "polaris",
+    "endpoint": "api/v1/openlineage/lineage",
+    "job_name": null,
+    "max_failures": null,
+    "namespace": "dagster",
+    "producer": null,
+    "timeout_secs": 5,
+    "url": "http://openmetadata:8585"
   }
 }

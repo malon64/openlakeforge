@@ -114,9 +114,7 @@ def test_workload_health_classifies_required_service() -> None:
     assert e2e.workload_health_class({"metadata": {"name": "dagster-webserver"}}) == "required-service"
 
 
-def test_check_pods_ready_retries_until_pods_are_ready(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_check_pods_ready_retries_until_pods_are_ready(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     payloads = [
         '{"items":[{"metadata":{"name":"service"},"status":{"phase":"Running","containerStatuses":[{"name":"app","ready":false}]}}]}',
         '{"items":[{"metadata":{"name":"service"},"status":{"phase":"Running","containerStatuses":[{"name":"app","ready":true}]}}]}',
@@ -133,9 +131,7 @@ def test_default_suite_is_full(env: e2e.Environment) -> None:
     assert e2e.default_suite(env) == "full"
 
 
-def test_aws_default_suite_includes_smoke_and_full_checks(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_aws_default_suite_includes_smoke_and_full_checks(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     calls: list[str] = []
 
     monkeypatch.setattr(e2e, "check_commands", lambda _cfg: None)
@@ -149,9 +145,7 @@ def test_aws_default_suite_includes_smoke_and_full_checks(
     assert calls == ["smoke", "full"]
 
 
-def test_aws_explicit_smoke_suite_skips_full_checks(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_aws_explicit_smoke_suite_skips_full_checks(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     calls: list[str] = []
 
     monkeypatch.setattr(e2e, "check_commands", lambda _cfg: None)
@@ -165,10 +159,10 @@ def test_aws_explicit_smoke_suite_skips_full_checks(
     assert calls == ["smoke"]
 
 
-def test_prepare_kube_context_refreshes_existing_aws_context(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_prepare_kube_context_refreshes_existing_aws_context(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     commands: list[list[str]] = []
+    kubeconfig = tmp_path / "aws.yaml"
+    monkeypatch.setenv("KUBECONFIG", str(kubeconfig))
 
     def run(args: list[str], *, capture: bool = False) -> str:
         commands.append(args)
@@ -187,7 +181,6 @@ def test_prepare_kube_context_refreshes_existing_aws_context(
     e2e.prepare_kube_context(cfg(tmp_path, env="aws", suite="smoke"))
 
     assert ["kubectl", "cluster-info", "--context", "kind-openlakeforge-local"] in commands
-    assert ["kubectl", "config", "use-context", "kind-openlakeforge-local"] in commands
     assert [
         "aws",
         "eks",
@@ -196,14 +189,14 @@ def test_prepare_kube_context_refreshes_existing_aws_context(
         "eu-west-1",
         "--name",
         "limited-eks-openlakeforge-poc",
+        "--kubeconfig",
+        str(kubeconfig),
         "--alias",
         "kind-openlakeforge-local",
     ] in commands
 
 
-def test_prepare_kube_context_selects_existing_local_context(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_prepare_kube_context_selects_existing_local_context(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     commands: list[list[str]] = []
 
     def run(args: list[str], *, capture: bool = False) -> str:
@@ -215,13 +208,15 @@ def test_prepare_kube_context_selects_existing_local_context(
     e2e.prepare_kube_context(cfg(tmp_path))
 
     assert ["kubectl", "cluster-info", "--context", "kind-openlakeforge-local"] in commands
-    assert ["kubectl", "config", "use-context", "kind-openlakeforge-local"] in commands
+    assert not any(command[:3] == ["kubectl", "config", "use-context"] for command in commands)
 
 
 def test_prepare_kube_context_updates_aws_context_when_existing_context_is_unusable(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     commands: list[list[str]] = []
+    kubeconfig = tmp_path / "aws.yaml"
+    monkeypatch.setenv("KUBECONFIG", str(kubeconfig))
 
     def run(args: list[str], *, capture: bool = False) -> str:
         commands.append(args)
@@ -250,6 +245,8 @@ def test_prepare_kube_context_updates_aws_context_when_existing_context_is_unusa
         "eu-west-1",
         "--name",
         "limited-eks-openlakeforge-poc",
+        "--kubeconfig",
+        str(kubeconfig),
         "--alias",
         "kind-openlakeforge-local",
     ] in commands
@@ -259,9 +256,7 @@ def test_parse_trino_scalar_returns_last_non_empty_line() -> None:
     assert e2e.parse_trino_scalar("\n15\r\n") == "15"
 
 
-def test_trino_scalar_requests_transient_kubectl_retries(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_trino_scalar_requests_transient_kubectl_retries(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     calls: list[dict[str, Any]] = []
 
     def kubectl(
@@ -535,8 +530,7 @@ def test_dagster_wait_for_repository_retries_until_job_is_available() -> None:
 def test_expected_repository_location_name_uses_domain_prefix() -> None:
     assert e2e.expected_repository_location_name("sales_order_revenue_pipeline") == "sales-dagster"
     assert (
-        e2e.expected_repository_location_name("supply_chain_inventory_reliability_pipeline")
-        == "supply-chain-dagster"
+        e2e.expected_repository_location_name("supply_chain_inventory_reliability_pipeline") == "supply-chain-dagster"
     )
 
 
@@ -728,18 +722,14 @@ def test_aws_storage_and_glue_smoke_check_uses_bucket_and_databases(
     assert all(command[4] == "eu-central-1" for command in glue_commands)
 
 
-def test_aws_stack_region_prefers_foundation_output(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_aws_stack_region_prefers_foundation_output(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("AWS_REGION", "us-east-1")
     monkeypatch.setattr(e2e, "terraform_output", lambda _dir, name: "eu-central-1" if name == "aws_region" else "")
 
     assert e2e.aws_stack_region(cfg(tmp_path, env="aws", suite="smoke")) == "eu-central-1"
 
 
-def test_check_ops_artifacts_uses_configured_bucket_for_local(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_check_ops_artifacts_uses_configured_bucket_for_local(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     bucket_waits: list[tuple[str, str]] = []
     artifact_checks: list[tuple[str, str]] = []
 

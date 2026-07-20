@@ -12,10 +12,12 @@ from __future__ import annotations
 import base64
 import contextlib
 import json
+import os
 import socket
 import subprocess
 import time
 from collections.abc import Iterator
+from datetime import UTC, datetime
 
 from olf import log
 
@@ -24,27 +26,44 @@ class KubectlError(RuntimeError):
     pass
 
 
-def _kubectl(args: list[str], *, capture: bool = False, check: bool = True) -> str:
+def kubectl_command(args: list[str], *, kube_context: str | None = None) -> list[str]:
+    """Build a kubectl command pinned to the declared deployment context."""
+    context = kube_context or os.environ.get("KUBE_CONTEXT")
+    if not context:
+        raise KubectlError("KUBE_CONTEXT is required for Kubernetes operations.")
+    command = ["kubectl", "--context", context]
+    command.extend(args)
+    return command
+
+
+def _kubectl(
+    args: list[str],
+    *,
+    capture: bool = False,
+    check: bool = True,
+    kube_context: str | None = None,
+) -> str:
+    command = kubectl_command(args, kube_context=kube_context)
     result = subprocess.run(
-        ["kubectl", *args],
+        command,
         capture_output=capture,
         text=True,
         check=False,
     )
     if check and result.returncode != 0:
         detail = (result.stderr or "").strip()
-        raise KubectlError(f"kubectl {' '.join(args)} failed: {detail}")
+        raise KubectlError(f"{' '.join(command)} failed: {detail}")
     return result.stdout if capture else ""
 
 
 def resource_exists(kind: str, name: str, namespace: str) -> bool:
-    result = subprocess.run(
-        ["kubectl", "get", kind, name, "-n", namespace],
-        capture_output=True,
-        text=True,
-        check=False,
+    return bool(
+        _kubectl(
+            ["get", kind, name, "-n", namespace],
+            capture=True,
+            check=False,
+        )
     )
-    return result.returncode == 0
 
 
 def secret_value(
@@ -54,15 +73,11 @@ def secret_value(
     *,
     kube_context: str | None = None,
 ) -> str:
-    args = []
-    if kube_context:
-        args.extend(["--context", kube_context])
-    args.extend(
-        ["get", "secret", secret_name, "-n", namespace, "-o", f"jsonpath={{.data.{key}}}"]
-    )
+    args = ["get", "secret", secret_name, "-n", namespace, "-o", f"jsonpath={{.data.{key}}}"]
     raw = _kubectl(
         args,
         capture=True,
+        kube_context=kube_context,
     )
     return base64.b64decode(raw).decode("utf-8")
 
@@ -89,17 +104,15 @@ def port_forward(
     probe (Polaris OAuth, OpenMetadata JWKS, S3 head-bucket).
     """
     port = local_port or _free_local_port()
-    command = ["kubectl"]
-    if kube_context:
-        command.extend(["--context", kube_context])
-    command.extend(
+    command = kubectl_command(
         [
             "port-forward",
             f"svc/{service}",
             f"{port}:{remote_port}",
             "-n",
             namespace,
-        ]
+        ],
+        kube_context=kube_context,
     )
     with open(log_path, "w", encoding="utf-8") as log_file:
         process = subprocess.Popen(
@@ -131,9 +144,7 @@ def discover_dagster_user_deployments(namespace: str) -> list[str]:
         capture=True,
     )
     return [
-        name
-        for name in raw.splitlines()
-        if name.startswith("dagster-user-deployments-") and name.endswith("-dagster")
+        name for name in raw.splitlines() if name.startswith("dagster-user-deployments-") and name.endswith("-dagster")
     ]
 
 
@@ -154,7 +165,7 @@ def dagster_yaml_with_job_image(dagster_yaml: str, image: str) -> str:
     return "\n".join(lines) + ("\n" if dagster_yaml.endswith("\n") else "")
 
 
-def deployment_container_patch(containers: list[dict], image: str) -> dict:
+def deployment_container_patch(containers: list[dict], image: str, *, restarted_at: str | None = None) -> dict:
     """Build a strategic-merge patch that bumps regular container images.
 
     Keeps DAGSTER_CURRENT_IMAGE in sync where already set: Dagster's
@@ -172,7 +183,10 @@ def deployment_container_patch(containers: list[dict], image: str) -> dict:
             entry["env"] = [{"name": "DAGSTER_CURRENT_IMAGE", "value": image}]
         return entry
 
-    return {"spec": {"template": {"spec": {"containers": [one(c) for c in containers]}}}}
+    template: dict = {"spec": {"containers": [one(c) for c in containers]}}
+    if restarted_at:
+        template["metadata"] = {"annotations": {"kubectl.kubernetes.io/restartedAt": restarted_at}}
+    return {"spec": {"template": template}}
 
 
 def cronjob_container_patch(containers: list[dict], image: str) -> dict:
@@ -182,13 +196,7 @@ def cronjob_container_patch(containers: list[dict], image: str) -> dict:
         "spec": {
             "jobTemplate": {
                 "spec": {
-                    "template": {
-                        "spec": {
-                            "containers": [
-                                {"name": c["name"], "image": image} for c in containers
-                            ]
-                        }
-                    }
+                    "template": {"spec": {"containers": [{"name": c["name"], "image": image} for c in containers]}}
                 }
             }
         }
@@ -217,16 +225,21 @@ def patch_dagster_instance_configmap(image: str, namespace: str) -> None:
     _kubectl(["patch", "configmap", configmap, "-n", namespace, "--type", "merge", "-p", patch])
 
 
-def patch_deployment_image_if_exists(deployment: str, image: str, namespace: str) -> None:
+def patch_deployment_image_if_exists(
+    deployment: str,
+    image: str,
+    namespace: str,
+    *,
+    restarted_at: str | None = None,
+) -> bool:
     if not resource_exists("deployment", deployment, namespace):
-        return
+        return False
     log.step(f"Updating {deployment} image to {image}...")
     payload = _get_json("deployment", deployment, namespace)
     containers = payload["spec"]["template"]["spec"].get("containers", [])
-    patch = deployment_container_patch(containers, image)
-    _kubectl(
-        ["patch", "deployment", deployment, "-n", namespace, "--type", "strategic", "-p", json.dumps(patch)]
-    )
+    patch = deployment_container_patch(containers, image, restarted_at=restarted_at)
+    _kubectl(["patch", "deployment", deployment, "-n", namespace, "--type", "strategic", "-p", json.dumps(patch)])
+    return True
 
 
 def patch_cronjob_image_if_exists(cronjob: str, image: str, namespace: str) -> None:
@@ -236,9 +249,7 @@ def patch_cronjob_image_if_exists(cronjob: str, image: str, namespace: str) -> N
     payload = _get_json("cronjob", cronjob, namespace)
     containers = payload["spec"]["jobTemplate"]["spec"]["template"]["spec"].get("containers", [])
     patch = cronjob_container_patch(containers, image)
-    _kubectl(
-        ["patch", "cronjob", cronjob, "-n", namespace, "--type", "strategic", "-p", json.dumps(patch)]
-    )
+    _kubectl(["patch", "cronjob", cronjob, "-n", namespace, "--type", "strategic", "-p", json.dumps(patch)])
 
 
 _DAGSTER_CORE_DEPLOYMENTS = (
@@ -249,29 +260,48 @@ _DAGSTER_CORE_DEPLOYMENTS = (
 )
 
 
-def set_project_code_image(image: str, namespace: str) -> None:
-    """Point every Dagster surface at the freshly pushed project-code image."""
+def _wait_for_rollout_with_diagnostics(deployment: str, namespace: str, timeout: str) -> None:
+    try:
+        _kubectl(
+            [
+                "rollout",
+                "status",
+                f"deployment/{deployment}",
+                "-n",
+                namespace,
+                f"--timeout={timeout}",
+            ]
+        )
+    except KubectlError:
+        context = os.environ.get("KUBE_CONTEXT", "<current-context>")
+        log.error(f"Dagster rollout failed for {deployment} in context {context}; showing pods and recent events.")
+        _kubectl(["get", "pods", "-n", namespace, "-o", "wide"], check=False)
+        _kubectl(
+            ["get", "events", "-n", namespace, "--sort-by=.lastTimestamp"],
+            check=False,
+        )
+        raise
+
+
+def set_project_code_image(image: str, namespace: str, *, rollout_timeout: str = "600s") -> None:
+    """Point Dagster at an image and perform exactly one rollout per deployment."""
     patch_dagster_instance_configmap(image, namespace)
-    for deployment in _DAGSTER_CORE_DEPLOYMENTS:
-        patch_deployment_image_if_exists(deployment, image, namespace)
+    deployments = [*_DAGSTER_CORE_DEPLOYMENTS, *discover_dagster_user_deployments(namespace)]
+    restarted_at = datetime.now(UTC).isoformat()
+    updated = [
+        deployment
+        for deployment in deployments
+        if patch_deployment_image_if_exists(
+            deployment,
+            image,
+            namespace,
+            restarted_at=restarted_at,
+        )
+    ]
     patch_cronjob_image_if_exists("openlakeforge-k8s-log-archive", image, namespace)
-    for deployment in discover_dagster_user_deployments(namespace):
-        patch_deployment_image_if_exists(deployment, image, namespace)
-
-
-def restart_deployment_if_exists(deployment: str, namespace: str, timeout: str = "600s") -> None:
-    if not resource_exists("deployment", deployment, namespace):
-        return
-    log.step(f"Restarting {deployment}...")
-    _kubectl(["rollout", "restart", f"deployment/{deployment}", "-n", namespace])
-    _kubectl(["rollout", "status", f"deployment/{deployment}", "-n", namespace, f"--timeout={timeout}"])
-
-
-def restart_dagster_project_code_deployments(namespace: str) -> None:
-    for deployment in _DAGSTER_CORE_DEPLOYMENTS:
-        restart_deployment_if_exists(deployment, namespace)
-    for deployment in discover_dagster_user_deployments(namespace):
-        restart_deployment_if_exists(deployment, namespace)
+    for deployment in updated:
+        log.step(f"Waiting for {deployment} rollout in {os.environ.get('KUBE_CONTEXT', 'current context')}...")
+        _wait_for_rollout_with_diagnostics(deployment, namespace, rollout_timeout)
 
 
 def wait_for_rollout(kind_name: str, namespace: str, timeout: str = "300s") -> None:

@@ -10,6 +10,8 @@ FOUNDATION_STATE_PATH="${FOUNDATION_STATE_PATH:-${FOUNDATION_TERRAFORM_DIR}/terr
 NAMESPACE="${NAMESPACE:-lakehouse}"
 AWS_CLUSTER_NAME="${AWS_CLUSTER_NAME:-eks-openlakeforge-poc}"
 KUBE_CONTEXT="${KUBE_CONTEXT:-}"
+KUBECONFIG_PATH="${KUBECONFIG_PATH:-${REPO_ROOT}/.tmp/kubeconfigs/aws.yaml}"
+export KUBECONFIG="${KUBECONFIG_PATH}"
 
 # Account-mandated tags live in a .tfvars file rather than variable defaults.
 TFVARS_FILE="${AWS_TFVARS_FILE:-${TERRAFORM_DIR}/sandbox.tfvars}"
@@ -39,17 +41,17 @@ AWS_REGION="$(terraform -chdir="${FOUNDATION_TERRAFORM_DIR}" output -raw aws_reg
 AWS_CLUSTER_NAME="$(terraform -chdir="${FOUNDATION_TERRAFORM_DIR}" output -raw cluster_name)"
 KUBE_CONTEXT="${KUBE_CONTEXT:-${AWS_CLUSTER_NAME}}"
 
+mkdir -p "$(dirname "${KUBECONFIG_PATH}")"
 aws eks update-kubeconfig \
   --region "${AWS_REGION}" \
   --name "${AWS_CLUSTER_NAME}" \
+  --kubeconfig "${KUBECONFIG_PATH}" \
   --alias "${KUBE_CONTEXT}" >/dev/null
 
 if ! kubectl cluster-info --context "${KUBE_CONTEXT}" >/dev/null 2>&1; then
   echo "ERROR: Kubernetes context '${KUBE_CONTEXT}' is not reachable." >&2
   exit 1
 fi
-kubectl config use-context "${KUBE_CONTEXT}" >/dev/null
-
 echo "==> Removing completed Superset init hook job if present..."
 kubectl --context "${KUBE_CONTEXT}" delete job superset-init-db -n "${NAMESPACE}" \
   --ignore-not-found \
@@ -63,6 +65,7 @@ terraform -chdir="${TERRAFORM_DIR}" destroy \
   -var="namespace=${NAMESPACE}" \
   -var="aws_region=${AWS_REGION}" \
   -var="kube_context=${KUBE_CONTEXT}" \
+  -var="kubeconfig_path=${KUBECONFIG_PATH}" \
   -var="foundation_state_path=${FOUNDATION_STATE_PATH}"
 
 echo "==> Deleting namespace '${NAMESPACE}' if it still exists..."

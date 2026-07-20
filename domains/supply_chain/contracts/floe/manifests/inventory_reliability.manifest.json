@@ -1,17 +1,17 @@
 {
   "schema": "floe.manifest.v1",
   "generated_at_ts_ms": 0,
-  "floe_version": "0.6.9",
+  "floe_version": "0.6.10",
   "spec_version": "0.2",
   "manifest_name": "supply_chain.inventory_reliability.local",
   "manifest_id": "mfv1-33ef4a55e13b0add",
-  "manifest_revision": "sha256:8f5690d6de3e6f97ebfed6770c1c9b520103a6b16002520176809379cb75414b",
+  "manifest_revision": "sha256:76324bc03c049875388efaefe2dd7538bbc61b8830dd91f31b59b27c2b888322",
   "runtime_env": "image",
   "work_root": "/work",
   "config_uri": "local:///work/domains/supply_chain/contracts/floe/inventory_reliability.yml",
   "config_checksum": "sha256:2991619176cc8f8990bbde7a34bb76fa494e9fc72c72b8b62a905f0519d4d399",
   "profile_uri": "local:///work/libs/floe/profiles/local-k8s.yml",
-  "profile_checksum": "sha256:c568c28b86c60f716fea53f0fd838aca85f0a2879be04e79f928c22a23d990ef",
+  "profile_checksum": "sha256:47bf54d826fa2a4a2fe2560e19ce4852fac73e773e9bc2fa984d9ae5198b2794",
   "report_base_uri": "s3://openlakeforge-ops/floe/reports/supply_chain/inventory_reliability",
   "domains": [],
   "execution": {
@@ -76,9 +76,14 @@
             "name": "OPENLAKEFORGE_CATALOG_FLOE_CLIENT_SECRET",
             "secret_name": "polaris-floe-creds",
             "key": "POLARIS_FLOE_CLIENT_SECRET"
+          },
+          {
+            "name": "OPENLINEAGE_API_KEY",
+            "secret_name": "openmetadata-ingestion-bot",
+            "key": "OPENMETADATA_INGESTION_BOT_JWT"
           }
         ],
-        "image": "ghcr.io/malon64/floe:0.6.9",
+        "image": "ghcr.io/malon64/floe:0.6.10",
         "namespace": "lakehouse",
         "service_account": "dagster",
         "resources": null,
@@ -785,5 +790,16 @@
         "warehouse_storage": "lakehouse_silver"
       }
     ]
+  },
+  "lineage": {
+    "api_key": null,
+    "dataset_namespace": "polaris",
+    "endpoint": "api/v1/openlineage/lineage",
+    "job_name": null,
+    "max_failures": null,
+    "namespace": "dagster",
+    "producer": null,
+    "timeout_secs": 5,
+    "url": "http://openmetadata:8585"
   }
 }

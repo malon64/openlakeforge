@@ -31,6 +31,7 @@ PROVIDER_CONTRACT_SCHEMA_VERSION = "1.0.0"
 class ProviderContractError(ValueError):
     """Raised when Terraform returns an unsupported provider contract version."""
 
+
 # Kept as literal compact-JSON strings for byte parity with the previous bash
 # defaults.
 _DEFAULT_CATALOG_NAMESPACES_JSON = (
@@ -139,9 +140,7 @@ def _apply_default_contract_env(env: _Env, base: Mapping[str, str]) -> None:
     env.default("OPENLAKEFORGE_STORAGE_BUCKET", env.get("OPENLAKEFORGE_STORAGE_BRONZE_BUCKET"))
     env.default("OPENLAKEFORGE_STORAGE_REGION", "us-east-1")
     env.default("OPENLAKEFORGE_STORAGE_ENDPOINT", "http://seaweedfs-s3:8333")
-    env.default(
-        "OPENLAKEFORGE_STORAGE_VIRTUAL_HOST_ENDPOINT", "http://lakehouse.svc.cluster.local:8333"
-    )
+    env.default("OPENLAKEFORGE_STORAGE_VIRTUAL_HOST_ENDPOINT", "http://lakehouse.svc.cluster.local:8333")
     env.default("OPENLAKEFORGE_STORAGE_PATH_STYLE_ACCESS", "true")
     env.default("OPENLAKEFORGE_STORAGE_SSL_MODE", "disabled")
     env.default("OPENLAKEFORGE_STORAGE_CREDENTIALS_SECRET_NAME", "seaweedfs-s3-creds")
@@ -163,16 +162,12 @@ def _apply_default_contract_env(env: _Env, base: Mapping[str, str]) -> None:
     env.default("OPENLAKEFORGE_CATALOG_GLUE_REGION", "")
     env.default("OPENLAKEFORGE_CATALOG_GLUE_CATALOG_ID", "")
     env.default("OPENLAKEFORGE_CATALOG_GLUE_REST_URI", "")
-    env.default(
-        "OPENLAKEFORGE_CATALOG_GLUE_REST_WAREHOUSE", env.get("OPENLAKEFORGE_CATALOG_GLUE_CATALOG_ID")
-    )
+    env.default("OPENLAKEFORGE_CATALOG_GLUE_REST_WAREHOUSE", env.get("OPENLAKEFORGE_CATALOG_GLUE_CATALOG_ID"))
     env.default("OPENLAKEFORGE_CATALOG_GLUE_DATABASE", "")
     env.default("OPENLAKEFORGE_CATALOG_GLUE_WAREHOUSE_PREFIX", "warehouse/iceberg")
     env.default("OPENLAKEFORGE_CATALOG_NAMESPACE_MODEL", "product-layer")
     env.default("OPENLAKEFORGE_CATALOG_NAMESPACES_JSON", _DEFAULT_CATALOG_NAMESPACES_JSON)
-    env.default(
-        "OPENLAKEFORGE_CATALOG_SILVER_NAMESPACES_JSON", _DEFAULT_CATALOG_SILVER_NAMESPACES_JSON
-    )
+    env.default("OPENLAKEFORGE_CATALOG_SILVER_NAMESPACES_JSON", _DEFAULT_CATALOG_SILVER_NAMESPACES_JSON)
     env.default("OPENLAKEFORGE_CATALOG_GOLD_NAMESPACES_JSON", _DEFAULT_CATALOG_GOLD_NAMESPACES_JSON)
     env.default("OPENLAKEFORGE_CATALOG_SILVER_NAMESPACE", "")
     env.default("OPENLAKEFORGE_CATALOG_GOLD_NAMESPACE", "")
@@ -184,9 +179,7 @@ def _apply_default_contract_env(env: _Env, base: Mapping[str, str]) -> None:
         "OPENLAKEFORGE_OPS_BUCKET_NAME",
         env.get("OPENLAKEFORGE_ARTIFACT_BUCKET_NAME", "openlakeforge-ops"),
     )
-    env.default(
-        "OPENLAKEFORGE_ARTIFACT_BUCKET_NAME", env.get("OPENLAKEFORGE_OPS_BUCKET_NAME")
-    )
+    env.default("OPENLAKEFORGE_ARTIFACT_BUCKET_NAME", env.get("OPENLAKEFORGE_OPS_BUCKET_NAME"))
     env.default(
         "OPENLAKEFORGE_ARTIFACT_BASE_URI",
         f"s3://{env.get('OPENLAKEFORGE_ARTIFACT_BUCKET_NAME')}",
@@ -200,9 +193,7 @@ def _apply_default_contract_env(env: _Env, base: Mapping[str, str]) -> None:
         "OPENLAKEFORGE_FLOE_REPORT_BASE_URI",
         f"{env.get('OPENLAKEFORGE_ARTIFACT_BASE_URI')}/floe/reports",
     )
-    env.default(
-        "OPENLAKEFORGE_LOG_BASE_URI", f"{env.get('OPENLAKEFORGE_ARTIFACT_BASE_URI')}/logs"
-    )
+    env.default("OPENLAKEFORGE_LOG_BASE_URI", f"{env.get('OPENLAKEFORGE_ARTIFACT_BASE_URI')}/logs")
     env.default(
         "OPENLAKEFORGE_RUN_ARTIFACT_BASE_URI",
         f"{env.get('OPENLAKEFORGE_ARTIFACT_BASE_URI')}/run-artifacts",
@@ -235,6 +226,14 @@ def _apply_default_contract_env(env: _Env, base: Mapping[str, str]) -> None:
     env.default("OPENLINEAGE_URL", "http://openmetadata:8585")
     env.default("OPENLINEAGE_ENDPOINT", "api/v1/openlineage/lineage")
     env.default("OPENLINEAGE_NAMESPACE", "dagster")
+    env.default(
+        "OPENLAKEFORGE_GOVERNANCE_INGESTION_BOT_SECRET_NAME",
+        "openmetadata-ingestion-bot",
+    )
+    env.default(
+        "OPENLAKEFORGE_GOVERNANCE_INGESTION_BOT_JWT_KEY",
+        "OPENMETADATA_INGESTION_BOT_JWT",
+    )
 
 
 def _apply_provider_contracts(env: _Env, contracts: dict[str, Any]) -> None:
@@ -243,13 +242,10 @@ def _apply_provider_contracts(env: _Env, contracts: dict[str, Any]) -> None:
     artifact_bucket = contracts.get("artifact_bucket", contracts.get("artifacts")) or {}
     platform = contracts.get("kubernetes_platform", contracts.get("cluster")) or {}
     query = contracts.get("query") or {}
-    is_glue_catalog = (
-        catalog.get("catalog_type") == "glue" and catalog.get("catalog_provider") == "aws-glue"
-    )
+    governance = contracts.get("governance") or {}
+    is_glue_catalog = catalog.get("catalog_type") == "glue" and catalog.get("catalog_provider") == "aws-glue"
     catalog_warehouse = (
-        catalog.get("catalog_name")
-        if is_glue_catalog
-        else (catalog.get("warehouse") or catalog.get("catalog_name"))
+        catalog.get("catalog_name") if is_glue_catalog else (catalog.get("warehouse") or catalog.get("catalog_name"))
     )
 
     def emit(name: str, value: Any) -> None:
@@ -337,6 +333,15 @@ def _apply_provider_contracts(env: _Env, contracts: dict[str, Any]) -> None:
     )
     emit("OPENLAKEFORGE_KUBE_NAMESPACE", platform.get("namespace"))
     emit("OPENLAKEFORGE_QUERY_TRINO_CATALOG", query.get("catalog_name"))
+    emit("OPENLINEAGE_URL", governance.get("endpoint"))
+    emit(
+        "OPENLAKEFORGE_GOVERNANCE_INGESTION_BOT_SECRET_NAME",
+        governance.get("ingestion_bot_secret_name"),
+    )
+    emit(
+        "OPENLAKEFORGE_GOVERNANCE_INGESTION_BOT_JWT_KEY",
+        governance.get("ingestion_bot_jwt_key"),
+    )
     endpoint = query.get("endpoint")
     if endpoint and endpoint.startswith("http://"):
         host_port = endpoint.removeprefix("http://").split("/", 1)[0]
@@ -346,9 +351,7 @@ def _apply_provider_contracts(env: _Env, contracts: dict[str, Any]) -> None:
             emit("OPENLAKEFORGE_QUERY_TRINO_PORT", port)
 
 
-def build_contract_env(
-    base: Mapping[str, str], contracts: dict[str, Any] | None
-) -> tuple[dict[str, str], list[str]]:
+def build_contract_env(base: Mapping[str, str], contracts: dict[str, Any] | None) -> tuple[dict[str, str], list[str]]:
     """Compute the runtime contract environment.
 
     Returns (exports, unsets): the variables to export (insertion-ordered)
@@ -386,8 +389,7 @@ def build_contract_env(
         env.default("AWS_S3_FORCE_PATH_STYLE", "false")
 
     is_glue = (
-        env.get("OPENLAKEFORGE_CATALOG_TYPE") == "glue"
-        and env.get("OPENLAKEFORGE_CATALOG_PROVIDER") == "aws-glue"
+        env.get("OPENLAKEFORGE_CATALOG_TYPE") == "glue" and env.get("OPENLAKEFORGE_CATALOG_PROVIDER") == "aws-glue"
     )
     if is_glue:
         env.default("OPENLAKEFORGE_CATALOG_GLUE_DATABASE", "")

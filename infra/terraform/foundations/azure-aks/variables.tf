@@ -64,7 +64,7 @@ variable "acr_sku" {
 }
 
 variable "kubeconfig_path" {
-  description = "Kubeconfig path populated by az aks get-credentials. Defaults to ~/.kube/config."
+  description = "Kubeconfig path populated by az aks get-credentials. Defaults to the repository-local .tmp/kubeconfigs/azure.yaml."
   type        = string
   default     = null
 }

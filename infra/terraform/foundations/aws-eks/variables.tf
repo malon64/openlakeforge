@@ -10,6 +10,12 @@ variable "cluster_name" {
   default     = "eks-openlakeforge-poc"
 }
 
+variable "kubeconfig_path" {
+  description = "Kubeconfig path populated by aws eks update-kubeconfig. Defaults to the repository-local .tmp/kubeconfigs/aws.yaml."
+  type        = string
+  default     = null
+}
+
 variable "default_tags" {
   description = "Tags applied to every taggable resource via the provider default_tags block. Account-mandated tags (Project/Owner/Requester/Env/IaC) are supplied via a .tfvars file. Casing is significant."
   type        = map(string)

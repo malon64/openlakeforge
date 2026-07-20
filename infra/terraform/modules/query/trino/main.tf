@@ -95,7 +95,7 @@ resource "helm_release" "trino" {
   namespace  = var.namespace
 
   wait    = true
-  timeout = 300
+  timeout = 600
 
   values = [
     file(var.base_values_file),

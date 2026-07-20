@@ -17,7 +17,7 @@ source "${REPO_ROOT}/scripts/contracts/load-runtime-env.sh"
 
 cd "${REPO_ROOT}"
 
-default_floe_version="0.6.9"
+default_floe_version="0.6.10"
 FLOE_VERSION="${FLOE_VERSION:-${default_floe_version}}"
 FLOE_IMAGE="${FLOE_IMAGE:-ghcr.io/malon64/floe:${FLOE_VERSION}}"
 FLOE_RUNTIME="${FLOE_RUNTIME:-image}"

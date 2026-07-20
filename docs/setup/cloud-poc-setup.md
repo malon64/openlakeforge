@@ -66,6 +66,7 @@ All have sane defaults; override via environment variables:
 | `AWS_CLUSTER_NAME` | `eks-openlakeforge-poc` | EKS cluster name (must match `cluster_name` in the foundation tfvars) |
 | `AWS_NODE_INSTANCE_TYPES` | `m7i.large` | Node group instance type(s) |
 | `AWS_TFVARS_FILE` | `<dir>/sandbox.tfvars` | Path to your tfvars |
+| `AWS_KUBECONFIG_PATH` | `.tmp/kubeconfigs/aws.yaml` | Isolated EKS kubeconfig used by every AWS target |
 
 ### 4. Deploy
 
@@ -88,8 +89,8 @@ make aws-foundation-down    # EKS, ECR, networking
 make aws-down               # full teardown wrapper: platform, then foundation
 ```
 
-ECR repos use `force_delete` and the Superset module has a destroy-time guard, so
-teardown does not stall on non-empty registries or a stuck reports PVC.
+ECR repositories use `force_delete`. Superset report ZIPs use ephemeral pod
+storage, so teardown does not depend on deleting a reports PVC.
 
 ---
 
@@ -132,6 +133,7 @@ All have defaults; override via environment variables:
 | `AZURE_CLUSTER_NAME` | `aks-openlakeforge-poc` | AKS cluster name |
 | `AZURE_NODE_COUNT` | `3` | Node count |
 | `AZURE_ACR_NAME_PREFIX` | `openlakeforgepoc` | ACR name prefix (globally unique) |
+| `AZURE_KUBECONFIG_PATH` | `.tmp/kubeconfigs/azure.yaml` | Isolated AKS kubeconfig used by every Azure target |
 
 ### 4. Deploy / tear down
 
@@ -144,6 +146,25 @@ make azure-platform-down    # platform services only
 make azure-foundation-down  # AKS, ACR, and resource group resources
 make azure-down             # full teardown wrapper: platform, then foundation
 ```
+
+## Concurrent deployments
+
+The complete local, Azure, and AWS workflows can run at the same time. Each one
+uses its own kubeconfig, Helm cache, Docker credential directory, report work
+directory, and port-forward logs:
+
+```bash
+make local-up &
+make azure-up &
+make aws-up &
+wait
+```
+
+The default kubeconfig paths are `.tmp/kubeconfigs/local.yaml`,
+`.tmp/kubeconfigs/azure.yaml`, and `.tmp/kubeconfigs/aws.yaml`. Override them
+with `LOCAL_KUBECONFIG_PATH`, `AZURE_KUBECONFIG_PATH`, or
+`AWS_KUBECONFIG_PATH`. The workflows never switch the current context in your
+global kubeconfig.
 
 ---
 

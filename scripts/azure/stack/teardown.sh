@@ -10,6 +10,8 @@ FOUNDATION_STATE_PATH="${FOUNDATION_STATE_PATH:-${FOUNDATION_TERRAFORM_DIR}/terr
 NAMESPACE="${NAMESPACE:-lakehouse}"
 AZURE_CLUSTER_NAME="${AZURE_CLUSTER_NAME:-aks-openlakeforge-poc}"
 KUBE_CONTEXT="${KUBE_CONTEXT:-}"
+KUBECONFIG_PATH="${KUBECONFIG_PATH:-${REPO_ROOT}/.tmp/kubeconfigs/azure.yaml}"
+export KUBECONFIG="${KUBECONFIG_PATH}"
 
 check_prereqs() {
   local missing=0
@@ -35,9 +37,11 @@ AZURE_RESOURCE_GROUP="$(terraform -chdir="${FOUNDATION_TERRAFORM_DIR}" output -r
 AZURE_CLUSTER_NAME="$(terraform -chdir="${FOUNDATION_TERRAFORM_DIR}" output -raw cluster_name)"
 KUBE_CONTEXT="${KUBE_CONTEXT:-${AZURE_CLUSTER_NAME}}"
 
+mkdir -p "$(dirname "${KUBECONFIG_PATH}")"
 az aks get-credentials \
   --resource-group "${AZURE_RESOURCE_GROUP}" \
   --name "${AZURE_CLUSTER_NAME}" \
+  --file "${KUBECONFIG_PATH}" \
   --overwrite-existing >/dev/null
 
 if ! kubectl cluster-info --context "${KUBE_CONTEXT}" >/dev/null 2>&1; then
@@ -45,8 +49,6 @@ if ! kubectl cluster-info --context "${KUBE_CONTEXT}" >/dev/null 2>&1; then
   echo "The platform must be destroyed before the Azure foundation is destroyed." >&2
   exit 1
 fi
-kubectl config use-context "${KUBE_CONTEXT}" >/dev/null
-
 echo "==> Removing completed Superset init hook job if present..."
 kubectl --context "${KUBE_CONTEXT}" delete job superset-init-db -n "${NAMESPACE}" \
   --ignore-not-found \
@@ -58,6 +60,7 @@ terraform -chdir="${TERRAFORM_DIR}" destroy \
   -auto-approve \
   -var="namespace=${NAMESPACE}" \
   -var="kube_context=${KUBE_CONTEXT}" \
+  -var="kubeconfig_path=${KUBECONFIG_PATH}" \
   -var="foundation_state_path=${FOUNDATION_STATE_PATH}"
 
 echo "==> Deleting namespace '${NAMESPACE}' if it still exists..."

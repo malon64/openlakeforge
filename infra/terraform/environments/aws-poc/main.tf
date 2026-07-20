@@ -46,9 +46,9 @@ provider "helm" {
 
 locals {
   aws_region                  = coalesce(try(local.foundation_contract.aws_region, null), var.aws_region)
-  kubeconfig_path             = var.kubeconfig_path != null ? pathexpand(var.kubeconfig_path) : coalesce(try(local.foundation_contract.kubeconfig_path, null), pathexpand("~/.kube/config"))
-  helm_repository_cache_path  = abspath("${path.root}/../../../../.tmp/helm/repository-cache")
-  helm_repository_config_path = abspath("${path.root}/../../../../.tmp/helm/repositories.yaml")
+  kubeconfig_path             = var.kubeconfig_path != null ? abspath(pathexpand(var.kubeconfig_path)) : coalesce(try(local.foundation_contract.kubeconfig_path, null), abspath("${path.root}/../../../../.tmp/kubeconfigs/aws.yaml"))
+  helm_repository_cache_path  = abspath("${path.root}/../../../../.tmp/helm/aws/repository-cache")
+  helm_repository_config_path = abspath("${path.root}/../../../../.tmp/helm/aws/repositories.yaml")
   artifact_base_uri           = "s3://${local.storage_contract.ops_bucket_name}"
   floe_manifest_base_uri      = "${local.artifact_base_uri}/floe/manifests"
   floe_report_base_uri        = "${local.artifact_base_uri}/floe/reports"
@@ -305,18 +305,13 @@ module "openmetadata" {
 module "superset" {
   source = "../../modules/analytics/superset"
 
-  namespace                  = kubernetes_namespace_v1.lakehouse.metadata[0].name
-  base_values_file           = "${path.root}/../../../helm/values/local/superset.yaml"
-  image_repository           = var.superset_image_repository
-  image_tag                  = var.superset_image_tag
-  image_pull_policy          = var.superset_image_pull_policy
-  postgresql_contract        = local.metadata_database_contract
-  postgresql_ssl_mode        = "require"
-  reports_storage_size       = "5Gi"
-  reports_storage_class_name = kubernetes_storage_class_v1.gp3.metadata[0].name
-  kubeconfig_path            = local.kubeconfig_path
-  kube_context               = local.kubernetes_platform_contract.kube_context
-
+  namespace           = kubernetes_namespace_v1.lakehouse.metadata[0].name
+  base_values_file    = "${path.root}/../../../helm/values/local/superset.yaml"
+  image_repository    = var.superset_image_repository
+  image_tag           = var.superset_image_tag
+  image_pull_policy   = var.superset_image_pull_policy
+  postgresql_contract = local.metadata_database_contract
+  postgresql_ssl_mode = "require"
   depends_on = [
     module.rds_postgresql,
     module.trino,

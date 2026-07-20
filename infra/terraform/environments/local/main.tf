@@ -33,9 +33,9 @@ provider "helm" {
 }
 
 locals {
-  kubeconfig_path             = var.kubeconfig_path != null ? pathexpand(var.kubeconfig_path) : pathexpand("~/.kube/config")
-  helm_repository_cache_path  = abspath("${path.root}/../../../../.tmp/helm/repository-cache")
-  helm_repository_config_path = abspath("${path.root}/../../../../.tmp/helm/repositories.yaml")
+  kubeconfig_path             = var.kubeconfig_path != null ? abspath(pathexpand(var.kubeconfig_path)) : abspath("${path.root}/../../../../.tmp/kubeconfigs/local.yaml")
+  helm_repository_cache_path  = abspath("${path.root}/../../../../.tmp/helm/local/repository-cache")
+  helm_repository_config_path = abspath("${path.root}/../../../../.tmp/helm/local/repositories.yaml")
   artifact_base_uri           = "s3://${var.ops_bucket_name}"
   floe_manifest_base_uri      = "${local.artifact_base_uri}/floe/manifests"
   floe_report_base_uri        = "${local.artifact_base_uri}/floe/reports"
@@ -169,9 +169,6 @@ module "superset" {
   image_tag           = var.superset_image_tag
   image_pull_policy   = var.superset_image_pull_policy
   postgresql_contract = local.metadata_database_contract
-  kubeconfig_path     = local.kubeconfig_path
-  kube_context        = local.kubernetes_platform_contract.kube_context
-
   depends_on = [
     module.postgresql,
     module.trino,

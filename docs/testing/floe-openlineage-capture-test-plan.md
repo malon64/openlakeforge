@@ -1,7 +1,7 @@
 # Floe OpenLineage Capture Test Plan
 
-This test plan verifies whether the configured Floe OpenLineage behavior works inside
-OpenLakeForge before lineage is re-enabled in OpenMetadata.
+This test plan verifies the configured Floe OpenLineage behavior after direct,
+authenticated emission to OpenMetadata was enabled with Floe 0.6.10.
 
 The test deliberately captures Floe events first, instead of sending them
 directly to OpenMetadata. That separates event-shape validation from
@@ -19,9 +19,10 @@ OpenLakeForge runtime:
 - OpenLineage job namespace and job name are separated correctly.
 - OpenMetadata can later match the same event stream without the removed proxy.
 
-This test does not validate dbt Silver-to-Gold lineage. That remains blocked by
-the former DuckDB/`openlineage-dbt` dataset namespace issue. dbt-trino is tested
-separately in ADR 0018; Floe remains blocked on its configurable endpoint.
+This test does not validate dbt Silver-to-Gold lineage. dbt-trino is tested
+separately in ADR 0018. Floe endpoint and authentication support are active;
+Bronze-to-Silver dataset lineage remains blocked by the manifest-replay observer
+being constructed without entity metadata.
 
 ## Preconditions
 

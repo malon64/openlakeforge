@@ -8,6 +8,7 @@ TERRAFORM_DIR="${REPO_ROOT}/infra/terraform/foundations/azure-aks"
 AZURE_CLUSTER_NAME="${AZURE_CLUSTER_NAME:-aks-openlakeforge-poc}"
 AZURE_NODE_COUNT="${AZURE_NODE_COUNT:-3}"
 AZURE_ACR_NAME_PREFIX="${AZURE_ACR_NAME_PREFIX:-openlakeforgepoc}"
+KUBECONFIG_PATH="${KUBECONFIG_PATH:-${REPO_ROOT}/.tmp/kubeconfigs/azure.yaml}"
 TFVARS_FILE="${AZURE_TFVARS_FILE:-${TERRAFORM_DIR}/sandbox.tfvars}"
 if [[ "${TFVARS_FILE}" != /* ]]; then
   TFVARS_FILE="${REPO_ROOT}/${TFVARS_FILE}"
@@ -46,18 +47,21 @@ terraform -chdir="${TERRAFORM_DIR}" apply -auto-approve \
   -var-file="${TFVARS_FILE}" \
   -var="cluster_name=${AZURE_CLUSTER_NAME}" \
   -var="node_count=${AZURE_NODE_COUNT}" \
-  -var="acr_name_prefix=${AZURE_ACR_NAME_PREFIX}"
+  -var="acr_name_prefix=${AZURE_ACR_NAME_PREFIX}" \
+  -var="kubeconfig_path=${KUBECONFIG_PATH}"
 
 resource_group="$(terraform -chdir="${TERRAFORM_DIR}" output -raw resource_group_name)"
 cluster_name="$(terraform -chdir="${TERRAFORM_DIR}" output -raw cluster_name)"
 
 echo "==> Fetching AKS kube credentials..."
+mkdir -p "$(dirname "${KUBECONFIG_PATH}")"
 az aks get-credentials \
   --resource-group "${resource_group}" \
   --name "${cluster_name}" \
+  --file "${KUBECONFIG_PATH}" \
   --overwrite-existing
 
-kubectl config use-context "${cluster_name}" >/dev/null
+export KUBECONFIG="${KUBECONFIG_PATH}"
 kubectl cluster-info --context "${cluster_name}" >/dev/null
 
 echo ""

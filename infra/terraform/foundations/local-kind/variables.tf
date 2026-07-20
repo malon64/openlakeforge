@@ -11,7 +11,7 @@ variable "cluster_config_path" {
 }
 
 variable "kubeconfig_path" {
-  description = "Kubeconfig path populated by kind. Defaults to ~/.kube/config."
+  description = "Kubeconfig path populated by kind. Defaults to the repository-local .tmp/kubeconfigs/local.yaml."
   type        = string
   default     = null
 }

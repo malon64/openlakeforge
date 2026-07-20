@@ -34,7 +34,7 @@ IMAGES=(
   "apache/superset:dockerize"
   "apache/superset:6.1.0@sha256:fb3464528ec7076f91195f0ff7835755aa023e281f1bb78a84782ce7a36b3705"
   "docker.io/bitnamilegacy/redis:7.0.10-debian-11-r4"
-  "ghcr.io/malon64/floe:0.6.9"
+  "ghcr.io/malon64/floe:0.6.10"
 )
 
 WORK_DIR="$(mktemp -d)"
@@ -48,6 +48,19 @@ if [[ -z "${nodes}" ]]; then
 fi
 
 for image in "${IMAGES[@]}"; do
+  image_present_on_all_nodes=true
+  for node in ${nodes}; do
+    if ! docker exec "${node}" crictl inspecti "${image}" >/dev/null 2>&1; then
+      image_present_on_all_nodes=false
+      break
+    fi
+  done
+
+  if [[ "${image_present_on_all_nodes}" == "true" ]]; then
+    echo "==> Image already present on every kind node: ${image}"
+    continue
+  fi
+
   if docker image inspect "$image" >/dev/null 2>&1; then
     echo "==> Using existing local image $image..."
   else

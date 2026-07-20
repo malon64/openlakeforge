@@ -9,6 +9,8 @@ NAMESPACE="${NAMESPACE:-lakehouse}"
 CLUSTER_NAME="${CLUSTER_NAME:-openlakeforge-local}"
 CLUSTER_CONFIG="${CLUSTER_CONFIG:-${REPO_ROOT}/infra/kind/local/kind-cluster.yaml}"
 KUBE_CONTEXT="${KUBE_CONTEXT:-kind-${CLUSTER_NAME}}"
+KUBECONFIG_PATH="${KUBECONFIG_PATH:-${REPO_ROOT}/.tmp/kubeconfigs/local.yaml}"
+export KUBECONFIG="${KUBECONFIG_PATH}"
 FORCE_DOWN="${LOCAL_FOUNDATION_FORCE_DOWN:-false}"
 
 check_prereqs() {
@@ -51,6 +53,7 @@ fi
 echo "==> Destroying Terraform local kind foundation..."
 terraform -chdir="${TERRAFORM_DIR}" destroy -auto-approve \
   -var="cluster_name=${CLUSTER_NAME}" \
-  -var="cluster_config_path=${CLUSTER_CONFIG}"
+  -var="cluster_config_path=${CLUSTER_CONFIG}" \
+  -var="kubeconfig_path=${KUBECONFIG_PATH}"
 
 echo "Local foundation is destroyed."

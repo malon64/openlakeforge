@@ -10,6 +10,9 @@ FOUNDATION_STATE_PATH="${FOUNDATION_STATE_PATH:-${FOUNDATION_TERRAFORM_DIR}/terr
 NAMESPACE="${NAMESPACE:-lakehouse}"
 AWS_CLUSTER_NAME="${AWS_CLUSTER_NAME:-eks-openlakeforge-poc}"
 KUBE_CONTEXT="${KUBE_CONTEXT:-}"
+KUBECONFIG_PATH="${KUBECONFIG_PATH:-${REPO_ROOT}/.tmp/kubeconfigs/aws.yaml}"
+DEPLOYMENT_SCOPE="${DEPLOYMENT_SCOPE:-aws}"
+export HELM_CACHE_SCOPE="${HELM_CACHE_SCOPE:-${DEPLOYMENT_SCOPE}}"
 
 # Account-mandated tags live in a .tfvars file rather than variable defaults.
 TFVARS_FILE="${AWS_TFVARS_FILE:-${TERRAFORM_DIR}/sandbox.tfvars}"
@@ -46,10 +49,12 @@ prepare_eks_context() {
   AWS_REGION="$(terraform -chdir="${FOUNDATION_TERRAFORM_DIR}" output -raw aws_region)"
   AWS_CLUSTER_NAME="$(terraform -chdir="${FOUNDATION_TERRAFORM_DIR}" output -raw cluster_name)"
   KUBE_CONTEXT="${KUBE_CONTEXT:-${AWS_CLUSTER_NAME}}"
+  configure_deployment_scope
 
   aws eks update-kubeconfig \
     --region "${AWS_REGION}" \
     --name "${AWS_CLUSTER_NAME}" \
+    --kubeconfig "${KUBECONFIG_PATH}" \
     --alias "${KUBE_CONTEXT}" >/dev/null
 
   if ! kubectl cluster-info --context "${KUBE_CONTEXT}" >/dev/null 2>&1; then
@@ -57,7 +62,7 @@ prepare_eks_context() {
     exit 1
   fi
 
-  kubectl config use-context "${KUBE_CONTEXT}" >/dev/null
+  require_kube_context
 }
 
 prepare_image_variables() {
@@ -83,6 +88,7 @@ terraform_apply_once() {
     -var="namespace=${NAMESPACE}" \
     -var="aws_region=${AWS_REGION}" \
     -var="kube_context=${KUBE_CONTEXT}" \
+    -var="kubeconfig_path=${KUBECONFIG_PATH}" \
     -var="foundation_state_path=${FOUNDATION_STATE_PATH}" \
     -var="project_code_image_repository=${PROJECT_CODE_IMAGE_REPOSITORY}" \
     -var="project_code_image_tag=${PROJECT_CODE_IMAGE_TAG}" \
@@ -113,6 +119,7 @@ terraform_import_namespace_args=(
   -var="namespace=${NAMESPACE}"
   -var="aws_region=${AWS_REGION}"
   -var="kube_context=${KUBE_CONTEXT}"
+  -var="kubeconfig_path=${KUBECONFIG_PATH}"
   -var="foundation_state_path=${FOUNDATION_STATE_PATH}"
   -var="project_code_image_repository=${PROJECT_CODE_IMAGE_REPOSITORY}"
   -var="project_code_image_tag=${PROJECT_CODE_IMAGE_TAG}"
