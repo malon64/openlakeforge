@@ -17,7 +17,7 @@ source "${REPO_ROOT}/scripts/contracts/load-runtime-env.sh"
 
 cd "${REPO_ROOT}"
 
-default_floe_version="0.6.10"
+default_floe_version="0.6.11"
 FLOE_VERSION="${FLOE_VERSION:-${default_floe_version}}"
 FLOE_IMAGE="${FLOE_IMAGE:-ghcr.io/malon64/floe:${FLOE_VERSION}}"
 FLOE_RUNTIME="${FLOE_RUNTIME:-image}"
@@ -298,6 +298,7 @@ generate_manifest() {
     --deterministic \
     --manifest-name "${domain}.${product}.local" \
     --default-domain "${domain}_${product}" \
+    --manifest-path-mode resolved-uri \
     --runtime "${FLOE_RUNTIME}" \
     --output "${floe_manifest_path}"
 

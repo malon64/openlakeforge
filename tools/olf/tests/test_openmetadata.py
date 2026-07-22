@@ -323,12 +323,12 @@ def test_deployment_input_validation_rejects_malformed_bronze_before_writes() ->
         deployer.validate_deployment_inputs(domain_specs)
 
 
-def test_deploy_seeds_medallion_buckets_at_storage_service_root(
+def test_deploy_seeds_medallion_buckets_and_bronze_source_hierarchy(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     (tmp_path / "sales").mkdir()
     (tmp_path / "sales" / "domain.yaml").write_text(
-            """apiVersion: openlakeforge.io/v1alpha1
+        """apiVersion: openlakeforge.io/v1alpha1
 kind: Domain
 name: sales
 displayName: Sales
@@ -342,7 +342,8 @@ data_products:
     status: active
     bronze:
       - name: raw_orders
-        path: s3://lakehouse-bronze/sales/order_revenue/orders.csv
+        path: s3://lakehouse-bronze/sales/order_revenue/orders
+        description: Raw sales orders.
 """
     )
     cfg = om.OpenMetadataConfig.from_environment(
@@ -381,4 +382,16 @@ data_products:
         ("lakehouse-bronze", None, "s3://lakehouse-bronze"),
         ("lakehouse-silver", None, "s3://lakehouse-silver"),
         ("lakehouse-gold", None, "s3://lakehouse-gold"),
+        ("sales", "seaweedfs.lakehouse-bronze", "s3://lakehouse-bronze/sales"),
+        (
+            "order_revenue",
+            "seaweedfs.lakehouse-bronze.sales",
+            "s3://lakehouse-bronze/sales/order_revenue",
+        ),
+        (
+            "orders",
+            "seaweedfs.lakehouse-bronze.sales.order_revenue",
+            "s3://lakehouse-bronze/sales/order_revenue/orders",
+        ),
     ]
+    assert seeded_containers[-1][3] == "Raw sales orders."

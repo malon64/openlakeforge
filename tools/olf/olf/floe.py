@@ -66,7 +66,7 @@ def render_profile(environ: Mapping[str, str]) -> str:
     catalog_glue_database = env("OPENLAKEFORGE_CATALOG_GLUE_DATABASE", "")
     catalog_glue_warehouse_prefix = env("OPENLAKEFORGE_CATALOG_GLUE_WAREHOUSE_PREFIX", "warehouse/iceberg")
     catalog_scope = env("OPENLAKEFORGE_CATALOG_OAUTH_SCOPE", "PRINCIPAL_ROLE:ALL")
-    default_floe_image = "ghcr.io/malon64/floe:0.6.10"
+    default_floe_image = "ghcr.io/malon64/floe:0.6.11"
     floe_image = env("FLOE_IMAGE", default_floe_image)
     storage_secret = env("OPENLAKEFORGE_STORAGE_CREDENTIALS_SECRET_NAME", "" if is_aws_s3 else "seaweedfs-s3-creds")
     storage_access_key = env("OPENLAKEFORGE_STORAGE_ACCESS_KEY_ID_KEY", "AWS_ACCESS_KEY_ID")

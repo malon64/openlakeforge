@@ -365,6 +365,42 @@ class OpenMetadataDeployer:
             seen.add(name)
             yield {"name": name, "path": f"s3://{name}", "description": description}
 
+    def bronze_container_specs(self, domain_specs: list[tuple[Path, dict]]):
+        """Build provider-specific Bronze container hierarchies from domain contracts."""
+        bucket = self.config.storage_bronze_bucket
+        root_fqn = f"{self.config.storage_service}.{bucket}"
+        seen = set()
+
+        for _, domain in domain_specs:
+            for product in product_entries(domain):
+                for source in product.get("bronze") or []:
+                    source_path = source["path"]
+                    parsed = urllib.parse.urlparse(source_path)
+                    if parsed.scheme != "s3":
+                        raise OpenMetadataError(
+                            f"Data product '{product['name']}' Bronze path must use s3://: {source_path}"
+                        )
+
+                    segments = [segment for segment in parsed.path.split("/") if segment]
+                    parent_fqn = root_fqn
+                    full_path = f"s3://{bucket}"
+                    for index, segment in enumerate(segments):
+                        full_path = f"{full_path}/{segment}"
+                        current_fqn = f"{parent_fqn}.{segment}"
+                        if full_path not in seen:
+                            is_source = index == len(segments) - 1
+                            description = (
+                                source.get("description", "") if is_source else f"Bronze source prefix for {full_path}."
+                            )
+                            yield {
+                                "name": segment,
+                                "parent_fqn": parent_fqn,
+                                "path": full_path,
+                                "description": description,
+                            }
+                            seen.add(full_path)
+                        parent_fqn = current_fqn
+
     # --- source discovery -------------------------------------------------
 
     def domain_files(self):
@@ -619,6 +655,13 @@ class OpenMetadataDeployer:
         self.ensure_storage_service()
         for container in self.storage_bucket_specs():
             self.ensure_container(container["name"], None, container["path"], container["description"])
+        for container in self.bronze_container_specs(domain_specs):
+            self.ensure_container(
+                container["name"],
+                container["parent_fqn"],
+                container["path"],
+                container["description"],
+            )
 
         # Phase C: Pre-seed Iceberg table stubs before the Polaris crawler runs.
         for _, domain in domain_specs:

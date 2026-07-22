@@ -1,17 +1,17 @@
 {
   "schema": "floe.manifest.v1",
   "generated_at_ts_ms": 0,
-  "floe_version": "0.6.10",
+  "floe_version": "0.6.11",
   "spec_version": "0.2",
   "manifest_name": "sales.customer_health.local",
   "manifest_id": "mfv1-037fc1c3058e852a",
-  "manifest_revision": "sha256:9512040d2a63ebca9b2df37c1c2ccb32fcf6770914dd52eb630d58b58e5d5ec8",
+  "manifest_revision": "sha256:010214dd1aaa2942c07e452a192def1fe907d7ec81e3790219a043930cd7c3cf",
   "runtime_env": "image",
   "work_root": "/work",
   "config_uri": "local:///work/domains/sales/contracts/floe/customer_health.yml",
   "config_checksum": "sha256:15589410574a14d739d47f07109b55e27787ab711f82d1bb04cf82d5a911f187",
   "profile_uri": "local:///work/libs/floe/profiles/local-k8s.yml",
-  "profile_checksum": "sha256:47bf54d826fa2a4a2fe2560e19ce4852fac73e773e9bc2fa984d9ae5198b2794",
+  "profile_checksum": "sha256:aa752d0aa63e27e4292a5b2d9aa2c85d5c8646dd0bfa2885a46a3aa20cdc81cd",
   "report_base_uri": "s3://openlakeforge-ops/floe/reports/sales/customer_health",
   "domains": [],
   "execution": {
@@ -83,7 +83,7 @@
             "key": "OPENMETADATA_INGESTION_BOT_JWT"
           }
         ],
-        "image": "ghcr.io/malon64/floe:0.6.10",
+        "image": "ghcr.io/malon64/floe:0.6.11",
         "namespace": "lakehouse",
         "service_account": "dagster",
         "resources": null,
@@ -123,7 +123,7 @@
         "format": "csv",
         "storage": "lakehouse_bronze",
         "uri": "s3://lakehouse-bronze/sales/customer_health/accounts",
-        "path": "sales/customer_health/accounts",
+        "path": "s3://lakehouse-bronze/sales/customer_health/accounts",
         "resolved": true,
         "cast_mode": "strict",
         "options": {
@@ -149,7 +149,7 @@
           "format": "iceberg",
           "storage": "lakehouse_silver",
           "uri": "s3://lakehouse-silver/sales/customer_health/accounts",
-          "path": "sales/customer_health/accounts",
+          "path": "s3://lakehouse-silver/sales/customer_health/accounts",
           "resolved": true,
           "iceberg": {
             "catalog": "iceberg_catalog",
@@ -162,7 +162,7 @@
           "format": "csv",
           "storage": "lakehouse_silver",
           "uri": "s3://lakehouse-silver/floe/rejected/sales/customer_health/accounts",
-          "path": "floe/rejected/sales/customer_health/accounts",
+          "path": "s3://lakehouse-silver/floe/rejected/sales/customer_health/accounts",
           "resolved": true
         },
         "archive": null
@@ -230,7 +230,7 @@
         "format": "csv",
         "storage": "lakehouse_bronze",
         "uri": "s3://lakehouse-bronze/sales/customer_health/nps_responses",
-        "path": "sales/customer_health/nps_responses",
+        "path": "s3://lakehouse-bronze/sales/customer_health/nps_responses",
         "resolved": true,
         "cast_mode": "strict",
         "options": {
@@ -256,7 +256,7 @@
           "format": "iceberg",
           "storage": "lakehouse_silver",
           "uri": "s3://lakehouse-silver/sales/customer_health/nps_responses",
-          "path": "sales/customer_health/nps_responses",
+          "path": "s3://lakehouse-silver/sales/customer_health/nps_responses",
           "resolved": true,
           "iceberg": {
             "catalog": "iceberg_catalog",
@@ -269,7 +269,7 @@
           "format": "csv",
           "storage": "lakehouse_silver",
           "uri": "s3://lakehouse-silver/floe/rejected/sales/customer_health/nps_responses",
-          "path": "floe/rejected/sales/customer_health/nps_responses",
+          "path": "s3://lakehouse-silver/floe/rejected/sales/customer_health/nps_responses",
           "resolved": true
         },
         "archive": null
@@ -327,7 +327,7 @@
         "format": "csv",
         "storage": "lakehouse_bronze",
         "uri": "s3://lakehouse-bronze/sales/customer_health/subscriptions",
-        "path": "sales/customer_health/subscriptions",
+        "path": "s3://lakehouse-bronze/sales/customer_health/subscriptions",
         "resolved": true,
         "cast_mode": "strict",
         "options": {
@@ -353,7 +353,7 @@
           "format": "iceberg",
           "storage": "lakehouse_silver",
           "uri": "s3://lakehouse-silver/sales/customer_health/subscriptions",
-          "path": "sales/customer_health/subscriptions",
+          "path": "s3://lakehouse-silver/sales/customer_health/subscriptions",
           "resolved": true,
           "iceberg": {
             "catalog": "iceberg_catalog",
@@ -366,7 +366,7 @@
           "format": "csv",
           "storage": "lakehouse_silver",
           "uri": "s3://lakehouse-silver/floe/rejected/sales/customer_health/subscriptions",
-          "path": "floe/rejected/sales/customer_health/subscriptions",
+          "path": "s3://lakehouse-silver/floe/rejected/sales/customer_health/subscriptions",
           "resolved": true
         },
         "archive": null
@@ -439,7 +439,7 @@
         "format": "csv",
         "storage": "lakehouse_bronze",
         "uri": "s3://lakehouse-bronze/sales/customer_health/support_tickets",
-        "path": "sales/customer_health/support_tickets",
+        "path": "s3://lakehouse-bronze/sales/customer_health/support_tickets",
         "resolved": true,
         "cast_mode": "strict",
         "options": {
@@ -465,7 +465,7 @@
           "format": "iceberg",
           "storage": "lakehouse_silver",
           "uri": "s3://lakehouse-silver/sales/customer_health/support_tickets",
-          "path": "sales/customer_health/support_tickets",
+          "path": "s3://lakehouse-silver/sales/customer_health/support_tickets",
           "resolved": true,
           "iceberg": {
             "catalog": "iceberg_catalog",
@@ -478,7 +478,7 @@
           "format": "csv",
           "storage": "lakehouse_silver",
           "uri": "s3://lakehouse-silver/floe/rejected/sales/customer_health/support_tickets",
-          "path": "floe/rejected/sales/customer_health/support_tickets",
+          "path": "s3://lakehouse-silver/floe/rejected/sales/customer_health/support_tickets",
           "resolved": true
         },
         "archive": null
