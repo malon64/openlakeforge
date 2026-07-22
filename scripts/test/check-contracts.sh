@@ -702,6 +702,37 @@ for variable in ["LOCAL_KUBECONFIG_PATH", "AZURE_KUBECONFIG_PATH", "AWS_KUBECONF
     if f"{variable} ?=" not in makefile_body:
         errors.append(f"Makefile: missing provider-isolated kubeconfig variable {variable}")
 
+def make_target_body(target: str) -> str:
+    match = re.search(
+        rf"^{re.escape(target)}:\n(?P<body>.*?)(?=^[A-Za-z0-9_.-]+:|\Z)",
+        makefile_body,
+        re.MULTILINE | re.DOTALL,
+    )
+    if match is None:
+        errors.append(f"Makefile: missing target {target}")
+        return ""
+    return match.group("body")
+
+for target, kubeconfig_variable in [
+    ("local-forward", "LOCAL_KUBECONFIG_PATH"),
+    ("azure-forward", "AZURE_KUBECONFIG_PATH"),
+    ("aws-forward", "AWS_KUBECONFIG_PATH"),
+]:
+    if f'export KUBECONFIG="$({kubeconfig_variable})"' not in make_target_body(target):
+        errors.append(f"Makefile: {target} must export its provider-isolated kubeconfig")
+
+for target in [
+    "floe-manifest-upload",
+    "superset-reports-deploy",
+    "superset-reports-export",
+    "openmetadata-metadata-deploy",
+]:
+    body = make_target_body(target)
+    if "KUBE_CONTEXT=$(KUBE_CONTEXT)" not in body:
+        errors.append(f"Makefile: {target} must pass the local Kubernetes context to olf")
+    if 'KUBECONFIG="$(LOCAL_KUBECONFIG_PATH)"' not in body:
+        errors.append(f"Makefile: {target} must pass the local provider-isolated kubeconfig to olf")
+
 for path in [*Path("scripts/local").rglob("*.sh"), *Path("scripts/azure").rglob("*.sh"), *Path("scripts/aws").rglob("*.sh")]:
     if "kubectl config use-context" in path.read_text():
         errors.append(f"{path}: must not mutate the ambient kubectl current context")

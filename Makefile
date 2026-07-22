@@ -116,7 +116,7 @@ floe-manifest:
 	@NAMESPACE=$(NAMESPACE) bash scripts/artifacts/floe-manifest.sh
 
 floe-manifest-upload:
-	@NAMESPACE=$(NAMESPACE) bash scripts/artifacts/olf.sh artifacts upload-manifests --via port-forward
+	@NAMESPACE=$(NAMESPACE) KUBE_CONTEXT=$(KUBE_CONTEXT) KUBECONFIG="$(LOCAL_KUBECONFIG_PATH)" bash scripts/artifacts/olf.sh artifacts upload-manifests --via port-forward
 
 dbt-parse:
 	@bash scripts/artifacts/dbt-parse.sh
@@ -134,13 +134,13 @@ superset-load:
 	@CLUSTER_NAME=$(CLUSTER_NAME) SUPERSET_IMAGE_REPOSITORY=$(SUPERSET_IMAGE_REPOSITORY) SUPERSET_IMAGE_TAG=$(SUPERSET_IMAGE_TAG) bash scripts/local/images/load-superset.sh
 
 superset-reports-deploy:
-	@NAMESPACE=$(NAMESPACE) bash scripts/artifacts/olf.sh superset deploy-reports
+	@NAMESPACE=$(NAMESPACE) KUBE_CONTEXT=$(KUBE_CONTEXT) KUBECONFIG="$(LOCAL_KUBECONFIG_PATH)" bash scripts/artifacts/olf.sh superset deploy-reports
 
 superset-reports-export:
-	@NAMESPACE=$(NAMESPACE) bash scripts/artifacts/olf.sh superset export-reports
+	@NAMESPACE=$(NAMESPACE) KUBE_CONTEXT=$(KUBE_CONTEXT) KUBECONFIG="$(LOCAL_KUBECONFIG_PATH)" bash scripts/artifacts/olf.sh superset export-reports
 
 openmetadata-metadata-deploy:
-	@NAMESPACE=$(NAMESPACE) bash scripts/artifacts/olf.sh openmetadata deploy-metadata
+	@NAMESPACE=$(NAMESPACE) KUBE_CONTEXT=$(KUBE_CONTEXT) KUBECONFIG="$(LOCAL_KUBECONFIG_PATH)" bash scripts/artifacts/olf.sh openmetadata deploy-metadata
 
 local-foundation-up:
 	@CLUSTER_NAME=$(CLUSTER_NAME) KUBECONFIG_PATH="$(LOCAL_KUBECONFIG_PATH)" bash scripts/local/foundation/up.sh
@@ -235,7 +235,7 @@ azure-forward:
 	@echo "  Trino UI:         http://localhost:8080"
 	@echo "  Polaris API:      http://localhost:8181"
 	@echo "  SeaweedFS S3:     http://localhost:9000"
-	@set -e; \
+	@set -e; export KUBECONFIG="$(AZURE_KUBECONFIG_PATH)"; \
 	context="$(AZURE_KUBE_CONTEXT)"; \
 	kubectl --context $$context port-forward svc/seaweedfs-s3 9000:8333 -n $(NAMESPACE) & \
 	seaweedfs_pid=$$!; \
@@ -287,7 +287,7 @@ aws-forward:
 	@echo "  Superset UI:      http://localhost:8088  (admin / admin)"
 	@echo "  OpenMetadata UI:  http://localhost:8585  (admin@open-metadata.org / admin)"
 	@echo "  Trino UI:         http://localhost:8080"
-	@set -e; \
+	@set -e; export KUBECONFIG="$(AWS_KUBECONFIG_PATH)"; \
 	context="$(AWS_KUBE_CONTEXT)"; \
 	kubectl --context $$context port-forward svc/trino 8080:8080 -n $(NAMESPACE) & \
 	trino_pid=$$!; \
