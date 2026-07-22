@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from typing import Any
 
@@ -194,6 +195,43 @@ def test_prepare_kube_context_refreshes_existing_aws_context(monkeypatch: pytest
         "--alias",
         "kind-openlakeforge-local",
     ] in commands
+
+
+@pytest.mark.parametrize(
+    ("env", "expected_command_prefix", "terraform_outputs"),
+    [
+        (
+            "azure",
+            ["az", "aks", "get-credentials"],
+            {"resource_group_name": "rg-sandbox", "cluster_name": "aks-openlakeforge-poc"},
+        ),
+        (
+            "aws",
+            ["aws", "eks", "update-kubeconfig"],
+            {"aws_region": "eu-west-1", "cluster_name": "limited-eks-openlakeforge-poc"},
+        ),
+    ],
+)
+def test_prepare_kube_context_uses_provider_default_for_direct_cloud_runs(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    env: e2e.Environment,
+    expected_command_prefix: list[str],
+    terraform_outputs: dict[str, str],
+) -> None:
+    commands: list[list[str]] = []
+    monkeypatch.delenv("KUBECONFIG", raising=False)
+    monkeypatch.delenv(f"{env.upper()}_KUBECONFIG_PATH", raising=False)
+    monkeypatch.setattr(e2e, "_run", lambda args, capture=False: commands.append(args) or "")
+    monkeypatch.setattr(e2e, "terraform_output", lambda _dir, name: terraform_outputs[name])
+
+    e2e.prepare_kube_context(cfg(tmp_path, env=env, suite="smoke"))
+
+    expected_kubeconfig = tmp_path / ".tmp/kubeconfigs" / f"{env}.yaml"
+    cloud_command = next(command for command in commands if command[:3] == expected_command_prefix)
+    assert str(expected_kubeconfig) in cloud_command
+    assert Path(os.environ["KUBECONFIG"]) == expected_kubeconfig
+    assert expected_kubeconfig.parent.is_dir()
 
 
 def test_prepare_kube_context_selects_existing_local_context(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

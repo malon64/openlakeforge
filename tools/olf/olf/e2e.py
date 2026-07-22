@@ -291,6 +291,7 @@ def check_commands(cfg: E2EConfig) -> None:
 
 
 def prepare_kube_context(cfg: E2EConfig) -> None:
+    kubeconfig = configure_kubeconfig(cfg)
     if cfg.env == "local" and kube_context_is_ready(cfg.kube_context):
         return
 
@@ -309,7 +310,7 @@ def prepare_kube_context(cfg: E2EConfig) -> None:
                 "--name",
                 cluster_name,
                 "--file",
-                os.environ["KUBECONFIG"],
+                str(kubeconfig),
                 "--overwrite-existing",
             ]
         )
@@ -328,12 +329,26 @@ def prepare_kube_context(cfg: E2EConfig) -> None:
                 "--name",
                 cluster_name,
                 "--kubeconfig",
-                os.environ["KUBECONFIG"],
+                str(kubeconfig),
                 "--alias",
                 cfg.kube_context,
             ]
         )
     _run_retry(["kubectl", "cluster-info", "--context", cfg.kube_context], capture=True, attempts=6, delay=5)
+
+
+def configure_kubeconfig(cfg: E2EConfig) -> Path:
+    provider_override = os.environ.get(f"{cfg.env.upper()}_KUBECONFIG_PATH")
+    configured_path = os.environ.get("KUBECONFIG") or provider_override
+    kubeconfig = (
+        Path(configured_path).expanduser()
+        if configured_path
+        else cfg.repo_root / ".tmp/kubeconfigs" / f"{cfg.env}.yaml"
+    )
+    kubeconfig = kubeconfig.resolve()
+    kubeconfig.parent.mkdir(parents=True, exist_ok=True)
+    os.environ["KUBECONFIG"] = str(kubeconfig)
+    return kubeconfig
 
 
 def kube_context_is_ready(kube_context: str) -> bool:
