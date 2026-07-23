@@ -45,8 +45,8 @@ c.icon(447, 525, "deploy", "coordinator", size=48, label2="workers: 0")
 
 c.box(592, 470, 250, 170, "Polaris", color="platform", fill="#FFFFFF")
 svc_tag(592, 470, 250, "polaris:8181")
-c.icon(670, 525, "deploy", "catalog", size=48, label2="/api/catalog")
-c.icon(780, 525, "secret", "creds ×5", size=48, label2="per-engine oauth")
+c.icon(668, 525, "deploy", "catalog", size=48, label2="in-memory")
+c.icon(782, 525, "secret", "creds ×4", size=48, label2="no dbt principal")
 
 c.box(862, 470, 280, 170, "PostgreSQL", color="platform", fill="#FFFFFF")
 svc_tag(862, 470, 280, "postgresql:5432")
@@ -74,7 +74,7 @@ c.edge([(572, 542), (592, 542)], color="control")
 c.label(582, 528, "iceberg rest", size=10.5, mono=True, anchor="middle", color=C["control"])
 
 c.edge([(447, 640), (447, 710)], color="control", label="s3a")
-c.edge([(692, 640), (692, 710)], color="control", label="table io")
+c.edge([(692, 640), (692, 710)], color="control", dashed=True, label="warehouse loc")
 
 c.edge([(252, 390), (252, 444), (950, 444), (950, 470)], color="dim")
 c.edge([(957, 390), (957, 470)], color="dim")

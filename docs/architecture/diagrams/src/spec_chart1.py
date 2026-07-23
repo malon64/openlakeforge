@@ -51,13 +51,13 @@ c.badge(978, ROW2, 164, 180,
 
 # --- Row 3: ephemeral ---
 c.box(52, ROW3, 1090, 160,
-      "Ephemeral — created on demand, TTL-collected · the log-archive CronJob instead keeps 1 succeeded / 3 failed",
+      "Ephemeral & bootstrap Jobs — run/ingestion Jobs are TTL-collected; bootstrap Jobs + the log-archive CronJob leave completed pods until re-apply",
       color="ephemeral", fill="#FAF6FC", dashed=True)
 EY = ROW3 + 44
-c.icon(150, EY, "job", "dagster run pod", variant="ephemeral", label2="project-code:local")
-c.icon(340, EY, "job", "floe runner", variant="ephemeral", label2="malon64/floe:0.6.11")
-c.icon(530, EY, "job", "polaris-bootstrap", variant="ephemeral", label2="per helm revision")
-c.icon(720, EY, "job", "superset init", variant="ephemeral", label2="chart hook")
+c.icon(150, EY, "job", "dagster run pod", variant="ephemeral", label2="TTL 1h")
+c.icon(340, EY, "job", "floe runner", variant="ephemeral", label2="malon64/floe:0.6.11 · TTL 1h")
+c.icon(530, EY, "job", "polaris-bootstrap", variant="ephemeral", label2="per apply · no TTL")
+c.icon(720, EY, "job", "superset init", variant="ephemeral", label2="chart hook · no TTL")
 c.icon(910, EY, "job", "OM ingestion", variant="ephemeral", label2="ttl 3600s")
 c.icon(1080, EY, "cronjob", "k8s-log-archive", variant="ephemeral", label2="hourly")
 

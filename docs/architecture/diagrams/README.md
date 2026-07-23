@@ -51,7 +51,8 @@ every unit of data work is a Job that no longer exists an hour after it finished
 the contracts.*
 
 Superset queries Trino; Trino resolves tables through Polaris and reads data over s3a;
-Polaris keeps its metadata in SeaweedFS; Dagster, OpenMetadata, and Superset share one
+Polaris tracks catalog state in-memory (recreated by its bootstrap Job on restart) and
+points at the Iceberg warehouse files in SeaweedFS; Dagster, OpenMetadata, and Superset share one
 PostgreSQL. The per-run pair does the data work: the run pod lands raw data in
 object storage with **dlt**, launches the **Floe** runner (which authenticates to
 Polaris and reads/writes SeaweedFS), then calls **Trino** through dbt-trino to build
@@ -202,11 +203,12 @@ jobs: structure, infrastructure, contracts, project-code image build, tooling.
 | --- | --- | --- |
 | trino | `polaris-trino-creds` | data-engineer / catalog-admin |
 | floe | `polaris-floe-creds` | data-writer / catalog-writer |
-| dbt | `polaris-dbt-creds` | data-writer / catalog-writer |
 | openmetadata | `polaris-om-creds` | data-reader / catalog-reader |
 | (root) | `polaris-bootstrap-credentials` | bootstrap Job only |
 
-Plus `seaweedfs-s3-creds` for object storage. A leaked writer credential cannot
+dbt has **no** Polaris principal — the bootstrap deletes the old `polaris-dbt-creds`;
+Gold SQL runs in Trino, so Gold catalog access uses `polaris-trino-creds`. Plus
+`seaweedfs-s3-creds` for object storage. A leaked writer credential cannot
 administer the catalog. Delivery is Terraform → Kubernetes Secret →
 `envSecrets`/`envFrom` into long-lived pods *and* ephemeral Jobs; the Trino catalog file
 holds `${ENV:...}` placeholders, never literal secrets. The AWS POC replaces static
@@ -227,8 +229,11 @@ s3://openlakeforge-ops/
 └── run-artifacts/dbt/{domain}/{product}/{dagster_run_id}/  ← run pod, post-dbt-build
 ```
 
-Every prefix is keyed by domain, product, and run ID, so "what happened in run X" is
-answerable entirely from the bucket after every pod involved is gone.
+The Floe reports and dbt run-artifacts are keyed by domain, product, and Dagster run ID,
+so a run's data-quality and dbt outputs are isolable from the bucket after the pods are
+gone. The archived Kubernetes pod logs are partitioned only by namespace / date / hour
+(`libs/k8s_log_archive.py`), so isolating a single run from raw pod logs still needs a
+timestamp, not just a prefix.
 
 ## Domain-oriented code structure — the dynamic code
 

@@ -75,7 +75,7 @@ carries the ~40 contract-derived environment variables plus `envFrom` secrets.
 | Image | `ghcr.io/malon64/floe:0.6.11` — declared in the manifest | `project-code` runs the dbt CLI |
 | Upgrade path | Regenerate the manifest; no image rebuild | Bump dbt in `project-code`; Trino via Helm |
 | Storage access | S3 directly + catalog commits | Trino reads/writes S3; the run pod touches no data |
-| Credentials | `polaris-floe-creds` | `polaris-dbt-creds` (Trino holds `polaris-trino-creds`) |
+| Credentials | `polaris-floe-creds` | none — dbt reaches the catalog through Trino, which holds `polaris-trino-creds` (the bootstrap deletes the old `polaris-dbt-creds`) |
 
 Floe brings its own runtime image and is invoked through a declared contract; dbt is a
 thin client in the run pod whose transformations execute inside Trino — the run pod
