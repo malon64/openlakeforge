@@ -6,6 +6,11 @@ Terraform and Helm.
 
 ![OpenLakeForge Architecture](/docs/assets/openlakeforge_v1.png)
 
+For the engineering detail behind this picture — the pod-by-pod cluster census, the
+ephemeral Kubernetes job model, the Terraform contract flow, and provider portability
+across kind/AKS/EKS — see the
+[architecture charts](docs/architecture/diagrams/README.md).
+
 The v1 proof of concept focuses on a local Kubernetes lakehouse path across
 multiple domain-owned data products:
 
