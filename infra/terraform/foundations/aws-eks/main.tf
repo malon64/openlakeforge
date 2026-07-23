@@ -29,8 +29,9 @@ data "aws_availability_zones" "available" {
 }
 
 locals {
+  repo_root       = abspath("${path.root}/../../../..")
   azs             = slice(data.aws_availability_zones.available.names, 0, 2)
-  kubeconfig_path = pathexpand("~/.kube/config")
+  kubeconfig_path = var.kubeconfig_path != null ? abspath(pathexpand(var.kubeconfig_path)) : "${local.repo_root}/.tmp/kubeconfigs/aws.yaml"
   common_tags = {
     Project     = "openlakeforge"
     Environment = "aws-poc"

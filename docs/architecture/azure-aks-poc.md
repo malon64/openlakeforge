@@ -27,39 +27,35 @@ The shell running the Azure workflow needs:
 - Terraform, Helm, kubectl, Docker, and Python 3.
 - Docker access to build local images before pushing to ACR.
 
-Defaults:
+Foundation configuration:
 
-- Resource group: `rg-openlakeforge-azure-poc`
-- Region: `westeurope`
+- Resource group name, ownership, region, and permitted node VM size: local `sandbox.tfvars`
+- Default Terraform-owned resource group: `rg-openlakeforge-azure-poc`
 - AKS cluster: `aks-openlakeforge-poc`
-- Node pool: 3 `Standard_D4s_v5` nodes
+- Node pool size: 3 nodes
 - ACR name: `openlakeforgepoc<random_suffix>`
 
-By default, the Azure foundation Terraform root owns the resource group. That
-is the normal path for a subscription where the operator can create resource
-groups:
+Copy the tracked template before the first deployment. The resulting file is
+gitignored so a temporary company sandbox resource-group name stays local:
 
 ```bash
-make azure-foundation-up
+cd infra/terraform/foundations/azure-aks
+cp sandbox.tfvars.example sandbox.tfvars
+# Edit resource_group_name, create_resource_group, location, and node_vm_size.
+cd ../../../..
+make azure-up
 ```
 
 Some corporate sandboxes only allow resource creation inside a pre-created
 resource group. In that restricted case, keep the resource group outside the
-foundation state and set `AZURE_CREATE_RESOURCE_GROUP=false`. Terraform will
-read the existing resource group and still create the POC-owned resources inside
-it: AKS, ACR, and the AKS-to-ACR pull role assignment.
+foundation state and set `create_resource_group = false` in `sandbox.tfvars`.
+Terraform will read the existing resource group and still create the POC-owned
+resources inside it: AKS, ACR, and the AKS-to-ACR pull role assignment.
 
-```bash
-AZURE_RESOURCE_GROUP=<existing-resource-group> \
-AZURE_CREATE_RESOURCE_GROUP=false \
-AZURE_LOCATION=<resource-group-region> \
-make azure-foundation-up
-```
-
-Use the same overrides for every Azure lifecycle command in that sandbox,
-including `azure-up`, `azure-down`, and `azure-foundation-down`. With
-`AZURE_CREATE_RESOURCE_GROUP=false`, foundation destroy removes the AKS and ACR
-resources owned by this stack but leaves the external resource group in place.
+The same tfvars file is used by `azure-up`, `azure-down`, and
+`azure-foundation-down`. With `create_resource_group = false`, foundation
+destroy removes the AKS and ACR resources owned by this stack but leaves the
+external resource group in place.
 
 ## Workflow
 

@@ -17,7 +17,9 @@ RUN pip install --no-cache-dir --require-hashes --no-deps -r requirements.lock
 COPY domains ./domains
 COPY libs ./libs
 
-RUN pip install --no-cache-dir --no-deps .
+# setuptools is pinned in requirements.lock, so re-use it instead of creating a
+# network-backed build environment for each provider image.
+RUN pip install --no-cache-dir --no-build-isolation --no-deps .
 
 # Render environment-specific dbt profiles, then pre-generate dbt manifests with
 # the lightweight local target so code-server pods do not parse on every rollout.

@@ -5,7 +5,7 @@ variable "namespace" {
 }
 
 variable "kubeconfig_path" {
-  description = "Optional kubeconfig path. Defaults to the active kubectl context."
+  description = "Optional kubeconfig path. Defaults to the repository-local .tmp/kubeconfigs/local.yaml."
   type        = string
   default     = null
 }

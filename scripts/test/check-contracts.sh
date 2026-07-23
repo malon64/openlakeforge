@@ -587,7 +587,13 @@ for required in [
     'warehouse_prefix: "s3://openlakeforge-poc-silver/warehouse/iceberg"',
     'create_database_if_missing: false',
     'AWS_S3_FORCE_PATH_STYLE: "false"',
-    'secrets: []',
+    'name: OPENLINEAGE_API_KEY',
+    'secret_name: openmetadata-ingestion-bot',
+    'key: OPENMETADATA_INGESTION_BOT_JWT',
+    'url: http://openmetadata:8585',
+    'endpoint: api/v1/openlineage/lineage',
+    'namespace: dagster',
+    'dataset_namespace: aws_glue',
 ]:
     if required not in aws_floe_profile_body:
         errors.append(f"{aws_floe_profile}: missing native AWS Glue/S3 profile setting {required}")
@@ -608,12 +614,12 @@ for forbidden in [
 
 for floe_profile in [Path("libs/floe/profiles/local-k8s.yml"), aws_floe_profile]:
     body = floe_profile.read_text()
-    for forbidden in ["\nstorages:", "\nlineage:"]:
+    for forbidden in ["\nstorages:", "api_key:"]:
         if forbidden in body:
-            errors.append(f"{floe_profile}: profile must follow Floe profile.schema.yaml and not contain {forbidden.strip()}")
-    for required in ["apiVersion: floe/v1", "kind: EnvironmentProfile", "metadata:", "variables:", "catalogs:", "execution:", "validation:"]:
+            errors.append(f"{floe_profile}: must not contain {forbidden.strip()}")
+    for required in ["apiVersion: floe/v1", "kind: EnvironmentProfile", "metadata:", "variables:", "catalogs:", "execution:", "lineage:", "validation:", "name: OPENLINEAGE_API_KEY", "secret_name: openmetadata-ingestion-bot", "key: OPENMETADATA_INGESTION_BOT_JWT", "url: http://openmetadata:8585", "endpoint: api/v1/openlineage/lineage", "namespace: dagster"]:
         if required not in body:
-            errors.append(f"{floe_profile}: missing Floe profile.schema.yaml section {required}")
+            errors.append(f"{floe_profile}: missing Floe runtime profile setting {required}")
 
 load_runtime_env_script = Path("scripts/contracts/load-runtime-env.sh")
 load_runtime_env_body = load_runtime_env_script.read_text()
@@ -674,17 +680,70 @@ if "PROJECT_CODE_IMAGE=\"${PROJECT_CODE_IMAGE_REPOSITORY}:${PROJECT_CODE_IMAGE_T
 # Manifest publication and Dagster image bookkeeping moved into the shared olf
 # tooling. Each cloud deploy script now delegates through the olf CLI, and the
 # behavioral invariants are asserted against the Python modules that own them.
-for path, body in [(azure_artifact_script, azure_artifact_body), (aws_artifact_script, aws_artifact_body)]:
+for path, body in [
+    (local_artifact_script, local_artifact_body),
+    (azure_artifact_script, azure_artifact_body),
+    (aws_artifact_script, aws_artifact_body),
+]:
     if "olf_run k8s set-project-code-image" not in body:
         errors.append(f"{path}: must update the Dagster project-code image through 'olf k8s set-project-code-image'")
+    if "restart_dagster_project_code_deployments" in body or "kubectl rollout restart" in body:
+        errors.append(f"{path}: must not trigger a second Dagster rollout after setting the project-code image")
+for path, body in [(azure_artifact_script, azure_artifact_body), (aws_artifact_script, aws_artifact_body)]:
     if "olf_run artifacts upload-manifests" not in body:
         errors.append(f"{path}: must publish Floe manifests through 'olf artifacts upload-manifests'")
-    if "restart_dagster_project_code_deployments" not in body:
-        errors.append(f"{path}: must restart Dagster project-code deployments after the artifact deploy")
 if "olf_run artifacts upload-manifests --via port-forward" not in azure_artifact_body:
     errors.append(f"{azure_artifact_script}: Azure SeaweedFS ops bucket upload must use --via port-forward")
 if "olf_run artifacts upload-manifests --via direct" not in aws_artifact_body:
     errors.append(f"{aws_artifact_script}: AWS S3 ops bucket upload must use --via direct")
+
+makefile_body = Path("Makefile").read_text()
+for variable in ["LOCAL_KUBECONFIG_PATH", "AZURE_KUBECONFIG_PATH", "AWS_KUBECONFIG_PATH"]:
+    if f"{variable} ?=" not in makefile_body:
+        errors.append(f"Makefile: missing provider-isolated kubeconfig variable {variable}")
+
+def make_target_body(target: str) -> str:
+    match = re.search(
+        rf"^{re.escape(target)}:\n(?P<body>.*?)(?=^[A-Za-z0-9_.-]+:|\Z)",
+        makefile_body,
+        re.MULTILINE | re.DOTALL,
+    )
+    if match is None:
+        errors.append(f"Makefile: missing target {target}")
+        return ""
+    return match.group("body")
+
+for target, kubeconfig_variable in [
+    ("local-forward", "LOCAL_KUBECONFIG_PATH"),
+    ("azure-forward", "AZURE_KUBECONFIG_PATH"),
+    ("aws-forward", "AWS_KUBECONFIG_PATH"),
+]:
+    if f'export KUBECONFIG="$({kubeconfig_variable})"' not in make_target_body(target):
+        errors.append(f"Makefile: {target} must export its provider-isolated kubeconfig")
+
+for target in [
+    "floe-manifest-upload",
+    "superset-reports-deploy",
+    "superset-reports-export",
+    "openmetadata-metadata-deploy",
+]:
+    body = make_target_body(target)
+    if "KUBE_CONTEXT=$(KUBE_CONTEXT)" not in body:
+        errors.append(f"Makefile: {target} must pass the local Kubernetes context to olf")
+    if 'KUBECONFIG="$(LOCAL_KUBECONFIG_PATH)"' not in body:
+        errors.append(f"Makefile: {target} must pass the local provider-isolated kubeconfig to olf")
+
+for path in [*Path("scripts/local").rglob("*.sh"), *Path("scripts/azure").rglob("*.sh"), *Path("scripts/aws").rglob("*.sh")]:
+    if "kubectl config use-context" in path.read_text():
+        errors.append(f"{path}: must not mutate the ambient kubectl current context")
+
+superset_module_body = Path("infra/terraform/modules/analytics/superset/main.tf").read_text()
+for required in ['name = "superset-reports"', "emptyDir", 'sizeLimit = "1Gi"']:
+    if required not in superset_module_body:
+        errors.append(f"Superset module: missing ephemeral reports volume setting {required}")
+for forbidden in ["kubernetes_persistent_volume_claim_v1", "reports_teardown_guard", "persistentVolumeClaim"]:
+    if forbidden in superset_module_body:
+        errors.append(f"Superset module: reports staging must not use persistent storage ({forbidden})")
 
 RENDER_FLOE_PROFILE_CMD = [
     "uv", "run", "--project", "tools/olf", "--quiet", "olf", "floe", "render-profile",
@@ -769,7 +828,13 @@ for required in [
     'OPENLAKEFORGE_STORAGE_REGION: "eu-west-1"',
     'AWS_S3_FORCE_PATH_STYLE: "false"',
     'AWS_EC2_METADATA_DISABLED: "false"',
-    'secrets: []',
+    'name: OPENLINEAGE_API_KEY',
+    'secret_name: openmetadata-ingestion-bot',
+    'key: OPENMETADATA_INGESTION_BOT_JWT',
+    'url: "http://openmetadata:8585"',
+    'endpoint: "api/v1/openlineage/lineage"',
+    'namespace: "dagster"',
+    'dataset_namespace: "aws_glue"',
 ]:
     if required not in aws_profile:
         errors.append(f"rendered AWS Floe profile must include native Glue/S3 setting {required}")

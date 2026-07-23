@@ -8,6 +8,7 @@ the derivation lives here once.
 
 from __future__ import annotations
 
+import os
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -121,7 +122,8 @@ def upload_via_port_forward(
     region: str,
 ) -> None:
     """Upload to an in-cluster S3-compatible store through kubectl port-forward."""
-    log_path = "/tmp/openlakeforge-seaweedfs-port-forward.log"
+    log_prefix = os.environ.get("OPENLAKEFORGE_PORT_FORWARD_LOG_PREFIX", "/tmp/openlakeforge")
+    log_path = f"{log_prefix}-seaweedfs-port-forward.log"
     with k8s.port_forward(service, remote_port, namespace, log_path=log_path) as local_port:
         endpoint = f"http://127.0.0.1:{local_port}"
         client = boto3.client(
@@ -143,7 +145,5 @@ def _wait_for_bucket(client, bucket: str, endpoint: str, *, attempts: int = 60, 
             return
         except (ClientError, BotoCoreError):
             if attempt == attempts:
-                raise RuntimeError(
-                    f"bucket '{bucket}' did not become available through {endpoint}."
-                ) from None
+                raise RuntimeError(f"bucket '{bucket}' did not become available through {endpoint}.") from None
             time.sleep(delay)

@@ -11,6 +11,8 @@ NAMESPACE="${NAMESPACE:-lakehouse}"
 export NAMESPACE
 CLUSTER_NAME="${CLUSTER_NAME:-openlakeforge-local}"
 KUBE_CONTEXT="${KUBE_CONTEXT:-kind-${CLUSTER_NAME}}"
+KUBECONFIG_PATH="${KUBECONFIG_PATH:-${REPO_ROOT}/.tmp/kubeconfigs/local.yaml}"
+DEPLOYMENT_SCOPE="${DEPLOYMENT_SCOPE:-local}"
 export OPENLAKEFORGE_REPO_ROOT="${REPO_ROOT}"
 PROJECT_CODE_IMAGE_REPOSITORY="${PROJECT_CODE_IMAGE_REPOSITORY:-ghcr.io/openlakeforge/project-code}"
 PROJECT_CODE_IMAGE_TAG="${PROJECT_CODE_IMAGE_TAG:-local}"
@@ -28,6 +30,7 @@ RUN_RETRY_DELAY_SECONDS="${LOCAL_UP_RETRY_DELAY_SECONDS:-20}"
 
 # shellcheck source=scripts/lib/common.sh
 source "${REPO_ROOT}/scripts/lib/common.sh"
+configure_deployment_scope
 # shellcheck source=scripts/lib/helm.sh
 source "${REPO_ROOT}/scripts/lib/helm.sh"
 # shellcheck source=scripts/lib/kube.sh
@@ -44,7 +47,7 @@ check_cluster() {
     exit 1
   fi
 
-  if ! kubectl cluster-info --context "${KUBE_CONTEXT}" >/dev/null 2>&1; then
+  if ! require_kube_context >/dev/null 2>&1; then
     echo "ERROR: Kubernetes context '${KUBE_CONTEXT}' is not reachable." >&2
     echo "Run 'make local-foundation-up' before applying the local platform." >&2
     exit 1
@@ -79,6 +82,7 @@ terraform_apply_once() {
   terraform -chdir="${TERRAFORM_DIR}" apply -auto-approve \
     -var="namespace=${NAMESPACE}" \
     -var="kube_context=${KUBE_CONTEXT}" \
+    -var="kubeconfig_path=${KUBECONFIG_PATH}" \
     -var="foundation_state_path=${FOUNDATION_STATE_PATH}" \
     -var="project_code_image_repository=${PROJECT_CODE_IMAGE_REPOSITORY}" \
     -var="project_code_image_tag=${PROJECT_CODE_IMAGE_TAG}" \
@@ -97,7 +101,7 @@ state_has_resource() {
 }
 
 reset_drifted_local_platform_if_needed() {
-  if ! kubectl get namespace "${NAMESPACE}" >/dev/null 2>&1; then
+  if ! kubectl --context "${KUBE_CONTEXT}" get namespace "${NAMESPACE}" >/dev/null 2>&1; then
     return 0
   fi
 
@@ -122,12 +126,12 @@ refresh_trino_if_catalog_credentials_are_stale() {
   local check_output
   local bootstrap_generation_before
 
-  if ! kubectl get deployment "${deployment}" -n "${NAMESPACE}" >/dev/null 2>&1; then
+  if ! kubectl --context "${KUBE_CONTEXT}" get deployment "${deployment}" -n "${NAMESPACE}" >/dev/null 2>&1; then
     return 0
   fi
 
   echo "==> Checking Trino Iceberg catalog credentials..."
-  if check_output="$(kubectl exec "deployment/${deployment}" -n "${NAMESPACE}" -- \
+  if check_output="$(kubectl --context "${KUBE_CONTEXT}" exec "deployment/${deployment}" -n "${NAMESPACE}" -- \
     trino --server http://localhost:8080 --execute "SHOW SCHEMAS FROM iceberg" 2>&1)"; then
     return 0
   fi
@@ -143,11 +147,11 @@ refresh_trino_if_catalog_credentials_are_stale() {
       ;;
   esac
 
-  kubectl rollout restart "deployment/${deployment}" -n "${NAMESPACE}"
-  kubectl rollout status "deployment/${deployment}" -n "${NAMESPACE}" --timeout=300s
+  kubectl --context "${KUBE_CONTEXT}" rollout restart "deployment/${deployment}" -n "${NAMESPACE}"
+  kubectl --context "${KUBE_CONTEXT}" rollout status "deployment/${deployment}" -n "${NAMESPACE}" --timeout=300s
 
   if run_with_retry "Trino Iceberg catalog credential check" \
-    kubectl exec "deployment/${deployment}" -n "${NAMESPACE}" -- \
+    kubectl --context "${KUBE_CONTEXT}" exec "deployment/${deployment}" -n "${NAMESPACE}" -- \
       trino --server http://localhost:8080 --execute "SHOW SCHEMAS FROM iceberg"; then
     return 0
   fi
@@ -162,18 +166,18 @@ refresh_trino_if_catalog_credentials_are_stale() {
   echo "WARN: Trino still has stale Polaris credentials; reapplying local platform with Polaris rebootstrap..." >&2
   run_with_retry "Terraform apply" terraform_apply_once
 
-  kubectl rollout restart "deployment/${deployment}" -n "${NAMESPACE}"
-  kubectl rollout status "deployment/${deployment}" -n "${NAMESPACE}" --timeout=300s
+  kubectl --context "${KUBE_CONTEXT}" rollout restart "deployment/${deployment}" -n "${NAMESPACE}"
+  kubectl --context "${KUBE_CONTEXT}" rollout status "deployment/${deployment}" -n "${NAMESPACE}" --timeout=300s
 
   run_with_retry "Trino Iceberg catalog credential check after Polaris rebootstrap" \
-    kubectl exec "deployment/${deployment}" -n "${NAMESPACE}" -- \
+    kubectl --context "${KUBE_CONTEXT}" exec "deployment/${deployment}" -n "${NAMESPACE}" -- \
       trino --server http://localhost:8080 --execute "SHOW SCHEMAS FROM iceberg"
 }
 
 echo "==> Checking static platform prerequisites..."
 check_prereqs terraform kubectl helm uv base64
 check_cluster
-kubectl config use-context "${KUBE_CONTEXT}" >/dev/null
+require_kube_context
 
 prepare_local_superset_image
 prepare_helm_cache_dirs
@@ -187,6 +191,7 @@ reset_drifted_local_platform_if_needed
 terraform_import_namespace_args=(
   -var="namespace=${NAMESPACE}"
   -var="kube_context=${KUBE_CONTEXT}"
+  -var="kubeconfig_path=${KUBECONFIG_PATH}"
   -var="foundation_state_path=${FOUNDATION_STATE_PATH}"
   -var="project_code_image_repository=${PROJECT_CODE_IMAGE_REPOSITORY}"
   -var="project_code_image_tag=${PROJECT_CODE_IMAGE_TAG}"

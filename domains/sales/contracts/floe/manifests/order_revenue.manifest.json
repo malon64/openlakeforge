@@ -1,17 +1,17 @@
 {
   "schema": "floe.manifest.v1",
   "generated_at_ts_ms": 0,
-  "floe_version": "0.6.8",
+  "floe_version": "0.6.11",
   "spec_version": "0.2",
   "manifest_name": "sales.order_revenue.local",
   "manifest_id": "mfv1-1faf0a276d5999f5",
-  "manifest_revision": "sha256:5fc5f3d1baecfe4514394897e2ec7f99d5ab42b7988f09e634314dda13e034a3",
+  "manifest_revision": "sha256:f6079ff4fba3fafed9d4f276ea079b97f78d9b9e39140cd125d49a64bf763529",
   "runtime_env": "image",
   "work_root": "/work",
   "config_uri": "local:///work/domains/sales/contracts/floe/order_revenue.yml",
   "config_checksum": "sha256:4ec74b837e4ba6204ba34e5f5031b655d679984e76c4824f345c41d69e2b09de",
   "profile_uri": "local:///work/libs/floe/profiles/local-k8s.yml",
-  "profile_checksum": "sha256:d46aa2bbd1e660aed1da7b62b3c74037cda7e7e602f717bf3ae6c6424d60530e",
+  "profile_checksum": "sha256:aa752d0aa63e27e4292a5b2d9aa2c85d5c8646dd0bfa2885a46a3aa20cdc81cd",
   "report_base_uri": "s3://openlakeforge-ops/floe/reports/sales/order_revenue",
   "domains": [],
   "execution": {
@@ -76,9 +76,14 @@
             "name": "OPENLAKEFORGE_CATALOG_FLOE_CLIENT_SECRET",
             "secret_name": "polaris-floe-creds",
             "key": "POLARIS_FLOE_CLIENT_SECRET"
+          },
+          {
+            "name": "OPENLINEAGE_API_KEY",
+            "secret_name": "openmetadata-ingestion-bot",
+            "key": "OPENMETADATA_INGESTION_BOT_JWT"
           }
         ],
-        "image": "ghcr.io/malon64/floe:0.6.8",
+        "image": "ghcr.io/malon64/floe:0.6.11",
         "namespace": "lakehouse",
         "service_account": "dagster",
         "resources": null,
@@ -118,7 +123,7 @@
         "format": "csv",
         "storage": "lakehouse_bronze",
         "uri": "s3://lakehouse-bronze/sales/order_revenue/channels",
-        "path": "sales/order_revenue/channels",
+        "path": "s3://lakehouse-bronze/sales/order_revenue/channels",
         "resolved": true,
         "cast_mode": "strict",
         "options": {
@@ -144,7 +149,7 @@
           "format": "iceberg",
           "storage": "lakehouse_silver",
           "uri": "s3://lakehouse-silver/sales/order_revenue/channels",
-          "path": "sales/order_revenue/channels",
+          "path": "s3://lakehouse-silver/sales/order_revenue/channels",
           "resolved": true,
           "iceberg": {
             "catalog": "iceberg_catalog",
@@ -157,7 +162,7 @@
           "format": "csv",
           "storage": "lakehouse_silver",
           "uri": "s3://lakehouse-silver/floe/rejected/sales/order_revenue/channels",
-          "path": "floe/rejected/sales/order_revenue/channels",
+          "path": "s3://lakehouse-silver/floe/rejected/sales/order_revenue/channels",
           "resolved": true
         },
         "archive": null
@@ -210,7 +215,7 @@
         "format": "csv",
         "storage": "lakehouse_bronze",
         "uri": "s3://lakehouse-bronze/sales/order_revenue/order_lines",
-        "path": "sales/order_revenue/order_lines",
+        "path": "s3://lakehouse-bronze/sales/order_revenue/order_lines",
         "resolved": true,
         "cast_mode": "strict",
         "options": {
@@ -236,7 +241,7 @@
           "format": "iceberg",
           "storage": "lakehouse_silver",
           "uri": "s3://lakehouse-silver/sales/order_revenue/order_lines",
-          "path": "sales/order_revenue/order_lines",
+          "path": "s3://lakehouse-silver/sales/order_revenue/order_lines",
           "resolved": true,
           "iceberg": {
             "catalog": "iceberg_catalog",
@@ -249,7 +254,7 @@
           "format": "csv",
           "storage": "lakehouse_silver",
           "uri": "s3://lakehouse-silver/floe/rejected/sales/order_revenue/order_lines",
-          "path": "floe/rejected/sales/order_revenue/order_lines",
+          "path": "s3://lakehouse-silver/floe/rejected/sales/order_revenue/order_lines",
           "resolved": true
         },
         "archive": null
@@ -317,7 +322,7 @@
         "format": "csv",
         "storage": "lakehouse_bronze",
         "uri": "s3://lakehouse-bronze/sales/order_revenue/orders",
-        "path": "sales/order_revenue/orders",
+        "path": "s3://lakehouse-bronze/sales/order_revenue/orders",
         "resolved": true,
         "cast_mode": "strict",
         "options": {
@@ -343,7 +348,7 @@
           "format": "iceberg",
           "storage": "lakehouse_silver",
           "uri": "s3://lakehouse-silver/sales/order_revenue/orders",
-          "path": "sales/order_revenue/orders",
+          "path": "s3://lakehouse-silver/sales/order_revenue/orders",
           "resolved": true,
           "iceberg": {
             "catalog": "iceberg_catalog",
@@ -356,7 +361,7 @@
           "format": "csv",
           "storage": "lakehouse_silver",
           "uri": "s3://lakehouse-silver/floe/rejected/sales/order_revenue/orders",
-          "path": "floe/rejected/sales/order_revenue/orders",
+          "path": "s3://lakehouse-silver/floe/rejected/sales/order_revenue/orders",
           "resolved": true
         },
         "archive": null
@@ -429,7 +434,7 @@
         "format": "csv",
         "storage": "lakehouse_bronze",
         "uri": "s3://lakehouse-bronze/sales/order_revenue/products",
-        "path": "sales/order_revenue/products",
+        "path": "s3://lakehouse-bronze/sales/order_revenue/products",
         "resolved": true,
         "cast_mode": "strict",
         "options": {
@@ -455,7 +460,7 @@
           "format": "iceberg",
           "storage": "lakehouse_silver",
           "uri": "s3://lakehouse-silver/sales/order_revenue/products",
-          "path": "sales/order_revenue/products",
+          "path": "s3://lakehouse-silver/sales/order_revenue/products",
           "resolved": true,
           "iceberg": {
             "catalog": "iceberg_catalog",
@@ -468,7 +473,7 @@
           "format": "csv",
           "storage": "lakehouse_silver",
           "uri": "s3://lakehouse-silver/floe/rejected/sales/order_revenue/products",
-          "path": "floe/rejected/sales/order_revenue/products",
+          "path": "s3://lakehouse-silver/floe/rejected/sales/order_revenue/products",
           "resolved": true
         },
         "archive": null
@@ -526,7 +531,7 @@
         "format": "csv",
         "storage": "lakehouse_bronze",
         "uri": "s3://lakehouse-bronze/sales/order_revenue/promotions",
-        "path": "sales/order_revenue/promotions",
+        "path": "s3://lakehouse-bronze/sales/order_revenue/promotions",
         "resolved": true,
         "cast_mode": "strict",
         "options": {
@@ -552,7 +557,7 @@
           "format": "iceberg",
           "storage": "lakehouse_silver",
           "uri": "s3://lakehouse-silver/sales/order_revenue/promotions",
-          "path": "sales/order_revenue/promotions",
+          "path": "s3://lakehouse-silver/sales/order_revenue/promotions",
           "resolved": true,
           "iceberg": {
             "catalog": "iceberg_catalog",
@@ -565,7 +570,7 @@
           "format": "csv",
           "storage": "lakehouse_silver",
           "uri": "s3://lakehouse-silver/floe/rejected/sales/order_revenue/promotions",
-          "path": "floe/rejected/sales/order_revenue/promotions",
+          "path": "s3://lakehouse-silver/floe/rejected/sales/order_revenue/promotions",
           "resolved": true
         },
         "archive": null
@@ -658,5 +663,16 @@
         "warehouse_storage": "lakehouse_silver"
       }
     ]
+  },
+  "lineage": {
+    "api_key": null,
+    "dataset_namespace": "polaris",
+    "endpoint": "api/v1/openlineage/lineage",
+    "job_name": null,
+    "max_failures": null,
+    "namespace": "dagster",
+    "producer": null,
+    "timeout_secs": 5,
+    "url": "http://openmetadata:8585"
   }
 }

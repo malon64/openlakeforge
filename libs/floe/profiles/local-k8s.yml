@@ -26,7 +26,7 @@ execution:
     strategy: sequential
   runner:
     type: kubernetes_job
-    image: ghcr.io/malon64/floe:0.6.8
+    image: ghcr.io/malon64/floe:0.6.11
     namespace: lakehouse
     service_account: dagster
     timeout_seconds: 600
@@ -53,5 +53,14 @@ execution:
       - name: OPENLAKEFORGE_CATALOG_FLOE_CLIENT_SECRET
         secret_name: polaris-floe-creds
         key: POLARIS_FLOE_CLIENT_SECRET
+      - name: OPENLINEAGE_API_KEY
+        secret_name: openmetadata-ingestion-bot
+        key: OPENMETADATA_INGESTION_BOT_JWT
+lineage:
+  url: http://openmetadata:8585
+  endpoint: api/v1/openlineage/lineage
+  namespace: dagster
+  dataset_namespace: polaris
+  timeout_secs: 5
 validation:
   strict: true

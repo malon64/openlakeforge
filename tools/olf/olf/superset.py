@@ -175,10 +175,7 @@ def _running_superset_pod(namespace: str) -> str:
 
 def discover_report_dirs(repo_root: Path) -> list[str]:
     root = repo_root / "domains"
-    dirs = {
-        str(path.parent.relative_to(repo_root))
-        for path in root.glob("*/reports/superset/*/metadata.yaml")
-    }
+    dirs = {str(path.parent.relative_to(repo_root)) for path in root.glob("*/reports/superset/*/metadata.yaml")}
     return sorted(dirs)
 
 
@@ -186,7 +183,7 @@ def _exec_pod_python(pod: str, namespace: str, script: str, args: list[str]) -> 
     quoted = " ".join(f"'{arg}'" for arg in args)
     command = f". /app/pythonpath/superset_bootstrap.sh; python - {quoted}"
     subprocess.run(
-        ["kubectl", "exec", "-i", pod, "-c", "superset", "-n", namespace, "--", "/bin/sh", "-ec", command],
+        k8s.kubectl_command(["exec", "-i", pod, "-c", "superset", "-n", namespace, "--", "/bin/sh", "-ec", command]),
         input=script,
         text=True,
         check=True,
@@ -225,10 +222,21 @@ def deploy_reports(
         log.step(f"Copying {bundle_path} to {pod}:{remote_bundle}")
         with bundle_path.open("rb") as body:
             subprocess.run(
-                [
-                    "kubectl", "exec", "-i", pod, "-c", "superset", "-n", namespace, "--",
-                    "/bin/sh", "-ec", f"mkdir -p '{reports_mount_path}' && cat > '{remote_bundle}'",
-                ],
+                k8s.kubectl_command(
+                    [
+                        "exec",
+                        "-i",
+                        pod,
+                        "-c",
+                        "superset",
+                        "-n",
+                        namespace,
+                        "--",
+                        "/bin/sh",
+                        "-ec",
+                        f"mkdir -p '{reports_mount_path}' && cat > '{remote_bundle}'",
+                    ]
+                ),
                 stdin=body,
                 check=True,
             )
@@ -259,13 +267,11 @@ def export_report(
     pod = _running_superset_pod(namespace)
 
     log.step(f"Exporting '{dashboard_title}' from Superset")
-    _exec_pod_python(
-        pod, namespace, _EXPORT_SCRIPT, [remote_bundle, admin_username, dashboard_title, identity.root]
-    )
+    _exec_pod_python(pod, namespace, _EXPORT_SCRIPT, [remote_bundle, admin_username, dashboard_title, identity.root])
 
     with local_bundle.open("wb") as out:
         subprocess.run(
-            ["kubectl", "exec", pod, "-c", "superset", "-n", namespace, "--", "cat", remote_bundle],
+            k8s.kubectl_command(["exec", pod, "-c", "superset", "-n", namespace, "--", "cat", remote_bundle]),
             stdout=out,
             check=True,
         )

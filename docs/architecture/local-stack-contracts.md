@@ -134,7 +134,7 @@ Superset uses the shared PostgreSQL service for metadata and chart-managed Redis
 for local cache and worker support. Product report assets are not seeded by
 Terraform bootstrap. They are source-controlled under
 `domains/<domain>/reports/superset/<product>/`, copied into the
-Superset reports PVC at `/app/openlakeforge/reports`, and imported by the
+Superset ephemeral staging volume at `/app/openlakeforge/reports`, and imported by the
 local/CD report deployment step.
 
 OpenMetadata receives the Superset service connection during governance

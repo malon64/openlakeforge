@@ -18,7 +18,8 @@ provider "azurerm" {
 }
 
 locals {
-  kubeconfig_path         = var.kubeconfig_path != null ? pathexpand(var.kubeconfig_path) : pathexpand("~/.kube/config")
+  repo_root               = abspath("${path.root}/../../../..")
+  kubeconfig_path         = var.kubeconfig_path != null ? abspath(pathexpand(var.kubeconfig_path)) : "${local.repo_root}/.tmp/kubeconfigs/azure.yaml"
   acr_name                = lower("${var.acr_name_prefix}${random_string.acr_suffix.result}")
   resource_group_name     = var.create_resource_group ? azurerm_resource_group.this[0].name : data.azurerm_resource_group.this[0].name
   resource_group_location = var.create_resource_group ? azurerm_resource_group.this[0].location : data.azurerm_resource_group.this[0].location

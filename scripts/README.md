@@ -79,8 +79,8 @@ services:
   mirror for AWS project-code builds to avoid depending on Docker Hub during
   `make aws-artifacts-deploy`.
 - e2e validation is exposed directly through `make aws-e2e`, which runs
-  `olf e2e run --env aws` and defaults to the EKS smoke validation against
-  provider contracts, pods, S3, Glue, and Trino.
+  `olf e2e run --env aws`: EKS provider, pod, S3, Glue, and Trino preflight
+  checks followed by the shared full Dagster and reporting validation.
 
 The Makefile is the public interface for normal use. The shell scripts stay
 focused implementation details behind those targets.

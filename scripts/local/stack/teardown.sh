@@ -11,6 +11,8 @@ FOUNDATION_STATE_PATH="${FOUNDATION_STATE_PATH:-${FOUNDATION_TERRAFORM_DIR}/terr
 NAMESPACE="${NAMESPACE:-lakehouse}"
 CLUSTER_NAME="${CLUSTER_NAME:-openlakeforge-local}"
 KUBE_CONTEXT="${KUBE_CONTEXT:-kind-${CLUSTER_NAME}}"
+KUBECONFIG_PATH="${KUBECONFIG_PATH:-${REPO_ROOT}/.tmp/kubeconfigs/local.yaml}"
+export KUBECONFIG="${KUBECONFIG_PATH}"
 
 check_prereqs() {
   local missing=0
@@ -36,8 +38,6 @@ if [[ ! -f "${FOUNDATION_STATE_PATH}" ]]; then
   echo "The platform state depends on the foundation contract; restore or recreate it before running local-platform-down." >&2
   exit 1
 fi
-kubectl config use-context "${KUBE_CONTEXT}" >/dev/null
-
 echo "==> Removing completed Superset init hook job if present..."
 kubectl --context "${KUBE_CONTEXT}" delete job superset-init-db -n "${NAMESPACE}" \
   --ignore-not-found \
@@ -49,6 +49,7 @@ terraform -chdir="${TERRAFORM_DIR}" destroy \
   -auto-approve \
   -var="namespace=${NAMESPACE}" \
   -var="kube_context=${KUBE_CONTEXT}" \
+  -var="kubeconfig_path=${KUBECONFIG_PATH}" \
   -var="foundation_state_path=${FOUNDATION_STATE_PATH}"
 
 # One-time compatibility cleanup for stacks that were deployed before Terraform

@@ -75,24 +75,6 @@ variable "reports_mount_path" {
   default     = "/app/openlakeforge/reports"
 }
 
-variable "reports_storage_size" {
-  description = "Persistent volume size for dynamic Superset report bundles."
-  type        = string
-  default     = "1Gi"
-}
-
-variable "reports_storage_class_name" {
-  description = "Optional Kubernetes StorageClass for Superset report bundles. Null uses the cluster default."
-  type        = string
-  default     = null
-}
-
-variable "reports_access_modes" {
-  description = "Kubernetes access modes for the Superset report bundles PVC."
-  type        = list(string)
-  default     = ["ReadWriteOnce"]
-}
-
 variable "postgresql_contract" {
   description = "Metadata PostgreSQL contract consumed by Superset."
   type = object({
@@ -113,14 +95,4 @@ variable "postgresql_ssl_mode" {
   description = "PostgreSQL sslmode used by Superset metadata connections."
   type        = string
   default     = "disable"
-}
-
-variable "kubeconfig_path" {
-  description = "Path to the kubeconfig used by the destroy-time teardown guard (kubectl). Should match the kubeconfig the kubernetes/helm providers use."
-  type        = string
-}
-
-variable "kube_context" {
-  description = "kubeconfig context used by the destroy-time teardown guard (kubectl). Should match the kubernetes/helm provider context."
-  type        = string
 }

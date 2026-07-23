@@ -9,6 +9,8 @@ CONTRACT_TERRAFORM_DIR="${OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR:-${REPO_ROOT}/inf
 NAMESPACE="${NAMESPACE:-lakehouse}"
 AZURE_CLUSTER_NAME="${AZURE_CLUSTER_NAME:-aks-openlakeforge-poc}"
 KUBE_CONTEXT="${KUBE_CONTEXT:-}"
+KUBECONFIG_PATH="${KUBECONFIG_PATH:-${REPO_ROOT}/.tmp/kubeconfigs/azure.yaml}"
+DEPLOYMENT_SCOPE="${DEPLOYMENT_SCOPE:-azure}"
 FLOE_RUNTIME_ARTIFACT_DIR="${FLOE_RUNTIME_ARTIFACT_DIR:-${REPO_ROOT}/.tmp/floe-runtime/azure}"
 export OPENLAKEFORGE_REPO_ROOT="${REPO_ROOT}"
 export OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR="${CONTRACT_TERRAFORM_DIR}"
@@ -26,10 +28,12 @@ prepare_aks_context() {
   AZURE_RESOURCE_GROUP="$(terraform -chdir="${FOUNDATION_TERRAFORM_DIR}" output -raw resource_group_name)"
   AZURE_CLUSTER_NAME="$(terraform -chdir="${FOUNDATION_TERRAFORM_DIR}" output -raw cluster_name)"
   KUBE_CONTEXT="${KUBE_CONTEXT:-${AZURE_CLUSTER_NAME}}"
+  configure_deployment_scope
 
   az aks get-credentials \
     --resource-group "${AZURE_RESOURCE_GROUP}" \
     --name "${AZURE_CLUSTER_NAME}" \
+    --file "${KUBECONFIG_PATH}" \
     --overwrite-existing >/dev/null
 
   if ! kubectl cluster-info --context "${KUBE_CONTEXT}" >/dev/null 2>&1; then
@@ -38,7 +42,7 @@ prepare_aks_context() {
     exit 1
   fi
 
-  kubectl config use-context "${KUBE_CONTEXT}" >/dev/null
+  require_kube_context
 }
 
 prepare_image_variables() {
@@ -86,6 +90,5 @@ OPENMETADATA_ALLOW_MISSING_ASSETS="${OPENMETADATA_ALLOW_MISSING_ASSETS:-true}" \
 
 echo "==> Pointing Dagster at project-code image ${PROJECT_CODE_IMAGE}..."
 olf_run k8s set-project-code-image --image "${PROJECT_CODE_IMAGE}"
-restart_dagster_project_code_deployments
 
 echo "Dynamic OpenLakeForge Azure POC artifacts are deployed."

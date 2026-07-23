@@ -66,6 +66,7 @@ All have sane defaults; override via environment variables:
 | `AWS_CLUSTER_NAME` | `eks-openlakeforge-poc` | EKS cluster name (must match `cluster_name` in the foundation tfvars) |
 | `AWS_NODE_INSTANCE_TYPES` | `m7i.large` | Node group instance type(s) |
 | `AWS_TFVARS_FILE` | `<dir>/sandbox.tfvars` | Path to your tfvars |
+| `AWS_KUBECONFIG_PATH` | `.tmp/kubeconfigs/aws.yaml` | Isolated EKS kubeconfig used by every AWS target |
 
 ### 4. Deploy
 
@@ -88,14 +89,15 @@ make aws-foundation-down    # EKS, ECR, networking
 make aws-down               # full teardown wrapper: platform, then foundation
 ```
 
-ECR repos use `force_delete` and the Superset module has a destroy-time guard, so
-teardown does not stall on non-empty registries or a stuck reports PVC.
+ECR repositories use `force_delete`. Superset report ZIPs use ephemeral pod
+storage, so teardown does not depend on deleting a reports PVC.
 
 ---
 
 ## Azure (AKS)
 
-Azure is configured through **environment variables** (no tfvars file).
+Azure resource-group settings live in a local **tfvars file** so temporary
+sandbox names are not committed to the repository.
 
 ### 1. Authenticate
 
@@ -105,20 +107,35 @@ az account set --subscription "<your-subscription-id>"
 az account show          # sanity check — the scripts require this to succeed
 ```
 
-### 2. Configure (optional overrides)
+### 2. Configure the resource group
+
+Copy the tracked template and set the name and region of your sandbox resource
+group, plus an AKS VM size permitted by that subscription and region. Keep
+`create_resource_group = false` when the group is supplied by your company
+sandbox. When Terraform should create the group, set it to `true`; removing
+`resource_group_name` then uses the default `rg-openlakeforge-azure-poc`.
+
+```bash
+cd infra/terraform/foundations/azure-aks
+cp sandbox.tfvars.example sandbox.tfvars
+```
+
+The scripts load `sandbox.tfvars` automatically. To keep it elsewhere, set
+`AZURE_TFVARS_FILE=/abs/path/to/your.tfvars`.
+
+### 3. Configure optional runtime overrides
 
 All have defaults; override via environment variables:
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `AZURE_RESOURCE_GROUP` | `rg-openlakeforge-azure-poc` | Resource group |
-| `AZURE_LOCATION` | `westeurope` | Region |
+| `AZURE_TFVARS_FILE` | `<foundation-dir>/sandbox.tfvars` | Path to your resource-group tfvars |
 | `AZURE_CLUSTER_NAME` | `aks-openlakeforge-poc` | AKS cluster name |
 | `AZURE_NODE_COUNT` | `3` | Node count |
-| `AZURE_NODE_VM_SIZE` | `Standard_D4s_v5` | Node VM size |
 | `AZURE_ACR_NAME_PREFIX` | `openlakeforgepoc` | ACR name prefix (globally unique) |
+| `AZURE_KUBECONFIG_PATH` | `.tmp/kubeconfigs/azure.yaml` | Isolated AKS kubeconfig used by every Azure target |
 
-### 3. Deploy / tear down
+### 4. Deploy / tear down
 
 ```bash
 make azure-foundation-up
@@ -130,6 +147,25 @@ make azure-foundation-down  # AKS, ACR, and resource group resources
 make azure-down             # full teardown wrapper: platform, then foundation
 ```
 
+## Concurrent deployments
+
+The complete local, Azure, and AWS workflows can run at the same time. Each one
+uses its own kubeconfig, Helm cache, Docker credential directory, report work
+directory, and port-forward logs:
+
+```bash
+make local-up &
+make azure-up &
+make aws-up &
+wait
+```
+
+The default kubeconfig paths are `.tmp/kubeconfigs/local.yaml`,
+`.tmp/kubeconfigs/azure.yaml`, and `.tmp/kubeconfigs/aws.yaml`. Override them
+with `LOCAL_KUBECONFIG_PATH`, `AZURE_KUBECONFIG_PATH`, or
+`AWS_KUBECONFIG_PATH`. The workflows never switch the current context in your
+global kubeconfig.
+
 ---
 
 ## What stays out of git
@@ -138,5 +174,5 @@ make azure-down             # full teardown wrapper: platform, then foundation
 - **`*.tfvars`** — gitignored; only the `*.tfvars.example` templates are tracked.
 - **Terraform state** (`*.tfstate`) and `.terraform/` — local only.
 
-If you add a new account-specific value, put it in your local `sandbox.tfvars`
-(AWS) or an env var (Azure) — not in a tracked file.
+If you add a new account-specific value, put it in your local `sandbox.tfvars`,
+not in a tracked file.

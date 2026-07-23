@@ -10,6 +10,9 @@ FOUNDATION_STATE_PATH="${FOUNDATION_STATE_PATH:-${FOUNDATION_TERRAFORM_DIR}/terr
 NAMESPACE="${NAMESPACE:-lakehouse}"
 AZURE_CLUSTER_NAME="${AZURE_CLUSTER_NAME:-aks-openlakeforge-poc}"
 KUBE_CONTEXT="${KUBE_CONTEXT:-}"
+KUBECONFIG_PATH="${KUBECONFIG_PATH:-${REPO_ROOT}/.tmp/kubeconfigs/azure.yaml}"
+DEPLOYMENT_SCOPE="${DEPLOYMENT_SCOPE:-azure}"
+export HELM_CACHE_SCOPE="${HELM_CACHE_SCOPE:-${DEPLOYMENT_SCOPE}}"
 PROJECT_CODE_IMAGE_PULL_POLICY="${PROJECT_CODE_IMAGE_PULL_POLICY:-Always}"
 PROJECT_CODE_IMAGE_REVISION="${PROJECT_CODE_IMAGE_REVISION:-manual}"
 SUPERSET_IMAGE_PULL_POLICY="${SUPERSET_IMAGE_PULL_POLICY:-Always}"
@@ -49,10 +52,12 @@ prepare_aks_context() {
   AZURE_RESOURCE_GROUP="$(terraform -chdir="${FOUNDATION_TERRAFORM_DIR}" output -raw resource_group_name)"
   AZURE_CLUSTER_NAME="$(terraform -chdir="${FOUNDATION_TERRAFORM_DIR}" output -raw cluster_name)"
   KUBE_CONTEXT="${KUBE_CONTEXT:-${AZURE_CLUSTER_NAME}}"
+  configure_deployment_scope
 
   az aks get-credentials \
     --resource-group "${AZURE_RESOURCE_GROUP}" \
     --name "${AZURE_CLUSTER_NAME}" \
+    --file "${KUBECONFIG_PATH}" \
     --overwrite-existing >/dev/null
 
   if ! kubectl cluster-info --context "${KUBE_CONTEXT}" >/dev/null 2>&1; then
@@ -61,7 +66,7 @@ prepare_aks_context() {
     exit 1
   fi
 
-  kubectl config use-context "${KUBE_CONTEXT}" >/dev/null
+  require_kube_context
 }
 
 prepare_image_variables() {
@@ -90,6 +95,7 @@ terraform_apply_once() {
   terraform -chdir="${TERRAFORM_DIR}" apply -auto-approve \
     -var="namespace=${NAMESPACE}" \
     -var="kube_context=${KUBE_CONTEXT}" \
+    -var="kubeconfig_path=${KUBECONFIG_PATH}" \
     -var="foundation_state_path=${FOUNDATION_STATE_PATH}" \
     -var="project_code_image_repository=${PROJECT_CODE_IMAGE_REPOSITORY}" \
     -var="project_code_image_tag=${PROJECT_CODE_IMAGE_TAG}" \
@@ -120,6 +126,7 @@ terraform -chdir="${TERRAFORM_DIR}" init
 terraform_import_namespace_args=(
   -var="namespace=${NAMESPACE}"
   -var="kube_context=${KUBE_CONTEXT}"
+  -var="kubeconfig_path=${KUBECONFIG_PATH}"
   -var="foundation_state_path=${FOUNDATION_STATE_PATH}"
   -var="project_code_image_repository=${PROJECT_CODE_IMAGE_REPOSITORY}"
   -var="project_code_image_tag=${PROJECT_CODE_IMAGE_TAG}"

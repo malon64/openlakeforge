@@ -298,15 +298,14 @@ resource "kubernetes_job_v1" "bootstrap" {
               -n "$NAMESPACE" \
               --from-literal="${var.ingestion_bot_jwt_key}=$BOT_JWT"
 
-            # Enable native OpenLineage ingestion for dbt-trino. Floe remains
-            # on its current endpoint until its upstream endpoint configuration
-            # is fixed; this mapping intentionally covers only dbt's Trino
-            # dataset namespace for this migration branch.
+            # Enable native OpenLineage ingestion for dbt-trino and Floe. Floe
+            # emits accepted Iceberg datasets under the catalog service name
+            # (polaris or aws_glue), while dbt-trino uses its Trino URI.
             trino_namespace="trino://trino:8080"
             lineage_settings="$(jq -n \
               --arg service "$catalog_service" \
               --arg trino "$trino_namespace" \
-              '{config_type:"openLineageSettings",config_value:{enabled:true,autoCreateEntities:false,eventTypeFilter:["COMPLETE"],defaultPipelineService:"dagster",namespaceToServiceMapping:{($trino):$service}}}')"
+              '{config_type:"openLineageSettings",config_value:{enabled:true,autoCreateEntities:false,eventTypeFilter:["COMPLETE"],defaultPipelineService:"dagster",namespaceToServiceMapping:{($trino):$service,($service):$service}}}')"
             lineage_code="$(curl -sS -o /tmp/om-openlineage-body -w '%%{http_code}' \
               -X PUT "$om_url/api/v1/system/settings" \
               -H "Authorization: Bearer $ADMIN_JWT" \

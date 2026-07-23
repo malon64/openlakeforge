@@ -201,7 +201,10 @@ def openmetadata_deploy_metadata() -> None:
     log_step(f"Waiting for OpenMetadata deployment {service}...")
     k8s.wait_for_rollout(f"deployment/{service}", namespace)
 
-    log_path = "/tmp/openlakeforge-openmetadata-port-forward.log"
+    log_prefix = config.env(
+        "OPENLAKEFORGE_PORT_FORWARD_LOG_PREFIX", "/tmp/openlakeforge"
+    )
+    log_path = f"{log_prefix}-openmetadata-port-forward.log"
     with k8s.port_forward(service, remote_port, namespace, log_path=log_path) as local_port:
         cfg = om.OpenMetadataConfig.from_environment(
             os.environ,
@@ -227,19 +230,12 @@ def openmetadata_deploy_metadata() -> None:
 @k8s_app.command("set-project-code-image")
 def k8s_set_project_code_image(
     image: str = typer.Option(..., "--image", help="Fully qualified project-code image reference."),
+    timeout: str = typer.Option("600s", "--timeout", help="Timeout for each Dagster deployment rollout."),
 ) -> None:
-    """Point every Dagster surface at the freshly pushed project-code image."""
+    """Point every Dagster surface at an image and wait for one rollout."""
     from olf import k8s
 
-    k8s.set_project_code_image(image, config.namespace())
-
-
-@k8s_app.command("restart-dagster")
-def k8s_restart_dagster() -> None:
-    """Roll the Dagster webserver, daemon, and domain code-location deployments."""
-    from olf import k8s
-
-    k8s.restart_dagster_project_code_deployments(config.namespace())
+    k8s.set_project_code_image(image, config.namespace(), rollout_timeout=timeout)
 
 
 @polaris_app.command("check-credentials")
@@ -267,7 +263,10 @@ def polaris_check_credentials(
     client_id = k8s.secret_value(secret, client_id_key, namespace)
     client_secret = k8s.secret_value(secret, client_secret_key, namespace)
 
-    log_path = "/tmp/openlakeforge-polaris-port-forward.log"
+    log_prefix = config.env(
+        "OPENLAKEFORGE_PORT_FORWARD_LOG_PREFIX", "/tmp/openlakeforge"
+    )
+    log_path = f"{log_prefix}-polaris-port-forward.log"
     with k8s.port_forward(service, remote_port, namespace, log_path=log_path) as local_port:
         base = f"http://127.0.0.1:{local_port}"
         k8s.http_wait(f"{base}/q/health", attempts=30, delay=1.0)
@@ -286,7 +285,7 @@ def polaris_check_credentials(
 @e2e_app.command("run")
 def e2e_run(
     env: str = typer.Option(..., "--env", help="Environment to validate: local, azure, or aws."),
-    suite: str = typer.Option("", "--suite", help="Suite to run: full or smoke. Defaults by environment."),
+    suite: str = typer.Option("", "--suite", help="Suite to run: full or smoke. Defaults to full."),
 ) -> None:
     """Run end-to-end validation for a deployed OpenLakeForge environment."""
     from olf import e2e

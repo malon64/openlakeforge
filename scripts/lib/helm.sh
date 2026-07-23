@@ -4,9 +4,10 @@
 # Requires REPO_ROOT to be set by the caller. Chart repository/version/package
 # variables keep their existing per-script names and defaults.
 
-HELM_REPOSITORY_CONFIG="${HELM_REPOSITORY_CONFIG:-${REPO_ROOT}/.tmp/helm/repositories.yaml}"
-HELM_REPOSITORY_CACHE="${HELM_REPOSITORY_CACHE:-${REPO_ROOT}/.tmp/helm/repository-cache}"
-HELM_CHART_CACHE_DIR="${HELM_CHART_CACHE_DIR:-${REPO_ROOT}/.tmp/helm/charts}"
+HELM_CACHE_SCOPE="${HELM_CACHE_SCOPE:-shared}"
+HELM_REPOSITORY_CONFIG="${HELM_REPOSITORY_CONFIG:-${REPO_ROOT}/.tmp/helm/${HELM_CACHE_SCOPE}/repositories.yaml}"
+HELM_REPOSITORY_CACHE="${HELM_REPOSITORY_CACHE:-${REPO_ROOT}/.tmp/helm/${HELM_CACHE_SCOPE}/repository-cache}"
+HELM_CHART_CACHE_DIR="${HELM_CHART_CACHE_DIR:-${REPO_ROOT}/.tmp/helm/${HELM_CACHE_SCOPE}/charts}"
 
 helm_cached() {
   HELM_REPOSITORY_CONFIG="${HELM_REPOSITORY_CONFIG}" \

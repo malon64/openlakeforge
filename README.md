@@ -99,8 +99,8 @@ under `logs/` and `run-artifacts/`.
 
 Superset report assets are also treated as dynamic product artifacts. Their
 source lives under `domains/<domain>/reports/superset/<product>/`;
-local/CD deployment zips each bundle, copies it into the Superset reports
-volume, and imports it into the running Superset instance.
+local/CD deployment zips each bundle, copies it into Superset's ephemeral report
+staging directory, and imports it into the running Superset instance.
 
 OpenMetadata domain and data-product assets follow the same boundary. Terraform
 creates OpenMetadata and the platform services it needs; source-controlled
@@ -131,6 +131,9 @@ make check-structure
 make check-contracts
 make local-up
 ```
+
+The local workflow uses `.tmp/kubeconfigs/local.yaml` and never changes your
+global kubeconfig context. Set `LOCAL_KUBECONFIG_PATH` to override that path.
 
 The local stack runs on a kind cluster backed by your local Docker daemon. It
 has been exercised on Docker Desktop and Colima. On macOS with Colima, start
@@ -307,9 +310,10 @@ make aws-e2e
 Pod Identity), `aws-platform-up`, and `aws-artifacts-deploy`. The foundation
 apply is a no-op once it exists. Azure follows the same three-step pattern with
 `azure-foundation-up`, `azure-platform-up`, and `azure-artifacts-deploy`.
-`make aws-e2e` runs the current AWS smoke suite through `olf e2e run --env aws`;
-the full Dagster/Superset/OpenMetadata e2e suite remains a rollout gate for the
-AWS Glue/S3 path.
+`make aws-e2e` runs the full shared suite through `olf e2e run --env aws`: AWS
+provider, S3, Glue, and Trino preflight checks followed by Dagster product jobs,
+table and mart assertions, Superset dashboards, OpenMetadata assets, and runtime
+artifacts. Use `olf e2e run --env aws --suite smoke` for preflight-only checks.
 
 Teardown runs in the opposite order:
 

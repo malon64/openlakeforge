@@ -35,17 +35,11 @@ def render_profile(environ: Mapping[str, str]) -> str:
         "OPENLAKEFORGE_STORAGE_BRONZE_BUCKET", env("OPENLAKEFORGE_STORAGE_BUCKET", "lakehouse-bronze")
     )
     storage_silver_bucket = env("OPENLAKEFORGE_STORAGE_SILVER_BUCKET", "lakehouse-silver")
-    ops_bucket = env(
-        "OPENLAKEFORGE_OPS_BUCKET_NAME", env("OPENLAKEFORGE_ARTIFACT_BUCKET_NAME", "openlakeforge-ops")
-    )
+    ops_bucket = env("OPENLAKEFORGE_OPS_BUCKET_NAME", env("OPENLAKEFORGE_ARTIFACT_BUCKET_NAME", "openlakeforge-ops"))
     storage_region = env("OPENLAKEFORGE_STORAGE_REGION", "us-east-1")
-    storage_implementation = env(
-        "OPENLAKEFORGE_STORAGE_IMPLEMENTATION", "storage.s3_compatible.seaweedfs"
-    )
+    storage_implementation = env("OPENLAKEFORGE_STORAGE_IMPLEMENTATION", "storage.s3_compatible.seaweedfs")
     is_aws_s3 = storage_implementation == "storage.aws_s3"
-    storage_endpoint = env(
-        "OPENLAKEFORGE_STORAGE_ENDPOINT", "" if is_aws_s3 else "http://seaweedfs-s3:8333"
-    )
+    storage_endpoint = env("OPENLAKEFORGE_STORAGE_ENDPOINT", "" if is_aws_s3 else "http://seaweedfs-s3:8333")
     storage_virtual_endpoint = env(
         "OPENLAKEFORGE_STORAGE_VIRTUAL_HOST_ENDPOINT",
         "" if is_aws_s3 else f"http://{namespace}.svc.cluster.local:8333",
@@ -53,12 +47,8 @@ def render_profile(environ: Mapping[str, str]) -> str:
     catalog_type = env("OPENLAKEFORGE_CATALOG_TYPE", "rest")
     catalog_provider = env("OPENLAKEFORGE_CATALOG_PROVIDER", "polaris")
     is_aws_glue = catalog_type == "glue" and catalog_provider == "aws-glue"
-    profile_name = env(
-        "OPENLAKEFORGE_FLOE_PROFILE_NAME", "aws-eks" if is_aws_glue and is_aws_s3 else "local-k8s"
-    )
-    profile_env = env(
-        "OPENLAKEFORGE_FLOE_PROFILE_ENV", "aws" if is_aws_glue and is_aws_s3 else "local"
-    )
+    profile_name = env("OPENLAKEFORGE_FLOE_PROFILE_NAME", "aws-eks" if is_aws_glue and is_aws_s3 else "local-k8s")
+    profile_env = env("OPENLAKEFORGE_FLOE_PROFILE_ENV", "aws" if is_aws_glue and is_aws_s3 else "local")
     profile_description = env(
         "OPENLAKEFORGE_FLOE_PROFILE_DESCRIPTION",
         "AWS EKS runner profile for OpenLakeForge Floe assets."
@@ -71,33 +61,38 @@ def render_profile(environ: Mapping[str, str]) -> str:
         "OPENLAKEFORGE_CATALOG_TOKEN_URI",
         "http://polaris:8181/api/catalog/v1/oauth/tokens",
     )
-    catalog_warehouse = env(
-        "OPENLAKEFORGE_CATALOG_WAREHOUSE", env("OPENLAKEFORGE_CATALOG_NAME", "lakehouse_dev")
-    )
+    catalog_warehouse = env("OPENLAKEFORGE_CATALOG_WAREHOUSE", env("OPENLAKEFORGE_CATALOG_NAME", "lakehouse_dev"))
     catalog_warehouse_prefix = env("OPENLAKEFORGE_CATALOG_WAREHOUSE_PREFIX", "")
     catalog_glue_database = env("OPENLAKEFORGE_CATALOG_GLUE_DATABASE", "")
-    catalog_glue_warehouse_prefix = env(
-        "OPENLAKEFORGE_CATALOG_GLUE_WAREHOUSE_PREFIX", "warehouse/iceberg"
-    )
+    catalog_glue_warehouse_prefix = env("OPENLAKEFORGE_CATALOG_GLUE_WAREHOUSE_PREFIX", "warehouse/iceberg")
     catalog_scope = env("OPENLAKEFORGE_CATALOG_OAUTH_SCOPE", "PRINCIPAL_ROLE:ALL")
-    default_floe_image = "ghcr.io/malon64/floe:0.6.8"
+    default_floe_image = "ghcr.io/malon64/floe:0.6.11"
     floe_image = env("FLOE_IMAGE", default_floe_image)
-    storage_secret = env(
-        "OPENLAKEFORGE_STORAGE_CREDENTIALS_SECRET_NAME", "" if is_aws_s3 else "seaweedfs-s3-creds"
-    )
+    storage_secret = env("OPENLAKEFORGE_STORAGE_CREDENTIALS_SECRET_NAME", "" if is_aws_s3 else "seaweedfs-s3-creds")
     storage_access_key = env("OPENLAKEFORGE_STORAGE_ACCESS_KEY_ID_KEY", "AWS_ACCESS_KEY_ID")
     storage_secret_key = env("OPENLAKEFORGE_STORAGE_SECRET_ACCESS_KEY_KEY", "AWS_SECRET_ACCESS_KEY")
     catalog_secret = env("OPENLAKEFORGE_CATALOG_FLOE_CREDENTIALS_SECRET_NAME", "polaris-floe-creds")
     catalog_client_id_key = env("OPENLAKEFORGE_CATALOG_FLOE_CLIENT_ID_KEY", "POLARIS_FLOE_CLIENT_ID")
-    catalog_client_secret_key = env(
-        "OPENLAKEFORGE_CATALOG_FLOE_CLIENT_SECRET_KEY", "POLARIS_FLOE_CLIENT_SECRET"
+    catalog_client_secret_key = env("OPENLAKEFORGE_CATALOG_FLOE_CLIENT_SECRET_KEY", "POLARIS_FLOE_CLIENT_SECRET")
+    lineage_url = env("OPENLINEAGE_URL", "http://openmetadata:8585")
+    lineage_endpoint = env("OPENLINEAGE_ENDPOINT", "api/v1/openlineage/lineage")
+    lineage_namespace = env("OPENLINEAGE_NAMESPACE", "dagster")
+    lineage_dataset_namespace = env(
+        "OPENLAKEFORGE_FLOE_LINEAGE_DATASET_NAMESPACE",
+        "aws_glue" if is_aws_glue else "polaris",
+    )
+    lineage_secret = env(
+        "OPENLAKEFORGE_GOVERNANCE_INGESTION_BOT_SECRET_NAME",
+        "openmetadata-ingestion-bot",
+    )
+    lineage_secret_key = env(
+        "OPENLAKEFORGE_GOVERNANCE_INGESTION_BOT_JWT_KEY",
+        "OPENMETADATA_INGESTION_BOT_JWT",
     )
 
     if storage_implementation.startswith("storage.") and "s3" in storage_implementation:
         catalog_warehouse_prefix = _absolute_s3_prefix(storage_silver_bucket, catalog_warehouse_prefix)
-        catalog_glue_warehouse_prefix = _absolute_s3_prefix(
-            storage_silver_bucket, catalog_glue_warehouse_prefix
-        )
+        catalog_glue_warehouse_prefix = _absolute_s3_prefix(storage_silver_bucket, catalog_glue_warehouse_prefix)
 
     runner_env = {
         "AWS_REGION": storage_region,
@@ -123,9 +118,7 @@ def render_profile(environ: Mapping[str, str]) -> str:
             else storage_virtual_endpoint
         )
 
-    runner_env_yaml = "\n".join(
-        f"      {key}: {_yaml_string(value)}" for key, value in runner_env.items()
-    )
+    runner_env_yaml = "\n".join(f"      {key}: {_yaml_string(value)}" for key, value in runner_env.items())
 
     profile_variables = {
         "OPENLAKEFORGE_STORAGE_BRONZE_BUCKET": storage_bronze_bucket,
@@ -133,9 +126,7 @@ def render_profile(environ: Mapping[str, str]) -> str:
         "OPENLAKEFORGE_OPS_BUCKET_NAME": ops_bucket,
         "OPENLAKEFORGE_STORAGE_REGION": storage_region,
     }
-    profile_variables_yaml = "\n".join(
-        f"  {key}: {_yaml_string(value)}" for key, value in profile_variables.items()
-    )
+    profile_variables_yaml = "\n".join(f"  {key}: {_yaml_string(value)}" for key, value in profile_variables.items())
 
     storage_secret_yaml = ""
     if storage_secret:
@@ -157,10 +148,12 @@ def render_profile(environ: Mapping[str, str]) -> str:
         key: {catalog_client_secret_key}
 """
 
-    # Floe requires profile.execution.runner.secrets to be an array. With AWS Pod
-    # Identity (or any credential-chain auth) there are no Kubernetes Secrets to
-    # mount, so emit an explicit empty array instead of a null `secrets:` key.
-    secrets_entries = (storage_secret_yaml + catalog_secret_yaml).rstrip("\n")
+    lineage_secret_yaml = f"""      - name: OPENLINEAGE_API_KEY
+        secret_name: {lineage_secret}
+        key: {lineage_secret_key}
+"""
+
+    secrets_entries = (storage_secret_yaml + catalog_secret_yaml + lineage_secret_yaml).rstrip("\n")
     if secrets_entries.strip():
         secrets_block = "    secrets:\n" + secrets_entries
     else:
@@ -180,8 +173,7 @@ def render_profile(environ: Mapping[str, str]) -> str:
     elif catalog_type == "glue" and catalog_provider == "aws-glue":
         if not catalog_glue_database:
             raise SystemExit(
-                "ERROR: OPENLAKEFORGE_CATALOG_GLUE_DATABASE must be set to the target "
-                "product-layer Glue database."
+                "ERROR: OPENLAKEFORGE_CATALOG_GLUE_DATABASE must be set to the target product-layer Glue database."
             )
         catalog_definition = f"""    - name: "{catalog_name}"
       type: "glue"
@@ -192,9 +184,7 @@ def render_profile(environ: Mapping[str, str]) -> str:
       create_database_if_missing: false
 """
     else:
-        raise SystemExit(
-            f"ERROR: unsupported Floe catalog_type/provider: {catalog_type!r}/{catalog_provider!r}."
-        )
+        raise SystemExit(f"ERROR: unsupported Floe catalog_type/provider: {catalog_type!r}/{catalog_provider!r}.")
 
     return f"""apiVersion: floe/v1
 kind: EnvironmentProfile
@@ -222,6 +212,12 @@ execution:
     env:
 {runner_env_yaml}
 {secrets_block}
+lineage:
+  url: {_yaml_string(lineage_url)}
+  endpoint: {_yaml_string(lineage_endpoint)}
+  namespace: {_yaml_string(lineage_namespace)}
+  dataset_namespace: {_yaml_string(lineage_dataset_namespace)}
+  timeout_secs: 5
 validation:
   strict: true
 """

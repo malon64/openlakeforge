@@ -6,6 +6,19 @@ server:
   workers: 0
 
 coordinator:
+  deployment:
+    # Kind shares the Docker VM with provider image builds. Avoid running two
+    # 2 GiB coordinators during an update, which can otherwise starve both.
+    strategy:
+      type: Recreate
+  # Concurrent cloud image builds can temporarily starve the Docker VM that
+  # hosts Kind. Give Trino enough startup budget to survive that contention.
+  startupProbe:
+    initialDelaySeconds: 10
+    periodSeconds: 5
+    timeoutSeconds: 5
+    failureThreshold: 120
+    successThreshold: 1
   jvm:
     maxHeapSize: "2G"
   config:

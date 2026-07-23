@@ -65,7 +65,7 @@ helm template dagster dagster/dagster \
   --values infra/helm/values/local/dagster.yaml >/dev/null
 
 echo "==> Helm template: Superset"
-helm template superset superset/superset \
+superset_render="$(helm template superset superset/superset \
   --version 0.15.5 \
   --namespace lakehouse \
   --values infra/helm/values/local/superset.yaml \
@@ -77,6 +77,17 @@ helm template superset superset/superset \
   --set supersetNode.connections.db_port=5432 \
   --set supersetNode.connections.db_user=superset \
   --set supersetNode.connections.db_pass=check \
-  --set supersetNode.connections.db_name=superset >/dev/null
+  --set supersetNode.connections.db_name=superset \
+  --set-json 'extraVolumes=[{"name":"superset-reports","emptyDir":{"sizeLimit":"1Gi"}}]' \
+  --set-json 'extraVolumeMounts=[{"name":"superset-reports","mountPath":"/app/openlakeforge/reports"}]')"
+
+if ! grep -q 'emptyDir:' <<<"${superset_render}"; then
+  echo "ERROR: rendered Superset chart is missing the ephemeral reports emptyDir." >&2
+  exit 1
+fi
+if grep -q '^kind: PersistentVolumeClaim$' <<<"${superset_render}"; then
+  echo "ERROR: rendered Superset chart still contains a reports PVC." >&2
+  exit 1
+fi
 
 echo "Infrastructure checks passed."
