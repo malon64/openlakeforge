@@ -2,6 +2,11 @@
 
 This directory contains the repo-local architecture source of truth for OpenLakeForge.
 
+- `diagrams/` contains five technical charts drawn with the official Kubernetes
+  iconography — the cluster pod census, namespace runtime topology, the ephemeral
+  job lifecycle, the medallion/catalog data path, and the Terraform contract flow —
+  plus reference tables for portability, deploy phases, identity, and observability.
+  Start at `diagrams/README.md`.
 - `overview.md` describes the initial v1 platform shape and ownership boundaries.
 - `azure-aks-poc.md` describes the first Azure deployment target and test flow.
 - `aws-eks-poc.md` describes the AWS EKS managed-services POC and compatibility
