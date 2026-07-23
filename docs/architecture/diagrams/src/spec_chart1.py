@@ -5,7 +5,7 @@ from pathlib import Path
 from k8ssvg import Chart
 
 c = Chart(1180, 892, "Cluster Pod Census",
-          "namespace: lakehouse · kind cluster openlakeforge-local · every pod at steady state")
+          "namespace: lakehouse · kind cluster openlakeforge-local · long-lived services + on-demand Jobs")
 
 # namespace boundary
 c.box(28, 92, 1124, 768, "namespace: lakehouse", color="control", title_size=14)
@@ -51,7 +51,7 @@ c.badge(978, ROW2, 164, 180,
 
 # --- Row 3: ephemeral ---
 c.box(52, ROW3, 1090, 160,
-      "Ephemeral — created per run, TTL-collected · 0 pods at rest",
+      "Ephemeral — created on demand, TTL-collected · the log-archive CronJob instead keeps 1 succeeded / 3 failed",
       color="ephemeral", fill="#FAF6FC", dashed=True)
 EY = ROW3 + 44
 c.icon(150, EY, "job", "dagster run pod", variant="ephemeral", label2="project-code:local")

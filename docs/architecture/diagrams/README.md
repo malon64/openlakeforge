@@ -12,7 +12,7 @@ which shows *what* the platform does; these show *how*.
 
 | **16** | **2** | **3** | **0** |
 | --- | --- | --- | --- |
-| pods at steady state — 10 Deployments, 6 StatefulSets | nested ephemeral Kubernetes Jobs per ingestion run | deployment targets sharing one contract — kind, AKS, EKS | data-plane compute between runs |
+| pods at steady state — 10 Deployments, 6 StatefulSets | nested ephemeral Kubernetes Jobs per ingestion run | deployment targets sharing one contract — kind, AKS, EKS | run/Floe pods between runs (Gold runs in Trino) |
 
 ### Reading key — used identically in every chart
 
@@ -68,7 +68,8 @@ Gold.
 The differentiating behavior: the Dagster run pod is itself an ephemeral Job, and it
 creates a *second* ephemeral Job for Floe from an image declared in the Floe manifest —
 not in the Dagster deployment. Ingestion upgrades without rebuilding the orchestrator
-image; failures isolate per entity; TTL returns the cluster to zero.
+image; failures isolate per entity; TTL returns the per-run footprint to zero (Gold SQL
+executes in the standing Trino service, not a per-run pod).
 
 ```mermaid
 sequenceDiagram
@@ -111,7 +112,7 @@ sequenceDiagram
     Trino->>S3: write Gold Iceberg data
 
     Run-->>Daemon: run succeeded · logs + artifacts already in S3
-    Note over Run: Job 1 TTL-collected — zero pods remain
+    Note over Run: Job 1 TTL-collected — no run pods remain (Trino stays up)
 ```
 
 > Observe it live: `kubectl -n lakehouse get jobs -w` — the run Job appears, then one

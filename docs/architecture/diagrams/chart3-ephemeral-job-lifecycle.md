@@ -1,14 +1,18 @@
 # Chart 3 — Ephemeral Kubernetes Job Lifecycle
 
-**No data work runs in a long-lived pod.** Clicking *Launch* on a Dagster job creates an
-ephemeral Kubernetes Job, and that Job's pod *itself* creates a second ephemeral Job for
-Floe — from a container image declared inside the Floe manifest rather than in the
-Dagster deployment. Both are garbage-collected on TTL. Between runs, the data-plane
-compute footprint of the platform is zero.
+**Orchestration and ingestion run in ephemeral pods, not long-lived ones.** Clicking
+*Launch* on a Dagster job creates an ephemeral Kubernetes Job, and that Job's pod
+*itself* creates a second ephemeral Job for Floe — from a container image declared inside
+the Floe manifest rather than in the Dagster deployment. Both are garbage-collected on
+TTL, so between runs no run pod or Floe Job remains.
 
-The consequences: the ingestion engine upgrades without rebuilding the orchestrator
-image, a failing entity cannot poison a shared worker, and resource limits are per-run
-rather than per-cluster.
+Gold is the deliberate exception: dbt does **not** spawn a pod — `dbt-trino` pushes the
+SQL into the **long-lived Trino service**, where the transformation compute and its
+resource contention live (chart 2). So Bronze (dlt) and Silver (Floe) get per-run pods
+with per-run limits, while Gold work is sized at the shared Trino coordinator. The
+upshots: the ingestion engine upgrades without rebuilding the orchestrator image, a
+failing entity cannot poison a shared worker, and the per-run footprint — everything
+except the standing platform services — returns to zero between runs.
 
 ## The run
 
@@ -53,7 +57,7 @@ sequenceDiagram
     Trino->>S3: write Gold Iceberg data
 
     Run-->>Daemon: run succeeded · logs + artifacts already in S3
-    Note over Run: Job 1 TTL-collected — zero pods remain
+    Note over Run: Job 1 TTL-collected — no run pods remain (Trino stays up)
 ```
 
 The exact values live in the manifest and the Terraform module: both Jobs use
