@@ -58,7 +58,7 @@ sequenceDiagram
 
 The exact values live in the manifest and the Terraform module: both Jobs use
 `ttlSecondsAfterFinished: 3600` and ServiceAccount `dagster`; the Floe runner is
-`ghcr.io/malon64/floe:0.6.8` with `timeout_seconds: 600`, polled every 5s; exit codes are
+`ghcr.io/malon64/floe:0.6.11` with `timeout_seconds: 600`, polled every 5s; exit codes are
 `0 = success_or_rejected`, `1 = technical_failure`, `2 = aborted`; and the run pod
 carries the ~40 contract-derived environment variables plus `envFrom` secrets.
 
@@ -68,7 +68,7 @@ carries the ~40 contract-derived environment variables plus `envFrom` secrets.
 | --- | --- | --- |
 | Orchestrated from | The run pod | The run pod |
 | Executes in | **Its own Kubernetes Job** | **Trino** — dbt-trino pushes the SQL down |
-| Image | `ghcr.io/malon64/floe:0.6.8` — declared in the manifest | `project-code` runs the dbt CLI |
+| Image | `ghcr.io/malon64/floe:0.6.11` — declared in the manifest | `project-code` runs the dbt CLI |
 | Upgrade path | Regenerate the manifest; no image rebuild | Bump dbt in `project-code`; Trino via Helm |
 | Storage access | S3 directly + catalog commits | Trino reads/writes S3; the run pod touches no data |
 | Credentials | `polaris-floe-creds` | `polaris-dbt-creds` (Trino holds `polaris-trino-creds`) |

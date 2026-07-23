@@ -24,7 +24,7 @@ c.icon(240, 300, "deploy", "code server", size=46, label2="supply-chain")
 
 c.box(472, 150, 280, 240, "Per run", color="ephemeral", fill="#FAF6FC", dashed=True)
 c.icon(545, 225, "job", "run pod", size=50, variant="ephemeral", label2="dlt + dbt-trino")
-c.icon(685, 225, "job", "floe runner", size=50, variant="ephemeral", label2="floe:0.6.8")
+c.icon(685, 225, "job", "floe runner", size=50, variant="ephemeral", label2="floe:0.6.11")
 c.edge([(572, 250), (658, 250)], color="ephemeral", dashed=True, label="creates")
 
 c.box(772, 150, 370, 240, "OpenMetadata", color="platform", fill="#FFFFFF")
