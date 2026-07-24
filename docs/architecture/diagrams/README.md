@@ -19,14 +19,15 @@ which shows *what* the platform does; these show *how*.
 | Signal | Means |
 | --- | --- |
 | Blue heptagon icon | Kubernetes workload — the badge names the kind (`deploy`, `sts`, `svc`, `secret`) |
-| **Purple icon / dashed purple border** | **Ephemeral** — created per run, garbage-collected on TTL |
+| **Purple icon / dashed purple border** | **On-demand Job or CronJob** — run/ingestion Jobs are TTL-collected; bootstrap Jobs and the CronJob leave completed pods until re-apply |
 | Green box | Long-lived service, grouped by Helm release |
 | Blue box / badge | Control plane — Terraform, contracts, `olf` |
 | Cylinder | Bucket or datastore; bronze / grey / amber follow the medallion layers |
 | Orange | Managed service (AWS adapters) |
 
-> Purple always means one thing: created for this run, deleted within the hour. The
-> census shows that group empty — that is the point.
+> Purple marks the on-demand Jobs. The per-run ones — the run pod and Floe runners — are
+> TTL-collected within the hour, so the pipeline scales to zero between runs; the
+> bootstrap Jobs and the log-archive CronJob leave completed pods until the next apply.
 
 ---
 
@@ -38,8 +39,11 @@ this repo's own values.*
 Sixteen pods at steady state: Dagster runs four (webserver, daemon, one code server per
 domain), SeaweedFS four (three StatefulSets and an S3-gateway Deployment), Superset
 three, OpenMetadata two, and PostgreSQL, Polaris, and Trino one each — Trino
-deliberately coordinator-only. The purple group at the bottom is **empty between runs**:
-every unit of data work is a Job that no longer exists an hour after it finished.
+deliberately coordinator-only. The purple group at the bottom is the on-demand work: the
+run pod and Floe runners are **TTL-collected within the hour**, so ingestion scales to
+zero between runs — but Gold itself runs as SQL inside the long-lived Trino coordinator
+above, not in a Job, and the bootstrap Jobs in the same group persist until the next
+platform apply.
 
 ![Cluster Pod Census](chart1-cluster-pod-census.svg)
 
@@ -51,7 +55,9 @@ every unit of data work is a Job that no longer exists an hour after it finished
 the contracts.*
 
 Superset queries Trino; Trino resolves tables through Polaris and reads data over s3a;
-Polaris tracks catalog state in-memory (recreated by its bootstrap Job on restart) and
+Polaris tracks catalog state in-memory — a plain pod restart loses it, and only a
+platform-up re-run (which bumps `polaris_bootstrap_generation`) recreates it via the
+bootstrap Job — and
 points at the Iceberg warehouse files in SeaweedFS; Dagster, OpenMetadata, and Superset share one
 PostgreSQL. The per-run pair does the data work: the run pod lands raw data in
 object storage with **dlt**, launches the **Floe** runner (which authenticates to
