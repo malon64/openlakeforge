@@ -182,7 +182,11 @@ same modules, different `contracts.tf`.
 profile, `glue` the native Glue profile. Naming stays stable across Glue's two-level
 model, so SQL and dbt models are unchanged. Not implemented (declared future adapters):
 Keycloak, Vault/External Secrets, Traefik + cert-manager, Athena, Lake Formation, remote
-Terraform state, OpenLineage ([ADR 0009](../../adr/0009-openmetadata-lineage-direct-rest-push.md)).
+Terraform state. OpenLineage is live, not deferred — Floe and dbt-trino emit lineage
+events directly to OpenMetadata's native `openlineage` endpoint, enabled during Terraform
+bootstrap (`infra/terraform/modules/governance/openmetadata/main.tf`). This supersedes
+[ADR 0009](../../adr/0009-openmetadata-lineage-direct-rest-push.md), which removed an
+earlier proxy-based integration; no ADR yet documents the current native-endpoint design.
 
 ## Three-phase deploy — the CD boundary
 
