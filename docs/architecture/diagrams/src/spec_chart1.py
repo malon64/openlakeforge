@@ -4,11 +4,11 @@ project's own values files: 16 pods at rest (10 Deployments, 6 StatefulSets)."""
 from pathlib import Path
 from k8ssvg import Chart
 
-c = Chart(1180, 892, "Cluster Pod Census",
+c = Chart(1180, 1010, "Cluster Pod Census",
           "namespace: lakehouse · kind cluster openlakeforge-local · long-lived services + on-demand Jobs")
 
 # namespace boundary
-c.box(28, 92, 1124, 768, "namespace: lakehouse", color="control", title_size=14)
+c.box(28, 92, 1124, 888, "namespace: lakehouse", color="control", title_size=14)
 
 ROW1, ROW2, ROW3 = 150, 436, 660
 IY1, IY2 = 46, 152  # icon y-offsets inside a row-1 card
@@ -50,17 +50,21 @@ c.badge(978, ROW2, 164, 180,
         color="control")
 
 # --- Row 3: ephemeral ---
-c.box(52, ROW3, 1090, 160,
+c.box(52, ROW3, 1090, 280,
       "Ephemeral & bootstrap Jobs — run/ingestion Jobs are TTL-collected; bootstrap Jobs persist until the next apply; CronJobs self-prune their own history",
       color="ephemeral", fill="#FAF6FC", dashed=True)
-EY = ROW3 + 44
-c.icon(150, EY, "job", "dagster run pod", variant="ephemeral", label2="TTL 1h")
-c.icon(305, EY, "job", "floe runner", variant="ephemeral", label2="floe:0.6.11 · TTL 1h")
-c.icon(460, EY, "job", "polaris-bootstrap", variant="ephemeral", label2="no TTL")
-c.icon(615, EY, "job", "superset init", variant="ephemeral", label2="no TTL")
-c.icon(770, EY, "job", "OM ingestion", variant="ephemeral", label2="ttl 3600s")
-c.icon(925, EY, "cronjob", "OM catalog refresh", variant="ephemeral", label2="hourly · history 3/3")
-c.icon(1080, EY, "cronjob", "k8s-log-archive", variant="ephemeral", label2="*/15 min · history 1/3")
+EY1 = ROW3 + 44
+EY2 = EY1 + 130
+c.icon(150, EY1, "job", "dagster run pod", variant="ephemeral", label2="TTL 1h")
+c.icon(383, EY1, "job", "floe runner", variant="ephemeral", label2="floe:0.6.11 · TTL 1h")
+c.icon(615, EY1, "job", "polaris-bootstrap", variant="ephemeral", label2="no TTL")
+c.icon(848, EY1, "job", "superset init", variant="ephemeral", label2="no TTL")
+c.icon(1080, EY1, "job", "OM ingestion", variant="ephemeral", label2="ttl 3600s")
+c.icon(150, EY2, "job", "seaweedfs bucket bootstrap", variant="ephemeral", label2="x4 buckets · no TTL")
+c.icon(383, EY2, "job", "postgresql bootstrap", variant="ephemeral", label2="no TTL")
+c.icon(615, EY2, "job", "openmetadata bootstrap", variant="ephemeral", label2="no TTL")
+c.icon(848, EY2, "cronjob", "OM catalog refresh", variant="ephemeral", label2="hourly · history 3/3")
+c.icon(1080, EY2, "cronjob", "k8s-log-archive", variant="ephemeral", label2="*/15 min · history 1/3")
 
 n = c.write(str(Path(__file__).resolve().parent.parent / "chart1-cluster-pod-census.svg"))
 print("chart1 svg:", n, "bytes")

@@ -212,8 +212,11 @@ domain commit triggers phase ③ only — CI never runs Terraform for domain cha
 `make local-up` chains ① → ② → ③; ① and ② are idempotent no-ops when nothing changed.
 Phase ③, in order: load contract env → compile Floe manifests → build + load
 `project-code` → `olf artifacts upload-manifests` → `olf superset deploy-reports` →
-`olf openmetadata deploy-metadata` → rollout-restart Dagster. CI runs five parallel
-jobs: structure, infrastructure, contracts, project-code image build, tooling.
+`olf openmetadata deploy-metadata` → `olf k8s set-project-code-image`, which patches
+the run-launcher ConfigMap, every Dagster deployment, and the log-archive CronJob to
+the new image before waiting on each rollout — not a bare `kubectl rollout restart`.
+CI runs five parallel jobs: structure, infrastructure, contracts, project-code image
+build, tooling.
 
 ## Identity — one principal per engine
 
