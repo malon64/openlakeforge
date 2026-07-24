@@ -252,11 +252,14 @@ s3://openlakeforge-ops/
 └── run-artifacts/dbt/{domain}/{product}/{dagster_run_id}/  ← run pod, post-dbt-build
 ```
 
-The Floe reports and dbt run-artifacts are keyed by domain, product, and Dagster run ID,
-so a run's data-quality and dbt outputs are isolable from the bucket after the pods are
-gone. The archived Kubernetes pod logs are partitioned only by namespace / date / hour
-(`libs/k8s_log_archive.py`), so isolating a single run from raw pod logs still needs a
-timestamp, not just a prefix.
+Only the dbt run-artifacts are keyed by Dagster run ID (`run-artifacts/dbt/{domain}/
+{product}/{dagster_run_id}/`), so those are isolable per run after the pod is gone. Floe's
+`report_base_uri` (set per manifest, e.g. `floe/reports/sales/order_revenue`) stops at
+domain and product — successive runs of the same product overwrite the same prefix, since
+the runner's `base_args` carry no `--run-id`. The archived Kubernetes pod logs are
+partitioned only by namespace / date / hour (`libs/k8s_log_archive.py`), so isolating a
+single run from raw pod logs or from prior Floe reports needs a timestamp, not just a
+prefix.
 
 ## Domain-oriented code structure — the dynamic code
 
