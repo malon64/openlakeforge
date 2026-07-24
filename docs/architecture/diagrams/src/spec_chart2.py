@@ -95,5 +95,13 @@ c.edge([(800, 390), (800, 470)], color="dim", label="crawls")
 
 c.edge([(752, 825), (772, 825)], color="storage")
 
+# ---------- OpenLineage emission (restored: dbt-trino + Floe -> OpenMetadata) ----------
+c.edge([(752, 305), (772, 305)], color="dim", dashed=True)
+c.label(762, 291, "floe: lineage", size=9.5, mono=True, anchor="middle", color=C["dim"])
+
+c.edge([(560, 470), (560, 450), (1155, 450), (1155, 270), (1142, 270)],
+       color="dim", dashed=True)
+c.label(1150, 360, "dbt-trino: lineage", size=9.5, mono=True, anchor="end", color=C["dim"])
+
 n = c.write(str(Path(__file__).resolve().parent.parent / "chart2-namespace-topology.svg"))
 print("chart2 svg:", n, "bytes")

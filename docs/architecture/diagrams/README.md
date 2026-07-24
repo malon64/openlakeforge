@@ -62,7 +62,8 @@ points at the Iceberg warehouse files in SeaweedFS; Dagster, OpenMetadata, and S
 PostgreSQL. The per-run pair does the data work: the run pod lands raw data in
 object storage with **dlt**, launches the **Floe** runner (which authenticates to
 Polaris and reads/writes SeaweedFS), then calls **Trino** through dbt-trino to build
-Gold.
+Gold. Both Floe and dbt-trino also push OpenLineage events straight to OpenMetadata's
+native endpoint — that lineage ingestion was restored, not deferred.
 
 ![Namespace Runtime Topology](chart2-namespace-topology.svg)
 
