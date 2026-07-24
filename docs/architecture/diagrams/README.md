@@ -287,9 +287,16 @@ domains/<domain>/
 
 Both domains fill the identical shape — `sales` (`order_revenue`, `customer_health`) and
 `supply_chain` (`inventory_reliability`). Adding a data product means adding one file or
-directory per concern under a domain, then running Phase ③; the seven platform services,
-the buckets, and the catalog namespaces are untouched. A domain's `README.md` and
-`domain.yaml` are the human- and machine-readable descriptors of that slice.
+directory per concern under a domain, then running Phase ③ — for products that reuse an
+existing product's catalog namespaces. A brand-new product needs one more step first:
+`catalog_product_namespaces` in the environment's Terraform (e.g.
+`infra/terraform/environments/local/main.tf`) is a hard-coded map the Polaris bootstrap
+Job reads to create Silver/Gold namespaces (`infra/terraform/modules/catalog/polaris/
+main.tf`), so a new product's entry has to be added there and applied via Phase ② before
+its first Floe/dbt/OpenMetadata run — the seven platform services and the buckets
+themselves stay untouched, but the catalog namespace list is platform-owned, not
+artifact-owned. A domain's `README.md` and `domain.yaml` are the human- and
+machine-readable descriptors of that slice.
 
 ---
 
