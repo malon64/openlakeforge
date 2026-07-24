@@ -5,10 +5,12 @@ projects draw themselves.*
 
 A cloud-agnostic, self-hostable lakehouse assembled on Kubernetes with Terraform and
 Helm. Five charts in the official Kubernetes icon language: the pod-by-pod census, the
-runtime wiring, the nested ephemeral jobs that do all data work, the medallion data
-path, and the provider contracts that make the platform modular. They complement the
-product chart in [../../assets/openlakeforge_v1.png](../../assets/openlakeforge_v1.png),
-which shows *what* the platform does; these show *how*.
+runtime wiring, the nested ephemeral jobs that do orchestration and ingestion (Bronze,
+Silver — Gold executes as SQL in the long-lived Trino coordinator, not in a Job), the
+medallion data path, and the provider contracts that make the platform modular. They
+complement the product chart in
+[../../assets/openlakeforge_v1.png](../../assets/openlakeforge_v1.png), which shows
+*what* the platform does; these show *how*.
 
 | **16** | **1+N** | **3** | **0** |
 | --- | --- | --- | --- |
