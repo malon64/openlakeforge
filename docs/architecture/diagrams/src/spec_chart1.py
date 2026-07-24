@@ -51,7 +51,7 @@ c.badge(978, ROW2, 164, 180,
 
 # --- Row 3: ephemeral ---
 c.box(52, ROW3, 1090, 160,
-      "Ephemeral & bootstrap Jobs — run/ingestion Jobs are TTL-collected; bootstrap Jobs + the two hourly CronJobs leave completed pods until re-apply",
+      "Ephemeral & bootstrap Jobs — run/ingestion Jobs are TTL-collected; bootstrap Jobs persist until the next apply; CronJobs self-prune their own history",
       color="ephemeral", fill="#FAF6FC", dashed=True)
 EY = ROW3 + 44
 c.icon(150, EY, "job", "dagster run pod", variant="ephemeral", label2="TTL 1h")
@@ -59,8 +59,8 @@ c.icon(305, EY, "job", "floe runner", variant="ephemeral", label2="floe:0.6.11 �
 c.icon(460, EY, "job", "polaris-bootstrap", variant="ephemeral", label2="no TTL")
 c.icon(615, EY, "job", "superset init", variant="ephemeral", label2="no TTL")
 c.icon(770, EY, "job", "OM ingestion", variant="ephemeral", label2="ttl 3600s")
-c.icon(925, EY, "cronjob", "OM catalog refresh", variant="ephemeral", label2="hourly · no TTL")
-c.icon(1080, EY, "cronjob", "k8s-log-archive", variant="ephemeral", label2="hourly · no TTL")
+c.icon(925, EY, "cronjob", "OM catalog refresh", variant="ephemeral", label2="hourly · history 3/3")
+c.icon(1080, EY, "cronjob", "k8s-log-archive", variant="ephemeral", label2="*/15 min · history 1/3")
 
 n = c.write(str(Path(__file__).resolve().parent.parent / "chart1-cluster-pod-census.svg"))
 print("chart1 svg:", n, "bytes")

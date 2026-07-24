@@ -10,16 +10,16 @@ path, and the provider contracts that make the platform modular. They complement
 product chart in [../../assets/openlakeforge_v1.png](../../assets/openlakeforge_v1.png),
 which shows *what* the platform does; these show *how*.
 
-| **16** | **2** | **3** | **0** |
+| **16** | **1+N** | **3** | **0** |
 | --- | --- | --- | --- |
-| pods at steady state — 10 Deployments, 6 StatefulSets | nested ephemeral Kubernetes Jobs per ingestion run | deployment targets sharing one contract — kind, AKS, EKS | run/Floe pods between runs (Gold runs in Trino) |
+| pods at steady state — 10 Deployments, 6 StatefulSets | nested ephemeral Kubernetes Jobs per ingestion run — one run pod, one Floe Job per entity | deployment targets sharing one contract — kind, AKS, EKS | run/Floe pods between runs (Gold runs in Trino) |
 
 ### Reading key — used identically in every chart
 
 | Signal | Means |
 | --- | --- |
 | Blue heptagon icon | Kubernetes workload — the badge names the kind (`deploy`, `sts`, `svc`, `secret`) |
-| **Purple icon / dashed purple border** | **On-demand Job or CronJob** — run/ingestion Jobs are TTL-collected; bootstrap Jobs and the two hourly CronJobs leave completed pods until re-apply |
+| **Purple icon / dashed purple border** | **On-demand Job or CronJob** — run/ingestion Jobs are TTL-collected; bootstrap Jobs persist until the next apply; the two CronJobs prune their own history continuously |
 | Green box | Long-lived service, grouped by Helm release |
 | Blue box / badge | Control plane — Terraform, contracts, `olf` |
 | Cylinder | Bucket or datastore; bronze / grey / amber follow the medallion layers |
@@ -27,8 +27,9 @@ which shows *what* the platform does; these show *how*.
 
 > Purple marks the on-demand Jobs. The per-run ones — the run pod and Floe runners — are
 > TTL-collected within the hour, so the pipeline scales to zero between runs; the
-> bootstrap Jobs and the two hourly CronJobs (log-archive, OM catalog refresh) leave
-> completed pods until the next apply.
+> bootstrap Jobs persist until the next platform apply, and the two CronJobs
+> (log-archive every 15 min, OM catalog refresh hourly) prune their own completed-Job
+> history on every run — 1 succeeded / 3 failed and 3 succeeded / 3 failed respectively.
 
 ---
 
@@ -43,9 +44,9 @@ three, OpenMetadata two, and PostgreSQL, Polaris, and Trino one each — Trino
 deliberately coordinator-only. The purple group at the bottom is the on-demand work: the
 run pod and Floe runners are **TTL-collected within the hour**, so ingestion scales to
 zero between runs — but Gold itself runs as SQL inside the long-lived Trino coordinator
-above, not in a Job. The bootstrap Jobs and the two hourly CronJobs (log-archive,
-OpenMetadata's Polaris catalog refresh) in the same group persist until the next
-platform apply.
+above, not in a Job. The bootstrap Jobs in the same group persist until the next
+platform apply; the log-archive (every 15 min) and OM catalog-refresh (hourly) CronJobs
+instead prune their own completed-Job history continuously.
 
 ![Cluster Pod Census](chart1-cluster-pod-census.svg)
 
@@ -73,13 +74,15 @@ native endpoint — that lineage ingestion was restored, not deferred.
 
 ## Chart 3 — Ephemeral Job Lifecycle
 
-*Launch → run pod → nested Floe Job → Gold via Trino → everything garbage-collected.*
+*Launch → run pod → one Floe Job per entity → Gold via Trino → everything garbage-collected.*
 
 The differentiating behavior: the Dagster run pod is itself an ephemeral Job, and it
-creates a *second* ephemeral Job for Floe from an image declared in the Floe manifest —
-not in the Dagster deployment. Ingestion upgrades without rebuilding the orchestrator
-image; failures isolate per entity; TTL returns the per-run footprint to zero (Gold SQL
-executes in the standing Trino service, not a per-run pod).
+creates **one Floe runner Job per entity** — sequentially, from an image declared in the
+Floe manifest, not in the Dagster deployment — so a product with five entities (e.g.
+`order_revenue`) runs five distinct Floe Jobs over the course of one pipeline run, never
+concurrently. Ingestion upgrades without rebuilding the orchestrator image; failures
+isolate per entity; TTL returns the per-run footprint to zero (Gold SQL executes in the
+standing Trino service, not a per-run pod).
 
 ```mermaid
 sequenceDiagram
@@ -92,7 +95,7 @@ sequenceDiagram
     end
     box rgb(240,232,245) Ephemeral · per run
         participant Run as Run pod (Job 1)
-        participant Floe as Floe runner (Job 2)
+        participant Floe as Floe runner (1 Job per entity)
     end
     box rgb(233,233,237) Data plane
         participant Trino
@@ -109,12 +112,14 @@ sequenceDiagram
     Run->>S3: land raw entities in lakehouse-bronze
 
     Note over Run: ② Silver — Floe, out of process
-    Run->>API: create Job 2 — image from the Floe manifest
-    Floe->>S3: read Bronze, validate against the contract
-    Floe->>Polaris: commit validated Iceberg tables (OAuth)
-    Note over Floe: rejects → quarantined CSV · timeout 600s
-    Floe-->>Run: run_finished + report URI
-    Note over Floe: Job 2 TTL-collected
+    loop once per entity, sequential (5 for order_revenue)
+        Run->>API: create Floe Job — image from the manifest
+        Floe->>S3: read Bronze, validate against the contract
+        Floe->>Polaris: commit validated Iceberg tables (OAuth)
+        Note over Floe: rejects → quarantined CSV · timeout 600s
+        Floe-->>Run: run_finished + report URI
+        Note over Floe: this Job TTL-collected
+    end
 
     Note over Run: ③ Gold — dbt, SQL runs in Trino
     Run->>Trino: dbt build (dbt-trino)
