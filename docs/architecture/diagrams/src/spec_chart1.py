@@ -51,14 +51,14 @@ c.badge(978, ROW2, 164, 180,
 
 # --- Row 3: ephemeral ---
 c.box(52, ROW3, 1090, 280,
-      "Ephemeral & bootstrap Jobs — run/ingestion Jobs are TTL-collected; bootstrap Jobs persist until the next apply; CronJobs self-prune their own history",
+      "Ephemeral & bootstrap Jobs — run/ingestion Jobs are TTL-collected; Superset init is a Helm hook removed on success; other bootstrap Jobs persist until the next apply; CronJobs self-prune their own history",
       color="ephemeral", fill="#FAF6FC", dashed=True)
 EY1 = ROW3 + 44
 EY2 = EY1 + 130
 c.icon(150, EY1, "job", "dagster run pod", variant="ephemeral", label2="TTL 1h")
 c.icon(383, EY1, "job", "floe runner", variant="ephemeral", label2="floe:0.6.11 · TTL 1h")
 c.icon(615, EY1, "job", "polaris-bootstrap", variant="ephemeral", label2="no TTL")
-c.icon(848, EY1, "job", "superset init", variant="ephemeral", label2="no TTL")
+c.icon(848, EY1, "job", "superset init", variant="ephemeral", label2="Helm hook · gone on success")
 c.icon(1080, EY1, "job", "OM ingestion", variant="ephemeral", label2="ttl 3600s")
 c.icon(150, EY2, "job", "seaweedfs bucket bootstrap", variant="ephemeral", label2="x4 buckets · no TTL")
 c.icon(383, EY2, "job", "postgresql bootstrap", variant="ephemeral", label2="no TTL")

@@ -162,9 +162,12 @@ engines.*
 
 The modularity chart. Engines on the left are byte-identical in every deployment; the
 contract spine in the middle is what they actually depend on (endpoint, buckets,
-`catalog_type`, secret names); the columns on the right are interchangeable
-implementations. Swapping a column is not a migration — it is choosing a Terraform root:
-same modules, different `contracts.tf`.
+`catalog_type`, secret names) — those consumer contracts stay stable across
+deployments. The columns on the right are interchangeable implementations: swapping one
+means the environment's Terraform root selects a different adapter module (storage:
+`modules/storage/seaweedfs` vs. `modules/storage/aws-s3`; catalog: `modules/catalog/
+polaris` vs. `modules/catalog/aws-glue`; metadata database: `modules/storage/postgresql`
+vs. `modules/storage/rds-postgresql`), not just editing `contracts.tf`.
 
 ![Provider Contracts](chart5-provider-contracts.svg)
 
@@ -208,7 +211,7 @@ domain commit triggers phase ③ only — CI never runs Terraform for domain cha
 | Phase | Target | Deploys |
 | --- | --- | --- |
 | ① Foundation | `make local-foundation-up` | Terraform: the Kubernetes cluster + container registry — kind locally, EKS + ECR on AWS, AKS + ACR on Azure |
-| ② Platform | `make local-platform-up` | Terraform-driven Helm releases: SeaweedFS, PostgreSQL, Polaris, Trino, OpenMetadata, Superset, Dagster |
+| ② Platform | `make local-platform-up` | Terraform-managed platform resources: Helm releases for SeaweedFS, Polaris, Trino, OpenMetadata, Superset, Dagster — plus PostgreSQL, which Terraform creates directly as a StatefulSet + Service + bootstrap Job (no Helm release) |
 | ③ Artifacts | `make local-artifacts-deploy` | **the CD phase** — dynamic artifacts: the project-code image (dbt code), Floe contracts + manifests, Superset dashboards, OpenMetadata data products |
 
 `make local-up` chains ① → ② → ③; ① and ② are idempotent no-ops when nothing changed.
