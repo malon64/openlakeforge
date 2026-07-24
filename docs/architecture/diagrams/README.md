@@ -19,7 +19,7 @@ which shows *what* the platform does; these show *how*.
 | Signal | Means |
 | --- | --- |
 | Blue heptagon icon | Kubernetes workload — the badge names the kind (`deploy`, `sts`, `svc`, `secret`) |
-| **Purple icon / dashed purple border** | **On-demand Job or CronJob** — run/ingestion Jobs are TTL-collected; bootstrap Jobs and the CronJob leave completed pods until re-apply |
+| **Purple icon / dashed purple border** | **On-demand Job or CronJob** — run/ingestion Jobs are TTL-collected; bootstrap Jobs and the two hourly CronJobs leave completed pods until re-apply |
 | Green box | Long-lived service, grouped by Helm release |
 | Blue box / badge | Control plane — Terraform, contracts, `olf` |
 | Cylinder | Bucket or datastore; bronze / grey / amber follow the medallion layers |
@@ -27,7 +27,8 @@ which shows *what* the platform does; these show *how*.
 
 > Purple marks the on-demand Jobs. The per-run ones — the run pod and Floe runners — are
 > TTL-collected within the hour, so the pipeline scales to zero between runs; the
-> bootstrap Jobs and the log-archive CronJob leave completed pods until the next apply.
+> bootstrap Jobs and the two hourly CronJobs (log-archive, OM catalog refresh) leave
+> completed pods until the next apply.
 
 ---
 
@@ -42,12 +43,13 @@ three, OpenMetadata two, and PostgreSQL, Polaris, and Trino one each — Trino
 deliberately coordinator-only. The purple group at the bottom is the on-demand work: the
 run pod and Floe runners are **TTL-collected within the hour**, so ingestion scales to
 zero between runs — but Gold itself runs as SQL inside the long-lived Trino coordinator
-above, not in a Job, and the bootstrap Jobs in the same group persist until the next
+above, not in a Job. The bootstrap Jobs and the two hourly CronJobs (log-archive,
+OpenMetadata's Polaris catalog refresh) in the same group persist until the next
 platform apply.
 
 ![Cluster Pod Census](chart1-cluster-pod-census.svg)
 
-<sub>`infra/helm/values/local/*.yaml` · orchestration/dagster + storage/postgresql Terraform modules</sub>
+<sub>`infra/helm/values/local/*.yaml` · orchestration/dagster + storage/postgresql + governance/openmetadata Terraform modules</sub>
 
 ## Chart 2 — Namespace Runtime Topology
 
