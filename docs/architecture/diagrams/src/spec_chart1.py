@@ -4,11 +4,11 @@ project's own values files: 16 pods at rest (10 Deployments, 6 StatefulSets)."""
 from pathlib import Path
 from k8ssvg import Chart
 
-c = Chart(1180, 1010, "Cluster Pod Census",
+c = Chart(1180, 1090, "Cluster Pod Census",
           "namespace: lakehouse · kind cluster openlakeforge-local · long-lived services + on-demand Jobs")
 
 # namespace boundary
-c.box(28, 92, 1124, 888, "namespace: lakehouse", color="control", title_size=14)
+c.box(28, 92, 1124, 968, "namespace: lakehouse", color="control", title_size=14)
 
 ROW1, ROW2, ROW3 = 150, 436, 660
 IY1, IY2 = 46, 152  # icon y-offsets inside a row-1 card
@@ -49,22 +49,50 @@ c.badge(978, ROW2, 164, 180,
         ["16 pods", "at steady state", "", "10 Deployments", "6 StatefulSets"],
         color="control")
 
-# --- Row 3: ephemeral ---
-c.box(52, ROW3, 1090, 280,
-      "Ephemeral & bootstrap Jobs — run/ingestion Jobs are TTL-collected; Superset init is a Helm hook removed on success; other bootstrap Jobs persist until the next apply; CronJobs self-prune their own history",
+# --- Row 3: ephemeral, grouped by what creates each Job ---
+c.box(52, ROW3, 1090, 360,
+      "Ephemeral workloads — created on demand, never part of the 16",
       color="ephemeral", fill="#FAF6FC", dashed=True)
-EY1 = ROW3 + 44
-EY2 = EY1 + 130
-c.icon(150, EY1, "job", "dagster run pod", variant="ephemeral", label2="TTL 1h")
-c.icon(383, EY1, "job", "floe runner", variant="ephemeral", label2="floe:0.6.11 · TTL 1h")
-c.icon(615, EY1, "job", "polaris-bootstrap", variant="ephemeral", label2="no TTL")
-c.icon(848, EY1, "job", "superset init", variant="ephemeral", label2="Helm hook · gone on success")
-c.icon(1080, EY1, "job", "OM ingestion", variant="ephemeral", label2="ttl 3600s")
-c.icon(150, EY2, "job", "seaweedfs bucket bootstrap", variant="ephemeral", label2="x4 buckets · no TTL")
-c.icon(383, EY2, "job", "postgresql bootstrap", variant="ephemeral", label2="no TTL")
-c.icon(615, EY2, "job", "openmetadata bootstrap", variant="ephemeral", label2="no TTL")
-c.icon(848, EY2, "cronjob", "OM catalog refresh", variant="ephemeral", label2="hourly · history 3/3")
-c.icon(1080, EY2, "cronjob", "k8s-log-archive", variant="ephemeral", label2="*/15 min · history 1/3")
+
+# each sub-box spaces its own icons evenly, so a label never hangs off the group
+# it belongs to (lint_charts.py enforces this)
+def cols(x, w, n):
+    return [x + w * (i + 0.5) / n for i in range(n)]
+
+
+PER_RUN = cols(68, 434, 2)
+SCHEDULED = cols(518, 608, 3)
+BOOTSTRAP = cols(68, 1058, 5)
+EY1 = ROW3 + 82   # icon top, upper sub-boxes
+EY2 = ROW3 + 240  # icon top, lower sub-box
+
+# upper left — the per-run pair, the only Jobs tied to a pipeline run
+c.box(68, ROW3 + 44, 434, 148, "Per pipeline run · Dagster creates these",
+      color="ephemeral", title_size=13)
+c.icon(PER_RUN[0], EY1, "job", "dagster run pod", variant="ephemeral", label2="TTL 1h")
+c.icon(PER_RUN[1], EY1, "job", "floe runner", variant="ephemeral",
+       label2="1 per entity · TTL 1h")
+
+# upper right — everything on a clock, whether K8s' or OpenMetadata's
+c.box(518, ROW3 + 44, 608, 148, "Scheduled · cluster clock",
+      color="ephemeral", title_size=13)
+c.icon(SCHEDULED[0], EY1, "cronjob", "k8s-log-archive", variant="ephemeral",
+       label2="*/15 min · keeps 1")
+c.icon(SCHEDULED[1], EY1, "cronjob", "OM catalog refresh", variant="ephemeral",
+       label2="hourly · keeps 3")
+c.icon(SCHEDULED[2], EY1, "job", "OM ingestion", variant="ephemeral",
+       label2="OM scheduler · ttl 3600s")
+
+# lower — one-shot, created by Terraform (or a Helm hook) at platform apply
+c.box(68, ROW3 + 202, 1058, 142, "Bootstrap · once per platform apply (Phase 2)",
+      color="ephemeral", title_size=13)
+c.icon(BOOTSTRAP[0], EY2, "job", "polaris-bootstrap", variant="ephemeral", label2="no TTL")
+c.icon(BOOTSTRAP[1], EY2, "job", "seaweedfs buckets", variant="ephemeral",
+       label2="x4 buckets · no TTL")
+c.icon(BOOTSTRAP[2], EY2, "job", "postgresql bootstrap", variant="ephemeral", label2="no TTL")
+c.icon(BOOTSTRAP[3], EY2, "job", "openmetadata bootstrap", variant="ephemeral", label2="no TTL")
+c.icon(BOOTSTRAP[4], EY2, "job", "superset init", variant="ephemeral",
+       label2="Helm hook · gone on success")
 
 n = c.write(str(Path(__file__).resolve().parent.parent / "chart1-cluster-pod-census.svg"))
 print("chart1 svg:", n, "bytes")

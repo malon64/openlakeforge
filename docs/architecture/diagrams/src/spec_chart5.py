@@ -1,63 +1,75 @@
 #!/usr/bin/env python3
-"""Chart 5 — Provider Contracts. The modularity chart: engines on the left
-consume Terraform-owned contract interfaces; adapters on the right implement
-them. Swapping the platform = choosing the Terraform root. Engines never change."""
+"""Chart 5 — Provider Contracts. The modularity chart: engines that never change
+sit above five contracts, which resolve to a different adapter per deployment
+target. Cell colour is the argument — grey means the Terraform module is the same
+one local uses, orange means it was swapped. Sources: each environment's
+contracts.tf and docs/architecture/provider-contracts.md."""
 from pathlib import Path
 from k8ssvg import Chart, C
 
-c = Chart(1180, 840, "Provider Contracts",
+c = Chart(1180, 830, "Provider Contracts",
           "engines consume interfaces, never implementations · swap the adapters, keep the engines")
 
-# ---------- left: engines ----------
-c.box(52, 130, 260, 560, "Engines — identical everywhere", color="platform",
-      fill="#FFFFFF", title_size=13)
-c.icon(130, 200, "deploy", "Dagster", size=46)
-c.icon(244, 200, "deploy", "Trino", size=46)
-c.icon(130, 330, "job", "Floe", size=46, variant="ephemeral")
-c.icon(244, 330, "deploy", "Superset", size=46)
-c.icon(130, 460, "pod", "dbt", size=46, label2="CLI in run pod · SQL via Trino")
-c.icon(244, 460, "deploy", "OpenMetadata", size=46)
-c.label(182, 610, "same images · same Helm charts", size=11, anchor="middle")
-c.label(182, 626, "same SQL · same manifests", size=11, anchor="middle")
+LABEL_X, LABEL_W = 52, 248
+COL_W, COL_GAP = 270, 10
+COL_X = [310, 590, 870]
 
-# ---------- center: the contract spine ----------
-c.box(370, 130, 270, 560, "Provider contracts", color="control", fill="#FFFFFF",
-      title_size=13)
+# ---------- engines band ----------
+c.box(52, 100, 1076, 158, "Engines — identical in all three targets",
+      color="platform", fill="#FFFFFF", title_size=13)
+ENGINES = [("deploy", "Dagster", "blue"), ("deploy", "Trino", "blue"),
+           ("job", "Floe", "ephemeral"), ("deploy", "Superset", "blue"),
+           ("pod", "dbt", "blue"), ("deploy", "OpenMetadata", "blue")]
+for i, (kind, name, variant) in enumerate(ENGINES):
+    c.icon(52 + 1076 * (i + 0.5) / 6, 138, kind, name, size=44, variant=variant)
+c.label(590, 244, "same images · same Helm charts · same SQL · same manifests",
+        size=11, anchor="middle")
+
+# ---------- connector ----------
+c.edge([(590, 258), (590, 300)], color="platform", width=3)
+c.label(602, 282, "fields only", size=10.5, mono=True, color=C["platform"])
+
+# ---------- matrix header ----------
+HEAD_Y = 312
+HEADERS = [("Local · kind", "storage"), ("Azure POC · AKS", "storage"),
+           ("AWS POC · EKS", "managed")]
+c.label(LABEL_X + 4, HEAD_Y + 20, "contract", size=12, weight="700", color=C["control"])
+c.label(LABEL_X + 4, HEAD_Y + 36, "what consumers read", size=10, mono=True)
+for x, (name, col) in zip(COL_X, HEADERS):
+    c.badge(x, HEAD_Y, COL_W, 40, [name], color=col, size=13)
+
+# ---------- matrix rows ----------
+# (contract, fields, [(adapter, terraform source, reuses-local?) per column])
 ROWS = [
-    ("storage", "endpoint · buckets · region"),
-    ("catalog", "catalog_type · uri · warehouse"),
-    ("metadata database", "host · db names · secret refs"),
-    ("artifacts + images", "registry · manifest base URI"),
-    ("identity + secrets", "principals · secret names"),
+    ("storage", "endpoint · buckets · region", [
+        ("SeaweedFS S3 :8333", "storage/seaweedfs", True),
+        ("SeaweedFS S3 on AKS", "storage/seaweedfs", True),
+        ("Amazon S3", "storage/aws-s3", False)]),
+    ("catalog", "catalog_type · uri · warehouse", [
+        ("Polaris REST 1.4.1", "catalog/polaris", True),
+        ("Polaris REST 1.4.1", "catalog/polaris", True),
+        ("AWS Glue", "catalog/aws-glue", False)]),
+    ("metadata database", "host · db names · secret refs", [
+        ("PostgreSQL in-cluster", "storage/postgresql", True),
+        ("PostgreSQL in-cluster", "storage/postgresql", True),
+        ("RDS PostgreSQL", "storage/rds-postgresql", False)]),
+    ("artifacts + images", "registry · manifest base URI", [
+        ("kind image load", "foundations/local-kind", True),
+        ("ACR push", "foundations/azure-aks", False),
+        ("ECR · S3", "foundations/aws-eks", False)]),
+    ("identity + secrets", "principals · secret names", [
+        ("K8s Secrets (dev-only)", "identity.local_development_credentials", True),
+        ("K8s Secrets · AKS OIDC ready", "identity.azure_workload_identity_ready", False),
+        ("EKS Pod Identity", "identity.aws_pod_identity", False)]),
 ]
-for i, (name, fields) in enumerate(ROWS):
-    y = 190 + i * 100
-    c.badge(390, y, 230, 56, [name, fields], color="control", size=12)
-    c.edge([(620, y + 28), (660, y + 28)], color="control")
-
-c.edge([(312, 410), (370, 410)], color="platform", width=3)
-c.label(341, 396, "fields only", size=10.5, mono=True, anchor="middle", color=C["platform"])
-
-# ---------- right: two adapter columns ----------
-c.box(660, 130, 240, 560, "Local — kind", color="storage", fill="#FFFFFF", title_size=13)
-c.box(920, 130, 230, 560, "AWS POC — EKS", color="managed", fill="#FFFFFF", title_size=13)
-LOCAL = ["SeaweedFS S3 :8333", "Polaris REST 1.4.1", "PostgreSQL in-cluster",
-         "kind image load · ops bucket", "K8s Secrets (dev-only)"]
-AWS = ["Amazon S3", "AWS Glue", "RDS PostgreSQL", "ECR · S3", "EKS Pod Identity"]
-for i, (l, a) in enumerate(zip(LOCAL, AWS)):
-    y = 198 + i * 100
-    c.chip(676, y, 208, 40, l, color="storage")
-    c.chip(936, y, 198, 40, a, color="managed")
-
-c.label(905, 712, "⇄  swapping columns = choosing the Terraform root", size=11.5,
-        mono=True, anchor="middle", color=C["managed"])
-
-# ---------- bottom band: the mechanism ----------
-c.doc(112, 740, 230, 56, "environments/local", sub="contracts.tf → local adapters")
-c.doc(392, 740, 230, 56, "environments/aws-poc", sub="contracts.tf → AWS adapters")
-c.doc(672, 740, 230, 56, "environments/azure-poc", sub="AKS parity with local")
-c.label(1030, 772, "same modules,", size=11.5, anchor="middle")
-c.label(1030, 788, "different contracts.tf", size=11.5, anchor="middle", mono=True)
+ROW_Y, ROW_H, ROW_PITCH = 372, 68, 88
+for i, (name, fields, cells) in enumerate(ROWS):
+    y = ROW_Y + i * ROW_PITCH
+    c.label(LABEL_X + 4, y + 28, name, size=12.5, weight="700", color=C["ink"])
+    c.label(LABEL_X + 4, y + 46, fields, size=9.5, mono=True)
+    for x, (adapter, source, reused) in zip(COL_X, cells):
+        c.cell(x, y, COL_W, ROW_H, adapter, source,
+               color="storage" if reused else "managed")
 
 n = c.write(str(Path(__file__).resolve().parent.parent / "chart5-provider-contracts.svg"))
 print("chart5 svg:", n, "bytes")
