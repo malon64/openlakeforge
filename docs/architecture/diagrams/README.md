@@ -54,8 +54,7 @@ it. **Per pipeline run**: the run pod and its Floe runners, TTL-collected within
 so ingestion scales to zero between runs — Gold is the exception, running as SQL inside
 the long-lived Trino coordinator above rather than in a Job. **Bootstrap**: five one-shot
 Jobs that fire once per platform apply (Phase ②). **Scheduled**: the two CronJobs on the
-cluster clock (log-archive every 15 min, OM catalog refresh hourly), plus OpenMetadata's
-own ingestion pipelines on their own schedule.
+cluster clock (log-archive every 15 min, OM catalog refresh hourly).
 
 ![Cluster Pod Census](chart1-cluster-pod-census.svg)
 
@@ -180,8 +179,9 @@ means it was swapped. **`azure-poc` instantiates the same seven platform modules
 reuse the identical modules — and `contracts.tf` pins that with a `check
 "azure_poc_keeps_s3_compatible_storage"` block. But the foundation root (AKS vs kind),
 artifact registry (ACR vs kind image load), and identity adapter (AKS OIDC-ready vs local
-dev credentials) do differ, so three cells appear orange. `aws-poc` swaps a different
-set: exactly three platform modules (`storage/aws-s3`, `catalog/aws-glue`,
+dev credentials) do differ from the foundation's perspective; since the matrix groups
+artifacts and foundation together, two Azure cells appear orange. `aws-poc` swaps a
+different set: exactly three platform modules (`storage/aws-s3`, `catalog/aws-glue`,
 `storage/rds-postgresql`) and reuses Trino, OpenMetadata, Superset, Dagster.
 
 ![Provider Contracts](chart5-provider-contracts.svg)

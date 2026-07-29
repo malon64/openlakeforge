@@ -68,6 +68,11 @@ def check(path):
             if r[0] <= x <= r[0] + r[2] and r[1] <= y <= r[1] + r[3] and r[2] < canvas_w
         ]
         if not owners:
+            # text baseline is outside all boxes; report if glyphs also escape
+            if y0 < TOLERANCE or y1 > canvas_h - TOLERANCE:
+                findings.append(
+                    f"  unowned text[{y0:.0f}..{y1:.0f}] :: {body}"
+                )
             continue
         rx, ry, rw, rh = min(owners, key=lambda r: r[2] * r[3])
         if x0 < rx + TOLERANCE or x1 > rx + rw - TOLERANCE:
