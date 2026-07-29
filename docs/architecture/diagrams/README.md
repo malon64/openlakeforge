@@ -54,8 +54,8 @@ it. **Per pipeline run**: the run pod and its Floe runners, TTL-collected within
 so ingestion scales to zero between runs — Gold is the exception, running as SQL inside
 the long-lived Trino coordinator above rather than in a Job. **Bootstrap**: five one-shot
 Jobs that fire once per platform apply (Phase ②). **Scheduled**: the two CronJobs on the
-cluster clock, plus OpenMetadata's own ingestion pipelines. Nothing in the band is running
-while the cluster sits idle.
+cluster clock (log-archive every 15 min, OM catalog refresh hourly), plus OpenMetadata's
+own ingestion pipelines on their own schedule.
 
 ![Cluster Pod Census](chart1-cluster-pod-census.svg)
 
@@ -175,12 +175,14 @@ means the environment's root instantiates a *different module*, not just a diffe
 value in `contracts.tf`.
 
 Cell colour is the argument: grey means the module is the same one `local` uses, orange
-means it was swapped. **`azure-poc` instantiates a byte-identical list of seven platform
-modules to `local`** — SeaweedFS, Polaris and in-cluster PostgreSQL all carry over, and
-`contracts.tf` pins that with a `check "azure_poc_keeps_s3_compatible_storage"` block —
-so AKS and ACR cost zero adapter swaps and show up as a column that looks like the local
-one. `aws-poc` swaps exactly three (`storage/aws-s3`, `catalog/aws-glue`,
-`storage/rds-postgresql`) and reuses the other four.
+means it was swapped. **`azure-poc` instantiates the same seven platform modules as
+`local`** — SeaweedFS, Polaris, PostgreSQL, Trino, OpenMetadata, Superset, Dagster all
+reuse the identical modules — and `contracts.tf` pins that with a `check
+"azure_poc_keeps_s3_compatible_storage"` block. But the foundation root (AKS vs kind),
+artifact registry (ACR vs kind image load), and identity adapter (AKS OIDC-ready vs local
+dev credentials) do differ, so three cells appear orange. `aws-poc` swaps a different
+set: exactly three platform modules (`storage/aws-s3`, `catalog/aws-glue`,
+`storage/rds-postgresql`) and reuses Trino, OpenMetadata, Superset, Dagster.
 
 ![Provider Contracts](chart5-provider-contracts.svg)
 

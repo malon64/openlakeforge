@@ -38,16 +38,26 @@ def extents(x, attrs, body):
 def check(path):
     src = path.read_text()
     canvas_w = float(re.search(r'width="([\d.]+)"', src).group(1))
+    canvas_h = float(re.search(r'height="([\d.]+)"', src).group(1))
     rects = [tuple(map(float, m.groups())) for m in RECT_RE.finditer(src)]
     findings = []
 
     for m in TEXT_RE.finditer(src):
         x, y, attrs, body = float(m.group(1)), float(m.group(2)), m.group(3), m.group(4)
+        size = float(re.search(r'font-size="([\d.]+)"', attrs).group(1))
         x0, x1 = extents(x, attrs, body)
+        y0 = y - size * 0.78  # ascent
+        y1 = y + size * 0.22  # descent
 
+        # canvas bounds
         if x0 < TOLERANCE or x1 > canvas_w - TOLERANCE:
             findings.append(
                 f"  canvas[0..{canvas_w:.0f}] text[{x0:.0f}..{x1:.0f}] :: {body}"
+            )
+            continue
+        if y0 < TOLERANCE or y1 > canvas_h - TOLERANCE:
+            findings.append(
+                f"  canvas[0..{canvas_h:.0f}] text[{y0:.0f}..{y1:.0f}] :: {body}"
             )
             continue
 
@@ -59,10 +69,14 @@ def check(path):
         ]
         if not owners:
             continue
-        rx, _, rw, _ = min(owners, key=lambda r: r[2] * r[3])
+        rx, ry, rw, rh = min(owners, key=lambda r: r[2] * r[3])
         if x0 < rx + TOLERANCE or x1 > rx + rw - TOLERANCE:
             findings.append(
                 f"  box[{rx:.0f}..{rx+rw:.0f}] text[{x0:.0f}..{x1:.0f}] :: {body}"
+            )
+        if y0 < ry + TOLERANCE or y1 > ry + rh - TOLERANCE:
+            findings.append(
+                f"  box[{ry:.0f}..{ry+rh:.0f}] text[{y0:.0f}..{y1:.0f}] :: {body}"
             )
 
     return findings
