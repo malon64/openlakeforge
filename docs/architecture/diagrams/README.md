@@ -21,17 +21,23 @@ complement the product chart in
 | Signal | Means |
 | --- | --- |
 | Blue heptagon icon | Kubernetes workload — the badge names the kind (`deploy`, `sts`, `svc`, `secret`) |
-| **Purple icon / dashed purple border** | **On-demand Job or CronJob** — run/ingestion Jobs are TTL-collected; bootstrap Jobs persist until the next apply; the two CronJobs prune their own history continuously |
+| **Purple icon / dashed purple border** | **On-demand Job or CronJob** — created by something other than a Deployment, and never counted in the 16 |
 | Green box | Long-lived service, grouped by Helm release |
 | Blue box / badge | Control plane — Terraform, contracts, `olf` |
 | Cylinder | Bucket or datastore; bronze / grey / amber follow the medallion layers |
 | Orange | Managed service (AWS adapters) |
 
-> Purple marks the on-demand Jobs. The per-run ones — the run pod and Floe runners — are
-> TTL-collected within the hour, so the pipeline scales to zero between runs; the
-> bootstrap Jobs persist until the next platform apply, and the two CronJobs
-> (log-archive every 15 min, OM catalog refresh hourly) prune their own completed-Job
-> history on every run — 1 succeeded / 3 failed and 3 succeeded / 3 failed respectively.
+> Purple splits three ways by **what creates the Job**, which is also how chart 1 groups
+> them. *Per pipeline run*: Dagster's `K8sRunLauncher` creates the run pod, which creates
+> one Floe runner per entity — both TTL-collected within the hour, so the pipeline scales
+> to zero between runs. *Bootstrap*: four Terraform `kubernetes_job_v1` resource blocks
+> plus Superset's Helm hook — the SeaweedFS block uses `for_each` over four bucket names,
+> so it alone creates four Jobs, for eight Jobs total, one shot per platform apply; the
+> Helm hook is deleted on success and the rest persist until the next apply. *Scheduled*:
+> two `kubernetes_cron_job_v1`
+> resources on the cluster clock (log-archive every 15 min keeping 1 succeeded / 3 failed,
+> OM catalog refresh hourly keeping 3 / 3), plus OpenMetadata's ingestion pipelines, which
+> its own scheduler creates — not Terraform, and not Dagster.
 
 ---
 
@@ -43,12 +49,16 @@ this repo's own values.*
 Sixteen pods at steady state: Dagster runs four (webserver, daemon, one code server per
 domain), SeaweedFS four (three StatefulSets and an S3-gateway Deployment), Superset
 three, OpenMetadata two, and PostgreSQL, Polaris, and Trino one each — Trino
-deliberately coordinator-only. The purple group at the bottom is the on-demand work: the
-run pod and Floe runners are **TTL-collected within the hour**, so ingestion scales to
-zero between runs — but Gold itself runs as SQL inside the long-lived Trino coordinator
-above, not in a Job. The bootstrap Jobs in the same group persist until the next
-platform apply; the log-archive (every 15 min) and OM catalog-refresh (hourly) CronJobs
-instead prune their own completed-Job history continuously.
+deliberately coordinator-only.
+
+The purple band underneath is everything that is *not* in that 16, split by what creates
+it. **Per pipeline run**: the run pod and its Floe runners, TTL-collected within the hour,
+so ingestion scales to zero between runs — Gold is the exception, running as SQL inside
+the long-lived Trino coordinator above rather than in a Job. **Bootstrap**: five grouped
+categories — polaris, seaweedfs (one Job per bucket, four buckets), postgresql,
+openmetadata, and Superset's Helm hook — eight one-shot Jobs in total, firing once per
+platform apply (Phase ②). **Scheduled**: the two CronJobs on the cluster clock
+(log-archive every 15 min, OM catalog refresh hourly).
 
 ![Cluster Pod Census](chart1-cluster-pod-census.svg)
 
@@ -160,14 +170,23 @@ never to raw paths. Rejected rows are quarantined as CSV; exit code 0 covers
 *Engines consume interfaces, never implementations — swap the adapters, keep the
 engines.*
 
-The modularity chart. Engines on the left are byte-identical in every deployment; the
-contract spine in the middle is what they actually depend on (endpoint, buckets,
-`catalog_type`, secret names) — those consumer contracts stay stable across
-deployments. The columns on the right are interchangeable implementations: swapping one
-means the environment's Terraform root selects a different adapter module (storage:
-`modules/storage/seaweedfs` vs. `modules/storage/aws-s3`; catalog: `modules/catalog/
-polaris` vs. `modules/catalog/aws-glue`; metadata database: `modules/storage/postgresql`
-vs. `modules/storage/rds-postgresql`), not just editing `contracts.tf`.
+The modularity chart. The engines across the top are byte-identical in every deployment;
+the five contracts below are what they actually depend on (endpoint, buckets,
+`catalog_type`, secret names), and those stay stable across all three targets. Each cell
+names the adapter and the Terraform source that selects it — because swapping a provider
+means the environment's root instantiates a *different module*, not just a different
+value in `contracts.tf`.
+
+Cell colour is the argument: grey means the module is the same one `local` uses, orange
+means it was swapped. **`azure-poc` instantiates the same seven platform modules as
+`local`** — SeaweedFS, Polaris, PostgreSQL, Trino, OpenMetadata, Superset, Dagster all
+reuse the identical modules — and `contracts.tf` pins that with a `check
+"azure_poc_keeps_s3_compatible_storage"` block. But the foundation root (AKS vs kind),
+artifact registry (ACR vs kind image load), and identity adapter (AKS OIDC-ready vs local
+dev credentials) do differ from the foundation's perspective; since the matrix groups
+artifacts and foundation together, two Azure cells appear orange. `aws-poc` swaps a
+different set: exactly three platform modules (`storage/aws-s3`, `catalog/aws-glue`,
+`storage/rds-postgresql`) and reuses Trino, OpenMetadata, Superset, Dagster.
 
 ![Provider Contracts](chart5-provider-contracts.svg)
 

@@ -37,6 +37,40 @@ C = {
 
 ICON_AR = 17.500378 / 18.035334  # h/w of the CNCF icons
 
+# Mean advance width as a fraction of the em, per family/weight. Estimated, not
+# exact — enough to wrap titles and to let lint_charts.py catch text escaping a box.
+ADVANCE = {"mono": 0.60, "bold": 0.56, "regular": 0.51}
+
+
+def _halo(on):
+    """Plate-coloured outline drawn under the glyphs, so wires do not strike
+    through a label that sits on top of one."""
+    if not on:
+        return ""
+    return (f' paint-order="stroke" stroke="{C["plate"]}" stroke-width="4"'
+            f' stroke-linejoin="round"')
+
+
+def text_width(s, size, bold=False, mono=False):
+    """Approximate rendered width of `s` in user units."""
+    key = "mono" if mono else ("bold" if bold else "regular")
+    return len(s) * size * ADVANCE[key]
+
+
+def wrap(s, max_w, size, bold=False, mono=False):
+    """Greedy word-wrap to `max_w`. Words longer than the line are left intact."""
+    words, lines, cur = s.split(" "), [], ""
+    for word in words:
+        trial = f"{cur} {word}" if cur else word
+        if cur and text_width(trial, size, bold, mono) > max_w:
+            lines.append(cur)
+            cur = word
+        else:
+            cur = trial
+    if cur:
+        lines.append(cur)
+    return lines
+
 
 class Chart:
     def __init__(self, width, height, title=None, subtitle=None):
@@ -91,10 +125,12 @@ class Chart:
             f'fill="{f}" stroke="{stroke}" stroke-width="2"{dash}/>'
         )
         if title:
-            self.body.append(
-                f'<text x="{x+16}" y="{y+26}" font-family="{FONT}" font-size="{title_size}" '
-                f'font-weight="700" fill="{stroke}">{escape(title)}</text>'
-            )
+            for i, line in enumerate(wrap(title, w - 32, title_size, bold=True)):
+                self.body.append(
+                    f'<text x="{x+16}" y="{y+26+i*(title_size+4)}" font-family="{FONT}" '
+                    f'font-size="{title_size}" font-weight="700" fill="{stroke}">'
+                    f"{escape(line)}</text>"
+                )
 
     def icon(self, cx, top, kind, label, size=58, variant="blue", label2=None,
              label_color=None):
@@ -107,12 +143,13 @@ class Chart:
         ly = top + ih + 16
         self.body.append(
             f'<text x="{cx}" y="{ly}" text-anchor="middle" font-family="{FONT}" '
-            f'font-size="12.5" font-weight="600" fill="{lc}">{escape(label)}</text>'
+            f'font-size="12.5" font-weight="600" fill="{lc}"{_halo(True)}>'
+            f"{escape(label)}</text>"
         )
         if label2:
             self.body.append(
                 f'<text x="{cx}" y="{ly+15}" text-anchor="middle" font-family="{MONO}" '
-                f'font-size="10.5" fill="{C["dim"]}">{escape(label2)}</text>'
+                f'font-size="10.5" fill="{C["dim"]}"{_halo(True)}>{escape(label2)}</text>'
             )
 
     def badge(self, x, y, w, h, lines, color="control", text_color="#FFFFFF", size=14):
@@ -132,12 +169,13 @@ class Chart:
             )
 
     def label(self, x, y, text, size=13, color=None, anchor="start", mono=False,
-              weight="500"):
+              weight="500", halo=True):
         fam = MONO if mono else FONT
         c = color or C["dim"]
         self.body.append(
             f'<text x="{x}" y="{y}" text-anchor="{anchor}" font-family="{fam}" '
-            f'font-size="{size}" font-weight="{weight}" fill="{c}">{escape(text)}</text>'
+            f'font-size="{size}" font-weight="{weight}" fill="{c}"{_halo(halo)}>'
+            f"{escape(text)}</text>"
         )
 
     def edge(self, points, color="dim", dashed=False, label=None, label_dy=-7,
@@ -155,7 +193,7 @@ class Chart:
             my = (points[0][1] + points[-1][1]) / 2 + label_dy
             self.body.append(
                 f'<text x="{mx}" y="{my}" text-anchor="middle" font-family="{MONO}" '
-                f'font-size="11" fill="{c}">{escape(label)}</text>'
+                f'font-size="11" fill="{c}"{_halo(True)}>{escape(label)}</text>'
             )
 
     def cylinder(self, cx, cy, w, h, title, color="storage", sub=None):
@@ -217,6 +255,26 @@ class Chart:
             f'<text x="{x+w/2}" y="{y+h/2+4}" text-anchor="middle" font-family="{fam}" '
             f'font-size="11" font-weight="600" fill="{C["ink"]}">{escape(text)}</text>'
         )
+
+    def cell(self, x, y, w, h, title, sub=None, color="storage"):
+        """Matrix cell: adapter name over the Terraform source that selects it.
+        `chip` is single-line and fixed-size, so comparison tables use this."""
+        stroke = C.get(color, color)
+        self.body.append(
+            f'<rect x="{x}" y="{y}" width="{w}" height="{h}" rx="8" fill="{stroke}" '
+            f'fill-opacity="0.13" stroke="{stroke}" stroke-width="1.5"/>'
+        )
+        ty = y + h / 2 + (0 if sub else 4)
+        self.body.append(
+            f'<text x="{x+w/2}" y="{ty}" text-anchor="middle" font-family="{FONT}" '
+            f'font-size="12" font-weight="700" fill="{C["ink"]}">{escape(title)}</text>'
+        )
+        if sub:
+            self.body.append(
+                f'<text x="{x+w/2}" y="{ty+16}" text-anchor="middle" '
+                f'font-family="{MONO}" font-size="10" fill="{C["dim"]}">'
+                f"{escape(sub)}</text>"
+            )
 
     def raw(self, fragment):
         self.body.append(fragment)
