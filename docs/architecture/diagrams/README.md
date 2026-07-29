@@ -30,9 +30,11 @@ complement the product chart in
 > Purple splits three ways by **what creates the Job**, which is also how chart 1 groups
 > them. *Per pipeline run*: Dagster's `K8sRunLauncher` creates the run pod, which creates
 > one Floe runner per entity — both TTL-collected within the hour, so the pipeline scales
-> to zero between runs. *Bootstrap*: four Terraform `kubernetes_job_v1` resources plus
-> Superset's Helm hook, one shot per platform apply; the Helm hook is deleted on success
-> and the rest persist until the next apply. *Scheduled*: two `kubernetes_cron_job_v1`
+> to zero between runs. *Bootstrap*: four Terraform `kubernetes_job_v1` resource blocks
+> plus Superset's Helm hook — the SeaweedFS block uses `for_each` over four bucket names,
+> so it alone creates four Jobs, for eight Jobs total, one shot per platform apply; the
+> Helm hook is deleted on success and the rest persist until the next apply. *Scheduled*:
+> two `kubernetes_cron_job_v1`
 > resources on the cluster clock (log-archive every 15 min keeping 1 succeeded / 3 failed,
 > OM catalog refresh hourly keeping 3 / 3), plus OpenMetadata's ingestion pipelines, which
 > its own scheduler creates — not Terraform, and not Dagster.
@@ -52,9 +54,11 @@ deliberately coordinator-only.
 The purple band underneath is everything that is *not* in that 16, split by what creates
 it. **Per pipeline run**: the run pod and its Floe runners, TTL-collected within the hour,
 so ingestion scales to zero between runs — Gold is the exception, running as SQL inside
-the long-lived Trino coordinator above rather than in a Job. **Bootstrap**: five one-shot
-Jobs that fire once per platform apply (Phase ②). **Scheduled**: the two CronJobs on the
-cluster clock (log-archive every 15 min, OM catalog refresh hourly).
+the long-lived Trino coordinator above rather than in a Job. **Bootstrap**: five grouped
+categories — polaris, seaweedfs (one Job per bucket, four buckets), postgresql,
+openmetadata, and Superset's Helm hook — eight one-shot Jobs in total, firing once per
+platform apply (Phase ②). **Scheduled**: the two CronJobs on the cluster clock
+(log-archive every 15 min, OM catalog refresh hourly).
 
 ![Cluster Pod Census](chart1-cluster-pod-census.svg)
 
