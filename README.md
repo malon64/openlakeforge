@@ -129,6 +129,24 @@ The iterations below record the POC delivery history:
 - Iteration 6: Superset reporting over Gold marts; OpenLineage integration deferred pending upstream connector fixes.
 - Iteration 7: multi-product seed POC with product-owned dlt, Floe, dbt, Dagster, Superset, and OpenMetadata artifacts.
 
+## Releases
+
+Tagged releases are signed, SBOM'd, and provenance-attested. Every release
+publishes `ghcr.io/malon64/openlakeforge/project-code` and
+`ghcr.io/malon64/openlakeforge/superset` by digest, an SPDX SBOM per image,
+build provenance, the exact component manifest, the compatibility matrix,
+and a `checksums.txt` over every asset. See
+[docs/release/releasing.md](docs/release/releasing.md) for how a release is
+cut, the consumer verification commands (`cosign verify`, `sha256sum -c`),
+and `scripts/release/verify-install.sh`, the scripted clean-checkout install
+check. [docs/release/compatibility-matrix.md](docs/release/compatibility-matrix.md)
+tracks the supported Kubernetes/Terraform/Helm/cloud-service combinations,
+and [CHANGELOG.md](CHANGELOG.md) records migration notes per release.
+
+`make release-check` runs the release-readiness gate locally (also enforced
+on every PR); `make release-bundle` builds a local release bundle for
+inspection without publishing anything.
+
 ## Local Development
 
 ```sh
