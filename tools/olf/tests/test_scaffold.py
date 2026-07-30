@@ -218,6 +218,127 @@ def test_spec_without_sources_is_rejected() -> None:
         scaffold.parse_spec({**SPEC, "sources": []})
 
 
+def _pie_spec() -> dict:
+    return {
+        **SPEC,
+        "marts": [
+            {
+                **SPEC["marts"][0],
+                "chart": {
+                    "name": "Cost Share",
+                    "viz_type": "pie",
+                    "groupby": ["region"],
+                    "metrics": ["sum__cost_amount"],
+                },
+            }
+        ],
+    }
+
+
+def test_pie_chart_emits_the_singular_metric_superset_reads(tmp_path: Path) -> None:
+    """Pie reads a scalar `metric`; a `metrics` list imports but renders empty."""
+    spec = scaffold.parse_spec(_pie_spec())
+    scaffold.scaffold_product(spec, tmp_path)
+
+    chart = yaml.safe_load(
+        (
+            tmp_path
+            / "domains/logistics/reports/superset/route_efficiency/charts/Cost_Share_1.yaml"
+        ).read_text()
+    )
+
+    assert chart["params"]["metric"] == "sum__cost_amount"
+    assert "metrics" not in chart["params"]
+    # Pie has no axis; these would be inert noise carried from the timeseries shape.
+    assert "x_axis" not in chart["params"]
+    assert "y_axis_format" not in chart["params"]
+    assert chart["params"]["show_labels"] is True
+
+
+def test_table_chart_emits_aggregate_query_mode_and_no_axis(tmp_path: Path) -> None:
+    spec = scaffold.parse_spec(
+        {
+            **SPEC,
+            "marts": [
+                {
+                    **SPEC["marts"][0],
+                    "chart": {
+                        "name": "Cost Table",
+                        "viz_type": "table",
+                        "groupby": ["region"],
+                        "metrics": ["sum__cost_amount"],
+                    },
+                }
+            ],
+        }
+    )
+    scaffold.scaffold_product(spec, tmp_path)
+
+    chart = yaml.safe_load(
+        (
+            tmp_path
+            / "domains/logistics/reports/superset/route_efficiency/charts/Cost_Table_1.yaml"
+        ).read_text()
+    )
+
+    assert chart["params"]["query_mode"] == "aggregate"
+    assert chart["params"]["metrics"] == ["sum__cost_amount"]
+    assert "x_axis" not in chart["params"]
+
+
+def test_pie_chart_with_multiple_metrics_is_rejected() -> None:
+    spec = _pie_spec()
+    spec["marts"][0]["metrics"] = [
+        {"name": "sum__cost_amount", "expression": "SUM(cost_amount)"},
+        {"name": "avg__cost_amount", "expression": "AVG(cost_amount)", "metric_type": "avg"},
+    ]
+    spec["marts"][0]["chart"]["metrics"] = ["sum__cost_amount", "avg__cost_amount"]
+    with pytest.raises(scaffold.ScaffoldError, match="exactly one metric"):
+        scaffold.parse_spec(spec)
+
+
+def test_yaml_sensitive_descriptions_survive_round_trip(tmp_path: Path) -> None:
+    """Descriptions are unrestricted input; raw interpolation breaks or truncates YAML."""
+    hostile = "Raw feed: daily exports # not a comment"
+    spec_dict = {
+        **SPEC,
+        "product_description": hostile,
+        "sources": [{**SPEC["sources"][0], "description": hostile}],
+        "marts": [{**SPEC["marts"][0], "description": hostile}],
+    }
+    scaffold.scaffold_product(scaffold.parse_spec(spec_dict), tmp_path)
+
+    base = tmp_path / "domains/logistics"
+    sources = yaml.safe_load(
+        (base / "transformations/dbt/route_efficiency/models/sources.yml").read_text()
+    )
+    assert sources["sources"][0]["tables"][0]["description"] == hostile
+
+    gold = yaml.safe_load(
+        (base / "transformations/dbt/route_efficiency/models/gold/schema.yml").read_text()
+    )
+    assert gold["models"][0]["description"] == hostile
+
+    dataset = yaml.safe_load(
+        (
+            base
+            / "reports/superset/route_efficiency/datasets/OpenLakeForge_Trino/mart_route_cost.yaml"
+        ).read_text()
+    )
+    assert dataset["description"] == hostile
+
+    dashboard = yaml.safe_load(
+        (
+            base
+            / "reports/superset/route_efficiency/dashboards/Logistics_Route_Efficiency_1.yaml"
+        ).read_text()
+    )
+    assert dashboard["description"] == hostile
+
+    floe = yaml.safe_load((base / "contracts/floe/route_efficiency.yml").read_text())
+    assert isinstance(floe["metadata"]["description"], str)
+
+
 def test_marketing_product_in_the_repo_was_scaffolded_not_hand_wired() -> None:
     """The committed fourth product must be discoverable exactly like the seeds."""
     products = {product.asset_prefix: product for product in discover_products(REPO_ROOT)}

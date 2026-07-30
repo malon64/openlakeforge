@@ -6,9 +6,9 @@ params:
   viz_type: echarts_timeseries_bar
   x_axis: spend_date
   metrics:
-    - sum__spend_amount
+  - sum__spend_amount
   groupby:
-    - channel
+  - channel
   row_limit: 100
   color_scheme: supersetColors
   show_legend: true

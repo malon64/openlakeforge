@@ -113,6 +113,17 @@ def _stable_uuid(*parts: str) -> str:
     return str(uuid.uuid5(_UUID_NAMESPACE, "/".join(parts)))
 
 
+def _scalar(value: str) -> str:
+    """Serialize a free-form string as a safe YAML scalar.
+
+    Descriptions and display names are unrestricted user input. Interpolating
+    them raw breaks the document (`Raw feed: daily exports`) or silently
+    truncates it (`value # notes`), producing a tree that only fails later at
+    `dbt parse` or Superset import.
+    """
+    return yaml.safe_dump(value, default_flow_style=True, width=10**6).strip().removesuffix("...").strip()
+
+
 def _require(mapping: Mapping[str, Any], key: str, context: str) -> Any:
     if key not in mapping:
         raise ScaffoldError(f"{context}: missing required key {key!r}")
@@ -247,6 +258,13 @@ def _validate_chart_references(spec: ProductSpec, source: str) -> None:
                     f"{source}: chart {mart.chart.name!r} references metric {name!r} "
                     f"which {mart.name} does not declare"
                 )
+        # Superset's pie viz reads a single scalar `metric`; extra entries would be
+        # silently dropped at render time, so reject them here instead.
+        if mart.chart.viz_type == "pie" and len(mart.chart.metrics) != 1:
+            raise ScaffoldError(
+                f"{source}: pie chart {mart.chart.name!r} must declare exactly one metric, "
+                f"got {len(mart.chart.metrics)}"
+            )
         if mart.dttm_col and mart.dttm_col not in columns:
             raise ScaffoldError(
                 f"{source}: {mart.name} dttm_col {mart.dttm_col!r} is not a declared column"
@@ -270,7 +288,7 @@ def render_floe_contract(spec: ProductSpec) -> str:
 metadata:
   project: "openlakeforge"
   owner: "{spec.owner}"
-  description: "{spec.product_display_name} Bronze to Silver Floe contracts."
+  description: {_scalar(f"{spec.product_display_name} Bronze to Silver Floe contracts.")}
   tags: {tags}
 
 storages:
@@ -449,7 +467,7 @@ def render_dbt_profiles(spec: ProductSpec) -> str:
 
 def render_dbt_sources(spec: ProductSpec) -> str:
     tables = "\n".join(
-        f"      - name: {src.name}\n        description: {src.description or src.name}"
+        f"      - name: {src.name}\n        description: {_scalar(src.description or src.name)}"
         for src in spec.sources
     )
     return f'''version: 2
@@ -466,7 +484,7 @@ sources:
 
 def render_dbt_gold_schema(spec: ProductSpec) -> str:
     models = "\n".join(
-        f"  - name: {mart.name}\n    description: {mart.description or mart.name}"
+        f"  - name: {mart.name}\n    description: {_scalar(mart.description or mart.name)}"
         for mart in spec.marts
     )
     return f"version: 2\n\nmodels:\n{models}\n"
@@ -547,7 +565,7 @@ def render_superset_dataset(spec: ProductSpec, mart: Mart) -> str:
     )
     return f"""table_name: {mart.name}
 main_dttm_col: {mart.dttm_col or "null"}
-description: {mart.description or mart.name}
+description: {_scalar(mart.description or mart.name)}
 schema: {spec.gold_namespace}
 uuid: {dataset_uuid}
 metrics:
@@ -578,28 +596,73 @@ def _groupby(column: Column) -> bool:
     return _superset_type(column.type) not in {"INTEGER", "BIGINT", "DOUBLE", "DECIMAL"}
 
 
+def _chart_params(chart: Chart) -> dict[str, Any]:
+    """Build the params block Superset actually reads for this viz type.
+
+    The viz types do not share a parameter shape. Pie reads a singular scalar
+    `metric` and ignores `metrics`/`x_axis`; table wants `query_mode: aggregate`
+    and has no axis or legend; only the echarts timeseries types use `x_axis` and
+    `y_axis_format`. Emitting one template for all four produced charts that
+    imported cleanly but rendered empty, because the metric never reached the
+    query. `check-structure.sh` accepts either `metric` or `metrics`, so it did
+    not catch this.
+    """
+    params: dict[str, Any] = {"datasource": None, "viz_type": chart.viz_type}
+    groupby = list(chart.groupby)
+    metrics = list(chart.metrics)
+
+    if chart.viz_type == "pie":
+        params["groupby"] = groupby
+        # Pie is single-metric; a spec listing more than one is rejected upstream.
+        params["metric"] = metrics[0] if metrics else None
+        params.update(
+            {
+                "row_limit": 100,
+                "number_format": "SMART_NUMBER",
+                "show_labels": True,
+                "show_legend": True,
+                "color_scheme": "supersetColors",
+            }
+        )
+    elif chart.viz_type == "table":
+        params["query_mode"] = "aggregate"
+        params["groupby"] = groupby
+        params["metrics"] = metrics
+        params.update(
+            {
+                "row_limit": 100,
+                "order_desc": True,
+                "show_cell_bars": True,
+                "table_timestamp_format": "smart_date",
+            }
+        )
+    else:  # echarts_timeseries_bar / echarts_timeseries_line
+        params["x_axis"] = chart.x_axis
+        params["metrics"] = metrics
+        params["groupby"] = groupby
+        params.update(
+            {
+                "row_limit": 100,
+                "color_scheme": "supersetColors",
+                "show_legend": True,
+                "y_axis_format": "SMART_NUMBER",
+            }
+        )
+    return params
+
+
 def render_superset_chart(spec: ProductSpec, mart: Mart) -> str:
     chart = mart.chart
     assert chart is not None
     dataset_uuid = _stable_uuid("dataset", spec.gold_namespace, mart.name)
     chart_uuid = _stable_uuid("chart", spec.gold_namespace, chart.name)
-    metrics = "\n".join(f"    - {m}" for m in chart.metrics)
-    groupby = "\n".join(f"    - {g}" for g in chart.groupby)
-    return f"""slice_name: {chart.name}
-description: {chart.description or chart.name}
+    params_yaml = yaml.safe_dump(
+        {"params": _chart_params(chart)}, sort_keys=False, default_flow_style=False, width=1000
+    ).rstrip("\n")
+    return f"""slice_name: {_scalar(chart.name)}
+description: {_scalar(chart.description or chart.name)}
 viz_type: {chart.viz_type}
-params:
-  datasource: null
-  viz_type: {chart.viz_type}
-  x_axis: {chart.x_axis or "null"}
-  metrics:
-{metrics or "    []"}
-  groupby:
-{groupby or "    []"}
-  row_limit: 100
-  color_scheme: supersetColors
-  show_legend: true
-  y_axis_format: SMART_NUMBER
+{params_yaml}
 query_context: null
 cache_timeout: null
 uuid: {chart_uuid}
@@ -633,8 +696,8 @@ def render_superset_dashboard(spec: ProductSpec) -> str:
     type: CHART
 """
         )
-    return f"""dashboard_title: {title}
-description: {spec.product_description}
+    return f"""dashboard_title: {_scalar(title)}
+description: {_scalar(spec.product_description)}
 css: ''
 slug: {slug}
 published: true

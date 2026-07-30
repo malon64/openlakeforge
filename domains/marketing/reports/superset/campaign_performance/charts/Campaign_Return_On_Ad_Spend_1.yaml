@@ -4,15 +4,15 @@ viz_type: table
 params:
   datasource: null
   viz_type: table
-  x_axis: null
-  metrics:
-    - avg__return_on_ad_spend
+  query_mode: aggregate
   groupby:
-    - channel
+  - channel
+  metrics:
+  - avg__return_on_ad_spend
   row_limit: 100
-  color_scheme: supersetColors
-  show_legend: true
-  y_axis_format: SMART_NUMBER
+  order_desc: true
+  show_cell_bars: true
+  table_timestamp_format: smart_date
 query_context: null
 cache_timeout: null
 uuid: 4897123d-d64d-50c4-a3de-00136a4d7285

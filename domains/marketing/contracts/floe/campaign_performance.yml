@@ -3,7 +3,7 @@ version: "0.2"
 metadata:
   project: "openlakeforge"
   owner: "marketing"
-  description: "Marketing Campaign Performance Bronze to Silver Floe contracts."
+  description: Marketing Campaign Performance Bronze to Silver Floe contracts.
   tags: ["marketing", "campaign_performance", "silver"]
 
 storages:
