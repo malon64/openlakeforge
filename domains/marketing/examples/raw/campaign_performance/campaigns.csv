@@ -1,0 +1,5 @@
+campaign_id,campaign_name,channel,start_date,end_date,budget_amount
+CMP-001,Spring Launch,paid_search,2026-03-01,2026-03-31,25000.00
+CMP-002,Spring Social,social,2026-03-05,2026-04-04,18000.00
+CMP-003,Email Nurture,email,2026-03-10,2026-04-10,6000.00
+CMP-004,Display Retarget,display,2026-03-15,2026-04-15,12000.00

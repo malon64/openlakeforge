@@ -1,0 +1,7 @@
+conversion_id,campaign_id,conversion_date,conversion_type,conversion_count,revenue_amount
+CNV-0001,CMP-001,2026-03-02,purchase,42,5880.00
+CNV-0002,CMP-001,2026-03-03,signup,115,0.00
+CNV-0003,CMP-002,2026-03-06,purchase,27,3510.00
+CNV-0004,CMP-002,2026-03-07,signup,88,0.00
+CNV-0005,CMP-003,2026-03-11,purchase,19,2660.00
+CNV-0006,CMP-004,2026-03-16,purchase,11,1320.00

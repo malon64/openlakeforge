@@ -1,0 +1,14 @@
+version: 2
+
+sources:
+  - name: silver
+    database: "{{ env_var('OPENLAKEFORGE_CATALOG_NAME', 'lakehouse_dev') }}"
+    schema: marketing_campaign_performance_silver
+    description: Floe-owned Marketing Campaign Performance Silver Iceberg tables.
+    tables:
+      - name: campaigns
+        description: Raw CSV marketing campaigns.
+      - name: ad_spend
+        description: Raw CSV daily advertising spend by campaign.
+      - name: conversions
+        description: Raw CSV attributed campaign conversions.

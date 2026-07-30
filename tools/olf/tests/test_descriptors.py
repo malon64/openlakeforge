@@ -1,8 +1,15 @@
+import textwrap
 from pathlib import Path
 
 import pytest
 
-from olf.descriptors import DomainDescriptorError, load_domain_descriptor, validate_domain_descriptor
+from olf.descriptors import (
+    DomainDescriptorError,
+    discover_domains,
+    discover_products,
+    load_domain_descriptor,
+    validate_domain_descriptor,
+)
 
 ROOT = Path(__file__).parents[3]
 
@@ -206,3 +213,108 @@ def test_domain_descriptor_rejects_malformed_table_groups(group: str, value: obj
     }
     with pytest.raises(DomainDescriptorError):
         validate_domain_descriptor(descriptor)
+
+
+# --- Discovery -------------------------------------------------------------
+
+
+def _write_domain(root: Path, domain: str, document: str) -> None:
+    domain_dir = root / "domains" / domain
+    domain_dir.mkdir(parents=True, exist_ok=True)
+    (domain_dir / "domain.yaml").write_text(textwrap.dedent(document), encoding="utf-8")
+
+
+_WIDGETS_DOMAIN_YAML = """\
+    apiVersion: openlakeforge.io/v1alpha1
+    kind: Domain
+    name: widgets
+    displayName: Widgets
+    description: Widgets domain fixture.
+    status: planned
+    data_products:
+      - id: catalog
+        name: widgets_catalog
+        displayName: Widgets Catalog
+        description: Widgets catalog data product.
+        status: planned
+        silver_tables:
+          tables:
+            - name: items
+        gold_tables:
+          tables:
+            - name: mart_items_by_category
+    """
+
+
+def test_discover_domains_returns_empty_tuple_for_missing_domains_dir(tmp_path: Path) -> None:
+    assert discover_domains(tmp_path) == ()
+    assert discover_products(tmp_path) == ()
+
+
+def test_discover_domains_finds_seed_domains() -> None:
+    domains = discover_domains(ROOT)
+    # marketing is onboarded purely through `olf product scaffold`, so finding it
+    # here is the proof that discovery needs no per-product platform change.
+    assert {domain.name for domain in domains} == {"sales", "supply_chain", "marketing"}
+    sales = next(domain for domain in domains if domain.name == "sales")
+    assert {product.id for product in sales.products} == {"order_revenue", "customer_health"}
+    marketing = next(domain for domain in domains if domain.name == "marketing")
+    assert {product.id for product in marketing.products} == {"campaign_performance"}
+
+
+def test_discover_products_derives_physical_names_from_the_logical_descriptor() -> None:
+    products = {product.asset_prefix: product for product in discover_products(ROOT)}
+    order_revenue = products["sales_order_revenue"]
+    assert order_revenue.domain == "sales"
+    assert order_revenue.id == "order_revenue"
+    assert order_revenue.job_name == "sales_order_revenue_pipeline"
+    assert order_revenue.silver_namespace == "sales_order_revenue_silver"
+    assert order_revenue.gold_namespace == "sales_order_revenue_gold"
+    assert order_revenue.manifest_key == "floe/manifests/sales/order_revenue/order_revenue.manifest.json"
+    assert order_revenue.dashboard_slug == "sales-order-revenue"
+    assert order_revenue.dashboard_title == "Sales Order Revenue"
+    assert "orders" in order_revenue.silver_tables
+    assert "mart_order_revenue_by_day" in order_revenue.gold_tables
+
+
+def test_discover_products_picks_up_a_new_product_with_no_code_edit(tmp_path: Path) -> None:
+    """Prove onboarding is automatic: adding a fixture domain.yaml changes discovery output alone."""
+    before = discover_products(tmp_path)
+    assert before == ()
+
+    _write_domain(tmp_path, "widgets", _WIDGETS_DOMAIN_YAML)
+
+    after = {product.asset_prefix: product for product in discover_products(tmp_path)}
+    assert set(after) == {"widgets_catalog"}
+    widget = after["widgets_catalog"]
+    assert widget.job_name == "widgets_catalog_pipeline"
+    assert widget.silver_namespace == "widgets_catalog_silver"
+    assert widget.gold_namespace == "widgets_catalog_gold"
+    assert widget.manifest_key == "floe/manifests/widgets/catalog/catalog.manifest.json"
+    assert widget.gold_tables == ("mart_items_by_category",)
+
+    domain_names = {domain.name for domain in discover_domains(tmp_path)}
+    assert domain_names == {"widgets"}
+
+
+def test_discover_products_asset_prefix_defaults_to_domain_and_product_id(tmp_path: Path) -> None:
+    """When `asset_prefix` is omitted, it is derived from `<domain>_<product id>`."""
+    document = """\
+    apiVersion: openlakeforge.io/v1alpha1
+    kind: Domain
+    name: marketing
+    displayName: Marketing
+    description: Marketing domain fixture.
+    status: planned
+    data_products:
+      - id: campaign_performance
+        name: marketing_campaign_performance
+        displayName: Marketing Campaign Performance
+        description: Campaign performance data product.
+        status: planned
+    """
+    _write_domain(tmp_path, "marketing", document)
+
+    (product,) = discover_products(tmp_path)
+    assert product.asset_prefix == "marketing_campaign_performance"
+    assert product.job_name == "marketing_campaign_performance_pipeline"

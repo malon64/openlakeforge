@@ -12,7 +12,13 @@ LINEAGE_DATABASE_DEFAULT = "lakehouse_dev"
 def test_all_product_profiles_use_trino_and_catalog_contract() -> None:
     from libs.dbt.render_profiles import render_profile
 
-    assert len(PROJECTS) == 3
+    from olf.descriptors import discover_products
+
+    # Every declared product must have a dbt project, derived rather than counted,
+    # so onboarding a product needs no edit here.
+    expected = {(p.domain, p.id) for p in discover_products(REPO_ROOT)}
+    actual = {(project.parents[2].name, project.name) for project in PROJECTS}
+    assert actual == expected
     for project in PROJECTS:
         profile = render_profile(project, environment="local")
         assert "type: trino" in profile

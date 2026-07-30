@@ -1,0 +1,41 @@
+table_name: mart_campaign_conversion_funnel
+main_dttm_col: null
+description: Signup and purchase conversion counts and revenue by campaign.
+schema: marketing_campaign_performance_gold
+uuid: 315fa5c7-9648-54c3-a08b-5d2c803e0ca7
+metrics:
+  - metric_name: sum__purchase_count
+    verbose_name: Purchases
+    metric_type: sum
+    expression: SUM(purchase_count)
+  - metric_name: sum__revenue_amount
+    verbose_name: Revenue amount
+    metric_type: sum
+    expression: SUM(revenue_amount)
+columns:
+  - column_name: campaign_id
+    type: VARCHAR
+    groupby: true
+    filterable: true
+  - column_name: campaign_name
+    type: VARCHAR
+    groupby: true
+    filterable: true
+  - column_name: channel
+    type: VARCHAR
+    groupby: true
+    filterable: true
+  - column_name: signup_count
+    type: BIGINT
+    groupby: false
+    filterable: true
+  - column_name: purchase_count
+    type: BIGINT
+    groupby: false
+    filterable: true
+  - column_name: revenue_amount
+    type: DOUBLE
+    groupby: false
+    filterable: true
+version: 1.0.0
+database_uuid: 8a87434c-559e-545d-badd-3575affe0185

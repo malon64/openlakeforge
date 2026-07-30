@@ -1,0 +1,46 @@
+table_name: mart_campaign_spend_by_channel
+main_dttm_col: spend_date
+description: Daily advertising spend, impressions, and clicks by campaign channel.
+schema: marketing_campaign_performance_gold
+uuid: dfe9c15e-7b35-5c18-b215-e61fb260dca4
+metrics:
+  - metric_name: sum__spend_amount
+    verbose_name: Spend amount
+    metric_type: sum
+    expression: SUM(spend_amount)
+  - metric_name: sum__clicks
+    verbose_name: Clicks
+    metric_type: sum
+    expression: SUM(clicks)
+columns:
+  - column_name: spend_date
+    type: DATE
+    is_dttm: true
+    groupby: true
+    filterable: true
+  - column_name: channel
+    type: VARCHAR
+    groupby: true
+    filterable: true
+  - column_name: campaign_count
+    type: INTEGER
+    groupby: false
+    filterable: true
+  - column_name: impressions
+    type: BIGINT
+    groupby: false
+    filterable: true
+  - column_name: clicks
+    type: BIGINT
+    groupby: false
+    filterable: true
+  - column_name: spend_amount
+    type: DOUBLE
+    groupby: false
+    filterable: true
+  - column_name: click_through_rate
+    type: DOUBLE
+    groupby: false
+    filterable: true
+version: 1.0.0
+database_uuid: 8a87434c-559e-545d-badd-3575affe0185

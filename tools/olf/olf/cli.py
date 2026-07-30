@@ -31,6 +31,7 @@ openmetadata_app = typer.Typer(help="OpenMetadata governance metadata helpers.")
 k8s_app = typer.Typer(help="Kubernetes image bookkeeping helpers.")
 polaris_app = typer.Typer(help="Polaris catalog credential helpers.")
 e2e_app = typer.Typer(help="End-to-end environment validation.")
+product_app = typer.Typer(help="Data-product scaffolding helpers.")
 app.add_typer(contracts_app, name="contracts")
 app.add_typer(floe_app, name="floe")
 app.add_typer(artifacts_app, name="artifacts")
@@ -39,6 +40,7 @@ app.add_typer(openmetadata_app, name="openmetadata")
 app.add_typer(k8s_app, name="k8s")
 app.add_typer(polaris_app, name="polaris")
 app.add_typer(e2e_app, name="e2e")
+app.add_typer(product_app, name="product")
 
 
 def _repo_root() -> Path:
@@ -305,6 +307,34 @@ def e2e_run(
         )
     except e2e.E2EError as exc:
         raise typer.Exit(code=_fail(str(exc))) from exc
+
+
+@product_app.command("scaffold")
+def product_scaffold(
+    spec: str = typer.Option(
+        ..., "--spec", help="Product scaffold spec YAML (see docs/product-onboarding.md)."
+    ),
+    force: bool = typer.Option(
+        False, "--force", help="Overwrite existing product-owned files instead of skipping them."
+    ),
+) -> None:
+    """Generate the complete product-owned layout for a new data product."""
+    from olf import scaffold as scaffold_module
+
+    try:
+        product_spec = scaffold_module.load_spec(spec)
+        result = scaffold_module.scaffold_product(product_spec, _repo_root(), force=force)
+    except scaffold_module.ScaffoldError as exc:
+        raise typer.Exit(code=_fail(str(exc))) from exc
+
+    for path in result.written:
+        typer.echo(f"wrote    {path}")
+    for path in result.skipped:
+        typer.echo(f"skipped  {path} (exists; use --force to overwrite)")
+    typer.echo(
+        f"Scaffolded {product_spec.domain}/{product_spec.product}: "
+        f"{len(result.written)} written, {len(result.skipped)} skipped."
+    )
 
 
 def _truthy(value: str) -> bool:

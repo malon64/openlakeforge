@@ -1,0 +1,20 @@
+slice_name: Campaign Return On Ad Spend
+description: Return on advertising spend by channel.
+viz_type: table
+params:
+  datasource: null
+  viz_type: table
+  x_axis: null
+  metrics:
+    - avg__return_on_ad_spend
+  groupby:
+    - channel
+  row_limit: 100
+  color_scheme: supersetColors
+  show_legend: true
+  y_axis_format: SMART_NUMBER
+query_context: null
+cache_timeout: null
+uuid: 4897123d-d64d-50c4-a3de-00136a4d7285
+version: 1.0.0
+dataset_uuid: 0fe7529a-82bf-5a02-8164-475360fdeb13

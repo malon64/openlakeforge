@@ -57,21 +57,16 @@ variable "project_code_image_revision" {
 }
 
 variable "code_locations" {
-  description = "Dagster user-code deployments and Python modules exposing domain-scoped Definitions."
+  description = <<-EOT
+    Dagster user-code deployments and Python modules exposing domain-scoped Definitions.
+    Environment roots derive this from the descriptor-discovered domains (see
+    infra/terraform/modules/domains) via `module.domains.code_locations`; it has no
+    default here so a caller can never silently fall back to a stale, hardcoded list.
+  EOT
   type = list(object({
     name               = string
     definitions_module = string
   }))
-  default = [
-    {
-      name               = "sales-dagster"
-      definitions_module = "domains.sales.definitions"
-    },
-    {
-      name               = "supply-chain-dagster"
-      definitions_module = "domains.supply_chain.definitions"
-    },
-  ]
 }
 
 variable "floe_manifest_base_uri" {

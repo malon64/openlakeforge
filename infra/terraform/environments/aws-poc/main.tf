@@ -44,6 +44,11 @@ provider "helm" {
   }
 }
 
+module "domains" {
+  source       = "../../modules/domains"
+  domains_root = abspath("${path.root}/../../../../domains")
+}
+
 locals {
   aws_region                  = coalesce(try(local.foundation_contract.aws_region, null), var.aws_region)
   kubeconfig_path             = var.kubeconfig_path != null ? abspath(pathexpand(var.kubeconfig_path)) : coalesce(try(local.foundation_contract.kubeconfig_path, null), abspath("${path.root}/../../../../.tmp/kubeconfigs/aws.yaml"))
@@ -55,25 +60,11 @@ locals {
   log_base_uri                = "${local.artifact_base_uri}/logs"
   run_artifact_base_uri       = "${local.artifact_base_uri}/run-artifacts"
   product_floe_manifest_uris = {
-    sales_order_revenue                = "${local.floe_manifest_base_uri}/sales/order_revenue/order_revenue.manifest.json"
-    sales_customer_health              = "${local.floe_manifest_base_uri}/sales/customer_health/customer_health.manifest.json"
-    supply_chain_inventory_reliability = "${local.floe_manifest_base_uri}/supply_chain/inventory_reliability/inventory_reliability.manifest.json"
+    for asset_prefix, relative_path in module.domains.product_floe_manifest_relative_paths :
+    asset_prefix => "${local.floe_manifest_base_uri}/${relative_path}"
   }
-  catalog_namespace_model = "product-layer"
-  catalog_product_namespaces = {
-    sales_order_revenue = {
-      silver = "sales_order_revenue_silver"
-      gold   = "sales_order_revenue_gold"
-    }
-    sales_customer_health = {
-      silver = "sales_customer_health_silver"
-      gold   = "sales_customer_health_gold"
-    }
-    supply_chain_inventory_reliability = {
-      silver = "supply_chain_inventory_reliability_silver"
-      gold   = "supply_chain_inventory_reliability_gold"
-    }
-  }
+  catalog_namespace_model    = "product-layer"
+  catalog_product_namespaces = module.domains.catalog_product_namespaces
   catalog_silver_namespaces = {
     for product, namespaces in local.catalog_product_namespaces : product => namespaces.silver
   }
@@ -328,6 +319,7 @@ module "dagster" {
   project_code_image_tag         = var.project_code_image_tag
   project_code_image_pull_policy = var.project_code_image_pull_policy
   project_code_image_revision    = var.project_code_image_revision
+  code_locations                 = module.domains.code_locations
   storage_contract               = local.storage_contract
   catalog_contract               = local.catalog_contract
   governance_contract            = local.governance_contract

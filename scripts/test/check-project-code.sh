@@ -82,8 +82,10 @@ fi
 
 echo "==> Loading domain Dagster product definitions"
 PATH="${site_dir}/bin:${PATH}" PYTHONPATH="${site_dir}:${PWD}" "${PYTHON_BIN}" - <<'PY'
+import importlib
 import json
 import os
+import sys
 from pathlib import Path
 
 from dagster import AssetKey
@@ -155,15 +157,49 @@ PRODUCTS = [
 if os.environ["OPENLAKEFORGE_FLOE_MANIFEST_ACCESS_MODE"].strip().lower() != "remote":
     raise SystemExit("project-code check must load Dagster definitions in remote Floe manifest mode")
 
-for module_name in ["domains.sales.definitions", "domains.supply_chain.definitions"]:
+# Every declared domain must expose a loadable Dagster code location, discovered
+# from the descriptors so a scaffolded domain is validated without editing this
+# check. The detailed per-product assertions below still cover only products
+# whose generated Floe manifest is committed; anything skipped is reported.
+sys.path.insert(0, "tools/olf")
+from olf.descriptors import discover_domains, discover_products  # noqa: E402
+
+discovered_domains = discover_domains(".")
+if not discovered_domains:
+    raise SystemExit("no domains discovered from domains/*/domain.yaml")
+
+
+def manifest_path(product) -> Path:
+    return Path(
+        f"domains/{product.domain}/contracts/floe/manifests/{product.id}.manifest.json"
+    )
+
+
+# Loading a code location requires each of its products' generated Floe manifests.
+# `make floe-manifest` produces them; a freshly scaffolded product has none until
+# then, so it is reported as pending rather than silently passing or hard-failing.
+ready, pending = [], []
+for domain in discovered_domains:
+    missing = [p.id for p in domain.products if not manifest_path(p).exists()]
+    (pending if missing else ready).append((domain, missing))
+
+domain_defs = {}
+for domain, _ in ready:
+    module_name = f"domains.{domain.name}.definitions"
     module_targets = loadable_targets_from_python_module(module_name, ".")
     if len(module_targets) != 1 or module_targets[0].attribute != "defs":
         raise SystemExit(f"{module_name} should expose exactly one defs target")
+    domain_defs[domain.name] = importlib.import_module(module_name).defs
+print(f"Loaded Dagster code locations: {', '.join(sorted(domain_defs))}")
 
-domain_defs = {
-    "sales": sales_defs,
-    "supply_chain": supply_chain_defs,
-}
+if not domain_defs:
+    raise SystemExit("no domain exposed a loadable Dagster code location")
+
+for domain, missing in pending:
+    print(
+        f"PENDING: domains/{domain.name} not loaded -- run 'make floe-manifest' to generate "
+        f"the Floe manifest(s) for: {', '.join(missing)}"
+    )
 asset_key_list = [
     tuple(key.path)
     for definitions in domain_defs.values()

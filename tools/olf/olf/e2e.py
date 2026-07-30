@@ -13,7 +13,7 @@ import shutil
 import subprocess
 import time
 import uuid
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
@@ -23,58 +23,70 @@ import requests
 from botocore.config import Config
 
 from olf import contracts, k8s, log
+from olf.descriptors import discover_domains, discover_products
 
 Environment = Literal["local", "azure", "aws"]
 Suite = Literal["full", "smoke"]
 
-PRODUCT_JOBS = (
-    "sales_order_revenue_pipeline",
-    "sales_customer_health_pipeline",
-    "supply_chain_inventory_reliability_pipeline",
-)
 
-GOLD_MARTS = (
-    "sales_order_revenue_gold.mart_order_revenue_by_day",
-    "sales_order_revenue_gold.mart_order_revenue_by_channel",
-    "sales_order_revenue_gold.mart_order_revenue_margin_by_product",
-    "sales_customer_health_gold.mart_customer_health_score",
-    "sales_customer_health_gold.mart_churn_risk_by_segment",
-    "sales_customer_health_gold.mart_support_sla_by_customer",
-    "supply_chain_inventory_reliability_gold.mart_inventory_position",
-    "supply_chain_inventory_reliability_gold.mart_supplier_delivery_reliability",
-    "supply_chain_inventory_reliability_gold.mart_stockout_risk",
-)
+def _default_repo_root() -> Path:
+    """Resolve a repo root the same way `prepare_config` does.
 
-EXPECTED_DASHBOARDS = {
-    "sales-order-revenue": "Sales Order Revenue",
-    "sales-customer-health": "Sales Customer Health",
-    "supply-chain-inventory-reliability": "Supply Chain Inventory Reliability",
-}
+    Used only as a fallback for call sites (and standalone unit tests) that
+    do not have an `E2EConfig` to read `repo_root` from. Production code
+    paths always pass `cfg.repo_root` explicitly.
+    """
+    return Path(os.environ.get("OPENLAKEFORGE_REPO_ROOT", ".")).resolve()
 
-EXPECTED_DOMAINS = ("sales", "supply_chain")
-EXPECTED_DATA_PRODUCTS = {
-    "sales_order_revenue": ("sales_order_revenue", "sales.sales_order_revenue"),
-    "sales_customer_health": ("sales_customer_health", "sales.sales_customer_health"),
-    "supply_chain_inventory_reliability": (
-        "supply_chain_inventory_reliability",
-        "supply_chain.supply_chain_inventory_reliability",
-    ),
-}
 
-EXPECTED_GLUE_SCHEMAS = {
-    "sales_order_revenue_silver",
-    "sales_order_revenue_gold",
-    "sales_customer_health_silver",
-    "sales_customer_health_gold",
-    "supply_chain_inventory_reliability_silver",
-    "supply_chain_inventory_reliability_gold",
-}
+def product_jobs(repo_root: Path | None = None) -> tuple[str, ...]:
+    """Dagster job names for every discovered product."""
+    return tuple(product.job_name for product in discover_products(repo_root or _default_repo_root()))
 
-MANIFEST_KEYS = (
-    "floe/manifests/sales/order_revenue/order_revenue.manifest.json",
-    "floe/manifests/sales/customer_health/customer_health.manifest.json",
-    "floe/manifests/supply_chain/inventory_reliability/inventory_reliability.manifest.json",
-)
+
+def gold_marts(repo_root: Path | None = None) -> tuple[str, ...]:
+    """`<gold_schema>.<table>` identifiers for every discovered Gold mart."""
+    return tuple(
+        f"{product.gold_namespace}.{table}"
+        for product in discover_products(repo_root or _default_repo_root())
+        for table in product.gold_tables
+    )
+
+
+def expected_dashboards(repo_root: Path | None = None) -> dict[str, str]:
+    """Superset dashboard slug -> title for every discovered product."""
+    return {
+        product.dashboard_slug: product.dashboard_title
+        for product in discover_products(repo_root or _default_repo_root())
+    }
+
+
+def expected_domains(repo_root: Path | None = None) -> tuple[str, ...]:
+    """OpenMetadata domain names for every discovered domain."""
+    return tuple(domain.name for domain in discover_domains(repo_root or _default_repo_root()))
+
+
+def expected_data_products(repo_root: Path | None = None) -> dict[str, tuple[str, ...]]:
+    """OpenMetadata data-product name candidates, keyed by asset prefix."""
+    return {
+        product.asset_prefix: (product.asset_prefix, f"{product.domain}.{product.asset_prefix}")
+        for product in discover_products(repo_root or _default_repo_root())
+    }
+
+
+def expected_glue_schemas(repo_root: Path | None = None) -> set[str]:
+    """Every Silver/Gold catalog namespace name across discovered products."""
+    schemas: set[str] = set()
+    for product in discover_products(repo_root or _default_repo_root()):
+        schemas.add(product.silver_namespace)
+        schemas.add(product.gold_namespace)
+    return schemas
+
+
+def manifest_keys(repo_root: Path | None = None) -> tuple[str, ...]:
+    """Ops-bucket Floe manifest object keys for every discovered product."""
+    return tuple(product.manifest_key for product in discover_products(repo_root or _default_repo_root()))
+
 
 ARTIFACT_PREFIXES = (
     "floe/reports/",
@@ -111,13 +123,15 @@ class DagsterHTTPError(E2EError):
     """A non-transient Dagster HTTP response (normally a client error)."""
 
 
-def workload_health_class(item: Mapping[str, Any], suite_jobs: tuple[str, ...] = PRODUCT_JOBS) -> str:
+def workload_health_class(item: Mapping[str, Any], suite_jobs: tuple[str, ...] | None = None) -> str:
     """Classify a Kubernetes workload for E2E readiness policy.
 
     ReplicaSet/StatefulSet pods and OpenLakeForge bootstrap Jobs are required.
     Other Job pods are warnings unless their name/labels identify a job owned
     by this suite.
     """
+    if suite_jobs is None:
+        suite_jobs = product_jobs()
     metadata = item.get("metadata", {})
     owner_kinds = {str(owner.get("kind")) for owner in metadata.get("ownerReferences", [])}
     if "Job" not in owner_kinds:
@@ -157,8 +171,9 @@ def _bounded_pod_diagnostics(cfg: E2EConfig, names: list[str]) -> str:
 def _bounded_job_diagnostics(cfg: E2EConfig, payload: Mapping[str, Any]) -> str:
     """Collect only a small tail from failed independent Jobs."""
     diagnostics: list[str] = []
+    suite_jobs = product_jobs(cfg.repo_root)
     for item in payload.get("items", []):
-        if workload_health_class(item) != "independent-job":
+        if workload_health_class(item, suite_jobs) != "independent-job":
             continue
         status = item.get("status", {}).get("phase")
         if status not in {"Failed", "Unknown"}:
@@ -379,6 +394,7 @@ def check_pods_ready(cfg: E2EConfig) -> None:
     bad: list[str] = []
     warned: list[str] = []
     last_error: E2EError | None = None
+    suite_jobs = product_jobs(cfg.repo_root)
     for _ in range(READINESS_ATTEMPTS):
         try:
             payload = json.loads(kubectl(cfg, ["get", "pods", "-n", cfg.namespace, "-o", "json"], capture=True))
@@ -386,7 +402,7 @@ def check_pods_ready(cfg: E2EConfig) -> None:
             last_error = exc
             time.sleep(5)
             continue
-        bad, warned = classify_pod_health(payload, suite_jobs=PRODUCT_JOBS)
+        bad, warned = classify_pod_health(payload, suite_jobs=suite_jobs)
         for message in warned:
             log.warn(message)
         if warned:
@@ -404,9 +420,11 @@ def check_pods_ready(cfg: E2EConfig) -> None:
 
 
 def classify_pod_health(
-    payload: Mapping[str, Any], *, suite_jobs: tuple[str, ...] = PRODUCT_JOBS
+    payload: Mapping[str, Any], *, suite_jobs: tuple[str, ...] | None = None
 ) -> tuple[list[str], list[str]]:
     """Return blocking service failures and bounded warning messages for Jobs."""
+    if suite_jobs is None:
+        suite_jobs = product_jobs()
     bad: list[str] = []
     warned: list[str] = []
     for item in payload.get("items", []):
@@ -455,25 +473,32 @@ def check_trino_catalog(cfg: E2EConfig) -> None:
 def check_trino_tables_and_marts(cfg: E2EConfig) -> None:
     check_trino_catalog(cfg)
     log.step("Checking Silver and Gold table counts...")
+    products = discover_products(cfg.repo_root)
+    silver_schemas = sorted({product.silver_namespace for product in products})
+    gold_schemas = sorted({product.gold_namespace for product in products})
     silver_count = trino_scalar(
         cfg,
         "SELECT count(*) FROM iceberg.information_schema.tables "
-        "WHERE table_schema IN ('sales_order_revenue_silver', 'sales_customer_health_silver', "
-        "'supply_chain_inventory_reliability_silver')",
+        f"WHERE table_schema IN ({_sql_string_list(silver_schemas)})",
     )
     gold_count = trino_scalar(
         cfg,
         "SELECT count(*) FROM iceberg.information_schema.tables "
-        "WHERE table_schema IN ('sales_order_revenue_gold', 'sales_customer_health_gold', "
-        "'supply_chain_inventory_reliability_gold')",
+        f"WHERE table_schema IN ({_sql_string_list(gold_schemas)})",
     )
-    assert_scalar_equals(silver_count, "15", "Silver table count")
-    assert_scalar_equals(gold_count, "9", "Gold mart count")
+    expected_silver_count = sum(len(product.silver_tables) for product in products)
+    expected_gold_count = sum(len(product.gold_tables) for product in products)
+    assert_scalar_equals(silver_count, str(expected_silver_count), "Silver table count")
+    assert_scalar_equals(gold_count, str(expected_gold_count), "Gold mart count")
 
-    for mart in GOLD_MARTS:
+    for mart in gold_marts(cfg.repo_root):
         count = trino_scalar(cfg, f"SELECT count(*) FROM iceberg.{mart}")
         if int(count) <= 0:
             raise E2EError(f"expected iceberg.{mart} to contain rows, got {count}")
+
+
+def _sql_string_list(values: Iterable[str]) -> str:
+    return ", ".join(f"'{value}'" for value in values)
 
 
 def trino_scalar(cfg: E2EConfig, sql: str) -> str:
@@ -530,7 +555,7 @@ def launch_and_poll_dagster_jobs(cfg: E2EConfig) -> None:
             raise E2EError("Dagster endpoint did not become reachable.")
         client = DagsterClient(f"{base_url}/graphql")
         timeout_seconds = int(os.environ.get("DAGSTER_JOB_TIMEOUT_SECONDS", str(DAGSTER_JOB_TIMEOUT_SECONDS)))
-        for job in PRODUCT_JOBS:
+        for job in product_jobs(cfg.repo_root):
             try:
                 run_id = client.launch(job)
             except E2EError as exc:
@@ -650,7 +675,12 @@ class DagsterClient:
                 return self.discover_repository(job_name)
             except E2EError as exc:
                 last_error = exc
-                self.try_reload_repository_location(expected_repository_location_name(job_name))
+                try:
+                    location_name = expected_repository_location_name(job_name)
+                except E2EError:
+                    location_name = None
+                if location_name is not None:
+                    self.try_reload_repository_location(location_name)
                 time.sleep(delay)
         detail = f": {last_error}" if last_error else ""
         raise E2EError(
@@ -814,13 +844,15 @@ def check_superset_dashboards(cfg: E2EConfig) -> None:
         if not k8s.http_wait(f"{base_url}/health", attempts=90, delay=2):
             raise E2EError("Superset endpoint did not become reachable.")
         dashboards = SupersetClient(base_url).dashboards()
-    assert_superset_dashboards(dashboards, EXPECTED_DASHBOARDS)
+    assert_superset_dashboards(dashboards, expected_dashboards(cfg.repo_root))
 
 
-def expected_repository_location_name(job_name: str) -> str:
-    if job_name.startswith("supply_chain_"):
-        return "supply-chain-dagster"
-    return "sales-dagster"
+def expected_repository_location_name(job_name: str, repo_root: Path | None = None) -> str:
+    """The Dagster code location a job belongs to: one per discovered domain."""
+    for product in discover_products(repo_root or _default_repo_root()):
+        if product.job_name == job_name:
+            return f"{product.domain.replace('_', '-')}-dagster"
+    raise E2EError(f"no discovered product matches Dagster job {job_name!r}")
 
 
 class SupersetClient:
@@ -857,8 +889,10 @@ class SupersetClient:
 
 
 def assert_superset_dashboards(
-    dashboards: list[Mapping[str, Any]], expected: Mapping[str, str] = EXPECTED_DASHBOARDS
+    dashboards: list[Mapping[str, Any]], expected: Mapping[str, str] | None = None
 ) -> None:
+    if expected is None:
+        expected = expected_dashboards()
     by_slug = {dashboard.get("slug"): dashboard.get("dashboard_title") for dashboard in dashboards}
     titles = {dashboard.get("dashboard_title") for dashboard in dashboards}
     missing = [
@@ -883,18 +917,18 @@ def check_openmetadata_assets(cfg: E2EConfig) -> None:
         base_url = f"http://127.0.0.1:{cfg.openmetadata_local_port}"
         if not k8s.http_wait(f"{base_url}/api/v1/system/config/jwks", attempts=90, delay=2):
             raise E2EError("OpenMetadata endpoint did not become reachable.")
-        OpenMetadataE2EClient(base_url).assert_assets()
+        OpenMetadataE2EClient(base_url).assert_assets(cfg.repo_root)
 
 
 class OpenMetadataE2EClient:
     def __init__(self, base_url: str) -> None:
         self.base_url = base_url.rstrip("/")
 
-    def assert_assets(self) -> None:
+    def assert_assets(self, repo_root: Path | None = None) -> None:
         token = self._login()
-        for domain in EXPECTED_DOMAINS:
+        for domain in expected_domains(repo_root):
             self._request("GET", f"/api/v1/domains/name/{domain}", token)
-        for product, candidates in EXPECTED_DATA_PRODUCTS.items():
+        for product, candidates in expected_data_products(repo_root).items():
             if not self._first_existing_data_product(candidates, token):
                 raise E2EError(f"missing OpenMetadata data product {product}")
 
@@ -947,7 +981,7 @@ def check_ops_artifacts(cfg: E2EConfig) -> None:
     bucket = provider_contracts["artifact_bucket"]["bucket_name"]
     if cfg.env == "aws":
         client = boto3.client("s3", region_name=aws_stack_region(cfg))
-        assert_ops_artifacts(client, bucket, cfg.namespace)
+        assert_ops_artifacts(client, bucket, cfg.namespace, repo_root=cfg.repo_root)
         return
 
     assert cfg.seaweedfs_local_port is not None
@@ -982,7 +1016,7 @@ def check_ops_artifacts(cfg: E2EConfig) -> None:
             config=Config(s3={"addressing_style": "path"}),
         )
         wait_for_bucket(client, bucket, endpoint)
-        assert_ops_artifacts(client, bucket, cfg.namespace)
+        assert_ops_artifacts(client, bucket, cfg.namespace, repo_root=cfg.repo_root)
 
 
 def trigger_log_archive_job(cfg: E2EConfig) -> None:
@@ -1011,8 +1045,8 @@ def trigger_log_archive_job(cfg: E2EConfig) -> None:
     )
 
 
-def assert_ops_artifacts(client: Any, bucket: str, namespace: str) -> None:
-    for key in MANIFEST_KEYS:
+def assert_ops_artifacts(client: Any, bucket: str, namespace: str, *, repo_root: Path | None = None) -> None:
+    for key in manifest_keys(repo_root):
         client.head_object(Bucket=bucket, Key=key)
     for prefix in (*ARTIFACT_PREFIXES, f"logs/k8s/namespace={namespace}/"):
         require_s3_prefix(client, bucket, prefix)
@@ -1059,18 +1093,19 @@ def check_aws_storage_and_glue(cfg: E2EConfig) -> None:
     bucket = provider_contracts["artifact_bucket"]["bucket_name"]
     region = aws_stack_region(cfg)
     _run(["aws", "s3api", "head-bucket", "--bucket", bucket], capture=True)
-    for database in glue_database_names(provider_contracts):
+    for database in glue_database_names(provider_contracts, cfg.repo_root):
         _run(["aws", "glue", "get-database", "--region", region, "--name", database], capture=True)
 
 
-def glue_database_names(provider_contracts: Mapping[str, Any]) -> set[str]:
+def glue_database_names(provider_contracts: Mapping[str, Any], repo_root: Path | None = None) -> set[str]:
     catalog = provider_contracts["catalog"]
     schema_names = set(catalog.get("catalog_schema_names") or [ns["name"] for ns in catalog["catalog_namespaces"]])
     database_names = set(catalog.get("glue_database_names") or [])
-    missing = EXPECTED_GLUE_SCHEMAS.difference(schema_names)
+    required_schemas = expected_glue_schemas(repo_root)
+    missing = required_schemas.difference(schema_names)
     if missing:
         raise E2EError(f"catalog contract missing Glue schema names: {sorted(missing)}")
-    missing_databases = EXPECTED_GLUE_SCHEMAS.difference(database_names)
+    missing_databases = required_schemas.difference(database_names)
     if missing_databases:
         raise E2EError(f"catalog contract missing Glue database names: {sorted(missing_databases)}")
     return database_names

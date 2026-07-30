@@ -1,0 +1,9 @@
+version: 2
+
+models:
+  - name: mart_campaign_spend_by_channel
+    description: Daily advertising spend, impressions, and clicks by campaign channel.
+  - name: mart_campaign_conversion_funnel
+    description: Signup and purchase conversion counts and revenue by campaign.
+  - name: mart_campaign_return_on_spend
+    description: Campaign revenue, spend, and return on advertising spend by channel.

@@ -77,41 +77,6 @@ required_paths=(
   "libs/product_dagster.py"
   "libs/s3_artifacts.py"
   "domains/README.md"
-  "domains/sales/README.md"
-  "domains/sales/__init__.py"
-  "domains/sales/definitions.py"
-  "domains/sales/domain.yaml"
-  "domains/sales/contracts/floe/order_revenue.yml"
-  "domains/sales/contracts/floe/customer_health.yml"
-  "domains/sales/contracts/floe/manifests/order_revenue.manifest.json"
-  "domains/sales/contracts/floe/manifests/customer_health.manifest.json"
-  "domains/sales/examples/raw/order_revenue/orders.csv"
-  "domains/sales/examples/raw/customer_health/accounts.csv"
-  "domains/sales/extract/dlt/order_revenue.py"
-  "domains/sales/extract/dlt/customer_health.py"
-  "domains/sales/transformations/dbt/order_revenue/dbt_project.yml"
-  "domains/sales/transformations/dbt/order_revenue/packages.yml"
-  "domains/sales/transformations/dbt/customer_health/dbt_project.yml"
-  "domains/sales/transformations/dbt/customer_health/packages.yml"
-  "domains/sales/reports/superset/order_revenue/metadata.yaml"
-  "domains/sales/reports/superset/order_revenue/charts/Daily_Net_Revenue_1.yaml"
-  "domains/sales/reports/superset/customer_health/metadata.yaml"
-  "domains/sales/reports/superset/customer_health/charts/Health_Score_by_Segment_1.yaml"
-  "domains/sales/pipelines/dagster/order_revenue.py"
-  "domains/sales/pipelines/dagster/customer_health.py"
-  "domains/supply_chain/README.md"
-  "domains/supply_chain/__init__.py"
-  "domains/supply_chain/definitions.py"
-  "domains/supply_chain/domain.yaml"
-  "domains/supply_chain/contracts/floe/inventory_reliability.yml"
-  "domains/supply_chain/contracts/floe/manifests/inventory_reliability.manifest.json"
-  "domains/supply_chain/examples/raw/inventory_reliability/inventory_snapshots.csv"
-  "domains/supply_chain/extract/dlt/inventory_reliability.py"
-  "domains/supply_chain/transformations/dbt/inventory_reliability/dbt_project.yml"
-  "domains/supply_chain/transformations/dbt/inventory_reliability/packages.yml"
-  "domains/supply_chain/reports/superset/inventory_reliability/metadata.yaml"
-  "domains/supply_chain/reports/superset/inventory_reliability/charts/Available_Inventory_by_Status_1.yaml"
-  "domains/supply_chain/pipelines/dagster/inventory_reliability.py"
   "scripts/README.md"
   "scripts/lib/docker.sh"
   "scripts/test/check-structure.sh"
@@ -166,13 +131,53 @@ required_paths=(
 
 forbidden_paths=(
   "infra/floe"
-  "domains/sales/data_products"
-  "domains/sales/governance/openmetadata"
-  "domains/supply_chain/data_products"
-  "domains/supply_chain/governance/openmetadata"
   "scripts/local/cluster/create.sh"
   "scripts/local/cluster/destroy.sh"
 )
+
+# Per-domain and per-product paths are derived from the domain descriptors, not
+# listed here, so onboarding a product needs no change to this file. The
+# derivation needs PyYAML, so it runs inside the olf project environment; a
+# failure here is fatal rather than silently checking fewer paths.
+derive_descriptor_paths() {
+  uv run --quiet --project tools/olf python - <<'PY'
+from olf.descriptors import discover_domains
+
+for domain in discover_domains("."):
+    base = f"domains/{domain.name}"
+    for suffix in ("README.md", "__init__.py", "definitions.py", "domain.yaml"):
+        print(f"required\t{base}/{suffix}")
+    print(f"forbidden\t{base}/data_products")
+    print(f"forbidden\t{base}/governance/openmetadata")
+    for product in domain.products:
+        # contracts/floe/manifests/<product>.manifest.json is deliberately not
+        # required: it is a generated build artifact produced by
+        # `make floe-manifest`, not a source file an author writes.
+        print(f"required\t{base}/contracts/floe/{product.id}.yml")
+        print(f"required\t{base}/extract/dlt/{product.id}.py")
+        print(f"required\t{base}/pipelines/dagster/{product.id}.py")
+        print(f"required\t{base}/transformations/dbt/{product.id}/dbt_project.yml")
+        print(f"required\t{base}/transformations/dbt/{product.id}/packages.yml")
+        print(f"required\t{base}/reports/superset/{product.id}/metadata.yaml")
+PY
+}
+
+if ! descriptor_paths="$(derive_descriptor_paths)"; then
+  echo "Failed to derive per-product paths from domain descriptors." >&2
+  exit 1
+fi
+if [[ -z "${descriptor_paths}" ]]; then
+  echo "Domain descriptor discovery produced no paths; expected at least one product." >&2
+  exit 1
+fi
+
+while IFS=$'\t' read -r kind path; do
+  [[ -z "${path}" ]] && continue
+  case "${kind}" in
+    required) required_paths+=("${path}") ;;
+    forbidden) forbidden_paths+=("${path}") ;;
+  esac
+done <<< "${descriptor_paths}"
 
 missing=0
 

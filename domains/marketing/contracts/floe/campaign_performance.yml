@@ -1,0 +1,112 @@
+version: "0.2"
+
+metadata:
+  project: "openlakeforge"
+  owner: "marketing"
+  description: "Marketing Campaign Performance Bronze to Silver Floe contracts."
+  tags: ["marketing", "campaign_performance", "silver"]
+
+storages:
+  default: "lakehouse_bronze"
+  definitions:
+    - name: "lakehouse_bronze"
+      type: "s3"
+      bucket: "{{OPENLAKEFORGE_STORAGE_BRONZE_BUCKET}}"
+      region: "{{OPENLAKEFORGE_STORAGE_REGION}}"
+    - name: "lakehouse_silver"
+      type: "s3"
+      bucket: "{{OPENLAKEFORGE_STORAGE_SILVER_BUCKET}}"
+      region: "{{OPENLAKEFORGE_STORAGE_REGION}}"
+    - name: "openlakeforge_ops"
+      type: "s3"
+      bucket: "{{OPENLAKEFORGE_OPS_BUCKET_NAME}}"
+      region: "{{OPENLAKEFORGE_STORAGE_REGION}}"
+
+report:
+  path: "floe/reports/marketing/campaign_performance"
+  storage: "openlakeforge_ops"
+
+entities:
+  - name: "campaigns"
+    incremental_mode: "none"
+    source:
+      format: "csv"
+      path: "marketing/campaign_performance/campaigns"
+      storage: "lakehouse_bronze"
+      options: { header: true, separator: ",", encoding: "utf-8", glob: "*.csv" }
+      cast_mode: "strict"
+    sink:
+      write_mode: "overwrite"
+      accepted:
+        format: "iceberg"
+        path: "marketing/campaign_performance/campaigns"
+        storage: "lakehouse_silver"
+        iceberg: { catalog: "iceberg_catalog", namespace: "marketing_campaign_performance_silver", table: "campaigns" }
+      rejected: { format: "csv", path: "floe/rejected/marketing/campaign_performance/campaigns", storage: "lakehouse_silver" }
+    policy: { severity: "reject" }
+    schema:
+      normalize_columns: { enabled: true, strategy: "snake_case" }
+      primary_key: ["campaign_id"]
+      columns:
+        - { name: "campaign_id", type: "string", nullable: false }
+        - { name: "campaign_name", type: "string", nullable: false }
+        - { name: "channel", type: "string", nullable: false }
+        - { name: "start_date", type: "date", nullable: false }
+        - { name: "end_date", type: "date", nullable: false }
+        - { name: "budget_amount", type: "double", nullable: false }
+
+  - name: "ad_spend"
+    incremental_mode: "none"
+    source:
+      format: "csv"
+      path: "marketing/campaign_performance/ad_spend"
+      storage: "lakehouse_bronze"
+      options: { header: true, separator: ",", encoding: "utf-8", glob: "*.csv" }
+      cast_mode: "strict"
+    sink:
+      write_mode: "overwrite"
+      accepted:
+        format: "iceberg"
+        path: "marketing/campaign_performance/ad_spend"
+        storage: "lakehouse_silver"
+        iceberg: { catalog: "iceberg_catalog", namespace: "marketing_campaign_performance_silver", table: "ad_spend" }
+      rejected: { format: "csv", path: "floe/rejected/marketing/campaign_performance/ad_spend", storage: "lakehouse_silver" }
+    policy: { severity: "reject" }
+    schema:
+      normalize_columns: { enabled: true, strategy: "snake_case" }
+      primary_key: ["spend_id"]
+      columns:
+        - { name: "spend_id", type: "string", nullable: false }
+        - { name: "campaign_id", type: "string", nullable: false }
+        - { name: "spend_date", type: "date", nullable: false }
+        - { name: "impressions", type: "integer", nullable: false }
+        - { name: "clicks", type: "integer", nullable: false }
+        - { name: "spend_amount", type: "double", nullable: false }
+
+  - name: "conversions"
+    incremental_mode: "none"
+    source:
+      format: "csv"
+      path: "marketing/campaign_performance/conversions"
+      storage: "lakehouse_bronze"
+      options: { header: true, separator: ",", encoding: "utf-8", glob: "*.csv" }
+      cast_mode: "strict"
+    sink:
+      write_mode: "overwrite"
+      accepted:
+        format: "iceberg"
+        path: "marketing/campaign_performance/conversions"
+        storage: "lakehouse_silver"
+        iceberg: { catalog: "iceberg_catalog", namespace: "marketing_campaign_performance_silver", table: "conversions" }
+      rejected: { format: "csv", path: "floe/rejected/marketing/campaign_performance/conversions", storage: "lakehouse_silver" }
+    policy: { severity: "reject" }
+    schema:
+      normalize_columns: { enabled: true, strategy: "snake_case" }
+      primary_key: ["conversion_id"]
+      columns:
+        - { name: "conversion_id", type: "string", nullable: false }
+        - { name: "campaign_id", type: "string", nullable: false }
+        - { name: "conversion_date", type: "date", nullable: false }
+        - { name: "conversion_type", type: "string", nullable: false }
+        - { name: "conversion_count", type: "integer", nullable: false }
+        - { name: "revenue_amount", type: "double", nullable: false }

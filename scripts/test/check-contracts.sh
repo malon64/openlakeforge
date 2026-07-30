@@ -179,14 +179,13 @@ for contracts_path, contracts_body in [(contracts_tf, text), (azure_contracts_tf
     expected_log_mode = "s3-object-archive" if contracts_path == aws_contracts_tf else "s3-compatible-object-archive"
     if expected_log_mode not in contracts_body:
         errors.append(f"{contracts_path}: missing ops artifact/observability field {expected_log_mode}")
-    for required_location in [
-        'name               = "sales-dagster"',
-        'definitions_module = "domains.sales.definitions"',
-        'name               = "supply-chain-dagster"',
-        'definitions_module = "domains.supply_chain.definitions"',
-    ]:
-        if required_location not in contracts_body:
-            errors.append(f"{contracts_path}: missing domain Dagster code location {required_location}")
+    # Code locations are derived per domain by infra/terraform/modules/domains, so
+    # assert the wiring instead of listing per-domain literals here.
+    if "module.domains.code_locations" not in contracts_body:
+        errors.append(
+            f"{contracts_path}: orchestration contract must derive code locations "
+            "from module.domains.code_locations"
+        )
     for required in [
         "catalog_namespace_model",
         "catalog_namespaces",
@@ -201,22 +200,8 @@ for contracts_path, contracts_body in [(contracts_tf, text), (azure_contracts_tf
     if re.search(r'\b(silver_namespace|gold_namespace)\s*=\s*"(silver|gold)"', contracts_body):
         errors.append(f"{contracts_path}: catalog contract must not expose shared silver/gold namespace fields")
 
-expected_product_namespaces = {
-    "sales_order_revenue": {
-        "silver": "sales_order_revenue_silver",
-        "gold": "sales_order_revenue_gold",
-    },
-    "sales_customer_health": {
-        "silver": "sales_customer_health_silver",
-        "gold": "sales_customer_health_gold",
-    },
-    "supply_chain_inventory_reliability": {
-        "silver": "supply_chain_inventory_reliability_silver",
-        "gold": "supply_chain_inventory_reliability_gold",
-    },
-}
 for main_path, main_body in [(local_main_tf, local_main_text), (azure_main_tf, azure_main_text), (aws_main_tf, aws_main_text)]:
-    if 'catalog_namespace_model = "product-layer"' not in main_body:
+    if not re.search(r'catalog_namespace_model\s*=\s*"product-layer"', main_body):
         errors.append(f"{main_path}: catalog namespace model must be product-layer")
     if main_path == aws_main_tf:
         if not re.search(r'\bcatalog_namespaces\s*=\s*local\.catalog_namespaces\b', main_body):
@@ -225,10 +210,14 @@ for main_path, main_body in [(local_main_tf, local_main_text), (azure_main_tf, a
         errors.append(f"{main_path}: Polaris module must receive product catalog namespaces")
     if "catalog_schema_names" not in main_body or "[for namespace in local.catalog_namespaces : namespace.name]" not in main_body:
         errors.append(f"{main_path}: OpenMetadata module must seed all product catalog namespaces")
-    for namespace_pair in expected_product_namespaces.values():
-        for namespace in namespace_pair.values():
-            if namespace not in main_body:
-                errors.append(f"{main_path}: missing product catalog namespace {namespace}")
+    # Product namespaces are derived from the domain descriptors by
+    # infra/terraform/modules/domains, so assert the wiring rather than grepping
+    # main.tf for per-product literal strings. The derived values themselves are
+    # covered by tools/olf/tests/test_descriptors.py and test_scaffold.py.
+    if not re.search(r'module\s+"domains"', main_body):
+        errors.append(f"{main_path}: must derive product catalog namespaces from the domains module")
+    if "module.domains.catalog_product_namespaces" not in main_body:
+        errors.append(f"{main_path}: must consume module.domains.catalog_product_namespaces")
     if "ops_bucket_name" not in main_body or "floe/manifests" not in main_body:
         errors.append(f"{main_path}: must use the ops artifact bucket and floe/manifests prefix")
     if "var.code_bucket_name" in main_body:

@@ -149,23 +149,14 @@ locals {
   }
 
   orchestration_contract = {
-    provider       = local.aws_provider_name
-    implementation = "orchestration.dagster_on_eks"
-    adapter        = "orchestration.dagster_on_eks"
-    logical_name   = "orchestration"
-    service_name   = "dagster-dagster-webserver"
-    http_port      = 80
-    endpoint       = "http://dagster-dagster-webserver:80"
-    code_locations = [
-      {
-        name               = "sales-dagster"
-        definitions_module = "domains.sales.definitions"
-      },
-      {
-        name               = "supply-chain-dagster"
-        definitions_module = "domains.supply_chain.definitions"
-      },
-    ]
+    provider                  = local.aws_provider_name
+    implementation            = "orchestration.dagster_on_eks"
+    adapter                   = "orchestration.dagster_on_eks"
+    logical_name              = "orchestration"
+    service_name              = "dagster-dagster-webserver"
+    http_port                 = 80
+    endpoint                  = "http://dagster-dagster-webserver:80"
+    code_locations            = module.domains.code_locations
     runner                    = "kubernetes-run-launcher"
     project_code_image        = "${var.project_code_image_repository}:${var.project_code_image_tag}"
     project_code_image_policy = var.project_code_image_pull_policy

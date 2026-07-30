@@ -45,6 +45,7 @@ help:
 	@printf '%s\n' '  make check-infra      Validate Terraform and render Helm values'
 	@printf '%s\n' '  make check-project-code  Validate the project-code Dagster package'
 	@printf '%s\n' '  make check-dbt        Validate all product dbt-trino projects'
+	@printf '%s\n' '  make product-scaffold SPEC=<file>  Scaffold a new data product (see docs/product-onboarding.md)'
 	@printf '%s\n' '  make floe-manifest   Generate product Floe Dagster manifests'
 	@printf '%s\n' '  make floe-manifest-upload  Upload product Floe manifests to the local ops bucket'
 	@printf '%s\n' '  make dbt-parse       Generate product dbt manifests'
@@ -111,6 +112,10 @@ check-project-code:
 
 check-dbt:
 	@bash scripts/test/check-dbt.sh
+
+product-scaffold:
+	@test -n "$(SPEC)" || { echo "SPEC=<path to product spec yaml> is required" >&2; exit 1; }
+	@OPENLAKEFORGE_REPO_ROOT="$(CURDIR)" uv run --project tools/olf olf product scaffold --spec "$(SPEC)" $(SCAFFOLD_ARGS)
 
 floe-manifest:
 	@NAMESPACE=$(NAMESPACE) bash scripts/artifacts/floe-manifest.sh

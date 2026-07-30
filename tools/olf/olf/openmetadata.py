@@ -18,13 +18,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from olf.descriptors import load_domain_descriptor
-
-_SEED_PRODUCT_KEYS = (
-    "sales_order_revenue",
-    "sales_customer_health",
-    "supply_chain_inventory_reliability",
-)
+from olf.descriptors import discover_products, load_domain_descriptor
 
 
 class OpenMetadataError(RuntimeError):
@@ -75,11 +69,12 @@ class OpenMetadataConfig:
         )
         silver_schema_fqns_raw = environ.get("OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON")
         gold_schema_fqns_raw = environ.get("OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON")
+        metadata_root_path = Path(metadata_root)
         return cls(
             base_url=base_url.rstrip("/"),
             admin_email=admin_email,
             admin_password=admin_password,
-            metadata_root=Path(metadata_root),
+            metadata_root=metadata_root_path,
             metadata_source_dir=metadata_source_dir,
             allow_missing_assets=allow_missing_assets,
             catalog_service=catalog_service,
@@ -89,12 +84,12 @@ class OpenMetadataConfig:
             catalog_silver_schema_fqns=(
                 _parse_json_env("OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON", silver_schema_fqns_raw)
                 if silver_schema_fqns_raw
-                else _default_schema_fqns(catalog_database_fqn, "silver")
+                else _default_schema_fqns(catalog_database_fqn, "silver", metadata_root_path)
             ),
             catalog_gold_schema_fqns=(
                 _parse_json_env("OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON", gold_schema_fqns_raw)
                 if gold_schema_fqns_raw
-                else _default_schema_fqns(catalog_database_fqn, "gold")
+                else _default_schema_fqns(catalog_database_fqn, "gold", metadata_root_path)
             ),
             storage_service=environ.get("OPENLAKEFORGE_STORAGE_OM_SERVICE", "seaweedfs"),
             storage_display_name=environ.get("OPENLAKEFORGE_STORAGE_DISPLAY_NAME", "SeaweedFS S3"),
@@ -119,9 +114,21 @@ def _parse_json_env(name: str, raw: str) -> dict:
     return value
 
 
-def _default_schema_fqns(catalog_database_fqn: str, layer: str) -> dict[str, str]:
-    """Return the seed-product contract used by direct local CLI execution."""
-    return {product: f"{catalog_database_fqn}.{product}_{layer}" for product in _SEED_PRODUCT_KEYS}
+def _default_schema_fqns(catalog_database_fqn: str, layer: str, metadata_root: Path) -> dict[str, str]:
+    """Derive the schema FQN contract used by direct local CLI execution.
+
+    Terraform normally supplies OPENLAKEFORGE_CATALOG_{SILVER,GOLD}_SCHEMA_FQNS_JSON
+    from the same descriptor-derived namespaces (see infra/terraform/modules/domains),
+    so this only matters when `olf openmetadata deploy-metadata` runs without a
+    Terraform-managed environment. It discovers products the same way, from
+    `<metadata_root's parent>/<metadata_root's name>/*/domain.yaml`.
+    """
+    repo_root = metadata_root.parent if metadata_root.name else metadata_root
+    domains_dir = metadata_root.name or "domains"
+    return {
+        product.asset_prefix: f"{catalog_database_fqn}.{product.asset_prefix}_{layer}"
+        for product in discover_products(repo_root, domains_dir=domains_dir)
+    }
 
 
 @dataclass

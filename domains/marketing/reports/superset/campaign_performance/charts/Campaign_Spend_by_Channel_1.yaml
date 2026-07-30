@@ -1,0 +1,20 @@
+slice_name: Campaign Spend by Channel
+description: Advertising spend by channel over time.
+viz_type: echarts_timeseries_bar
+params:
+  datasource: null
+  viz_type: echarts_timeseries_bar
+  x_axis: spend_date
+  metrics:
+    - sum__spend_amount
+  groupby:
+    - channel
+  row_limit: 100
+  color_scheme: supersetColors
+  show_legend: true
+  y_axis_format: SMART_NUMBER
+query_context: null
+cache_timeout: null
+uuid: 444bb68b-02a7-56d6-83ad-1cac0cb37973
+version: 1.0.0
+dataset_uuid: dfe9c15e-7b35-5c18-b215-e61fb260dca4

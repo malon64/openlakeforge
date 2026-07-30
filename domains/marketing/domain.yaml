@@ -1,0 +1,51 @@
+apiVersion: openlakeforge.io/v1alpha1
+kind: Domain
+name: marketing
+displayName: Marketing
+domainType: Source-aligned
+description: Marketing proof-of-concept domain onboarded entirely through the golden-path product scaffold.
+status: planned
+owners: []
+medallion:
+  bronze:
+    owner: ingestion
+    description: Raw immutable landing zone.
+  silver:
+    owner: floe
+    description: Technically validated Iceberg tables.
+  gold:
+    owner: dbt
+    description: Business-ready marts and analytics models.
+data_products:
+- id: campaign_performance
+  name: marketing_campaign_performance
+  displayName: Marketing Campaign Performance
+  description: Curated campaign spend, conversion, and return-on-spend marts for Marketing.
+  status: planned
+  asset_prefix: marketing_campaign_performance
+  bronze:
+  - name: campaigns
+    path: s3://lakehouse-bronze/marketing/campaign_performance/campaigns
+    description: Raw CSV marketing campaigns.
+  - name: ad_spend
+    path: s3://lakehouse-bronze/marketing/campaign_performance/ad_spend
+    description: Raw CSV daily advertising spend by campaign.
+  - name: conversions
+    path: s3://lakehouse-bronze/marketing/campaign_performance/conversions
+    description: Raw CSV attributed campaign conversions.
+  silver_tables:
+    tables:
+    - name: campaigns
+      description: Validated campaigns.
+    - name: ad_spend
+      description: Validated ad_spend.
+    - name: conversions
+      description: Validated conversions.
+  gold_tables:
+    tables:
+    - name: mart_campaign_spend_by_channel
+      description: Daily advertising spend, impressions, and clicks by campaign channel.
+    - name: mart_campaign_conversion_funnel
+      description: Signup and purchase conversion counts and revenue by campaign.
+    - name: mart_campaign_return_on_spend
+      description: Campaign revenue, spend, and return on advertising spend by channel.

@@ -1,0 +1,20 @@
+slice_name: Campaign Conversion Funnel
+description: Purchases by campaign channel.
+viz_type: pie
+params:
+  datasource: null
+  viz_type: pie
+  x_axis: null
+  metrics:
+    - sum__purchase_count
+  groupby:
+    - channel
+  row_limit: 100
+  color_scheme: supersetColors
+  show_legend: true
+  y_axis_format: SMART_NUMBER
+query_context: null
+cache_timeout: null
+uuid: 54bd16a6-da2c-51cb-8950-c54fbfcc1310
+version: 1.0.0
+dataset_uuid: 315fa5c7-9648-54c3-a08b-5d2c803e0ca7

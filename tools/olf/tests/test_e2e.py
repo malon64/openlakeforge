@@ -6,6 +6,12 @@ import pytest
 
 from olf import e2e
 
+# The real repo root, so discovery-backed defaults (e2e.product_jobs(),
+# e2e.expected_glue_schemas(), etc.) see the real seed products instead of an
+# empty tmp_path tree. Mirrors the ROOT pattern in test_descriptors.py.
+ROOT = Path(__file__).parents[3]
+EXPECTED_GLUE_SCHEMAS = e2e.expected_glue_schemas(ROOT)
+
 
 def cfg(tmp_path: Path, env: e2e.Environment = "local", suite: e2e.Suite = "full") -> e2e.E2EConfig:
     return e2e.E2EConfig(
@@ -17,6 +23,79 @@ def cfg(tmp_path: Path, env: e2e.Environment = "local", suite: e2e.Suite = "full
         foundation_terraform_dir=tmp_path / "foundation",
         contract_terraform_dir=tmp_path / "contract",
         aws_region="eu-west-1" if env == "aws" else None,
+    )
+
+
+def _write_fixture_domain(root: Path, domain: str, product: str, display_name: str) -> None:
+    domain_dir = root / "domains" / domain
+    domain_dir.mkdir(parents=True, exist_ok=True)
+    (domain_dir / "domain.yaml").write_text(
+        f"""\
+apiVersion: openlakeforge.io/v1alpha1
+kind: Domain
+name: {domain}
+displayName: {domain.capitalize()}
+description: {domain.capitalize()} domain fixture.
+status: planned
+data_products:
+  - id: {product}
+    name: {domain}_{product}
+    displayName: {display_name}
+    description: Fixture product.
+    status: planned
+    silver_tables:
+      tables:
+        - name: raw_events
+    gold_tables:
+      tables:
+        - name: mart_events_by_day
+        - name: mart_events_by_type
+""",
+        encoding="utf-8",
+    )
+
+
+def test_adding_a_product_changes_every_derived_e2e_expectation_with_no_code_edit(tmp_path: Path) -> None:
+    """Prove e2e.py's expectations are discovery-derived, not hardcoded.
+
+    Scaffolding a fourth product should change what e2e.py expects to see,
+    without touching e2e.py itself.
+    """
+    assert e2e.product_jobs(tmp_path) == ()
+    assert e2e.gold_marts(tmp_path) == ()
+    assert e2e.expected_dashboards(tmp_path) == {}
+    assert e2e.expected_domains(tmp_path) == ()
+    assert e2e.expected_data_products(tmp_path) == {}
+    assert e2e.expected_glue_schemas(tmp_path) == set()
+    assert e2e.manifest_keys(tmp_path) == ()
+
+    _write_fixture_domain(tmp_path, "marketing", "campaign_performance", "Marketing Campaign Performance")
+
+    assert e2e.product_jobs(tmp_path) == ("marketing_campaign_performance_pipeline",)
+    assert e2e.gold_marts(tmp_path) == (
+        "marketing_campaign_performance_gold.mart_events_by_day",
+        "marketing_campaign_performance_gold.mart_events_by_type",
+    )
+    assert e2e.expected_dashboards(tmp_path) == {
+        "marketing-campaign-performance": "Marketing Campaign Performance"
+    }
+    assert e2e.expected_domains(tmp_path) == ("marketing",)
+    assert e2e.expected_data_products(tmp_path) == {
+        "marketing_campaign_performance": (
+            "marketing_campaign_performance",
+            "marketing.marketing_campaign_performance",
+        )
+    }
+    assert e2e.expected_glue_schemas(tmp_path) == {
+        "marketing_campaign_performance_silver",
+        "marketing_campaign_performance_gold",
+    }
+    assert e2e.manifest_keys(tmp_path) == (
+        "floe/manifests/marketing/campaign_performance/campaign_performance.manifest.json",
+    )
+    assert (
+        e2e.expected_repository_location_name("marketing_campaign_performance_pipeline", tmp_path)
+        == "marketing-dagster"
     )
 
 
@@ -326,6 +405,8 @@ def test_assert_scalar_equals_reports_mismatch() -> None:
 
 
 def test_superset_dashboard_assertion_accepts_slug_or_title_match() -> None:
+    # Expectations are passed explicitly so this stays a test of the slug-or-title
+    # matching rule, not of however many products the repo currently declares.
     e2e.assert_superset_dashboards(
         [
             {"slug": "sales-order-revenue", "dashboard_title": "Sales Order Revenue"},
@@ -334,7 +415,12 @@ def test_superset_dashboard_assertion_accepts_slug_or_title_match() -> None:
                 "slug": "supply-chain-inventory-reliability",
                 "dashboard_title": "Supply Chain Inventory Reliability",
             },
-        ]
+        ],
+        {
+            "sales-order-revenue": "Sales Order Revenue",
+            "sales-customer-health": "Sales Customer Health",
+            "supply-chain-inventory-reliability": "Supply Chain Inventory Reliability",
+        },
     )
 
 
@@ -691,7 +777,7 @@ def test_launch_and_poll_dagster_jobs_defaults_to_previous_shell_timeout(
         suite="full",
         namespace="lakehouse",
         kube_context="kind-openlakeforge-local",
-        repo_root=tmp_path,
+        repo_root=ROOT,
         foundation_terraform_dir=tmp_path / "foundation",
         contract_terraform_dir=tmp_path / "contract",
         dagster_local_port=13000,
@@ -699,30 +785,30 @@ def test_launch_and_poll_dagster_jobs_defaults_to_previous_shell_timeout(
 
     e2e.launch_and_poll_dagster_jobs(local_cfg)
 
-    assert timeouts == [e2e.DAGSTER_JOB_TIMEOUT_SECONDS] * len(e2e.PRODUCT_JOBS)
+    assert timeouts == [e2e.DAGSTER_JOB_TIMEOUT_SECONDS] * len(e2e.product_jobs(ROOT))
 
 
 def test_glue_database_names_requires_expected_schema_and_database_names() -> None:
     contracts = {
         "catalog": {
-            "catalog_schema_names": sorted(e2e.EXPECTED_GLUE_SCHEMAS),
-            "glue_database_names": sorted(e2e.EXPECTED_GLUE_SCHEMAS),
+            "catalog_schema_names": sorted(EXPECTED_GLUE_SCHEMAS),
+            "glue_database_names": sorted(EXPECTED_GLUE_SCHEMAS),
         }
     }
 
-    assert e2e.glue_database_names(contracts) == e2e.EXPECTED_GLUE_SCHEMAS
+    assert e2e.glue_database_names(contracts, ROOT) == EXPECTED_GLUE_SCHEMAS
 
 
 def test_glue_database_names_reports_missing_database() -> None:
     contracts = {
         "catalog": {
-            "catalog_schema_names": sorted(e2e.EXPECTED_GLUE_SCHEMAS),
+            "catalog_schema_names": sorted(EXPECTED_GLUE_SCHEMAS),
             "glue_database_names": [],
         }
     }
 
     with pytest.raises(e2e.E2EError, match="missing Glue database names"):
-        e2e.glue_database_names(contracts)
+        e2e.glue_database_names(contracts, ROOT)
 
 
 def test_aws_provider_contract_smoke_check(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -743,8 +829,8 @@ def test_aws_storage_and_glue_smoke_check_uses_bucket_and_databases(
     provider_contracts = {
         "artifact_bucket": {"bucket_name": "openlakeforge-ops"},
         "catalog": {
-            "catalog_schema_names": sorted(e2e.EXPECTED_GLUE_SCHEMAS),
-            "glue_database_names": sorted(e2e.EXPECTED_GLUE_SCHEMAS),
+            "catalog_schema_names": sorted(EXPECTED_GLUE_SCHEMAS),
+            "glue_database_names": sorted(EXPECTED_GLUE_SCHEMAS),
         },
     }
     commands: list[list[str]] = []
@@ -756,7 +842,7 @@ def test_aws_storage_and_glue_smoke_check_uses_bucket_and_databases(
 
     assert ["aws", "s3api", "head-bucket", "--bucket", "openlakeforge-ops"] in commands
     glue_commands = [command for command in commands if command[:3] == ["aws", "glue", "get-database"]]
-    assert len(glue_commands) == len(e2e.EXPECTED_GLUE_SCHEMAS)
+    assert len(glue_commands) == len(EXPECTED_GLUE_SCHEMAS)
     assert all(command[4] == "eu-central-1" for command in glue_commands)
 
 
@@ -806,7 +892,7 @@ def test_check_ops_artifacts_uses_configured_bucket_for_local(monkeypatch: pytes
     monkeypatch.setattr(
         e2e,
         "assert_ops_artifacts",
-        lambda _client, bucket, namespace: artifact_checks.append((bucket, namespace)),
+        lambda _client, bucket, namespace, **_kwargs: artifact_checks.append((bucket, namespace)),
     )
 
     e2e.check_ops_artifacts(local_cfg)
