@@ -274,7 +274,11 @@ def _check_actions_sha_pinned(repo_root: Path, catalog: dict[str, Any]) -> Check
 
     uses_pattern = re.compile(r"^\s*(?:-\s*)?uses:\s*([^@\s]+)@(\S+)")
     problems: list[str] = []
-    seen_actions: dict[str, str] = {}
+    # Every occurrence is retained rather than collapsed into a dict keyed by
+    # action name: keying by action lets a later workflow's cataloged SHA silently
+    # overwrite an earlier workflow's mismatched one, so an uncataloged action ref
+    # would pass this gate.
+    occurrences: list[tuple[str, str, str]] = []
     for workflow_file in sorted(workflows_dir.glob("*.yml")) + sorted(workflows_dir.glob("*.yaml")):
         for line in workflow_file.read_text().splitlines():
             match = uses_pattern.match(line)
@@ -284,12 +288,16 @@ def _check_actions_sha_pinned(repo_root: Path, catalog: dict[str, Any]) -> Check
             if not ACTION_SHA_PATTERN.match(ref):
                 problems.append(f"{workflow_file.name}: {action}@{ref}")
             else:
-                seen_actions[action] = ref
+                occurrences.append((workflow_file.name, action, ref))
 
     catalog_actions = (catalog.get("components") or {}).get("actions") or {}
-    missing_from_catalog = [
-        f"{action}@{ref}" for action, ref in seen_actions.items() if catalog_actions.get(action) != ref
-    ]
+    missing_from_catalog = sorted(
+        {
+            f"{workflow_name}: {action}@{ref}"
+            for workflow_name, action, ref in occurrences
+            if catalog_actions.get(action) != ref
+        }
+    )
 
     if problems:
         return CheckResult("workflow actions are SHA-pinned", False, "; ".join(problems))
@@ -297,10 +305,12 @@ def _check_actions_sha_pinned(repo_root: Path, catalog: dict[str, Any]) -> Check
         return CheckResult(
             "workflow actions are recorded in the component catalog",
             False,
-            f"not recorded (or mismatched) in components.actions: {', '.join(sorted(missing_from_catalog))}",
+            f"not recorded (or mismatched) in components.actions: {', '.join(missing_from_catalog)}",
         )
     return CheckResult(
-        "workflow actions are SHA-pinned and cataloged", True, f"{len(seen_actions)} action(s) checked"
+        "workflow actions are SHA-pinned and cataloged",
+        True,
+        f"{len(occurrences)} action reference(s) checked",
     )
 
 

@@ -16,6 +16,7 @@ for the published compatibility matrix.
 | --- | --- |
 | `push: tags: ['v*']` | Full publish: builds, pushes, signs, attests, and creates the GitHub Release. |
 | `workflow_dispatch` with `dry_run: true` (default) | Rehearses the entire pipeline without pushing images, creating the tag, or publishing the Release. Every would-be asset (manifest, compatibility matrix, SBOMs, checksums) is uploaded as a workflow artifact instead. |
+| `workflow_dispatch` with `dry_run: false` | Allowed **only when the selected ref is a tag**; the workflow fails fast otherwise. Keyless cosign derives its certificate identity from the running ref, so publishing from a branch would stamp `release.yml@refs/heads/<branch>` while consumers verify `release.yml@refs/tags/<tag>` — producing a release that fails its own documented signature verification. Prefer pushing the tag. |
 
 Jobs:
 

@@ -54,8 +54,24 @@ jobs:
       - name: Determine dry-run mode
         id: mode
         run: |
+          set -euo pipefail
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo "dry_run=${{ inputs.dry_run }}" >> "$GITHUB_OUTPUT"
+            dry_run="${{ inputs.dry_run }}"
+            # A real publish must originate from the tag ref it claims to be.
+            # Keyless cosign derives the certificate identity from the running
+            # ref, so publishing from a branch would stamp
+            # release.yml@refs/heads/<branch> while consumers (and
+            # scripts/release/verify-install.sh) verify
+            # release.yml@refs/tags/<tag> -- yielding a published release that
+            # fails its own documented signature verification.
+            if [[ "${dry_run}" != "true" && "${{ github.ref_type }}" != "tag" ]]; then
+              echo "::error::Refusing to publish from ${{ github.ref }}." \
+                "A non-dry-run release must be triggered by pushing the release tag" \
+                "(or dispatched with the tag selected as the ref), otherwise the keyless" \
+                "cosign identity records refs/heads/... and signature verification fails." >&2
+              exit 1
+            fi
+            echo "dry_run=${dry_run}" >> "$GITHUB_OUTPUT"
           else
             echo "dry_run=false" >> "$GITHUB_OUTPUT"
           fi

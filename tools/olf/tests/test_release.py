@@ -181,3 +181,44 @@ def test_check_actions_sha_pinned_flags_uncataloged_pinned_action(tmp_path: Path
     result = release._check_actions_sha_pinned(tmp_path, {"components": {"actions": {}}})
     assert not result.ok
     assert "checkout" in result.detail
+
+
+def test_check_actions_flags_a_mismatch_masked_by_a_later_cataloged_occurrence(tmp_path: Path) -> None:
+    """A stale ref in one workflow must not be hidden by a cataloged ref in another.
+
+    Collapsing occurrences into a dict keyed by action name let the later file win:
+    'checks.yml' sorts before 'release.yml', so release.yml's cataloged SHA
+    overwrote checks.yml's stale one and the gate passed.
+    """
+    workflows = tmp_path / ".github" / "workflows"
+    workflows.mkdir(parents=True)
+    stale, cataloged = "b" * 40, "c" * 40
+    (workflows / "checks.yml").write_text(
+        f"jobs:\n  a:\n    steps:\n      - uses: actions/checkout@{stale}\n"
+    )
+    (workflows / "release.yml").write_text(
+        f"jobs:\n  a:\n    steps:\n      - uses: actions/checkout@{cataloged}\n"
+    )
+
+    result = release._check_actions_sha_pinned(
+        tmp_path, {"components": {"actions": {"actions/checkout": cataloged}}}
+    )
+
+    assert not result.ok
+    assert "checks.yml" in result.detail
+    assert stale in result.detail
+
+
+def test_check_actions_passes_when_every_occurrence_matches_the_catalog(tmp_path: Path) -> None:
+    workflows = tmp_path / ".github" / "workflows"
+    workflows.mkdir(parents=True)
+    sha = "d" * 40
+    for name in ("checks.yml", "release.yml"):
+        (workflows / name).write_text(f"jobs:\n  a:\n    steps:\n      - uses: actions/checkout@{sha}\n")
+
+    result = release._check_actions_sha_pinned(
+        tmp_path, {"components": {"actions": {"actions/checkout": sha}}}
+    )
+
+    assert result.ok
+    assert "2 action reference(s)" in result.detail
