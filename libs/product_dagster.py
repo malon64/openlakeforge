@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import subprocess
 from collections.abc import Callable
@@ -30,6 +32,20 @@ _FLOE_MANIFEST_ACCESS_MODE_ENV = "OPENLAKEFORGE_FLOE_MANIFEST_ACCESS_MODE"
 _FLOE_MANIFEST_ACCESS_MODE_REMOTE = "remote"
 _FLOE_MANIFEST_ACCESS_MODE_LOCAL = "local"
 _FLOE_S3_REPORT_LOADER_INSTALLED = False
+
+_FLOE_MANIFEST_REVISION_ENV = "OPENLAKEFORGE_FLOE_MANIFEST_REVISION"
+_FLOE_MANIFEST_REVISION_BUILT_ENV = "OPENLAKEFORGE_FLOE_MANIFEST_REVISION_BUILT"
+_FLOE_MANIFEST_REVISION_MANUAL = "manual"
+
+
+class ArtifactRevisionError(RuntimeError):
+    """The image label, runtime env expectation, and fetched manifest hash disagree.
+
+    Always a hard failure: unlike the other RuntimeErrors `_manifest_path_for_dagster`
+    can catch and fall back to a locally checked-in manifest for, this one is a
+    supply-chain-integrity violation and must never be silently downgraded to a
+    stale local manifest.
+    """
 
 
 @dataclass(frozen=True)
@@ -312,6 +328,11 @@ def _manifest_path_for_dagster(spec: ProductDefinitionSpec) -> str:
             )
         try:
             return _cache_remote_manifest_for_dagster(spec, manifest_uri)
+        except ArtifactRevisionError:
+            # A revision-contract violation is a supply-chain-integrity defect,
+            # not a transient fetch failure: never fall back to a (possibly
+            # also-stale) local manifest.
+            raise
         except RuntimeError:
             if _explicit_floe_dagster_manifest_source() == _FLOE_MANIFEST_ACCESS_MODE_REMOTE:
                 raise
@@ -351,10 +372,80 @@ def _cache_remote_manifest_for_dagster(spec: ProductDefinitionSpec, manifest_uri
     target = cache_root / spec.domain / spec.product / f"{spec.product}.manifest.json"
     target.parent.mkdir(parents=True, exist_ok=True)
     try:
-        target.write_text(read_text_uri(manifest_uri), encoding="utf-8")
+        content = read_text_uri(manifest_uri)
     except Exception as exc:  # noqa: BLE001
         raise RuntimeError(f"Failed to load remote Floe manifest {manifest_uri}") from exc
+    _validate_artifact_revision(spec, manifest_uri, content.encode("utf-8"))
+    target.write_text(content, encoding="utf-8")
     return str(target)
+
+
+def _floe_manifest_object_key(spec: ProductDefinitionSpec) -> str:
+    """The ops-bucket key the Floe artifact revision sidecar records for this product.
+
+    Matches `olf.s3.manifest_key(domain, product)`.
+    """
+    return f"floe/manifests/{spec.domain}/{spec.product}/{spec.product}.manifest.json"
+
+
+def _validate_artifact_revision(spec: ProductDefinitionSpec, manifest_uri: str, manifest_bytes: bytes) -> None:
+    """Fail fast when the image label, runtime env, and fetched manifest disagree.
+
+    Opt-in via OPENLAKEFORGE_FLOE_MANIFEST_REVISION: "manual" (the default,
+    also used by existing debug flows) leaves this check disabled. Any other
+    value is treated as the revision the deploy flow expects Dagster and the
+    Floe runner pods to agree on, and is compared against:
+      1. the revision baked into the running project-code image
+         (OPENLAKEFORGE_FLOE_MANIFEST_REVISION_BUILT, an OCI-label-derived env var), and
+      2. the content hash of the manifest actually fetched from
+         OPENLAKEFORGE_FLOE_MANIFEST_BASE_URI, cross-checked against the
+         floe/manifests/REVISION sidecar `olf artifacts upload-manifests` /
+         `olf revision publish` write alongside the uploaded artifacts.
+    """
+    runtime_expectation = os.environ.get(_FLOE_MANIFEST_REVISION_ENV, _FLOE_MANIFEST_REVISION_MANUAL).strip()
+    if runtime_expectation == _FLOE_MANIFEST_REVISION_MANUAL:
+        return
+
+    image_label = os.environ.get(_FLOE_MANIFEST_REVISION_BUILT_ENV, "").strip()
+    fetched_hash = hashlib.sha256(manifest_bytes).hexdigest()
+
+    problems: list[str] = []
+    if image_label != runtime_expectation:
+        problems.append(
+            "the project-code image was built with "
+            f"{_FLOE_MANIFEST_REVISION_BUILT_ENV}={image_label!r}, which does not match the runtime "
+            f"environment's {_FLOE_MANIFEST_REVISION_ENV}={runtime_expectation!r}"
+        )
+
+    base_uri = os.environ.get("OPENLAKEFORGE_FLOE_MANIFEST_BASE_URI")
+    if base_uri:
+        sidecar_uri = f"{base_uri.rstrip('/')}/REVISION"
+        try:
+            sidecar = json.loads(read_text_uri(sidecar_uri))
+        except Exception as exc:  # noqa: BLE001
+            problems.append(f"could not fetch the artifact revision sidecar {sidecar_uri}: {exc}")
+        else:
+            sidecar_revision = sidecar.get("revision")
+            sidecar_entry_hash = (sidecar.get("entries") or {}).get(_floe_manifest_object_key(spec))
+            if sidecar_revision != runtime_expectation:
+                problems.append(
+                    f"the published artifact revision {sidecar_revision!r} recorded at {sidecar_uri} does not "
+                    f"match the runtime environment's {_FLOE_MANIFEST_REVISION_ENV}={runtime_expectation!r}"
+                )
+            if sidecar_entry_hash is not None and sidecar_entry_hash != fetched_hash:
+                problems.append(
+                    f"the manifest fetched from {manifest_uri} hashes to {fetched_hash!r}, which does not match "
+                    f"the published revision's recorded hash {sidecar_entry_hash!r} for this product"
+                )
+
+    if problems:
+        raise ArtifactRevisionError(
+            f"Floe artifact revision contract violated for product {spec.asset_prefix!r}: "
+            + "; ".join(problems)
+            + ". "
+            f"(image-built-revision={image_label!r}, runtime-expected-revision={runtime_expectation!r}, "
+            f"fetched-manifest-sha256={fetched_hash!r})"
+        )
 
 
 def _manifest_uri_for_floe_runner(

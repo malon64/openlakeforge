@@ -94,6 +94,12 @@ variable "project_code_image_revision" {
   default     = "manual"
 }
 
+variable "floe_manifest_revision" {
+  description = "Content revision of generated product Floe manifests, injected into Dagster's runtime environment to detect artifact-revision drift. 'manual' opts out of the fail-fast check."
+  type        = string
+  default     = "manual"
+}
+
 variable "superset_image_repository" {
   description = "Superset image repository used by the AWS POC Superset Helm release."
   type        = string

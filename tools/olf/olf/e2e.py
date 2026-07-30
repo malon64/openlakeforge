@@ -1016,6 +1016,28 @@ def assert_ops_artifacts(client: Any, bucket: str, namespace: str) -> None:
         client.head_object(Bucket=bucket, Key=key)
     for prefix in (*ARTIFACT_PREFIXES, f"logs/k8s/namespace={namespace}/"):
         require_s3_prefix(client, bucket, prefix)
+    assert_artifact_revision(client, bucket)
+
+
+def assert_artifact_revision(client: Any, bucket: str) -> None:
+    """Assert the published REVISION sidecar still matches the objects in the bucket.
+
+    A deploy interrupted mid-upload leaves the sidecar describing an artifact set
+    that is not what the bucket actually holds -- exactly the skew that lets
+    Dagster and the Floe runner pods run different manifest revisions.
+    """
+    from olf import revision as revision_module
+
+    try:
+        sidecar = revision_module.fetch_sidecar(client, bucket)
+        actual = revision_module.fetch_bucket_manifest(client, bucket)
+    except revision_module.RevisionError as exc:
+        raise E2EError(f"artifact revision contract check failed: {exc}") from exc
+
+    diff = revision_module.diff_revisions(sidecar, actual)
+    if not diff.matches:
+        raise E2EError(f"artifact revision contract violated in s3://{bucket}/: {diff.describe()}")
+    log.info(f"Artifact revision contract holds: {diff.actual_revision}")
 
 
 def wait_for_bucket(client: Any, bucket: str, endpoint: str, *, attempts: int = 60, delay: float = 2.0) -> None:

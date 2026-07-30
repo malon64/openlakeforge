@@ -328,6 +328,7 @@ module "dagster" {
   project_code_image_tag         = var.project_code_image_tag
   project_code_image_pull_policy = var.project_code_image_pull_policy
   project_code_image_revision    = var.project_code_image_revision
+  floe_manifest_revision         = var.floe_manifest_revision
   storage_contract               = local.storage_contract
   catalog_contract               = local.catalog_contract
   governance_contract            = local.governance_contract

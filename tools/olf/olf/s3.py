@@ -8,10 +8,13 @@ the derivation lives here once.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import time
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import boto3
 from botocore.config import Config
@@ -92,22 +95,35 @@ def discover_runtime_artifacts(runtime_root: Path) -> list[ManifestUpload]:
     return uploads
 
 
-def _put_objects(client, bucket: str, uploads: list[ManifestUpload]) -> None:
+_REVISION_METADATA_KEY = "olf-floe-revision"
+
+
+def _put_objects(client, bucket: str, uploads: list[ManifestUpload], *, revision: str | None = None) -> None:
+    metadata = {_REVISION_METADATA_KEY: revision} if revision else None
     for upload in uploads:
         with upload.path.open("rb") as body:
-            client.put_object(
-                Bucket=bucket,
-                Key=upload.key,
-                Body=body,
-                ContentType="application/json",
-            )
+            kwargs: dict = {
+                "Bucket": bucket,
+                "Key": upload.key,
+                "Body": body,
+                "ContentType": "application/json",
+            }
+            if metadata:
+                kwargs["Metadata"] = metadata
+            client.put_object(**kwargs)
         log.info(f"Published {upload.path} to s3://{bucket}/{upload.key}")
 
 
-def upload_direct(bucket: str, uploads: list[ManifestUpload], *, region: str | None = None) -> None:
+def upload_direct(
+    bucket: str,
+    uploads: list[ManifestUpload],
+    *,
+    region: str | None = None,
+    revision: str | None = None,
+) -> None:
     """Upload with the ambient credential chain (AWS Pod Identity / profile)."""
     client = boto3.client("s3", region_name=region or None)
-    _put_objects(client, bucket, uploads)
+    _put_objects(client, bucket, uploads, revision=revision)
 
 
 def upload_via_port_forward(
@@ -120,8 +136,38 @@ def upload_via_port_forward(
     access_key_id: str,
     secret_access_key: str,
     region: str,
+    revision: str | None = None,
 ) -> None:
     """Upload to an in-cluster S3-compatible store through kubectl port-forward."""
+    with port_forward_client(
+        bucket,
+        service=service,
+        remote_port=remote_port,
+        namespace=namespace,
+        access_key_id=access_key_id,
+        secret_access_key=secret_access_key,
+        region=region,
+    ) as client:
+        _put_objects(client, bucket, uploads, revision=revision)
+
+
+@contextlib.contextmanager
+def port_forward_client(
+    bucket: str,
+    *,
+    service: str,
+    remote_port: int,
+    namespace: str,
+    access_key_id: str,
+    secret_access_key: str,
+    region: str,
+) -> Iterator[Any]:
+    """Yield a boto3 S3 client reachable through a kubectl port-forward.
+
+    Shared by the manifest-upload path and the `olf revision` commands so
+    both connect to the in-cluster S3-compatible store (SeaweedFS) the same
+    way and wait on the same bucket-readiness check.
+    """
     log_prefix = os.environ.get("OPENLAKEFORGE_PORT_FORWARD_LOG_PREFIX", "/tmp/openlakeforge")
     log_path = f"{log_prefix}-seaweedfs-port-forward.log"
     with k8s.port_forward(service, remote_port, namespace, log_path=log_path) as local_port:
@@ -135,7 +181,7 @@ def upload_via_port_forward(
             config=Config(s3={"addressing_style": "path"}),
         )
         _wait_for_bucket(client, bucket, endpoint)
-        _put_objects(client, bucket, uploads)
+        yield client
 
 
 def _wait_for_bucket(client, bucket: str, endpoint: str, *, attempts: int = 60, delay: float = 2.0) -> None:

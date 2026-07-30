@@ -134,6 +134,33 @@ def test_deployment_patch_without_containers_raises() -> None:
         k8s.deployment_container_patch([], "new:tag")
 
 
+def test_deployment_patch_injects_extra_env_alongside_current_image() -> None:
+    containers = [{"name": "dagster", "env": [{"name": "DAGSTER_CURRENT_IMAGE", "value": "old"}]}]
+
+    patch = k8s.deployment_container_patch(
+        containers,
+        "new:tag",
+        extra_env={"OPENLAKEFORGE_FLOE_MANIFEST_REVISION": "sha256:abc"},
+    )
+
+    assert patch["spec"]["template"]["spec"]["containers"][0]["env"] == [
+        {"name": "DAGSTER_CURRENT_IMAGE", "value": "new:tag"},
+        {"name": "OPENLAKEFORGE_FLOE_MANIFEST_REVISION", "value": "sha256:abc"},
+    ]
+
+
+def test_deployment_patch_injects_extra_env_without_current_image() -> None:
+    patch = k8s.deployment_container_patch(
+        [{"name": "dagster"}],
+        "new:tag",
+        extra_env={"OPENLAKEFORGE_FLOE_MANIFEST_REVISION": "sha256:abc"},
+    )
+
+    assert patch["spec"]["template"]["spec"]["containers"][0]["env"] == [
+        {"name": "OPENLAKEFORGE_FLOE_MANIFEST_REVISION", "value": "sha256:abc"}
+    ]
+
+
 def test_cronjob_patch_shape() -> None:
     patch = k8s.cronjob_container_patch([{"name": "archive"}], "new:tag")
     containers = patch["spec"]["jobTemplate"]["spec"]["template"]["spec"]["containers"]

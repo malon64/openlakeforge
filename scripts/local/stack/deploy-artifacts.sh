@@ -58,10 +58,18 @@ export FLOE_RUNTIME_ARTIFACT_DIR
 export FLOE_PERSIST_RUNTIME_ARTIFACTS="true"
 NAMESPACE="${NAMESPACE}" bash "${REPO_ROOT}/scripts/artifacts/floe-manifest.sh"
 
+# One artifact revision contract: the hash of the manifest set generated above
+# is stamped into the image, onto the uploaded objects, and into the Dagster env,
+# so a partial deploy cannot silently mix revisions.
+FLOE_MANIFEST_REVISION="$(olf_run revision compute --runtime-root "${FLOE_RUNTIME_ARTIFACT_DIR}")"
+export FLOE_MANIFEST_REVISION
+echo "==> Floe artifact revision: ${FLOE_MANIFEST_REVISION}"
+
 prepare_local_project_code_image
 
 echo "==> Publishing product Floe manifests to local ops bucket..."
 olf_run artifacts upload-manifests --via port-forward --runtime-root "${FLOE_RUNTIME_ARTIFACT_DIR}"
+olf_run revision publish --runtime-root "${FLOE_RUNTIME_ARTIFACT_DIR}" --via port-forward
 
 echo "==> Deploying product Superset report assets..."
 olf_run superset deploy-reports
@@ -71,6 +79,8 @@ OPENMETADATA_ALLOW_MISSING_ASSETS="${OPENMETADATA_ALLOW_MISSING_ASSETS:-true}" \
   olf_run openmetadata deploy-metadata
 
 echo "==> Pointing Dagster at project-code image ${PROJECT_CODE_IMAGE}..."
-olf_run k8s set-project-code-image --image "${PROJECT_CODE_IMAGE}"
+olf_run k8s set-project-code-image \
+  --image "${PROJECT_CODE_IMAGE}" \
+  --floe-manifest-revision "${FLOE_MANIFEST_REVISION}"
 
 echo "Dynamic OpenLakeForge local artifacts are deployed."

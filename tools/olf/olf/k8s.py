@@ -165,13 +165,24 @@ def dagster_yaml_with_job_image(dagster_yaml: str, image: str) -> str:
     return "\n".join(lines) + ("\n" if dagster_yaml.endswith("\n") else "")
 
 
-def deployment_container_patch(containers: list[dict], image: str, *, restarted_at: str | None = None) -> dict:
+def deployment_container_patch(
+    containers: list[dict],
+    image: str,
+    *,
+    restarted_at: str | None = None,
+    extra_env: dict[str, str] | None = None,
+) -> dict:
     """Build a strategic-merge patch that bumps regular container images.
 
     Keeps DAGSTER_CURRENT_IMAGE in sync where already set: Dagster's
     K8sRunLauncher derives run-pod images from the code location's
     DAGSTER_CURRENT_IMAGE, which overrides run_launcher.job_image. Bumping only
     the container image leaves run pods launching on the previous image.
+
+    `extra_env` is merged into every patched container. Terraform owns the
+    Dagster env at platform-apply time, but the Floe artifact revision is only
+    known after manifest generation during artifact deploy, so it is patched in
+    here alongside the image it must agree with.
     """
     if not containers:
         raise KubectlError("deployment has no regular containers to patch.")
@@ -179,8 +190,13 @@ def deployment_container_patch(containers: list[dict], image: str, *, restarted_
     def one(container: dict) -> dict:
         entry = {"name": container["name"], "image": image}
         env = container.get("env") or []
+        patched_env = []
         if any(var.get("name") == "DAGSTER_CURRENT_IMAGE" for var in env):
-            entry["env"] = [{"name": "DAGSTER_CURRENT_IMAGE", "value": image}]
+            patched_env.append({"name": "DAGSTER_CURRENT_IMAGE", "value": image})
+        for name, value in (extra_env or {}).items():
+            patched_env.append({"name": name, "value": value})
+        if patched_env:
+            entry["env"] = patched_env
         return entry
 
     template: dict = {"spec": {"containers": [one(c) for c in containers]}}
@@ -231,13 +247,14 @@ def patch_deployment_image_if_exists(
     namespace: str,
     *,
     restarted_at: str | None = None,
+    extra_env: dict[str, str] | None = None,
 ) -> bool:
     if not resource_exists("deployment", deployment, namespace):
         return False
     log.step(f"Updating {deployment} image to {image}...")
     payload = _get_json("deployment", deployment, namespace)
     containers = payload["spec"]["template"]["spec"].get("containers", [])
-    patch = deployment_container_patch(containers, image, restarted_at=restarted_at)
+    patch = deployment_container_patch(containers, image, restarted_at=restarted_at, extra_env=extra_env)
     _kubectl(["patch", "deployment", deployment, "-n", namespace, "--type", "strategic", "-p", json.dumps(patch)])
     return True
 
@@ -283,11 +300,25 @@ def _wait_for_rollout_with_diagnostics(deployment: str, namespace: str, timeout:
         raise
 
 
-def set_project_code_image(image: str, namespace: str, *, rollout_timeout: str = "600s") -> None:
-    """Point Dagster at an image and perform exactly one rollout per deployment."""
+def set_project_code_image(
+    image: str,
+    namespace: str,
+    *,
+    rollout_timeout: str = "600s",
+    floe_manifest_revision: str | None = None,
+) -> None:
+    """Point Dagster at an image and perform exactly one rollout per deployment.
+
+    When `floe_manifest_revision` is given it is patched into the same rollout as
+    OPENLAKEFORGE_FLOE_MANIFEST_REVISION, so the image and the manifest revision
+    it is required to agree with can never be applied separately.
+    """
     patch_dagster_instance_configmap(image, namespace)
     deployments = [*_DAGSTER_CORE_DEPLOYMENTS, *discover_dagster_user_deployments(namespace)]
     restarted_at = datetime.now(UTC).isoformat()
+    extra_env = (
+        {"OPENLAKEFORGE_FLOE_MANIFEST_REVISION": floe_manifest_revision} if floe_manifest_revision else None
+    )
     updated = [
         deployment
         for deployment in deployments
@@ -296,6 +327,7 @@ def set_project_code_image(image: str, namespace: str, *, rollout_timeout: str =
             image,
             namespace,
             restarted_at=restarted_at,
+            extra_env=extra_env,
         )
     ]
     patch_cronjob_image_if_exists("openlakeforge-k8s-log-archive", image, namespace)

@@ -2,9 +2,19 @@ ARG PYTHON_BASE_IMAGE=python:3.12-slim@sha256:57cd7c3a7a273101a6485ba99423ee5681
 FROM ${PYTHON_BASE_IMAGE}
 ARG DBT_PROFILE_ENV=local
 
+# Content revision of the Floe manifest set generated immediately before this
+# image was built (see docs/architecture/local-stack-contracts.md, "Artifact
+# Revision Contract"). Defaults to "manual" so ad hoc/debug builds keep
+# working; the deploy flow passes the value computed by `olf revision
+# compute` right after manifest generation and before this build.
+ARG FLOE_MANIFEST_REVISION=manual
+
+LABEL io.openlakeforge.floe-manifest-revision="${FLOE_MANIFEST_REVISION}"
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    DAGSTER_HOME=/opt/dagster/dagster_home
+    DAGSTER_HOME=/opt/dagster/dagster_home \
+    OPENLAKEFORGE_FLOE_MANIFEST_REVISION_BUILT="${FLOE_MANIFEST_REVISION}"
 
 WORKDIR /opt/openlakeforge
 

@@ -70,15 +70,24 @@ export FLOE_PERSIST_RUNTIME_ARTIFACTS="true"
 echo "==> Generating product Floe manifests before baking the project-code image..."
 NAMESPACE="${NAMESPACE}" bash "${REPO_ROOT}/scripts/artifacts/floe-manifest.sh"
 
+# One artifact revision contract: the hash of the manifest set generated above
+# is stamped into the image, onto the uploaded objects, and into the Dagster env,
+# so a partial deploy cannot silently mix revisions.
+FLOE_MANIFEST_REVISION="$(olf_run revision compute --runtime-root "${FLOE_RUNTIME_ARTIFACT_DIR}")"
+export FLOE_MANIFEST_REVISION
+echo "==> Floe artifact revision: ${FLOE_MANIFEST_REVISION}"
+
 echo "==> Building and pushing AWS project-code image..."
 AWS_REGION="${AWS_REGION}" \
 AWS_IMAGE_TAG="${AWS_IMAGE_TAG}" \
 PROJECT_CODE_IMAGE_REPOSITORY="${PROJECT_CODE_IMAGE_REPOSITORY}" \
 PROJECT_CODE_IMAGE_TAG="${PROJECT_CODE_IMAGE_TAG}" \
+FLOE_MANIFEST_REVISION="${FLOE_MANIFEST_REVISION}" \
   bash "${SCRIPT_DIR}/../images/build-push-project-code.sh"
 
 echo "==> Publishing product Floe runtime artifacts to the AWS S3 ops bucket..."
 olf_run artifacts upload-manifests --via direct --runtime-root "${FLOE_RUNTIME_ARTIFACT_DIR}"
+olf_run revision publish --runtime-root "${FLOE_RUNTIME_ARTIFACT_DIR}" --via direct
 
 echo "==> Deploying product Superset report assets..."
 olf_run superset deploy-reports
@@ -88,6 +97,8 @@ OPENMETADATA_ALLOW_MISSING_ASSETS="${OPENMETADATA_ALLOW_MISSING_ASSETS:-true}" \
   olf_run openmetadata deploy-metadata
 
 echo "==> Pointing Dagster at project-code image ${PROJECT_CODE_IMAGE}..."
-olf_run k8s set-project-code-image --image "${PROJECT_CODE_IMAGE}"
+olf_run k8s set-project-code-image \
+  --image "${PROJECT_CODE_IMAGE}" \
+  --floe-manifest-revision "${FLOE_MANIFEST_REVISION}"
 
 echo "Dynamic OpenLakeForge AWS POC artifacts are deployed."

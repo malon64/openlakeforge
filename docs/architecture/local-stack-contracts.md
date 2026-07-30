@@ -178,6 +178,42 @@ dbt-trino runs inside Dagster Kubernetes run pods from the project-code image
 and writes Gold Iceberg marts to each product's Gold namespace in the
 `lakehouse_dev` Polaris warehouse.
 
+## Artifact Revision Contract
+
+Dagster loads the Floe asset graph from one manifest revision while the Floe
+runner pods it launches replay manifests from the ops bucket. Those two must
+always be the same revision. The invariant is:
+
+```text
+project-code image label == uploaded manifest set hash == fetched runtime manifest hash
+```
+
+The revision is a `sha256:` content hash over the *set* of generated Floe
+runtime artifacts (configs, profiles, and manifests), keyed by ops-bucket object
+key so it is independent of filesystem traversal order. Every artifact deploy:
+
+1. generates the manifests, then computes the revision
+   (`olf revision compute --runtime-root <dir>`);
+2. bakes it into the `project-code` image as the OCI label
+   `io.openlakeforge.floe-manifest-revision` and the env var
+   `OPENLAKEFORGE_FLOE_MANIFEST_REVISION_BUILT`;
+3. stamps it onto every uploaded object as `x-amz-meta-olf-floe-revision` and
+   publishes the `floe/manifests/REVISION` sidecar (`olf revision publish`);
+4. patches it into the Dagster env as `OPENLAKEFORGE_FLOE_MANIFEST_REVISION` in
+   the same rollout as the image, so the image and the revision it must agree
+   with can never be applied separately.
+
+At code-server start, `libs/product_dagster.py` compares all three and raises
+`ArtifactRevisionError` naming the divergent product and every disagreeing
+value. This is never downgraded to a local-manifest fallback: a revision
+mismatch is a supply-chain-integrity violation, not a transient fetch failure.
+
+`OPENLAKEFORGE_FLOE_MANIFEST_REVISION=manual` (the default) disables the check
+for ad hoc and debug builds. `make floe-revision-check
+FLOE_MANIFEST_REVISION=<rev>` verifies the bucket out of band, and the full e2e
+suite asserts the published sidecar still matches the objects actually in the
+bucket.
+
 ## Observability Contract
 
 The local observability adapter is `observability.object_log_archive`. It does

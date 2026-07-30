@@ -6,6 +6,7 @@ contracts, floe, artifacts, superset, openmetadata, polaris, k8s, e2e.
 
 from __future__ import annotations
 
+import contextlib
 import os
 from pathlib import Path
 
@@ -31,6 +32,7 @@ openmetadata_app = typer.Typer(help="OpenMetadata governance metadata helpers.")
 k8s_app = typer.Typer(help="Kubernetes image bookkeeping helpers.")
 polaris_app = typer.Typer(help="Polaris catalog credential helpers.")
 e2e_app = typer.Typer(help="End-to-end environment validation.")
+revision_app = typer.Typer(help="Artifact revision contract: hash, publish, and verify Floe manifest revisions.")
 app.add_typer(contracts_app, name="contracts")
 app.add_typer(floe_app, name="floe")
 app.add_typer(artifacts_app, name="artifacts")
@@ -39,6 +41,7 @@ app.add_typer(openmetadata_app, name="openmetadata")
 app.add_typer(k8s_app, name="k8s")
 app.add_typer(polaris_app, name="polaris")
 app.add_typer(e2e_app, name="e2e")
+app.add_typer(revision_app, name="revision")
 
 
 def _repo_root() -> Path:
@@ -101,6 +104,7 @@ def artifacts_upload_manifests(
     ),
 ) -> None:
     """Publish product Floe runtime artifacts to the operational artifact bucket."""
+    from olf import revision as revision_module
     from olf import s3
 
     repo_root = _repo_root()
@@ -118,7 +122,10 @@ def artifacts_upload_manifests(
         if not uploads:
             root = runtime_root or manifest_root or str(repo_root / ".tmp/floe-runtime/aws/manifests")
             raise typer.Exit(code=_fail(f"no rendered Floe artifacts found under {root}."))
-        s3.upload_direct(bucket, uploads, region=config.env("OPENLAKEFORGE_STORAGE_REGION"))
+        artifact_revision = revision_module.manifest_from_uploads(uploads).revision
+        s3.upload_direct(
+            bucket, uploads, region=config.env("OPENLAKEFORGE_STORAGE_REGION"), revision=artifact_revision
+        )
     elif via == "port-forward":
         if runtime_root:
             uploads = s3.discover_runtime_artifacts(Path(runtime_root))
@@ -126,6 +133,7 @@ def artifacts_upload_manifests(
             uploads = s3.discover_tracked_manifests(repo_root)
         if not uploads:
             raise typer.Exit(code=_fail("no generated product Floe artifacts found. Run 'make floe-manifest' first."))
+        artifact_revision = revision_module.manifest_from_uploads(uploads).revision
         secret_name = config.env("OPENLAKEFORGE_STORAGE_CREDENTIALS_SECRET_NAME")
         service = config.env("OPENLAKEFORGE_STORAGE_S3_SERVICE_NAME", "seaweedfs-s3")
         remote_port = int(config.env("OPENLAKEFORGE_STORAGE_S3_SERVICE_PORT", "8333"))
@@ -146,6 +154,7 @@ def artifacts_upload_manifests(
                 namespace,
             ),
             region=config.env("OPENLAKEFORGE_STORAGE_REGION", "us-east-1"),
+            revision=artifact_revision,
         )
     else:
         raise typer.Exit(code=_fail(f"unknown --via mode: {via!r} (expected 'port-forward' or 'direct')."))
@@ -231,11 +240,128 @@ def openmetadata_deploy_metadata() -> None:
 def k8s_set_project_code_image(
     image: str = typer.Option(..., "--image", help="Fully qualified project-code image reference."),
     timeout: str = typer.Option("600s", "--timeout", help="Timeout for each Dagster deployment rollout."),
+    floe_manifest_revision: str = typer.Option(
+        "",
+        "--floe-manifest-revision",
+        help="Artifact revision the image and uploaded manifests must agree on (default: leave unchanged).",
+    ),
 ) -> None:
     """Point every Dagster surface at an image and wait for one rollout."""
     from olf import k8s
 
-    k8s.set_project_code_image(image, config.namespace(), rollout_timeout=timeout)
+    k8s.set_project_code_image(
+        image,
+        config.namespace(),
+        rollout_timeout=timeout,
+        floe_manifest_revision=floe_manifest_revision or None,
+    )
+
+
+def _resolve_ops_bucket() -> str:
+    bucket = config.env("OPENLAKEFORGE_OPS_BUCKET_NAME") or config.env("OPENLAKEFORGE_ARTIFACT_BUCKET_NAME")
+    if not bucket:
+        raise typer.Exit(code=_fail("no ops/artifact bucket resolved from the contract environment."))
+    return bucket
+
+
+@contextlib.contextmanager
+def _s3_client(via: str):
+    """Build an S3 client the same way `artifacts upload-manifests` does for `--via`."""
+    import boto3
+
+    from olf import s3
+
+    bucket = _resolve_ops_bucket()
+    if via == "direct":
+        yield bucket, boto3.client("s3", region_name=config.env("OPENLAKEFORGE_STORAGE_REGION") or None)
+        return
+    if via == "port-forward":
+        from olf import k8s
+
+        namespace = config.namespace()
+        secret_name = config.env("OPENLAKEFORGE_STORAGE_CREDENTIALS_SECRET_NAME")
+        service = config.env("OPENLAKEFORGE_STORAGE_S3_SERVICE_NAME", "seaweedfs-s3")
+        remote_port = int(config.env("OPENLAKEFORGE_STORAGE_S3_SERVICE_PORT", "8333"))
+        with s3.port_forward_client(
+            bucket,
+            service=service,
+            remote_port=remote_port,
+            namespace=namespace,
+            access_key_id=k8s.secret_value(
+                secret_name, config.env("OPENLAKEFORGE_STORAGE_ACCESS_KEY_ID_KEY", "AWS_ACCESS_KEY_ID"), namespace
+            ),
+            secret_access_key=k8s.secret_value(
+                secret_name,
+                config.env("OPENLAKEFORGE_STORAGE_SECRET_ACCESS_KEY_KEY", "AWS_SECRET_ACCESS_KEY"),
+                namespace,
+            ),
+            region=config.env("OPENLAKEFORGE_STORAGE_REGION", "us-east-1"),
+        ) as client:
+            yield bucket, client
+        return
+    raise typer.Exit(code=_fail(f"unknown --via mode: {via!r} (expected 'port-forward' or 'direct')."))
+
+
+@revision_app.command("compute")
+def revision_compute(
+    runtime_root: str = typer.Option(
+        ..., "--runtime-root", help="Rendered Floe runtime artifact root containing configs/, profiles/, manifests/."
+    ),
+) -> None:
+    """Print the content-hash revision over the generated Floe runtime artifact set."""
+    from olf import revision as revision_module
+
+    try:
+        typer.echo(revision_module.compute_revision(Path(runtime_root)))
+    except revision_module.RevisionError as exc:
+        raise typer.Exit(code=_fail(str(exc))) from exc
+
+
+@revision_app.command("publish")
+def revision_publish(
+    runtime_root: str = typer.Option(
+        ..., "--runtime-root", help="Rendered Floe runtime artifact root containing configs/, profiles/, manifests/."
+    ),
+    via: str = typer.Option(
+        "port-forward",
+        "--via",
+        help="'port-forward' for in-cluster S3-compatible storage, 'direct' for cloud S3.",
+    ),
+) -> None:
+    """Publish the floe/manifests/REVISION sidecar for the currently-uploaded artifact set."""
+    from olf import revision as revision_module
+
+    try:
+        manifest = revision_module.compute_revision_manifest(Path(runtime_root))
+    except revision_module.RevisionError as exc:
+        raise typer.Exit(code=_fail(str(exc))) from exc
+
+    with _s3_client(via) as (bucket, client):
+        revision_module.publish_sidecar(client, bucket, manifest)
+    typer.echo(f"Published {revision_module.REVISION_SIDECAR_KEY} ({manifest.revision}) to s3://{bucket}/.")
+
+
+@revision_app.command("verify")
+def revision_verify(
+    expected: str = typer.Option(..., "--expected", help="Revision the caller expects the ops bucket to hold."),
+    via: str = typer.Option(
+        "port-forward",
+        "--via",
+        help="'port-forward' for in-cluster S3-compatible storage, 'direct' for cloud S3.",
+    ),
+) -> None:
+    """Recompute the ops bucket's artifact revision and diff it against --expected."""
+    from olf import revision as revision_module
+
+    with _s3_client(via) as (bucket, client):
+        try:
+            diff = revision_module.verify(client, bucket, expected)
+        except revision_module.RevisionError as exc:
+            raise typer.Exit(code=_fail(str(exc))) from exc
+
+    if not diff.matches:
+        raise typer.Exit(code=_fail(diff.describe()))
+    typer.echo(diff.describe())
 
 
 @polaris_app.command("check-credentials")

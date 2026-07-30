@@ -30,6 +30,10 @@ AWS_IMAGE_PLATFORM="${AWS_IMAGE_PLATFORM:-linux/amd64}"
 PROJECT_CODE_IMAGE_TAG="${PROJECT_CODE_IMAGE_TAG:-${AWS_IMAGE_TAG}}"
 PROJECT_CODE_PYTHON_BASE_IMAGE="${PROJECT_CODE_PYTHON_BASE_IMAGE:-public.ecr.aws/docker/library/python:3.12-slim@sha256:57cd7c3a7a273101a6485ba99423ee568157882804b1124b4dd04266317710de}"
 PROJECT_CODE_DBT_PROFILE_ENV="${PROJECT_CODE_DBT_PROFILE_ENV:-aws}"
+# Content revision of the Floe manifest set generated immediately before this
+# build (see docs/architecture/local-stack-contracts.md, "Artifact Revision
+# Contract"). "manual" opts out for ad hoc/debug builds.
+FLOE_MANIFEST_REVISION="${FLOE_MANIFEST_REVISION:-manual}"
 IMAGE="${PROJECT_CODE_IMAGE_REPOSITORY}:${PROJECT_CODE_IMAGE_TAG}"
 registry="${PROJECT_CODE_IMAGE_REPOSITORY%%/*}"
 
@@ -40,11 +44,12 @@ aws ecr get-login-password --region "${AWS_REGION}" \
 echo "==> Pulling project-code Python base image: ${PROJECT_CODE_PYTHON_BASE_IMAGE}"
 docker_pull_with_retries --platform "${AWS_IMAGE_PLATFORM}" "${PROJECT_CODE_PYTHON_BASE_IMAGE}"
 
-echo "==> Building project-code image ${IMAGE}..."
+echo "==> Building project-code image ${IMAGE} (Floe manifest revision: ${FLOE_MANIFEST_REVISION})..."
 docker_build_with_retries \
   --platform "${AWS_IMAGE_PLATFORM}" \
   --build-arg "PYTHON_BASE_IMAGE=${PROJECT_CODE_PYTHON_BASE_IMAGE}" \
   --build-arg "DBT_PROFILE_ENV=${PROJECT_CODE_DBT_PROFILE_ENV}" \
+  --build-arg "FLOE_MANIFEST_REVISION=${FLOE_MANIFEST_REVISION}" \
   --file "${REPO_ROOT}/images/project-code/Dockerfile" \
   --tag "${IMAGE}" \
   "${REPO_ROOT}"

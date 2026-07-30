@@ -32,6 +32,10 @@ PROJECT_CODE_IMAGE_REPOSITORY="${PROJECT_CODE_IMAGE_REPOSITORY:-${ACR_LOGIN_SERV
 PROJECT_CODE_IMAGE_TAG="${PROJECT_CODE_IMAGE_TAG:-${AZURE_IMAGE_TAG}}"
 PROJECT_CODE_PYTHON_BASE_IMAGE="${PROJECT_CODE_PYTHON_BASE_IMAGE:-python:3.12-slim@sha256:57cd7c3a7a273101a6485ba99423ee568157882804b1124b4dd04266317710de}"
 PROJECT_CODE_DBT_PROFILE_ENV="${PROJECT_CODE_DBT_PROFILE_ENV:-azure}"
+# Content revision of the Floe manifest set generated immediately before this
+# build (see docs/architecture/local-stack-contracts.md, "Artifact Revision
+# Contract"). "manual" opts out for ad hoc/debug builds.
+FLOE_MANIFEST_REVISION="${FLOE_MANIFEST_REVISION:-manual}"
 IMAGE="${PROJECT_CODE_IMAGE_REPOSITORY}:${PROJECT_CODE_IMAGE_TAG}"
 
 echo "==> Logging in to ACR '${ACR_NAME}'..."
@@ -40,11 +44,12 @@ az acr login --name "${ACR_NAME}" >/dev/null
 echo "==> Pulling project-code Python base image: ${PROJECT_CODE_PYTHON_BASE_IMAGE}"
 docker_pull_with_retries --platform "${AZURE_IMAGE_PLATFORM}" "${PROJECT_CODE_PYTHON_BASE_IMAGE}"
 
-echo "==> Building project-code image ${IMAGE}..."
+echo "==> Building project-code image ${IMAGE} (Floe manifest revision: ${FLOE_MANIFEST_REVISION})..."
 docker_build_with_retries \
   --platform "${AZURE_IMAGE_PLATFORM}" \
   --build-arg "PYTHON_BASE_IMAGE=${PROJECT_CODE_PYTHON_BASE_IMAGE}" \
   --build-arg "DBT_PROFILE_ENV=${PROJECT_CODE_DBT_PROFILE_ENV}" \
+  --build-arg "FLOE_MANIFEST_REVISION=${FLOE_MANIFEST_REVISION}" \
   --file "${REPO_ROOT}/images/project-code/Dockerfile" \
   --tag "${IMAGE}" \
   "${REPO_ROOT}"

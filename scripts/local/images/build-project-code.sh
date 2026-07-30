@@ -11,6 +11,10 @@ IMAGE_TAG="${PROJECT_CODE_IMAGE_TAG:-local}"
 IMAGE="${PROJECT_CODE_IMAGE:-${IMAGE_REPOSITORY}:${IMAGE_TAG}}"
 PROJECT_CODE_PYTHON_BASE_IMAGE="${PROJECT_CODE_PYTHON_BASE_IMAGE:-python:3.12-slim@sha256:57cd7c3a7a273101a6485ba99423ee568157882804b1124b4dd04266317710de}"
 PROJECT_CODE_DBT_PROFILE_ENV="${PROJECT_CODE_DBT_PROFILE_ENV:-local}"
+# Content revision of the Floe manifest set generated immediately before this
+# build (see docs/architecture/local-stack-contracts.md, "Artifact Revision
+# Contract"). "manual" opts out for ad hoc/debug builds.
+FLOE_MANIFEST_REVISION="${FLOE_MANIFEST_REVISION:-manual}"
 
 if ! command -v docker &>/dev/null; then
   echo "ERROR: 'docker' not found on PATH" >&2
@@ -20,10 +24,11 @@ fi
 echo "==> Pulling project-code Python base image: ${PROJECT_CODE_PYTHON_BASE_IMAGE}"
 docker_pull_with_retries "${PROJECT_CODE_PYTHON_BASE_IMAGE}"
 
-echo "==> Building project-code image: ${IMAGE}"
+echo "==> Building project-code image: ${IMAGE} (Floe manifest revision: ${FLOE_MANIFEST_REVISION})"
 docker_build_with_retries \
   --build-arg "PYTHON_BASE_IMAGE=${PROJECT_CODE_PYTHON_BASE_IMAGE}" \
   --build-arg "DBT_PROFILE_ENV=${PROJECT_CODE_DBT_PROFILE_ENV}" \
+  --build-arg "FLOE_MANIFEST_REVISION=${FLOE_MANIFEST_REVISION}" \
   --file images/project-code/Dockerfile \
   --tag "${IMAGE}" \
   .

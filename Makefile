@@ -47,6 +47,7 @@ help:
 	@printf '%s\n' '  make check-dbt        Validate all product dbt-trino projects'
 	@printf '%s\n' '  make floe-manifest   Generate product Floe Dagster manifests'
 	@printf '%s\n' '  make floe-manifest-upload  Upload product Floe manifests to the local ops bucket'
+	@printf '%s\n' '  make floe-revision-check  Verify the ops bucket artifact revision (FLOE_MANIFEST_REVISION=<rev>)'
 	@printf '%s\n' '  make dbt-parse       Generate product dbt manifests'
 	@printf '%s\n' '  make superset-reports-deploy  Deploy product Superset report assets'
 	@printf '%s\n' '  make superset-reports-export  Export edited Superset report assets'
@@ -117,6 +118,9 @@ floe-manifest:
 
 floe-manifest-upload:
 	@NAMESPACE=$(NAMESPACE) KUBE_CONTEXT=$(KUBE_CONTEXT) KUBECONFIG="$(LOCAL_KUBECONFIG_PATH)" bash scripts/artifacts/olf.sh artifacts upload-manifests --via port-forward
+
+floe-revision-check:
+	@NAMESPACE=$(NAMESPACE) KUBE_CONTEXT=$(KUBE_CONTEXT) KUBECONFIG="$(LOCAL_KUBECONFIG_PATH)" bash scripts/artifacts/olf.sh revision verify --via port-forward --expected "$(FLOE_MANIFEST_REVISION)"
 
 dbt-parse:
 	@bash scripts/artifacts/dbt-parse.sh
