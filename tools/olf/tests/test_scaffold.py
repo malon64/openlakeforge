@@ -161,6 +161,67 @@ def test_scaffold_force_overwrites_existing_files(tmp_path: Path) -> None:
     assert "load_all_entities_to_bronze" in loader.read_text(encoding="utf-8")
 
 
+def test_rerun_without_force_preserves_the_existing_descriptor_entry(tmp_path: Path) -> None:
+    """Rerunning scaffold for an already-existing product with a *changed*
+    spec and no --force must not let the descriptor drift from what is
+    actually on disk. This product's contract, dbt models, datasets, and
+    pipeline are all skipped (they already exist); previously the descriptor
+    was rewritten from the new spec anyway, so discovery/Terraform would
+    expect a mart_extra_metric gold table that the retained (unforced) dbt
+    project and dataset files do not implement.
+    """
+    scaffold.scaffold_product(scaffold.parse_spec(SPEC), tmp_path)
+    original_descriptor = yaml.safe_load(
+        (tmp_path / "domains/logistics/domain.yaml").read_text(encoding="utf-8")
+    )
+
+    changed_spec_dict = {
+        **SPEC,
+        "marts": [
+            *SPEC["marts"],
+            {
+                "name": "mart_extra_metric",
+                "description": "A mart added in a later, unforced rerun.",
+                "sql": "select 1 as placeholder",
+                "columns": [{"name": "region", "type": "string"}],
+            },
+        ],
+    }
+    result = scaffold.scaffold_product(scaffold.parse_spec(changed_spec_dict), tmp_path)
+
+    # The new mart's own file is written (it didn't exist before)...
+    assert any(p.name == "mart_extra_metric.sql" for p in result.written)
+    # ...but the descriptor entry for the product as a whole stays exactly
+    # what it was: the source of truth still matches the retained files, not
+    # the new spec that was only partially applied.
+    descriptor = yaml.safe_load((tmp_path / "domains/logistics/domain.yaml").read_text(encoding="utf-8"))
+    entry = next(p for p in descriptor["data_products"] if p["id"] == "route_efficiency")
+    original_entry = next(p for p in original_descriptor["data_products"] if p["id"] == "route_efficiency")
+    assert entry == original_entry
+    assert "mart_extra_metric" not in [t["name"] for t in entry["gold_tables"]["tables"]]
+
+
+def test_rerun_with_force_updates_the_descriptor_entry_to_match(tmp_path: Path) -> None:
+    scaffold.scaffold_product(scaffold.parse_spec(SPEC), tmp_path)
+    changed_spec_dict = {
+        **SPEC,
+        "marts": [
+            *SPEC["marts"],
+            {
+                "name": "mart_extra_metric",
+                "description": "A mart added in a forced rerun.",
+                "sql": "select 1 as placeholder",
+                "columns": [{"name": "region", "type": "string"}],
+            },
+        ],
+    }
+    scaffold.scaffold_product(scaffold.parse_spec(changed_spec_dict), tmp_path, force=True)
+
+    descriptor = yaml.safe_load((tmp_path / "domains/logistics/domain.yaml").read_text(encoding="utf-8"))
+    entry = next(p for p in descriptor["data_products"] if p["id"] == "route_efficiency")
+    assert "mart_extra_metric" in [t["name"] for t in entry["gold_tables"]["tables"]]
+
+
 def test_adding_a_product_to_an_existing_domain_keeps_both(tmp_path: Path) -> None:
     scaffold.scaffold_product(scaffold.parse_spec(SPEC), tmp_path)
     second = {**SPEC, "product": "carrier_cost", "product_display_name": "Logistics Carrier Cost"}
@@ -407,3 +468,86 @@ def test_valid_identifier_domain_and_product_are_accepted() -> None:
     spec = scaffold.parse_spec({**SPEC, "domain": "supply_chain2", "product": "route_efficiency_v2"})
     assert spec.domain == "supply_chain2"
     assert spec.product == "route_efficiency_v2"
+
+
+def test_source_name_path_traversal_is_rejected() -> None:
+    """A validly parsed spec could otherwise set a source name like
+    '../../../../../escaped', later interpolated straight into
+    `raw_dir / f"{src.name}.csv"` -- writing outside domains/<domain>/**
+    while scaffold_product still reports success.
+    """
+    hostile = {
+        **SPEC,
+        "sources": [{**SPEC["sources"][0], "name": "../../../../../escaped"}],
+    }
+    with pytest.raises(scaffold.ScaffoldError, match=r"must match '\^\[a-z\]\[a-z0-9_\]\*\$'"):
+        scaffold.parse_spec(hostile)
+
+
+def test_mart_name_path_traversal_is_rejected() -> None:
+    hostile = {
+        **SPEC,
+        "marts": [{**SPEC["marts"][0], "name": "../../../../../escaped"}],
+    }
+    with pytest.raises(scaffold.ScaffoldError, match=r"must match '\^\[a-z\]\[a-z0-9_\]\*\$'"):
+        scaffold.parse_spec(hostile)
+
+
+def test_chart_name_path_traversal_is_rejected() -> None:
+    hostile = {
+        **SPEC,
+        "marts": [
+            {
+                **SPEC["marts"][0],
+                "chart": {**SPEC["marts"][0]["chart"], "name": "../../../../../escaped"},
+            }
+        ],
+    }
+    with pytest.raises(scaffold.ScaffoldError, match="must not contain a path separator"):
+        scaffold.parse_spec(hostile)
+
+
+def test_product_display_name_path_traversal_is_rejected() -> None:
+    """product_display_name is used to derive the dashboard filename
+    (reports_dir / "dashboards" / f"{dashboard_file}_1.yaml") via a
+    replace(" ", "_").replace("-", "_") that does not strip '/'.
+    """
+    with pytest.raises(scaffold.ScaffoldError, match="must not contain a path separator"):
+        scaffold.parse_spec({**SPEC, "product_display_name": "../../../../../escaped"})
+
+
+def test_dttm_col_is_validated_even_without_a_chart() -> None:
+    """A typo'd or undeclared dttm_col previously bypassed validation entirely
+    for a chartless mart, since the check sat after `if not mart.chart:
+    continue`. It is still emitted as the Superset dataset's main_dttm_col
+    regardless of whether a chart exists.
+    """
+    chartless_with_bad_dttm = {
+        **SPEC,
+        "marts": [
+            {
+                "name": "mart_dimension_only",
+                "description": "No chart, bad dttm_col.",
+                "sql": "select 1 as placeholder",
+                "columns": [{"name": "region", "type": "string"}],
+                "dttm_col": "not_a_declared_column",
+            }
+        ],
+    }
+    with pytest.raises(scaffold.ScaffoldError, match="dttm_col 'not_a_declared_column' is not a declared column"):
+        scaffold.parse_spec(chartless_with_bad_dttm)
+
+
+def test_dbt_source_description_survives_a_colon_in_the_display_name(tmp_path: Path) -> None:
+    """Unlike the per-source descriptions, this description was built by raw
+    f-string interpolation of product_display_name, which is unrestricted:
+    'Route: Efficiency' produced `description: Floe-owned Route: Efficiency
+    Silver Iceberg tables.`, invalid YAML that fails dbt parse.
+    """
+    spec = scaffold.parse_spec({**SPEC, "product_display_name": "Route: Efficiency"})
+    scaffold.scaffold_product(spec, tmp_path)
+
+    sources = yaml.safe_load(
+        (tmp_path / "domains/logistics/transformations/dbt/route_efficiency/models/sources.yml").read_text()
+    )
+    assert sources["sources"][0]["description"] == "Floe-owned Route: Efficiency Silver Iceberg tables."

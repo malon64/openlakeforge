@@ -149,6 +149,33 @@ def _require_identifier(mapping: Mapping[str, Any], key: str, context: str) -> s
     return value
 
 
+def _check_safe_filename_value(value: Any, *, key: str, context: str) -> str:
+    """Reject a value that could escape the product's own directory tree when
+    concatenated into a filename.
+
+    Source, mart, chart, and product display names all get interpolated
+    straight into a Path somewhere (e.g. `raw_dir / f"{src.name}.csv"`,
+    `reports_dir / "dashboards" / f"{dashboard_file}_1.yaml"`). A spec that
+    parses cleanly could set one to `../../../../../escaped`, which `_write`
+    would then happily write outside `domains/<domain>/**` while scaffolding
+    still reports success.
+    """
+    if not isinstance(value, str) or not value.strip():
+        raise ScaffoldError(f"{context}: {key} must be a non-empty string")
+    if "/" in value or "\\" in value or "\x00" in value:
+        raise ScaffoldError(
+            f"{context}: {key} {value!r} must not contain a path separator "
+            "(it is used to derive a filename)"
+        )
+    if value in {".", ".."} or value.startswith("."):
+        raise ScaffoldError(f"{context}: {key} {value!r} must not start with '.'")
+    return value
+
+
+def _require_safe_filename_component(mapping: Mapping[str, Any], key: str, context: str) -> str:
+    return _check_safe_filename_value(_require(mapping, key, context), key=key, context=context)
+
+
 def _columns(raw: Sequence[Mapping[str, Any]], context: str) -> tuple[Column, ...]:
     if not raw:
         raise ScaffoldError(f"{context}: at least one column is required")
@@ -183,7 +210,7 @@ def parse_spec(document: Mapping[str, Any], *, source: str = "spec") -> ProductS
         context = f"{source}: source {entry.get('name')!r}"
         sources.append(
             Source(
-                name=_require(entry, "name", context),
+                name=_require_identifier(entry, "name", context),
                 description=entry.get("description", ""),
                 primary_key=tuple(_require(entry, "primary_key", context)),
                 columns=_columns(_require(entry, "columns", context), context),
@@ -206,7 +233,7 @@ def parse_spec(document: Mapping[str, Any], *, source: str = "spec") -> ProductS
                     f"expected one of {', '.join(sorted(ALLOWED_VIZ_TYPES))}"
                 )
             chart = Chart(
-                name=_require(chart_raw, "name", context),
+                name=_require_safe_filename_component(chart_raw, "name", context),
                 description=chart_raw.get("description", ""),
                 viz_type=viz_type,
                 x_axis=chart_raw.get("x_axis"),
@@ -215,7 +242,7 @@ def parse_spec(document: Mapping[str, Any], *, source: str = "spec") -> ProductS
             )
         marts.append(
             Mart(
-                name=_require(entry, "name", context),
+                name=_require_identifier(entry, "name", context),
                 description=entry.get("description", ""),
                 sql=_require(entry, "sql", context),
                 columns=_columns(_require(entry, "columns", context), context),
@@ -241,8 +268,10 @@ def parse_spec(document: Mapping[str, Any], *, source: str = "spec") -> ProductS
         domain_description=document.get("domain_description", f"{domain} domain."),
         owner=document.get("owner", domain.replace("_", "-")),
         product=product,
-        product_display_name=document.get(
-            "product_display_name", product.replace("_", " ").title()
+        product_display_name=_check_safe_filename_value(
+            document.get("product_display_name", product.replace("_", " ").title()),
+            key="product_display_name",
+            context=source,
         ),
         product_description=document.get("product_description", f"{product} data product."),
         sources=tuple(sources),
@@ -260,9 +289,18 @@ def _validate_chart_references(spec: ProductSpec, source: str) -> None:
     here gives the author the error at scaffold time instead of at CI time.
     """
     for mart in spec.marts:
+        columns = {column.name for column in mart.columns}
+        # Validated unconditionally, not only for marts with a chart: dttm_col
+        # is emitted as the Superset dataset's main_dttm_col regardless of
+        # whether a chart exists, so a typo or undeclared column would
+        # otherwise bypass validation entirely for chartless (e.g.
+        # dimension-only) marts and fail import or temporal queries instead.
+        if mart.dttm_col and mart.dttm_col not in columns:
+            raise ScaffoldError(
+                f"{source}: {mart.name} dttm_col {mart.dttm_col!r} is not a declared column"
+            )
         if not mart.chart:
             continue
-        columns = {column.name for column in mart.columns}
         metrics = {metric.name for metric in mart.metrics}
         referenced = [*(([mart.chart.x_axis]) if mart.chart.x_axis else []), *mart.chart.groupby]
         for name in referenced:
@@ -283,10 +321,6 @@ def _validate_chart_references(spec: ProductSpec, source: str) -> None:
             raise ScaffoldError(
                 f"{source}: pie chart {mart.chart.name!r} must declare exactly one metric, "
                 f"got {len(mart.chart.metrics)}"
-            )
-        if mart.dttm_col and mart.dttm_col not in columns:
-            raise ScaffoldError(
-                f"{source}: {mart.name} dttm_col {mart.dttm_col!r} is not a declared column"
             )
 
 
@@ -495,7 +529,7 @@ sources:
   - name: silver
     database: "{{{{ env_var('OPENLAKEFORGE_CATALOG_NAME', 'lakehouse_dev') }}}}"
     schema: {spec.silver_namespace}
-    description: Floe-owned {spec.product_display_name} Silver Iceberg tables.
+    description: {_scalar(f"Floe-owned {spec.product_display_name} Silver Iceberg tables.")}
     tables:
 {tables}
 '''
@@ -509,35 +543,51 @@ def render_dbt_gold_schema(spec: ProductSpec) -> str:
     return f"version: 2\n\nmodels:\n{models}\n"
 
 
-def render_domain_descriptor(spec: ProductSpec, existing: Mapping[str, Any] | None = None) -> str:
-    """Render a domain descriptor, appending the product when the domain exists."""
-    product_entry: dict[str, Any] = {
-        "id": spec.product,
-        "name": spec.asset_prefix,
-        "displayName": spec.product_display_name,
-        "description": spec.product_description,
-        "status": "planned",
-        "asset_prefix": spec.asset_prefix,
-        "bronze": [
-            {
-                "name": src.name,
-                "path": f"s3://lakehouse-bronze/{spec.domain}/{spec.product}/{src.name}",
-                "description": src.description or f"Raw CSV {src.name}.",
-            }
-            for src in spec.sources
-        ],
-        "silver_tables": {
-            "tables": [
-                {"name": src.name, "description": f"Validated {src.name}."} for src in spec.sources
-            ]
-        },
-        "gold_tables": {
-            "tables": [
-                {"name": mart.name, "description": mart.description or mart.name}
-                for mart in spec.marts
-            ]
-        },
-    }
+def render_domain_descriptor(
+    spec: ProductSpec,
+    existing: Mapping[str, Any] | None = None,
+    *,
+    product_entry_override: Mapping[str, Any] | None = None,
+) -> str:
+    """Render a domain descriptor, appending the product when the domain exists.
+
+    `product_entry_override`, when given, is written verbatim instead of a
+    fresh entry built from `spec` -- see the caller in `scaffold_product` for
+    why: rerunning without --force skips this product's actual files, so its
+    descriptor entry must not drift to describe sources/marts nothing on disk
+    implements.
+    """
+    product_entry: dict[str, Any] = (
+        dict(product_entry_override)
+        if product_entry_override is not None
+        else {
+            "id": spec.product,
+            "name": spec.asset_prefix,
+            "displayName": spec.product_display_name,
+            "description": spec.product_description,
+            "status": "planned",
+            "asset_prefix": spec.asset_prefix,
+            "bronze": [
+                {
+                    "name": src.name,
+                    "path": f"s3://lakehouse-bronze/{spec.domain}/{spec.product}/{src.name}",
+                    "description": src.description or f"Raw CSV {src.name}.",
+                }
+                for src in spec.sources
+            ],
+            "silver_tables": {
+                "tables": [
+                    {"name": src.name, "description": f"Validated {src.name}."} for src in spec.sources
+                ]
+            },
+            "gold_tables": {
+                "tables": [
+                    {"name": mart.name, "description": mart.description or mart.name}
+                    for mart in spec.marts
+                ]
+            },
+        }
+    )
 
     if existing:
         document = dict(existing)
@@ -793,8 +843,29 @@ def scaffold_product(spec: ProductSpec, repo_root: str | Path, *, force: bool = 
     if descriptor_path.exists():
         existing_descriptor = yaml.safe_load(descriptor_path.read_text(encoding="utf-8"))
 
-    # The descriptor is the discovery source of truth, so it is always rewritten.
-    _write(descriptor_path, render_domain_descriptor(spec, existing_descriptor), force=True, result=result)
+    # The descriptor is the discovery source of truth, so it is always rewritten
+    # -- except this product's own entry, when its actual files are about to be
+    # skipped below (force=False and the product already exists). Rewriting the
+    # entry from `spec` in that case would make discovery/Terraform expect
+    # sources or marts that the retained contract, dbt models, and datasets do
+    # not implement, since those writes are skipped. Preserve the entry that
+    # matches what is actually on disk instead; rerun with --force to
+    # regenerate the product's files and its descriptor entry together.
+    existing_product_entry = next(
+        (
+            p
+            for p in (existing_descriptor or {}).get("data_products", [])
+            if p.get("id") == spec.product
+        ),
+        None,
+    )
+    product_entry_override = existing_product_entry if existing_product_entry is not None and not force else None
+    _write(
+        descriptor_path,
+        render_domain_descriptor(spec, existing_descriptor, product_entry_override=product_entry_override),
+        force=True,
+        result=result,
+    )
 
     _write(domain_dir / "__init__.py", "", force=force, result=result)
     _write(
