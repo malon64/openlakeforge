@@ -337,8 +337,10 @@ def revision_publish(
         raise typer.Exit(code=_fail(str(exc))) from exc
 
     with _s3_client(via) as (bucket, client):
-        revision_module.publish_sidecar(client, bucket, manifest)
+        deleted = revision_module.publish_sidecar(client, bucket, manifest)
     typer.echo(f"Published {revision_module.REVISION_SIDECAR_KEY} ({manifest.revision}) to s3://{bucket}/.")
+    if deleted:
+        typer.echo(f"Pruned {len(deleted)} orphaned artifact(s) not in this revision: {', '.join(deleted)}")
 
 
 @revision_app.command("verify")

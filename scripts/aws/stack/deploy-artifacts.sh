@@ -89,16 +89,23 @@ echo "==> Publishing product Floe runtime artifacts to the AWS S3 ops bucket..."
 olf_run artifacts upload-manifests --via direct --runtime-root "${FLOE_RUNTIME_ARTIFACT_DIR}"
 olf_run revision publish --runtime-root "${FLOE_RUNTIME_ARTIFACT_DIR}" --via direct
 
+# Roll Dagster onto the new image/revision immediately after the bucket holds it,
+# before any other deploy step. The manifest URIs are mutable, so once the bucket
+# is updated any Floe runner pod dereferencing them gets the new content
+# regardless of whether Dagster's code server has restarted -- a Superset or
+# OpenMetadata failure between publish and rollout would otherwise leave the
+# code server serving stale definitions while runners already see the new
+# manifests, recreating the exact skew this contract exists to prevent.
+echo "==> Pointing Dagster at project-code image ${PROJECT_CODE_IMAGE}..."
+olf_run k8s set-project-code-image \
+  --image "${PROJECT_CODE_IMAGE}" \
+  --floe-manifest-revision "${FLOE_MANIFEST_REVISION}"
+
 echo "==> Deploying product Superset report assets..."
 olf_run superset deploy-reports
 
 echo "==> Deploying OpenMetadata governance metadata..."
 OPENMETADATA_ALLOW_MISSING_ASSETS="${OPENMETADATA_ALLOW_MISSING_ASSETS:-true}" \
   olf_run openmetadata deploy-metadata
-
-echo "==> Pointing Dagster at project-code image ${PROJECT_CODE_IMAGE}..."
-olf_run k8s set-project-code-image \
-  --image "${PROJECT_CODE_IMAGE}" \
-  --floe-manifest-revision "${FLOE_MANIFEST_REVISION}"
 
 echo "Dynamic OpenLakeForge AWS POC artifacts are deployed."

@@ -32,6 +32,11 @@ class FakeS3Client:
         assert operation_name == "list_objects_v2"
         return _FakePaginator(self)
 
+    def delete_objects(self, *, Bucket: str, Delete: dict) -> None:  # noqa: N803
+        for entry in Delete["Objects"]:
+            self.objects.pop(entry["Key"], None)
+            self.metadata.pop(entry["Key"], None)
+
 
 class _FakeBody:
     def __init__(self, data: bytes) -> None:
@@ -218,3 +223,55 @@ def test_verify_passes_when_bucket_matches_expected(runtime_root: Path) -> None:
 
     diff = revision.verify(client, "ops-bucket", manifest.revision)
     assert diff.matches
+
+
+def test_publish_sidecar_prunes_objects_the_new_manifest_no_longer_declares(runtime_root: Path) -> None:
+    """A product renamed or removed between deploys leaves its old bucket object
+    behind if uploads only ever overwrite keys they still know about. Once that
+    happens the bucket's recomputed revision permanently disagrees with any
+    sidecar published from the current (smaller) artifact set. Publishing must
+    reconcile the bucket to exactly the declared set.
+    """
+    client = FakeS3Client()
+    stale_key = "floe/manifests/sales/customer_health/customer_health.manifest.json"
+    client.put_object(Bucket="ops-bucket", Key=stale_key, Body=b"stale-removed-product", ContentType="application/json")
+
+    from olf import s3
+
+    uploads = s3.discover_runtime_artifacts(runtime_root)
+    manifest = revision.manifest_from_uploads(uploads)
+    for upload in uploads:
+        client.put_object(
+            Bucket="ops-bucket", Key=upload.key, Body=upload.path.read_bytes(), ContentType="application/json"
+        )
+
+    deleted = revision.publish_sidecar(client, "ops-bucket", manifest)
+
+    assert deleted == [stale_key]
+    assert stale_key not in client.objects
+    for key in manifest.entries:
+        assert key in client.objects
+    # The sidecar itself must survive being written after prune runs.
+    assert revision.REVISION_SIDECAR_KEY in client.objects
+    diff = revision.verify(client, "ops-bucket", manifest.revision)
+    assert diff.matches
+
+
+def test_publish_sidecar_prune_false_leaves_orphans(runtime_root: Path) -> None:
+    client = FakeS3Client()
+    stale_key = "floe/configs/sales/customer_health/customer_health.yml"
+    client.put_object(Bucket="ops-bucket", Key=stale_key, Body=b"stale", ContentType="application/json")
+
+    from olf import s3
+
+    uploads = s3.discover_runtime_artifacts(runtime_root)
+    manifest = revision.manifest_from_uploads(uploads)
+    for upload in uploads:
+        client.put_object(
+            Bucket="ops-bucket", Key=upload.key, Body=upload.path.read_bytes(), ContentType="application/json"
+        )
+
+    deleted = revision.publish_sidecar(client, "ops-bucket", manifest, prune=False)
+
+    assert deleted == []
+    assert stale_key in client.objects

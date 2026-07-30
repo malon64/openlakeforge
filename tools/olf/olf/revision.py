@@ -151,7 +151,50 @@ def diff_revisions(expected: RevisionManifest, actual: RevisionManifest) -> Revi
 # --- S3 sidecar helpers ------------------------------------------------------
 
 
-def publish_sidecar(client, bucket: str, manifest: RevisionManifest) -> None:
+def prune_orphaned_objects(
+    client,
+    bucket: str,
+    manifest: RevisionManifest,
+    *,
+    prefixes: tuple[str, ...] = DEFAULT_BUCKET_PREFIXES,
+) -> list[str]:
+    """Delete bucket objects under the managed prefixes that the new manifest no longer declares.
+
+    Uploads only overwrite keys present in the current local artifact set; a
+    renamed or removed product's old object otherwise survives forever. Once
+    that happens `revision verify` (and the e2e artifact-revision check) fail
+    permanently, because the bucket's recomputed hash includes an object the
+    sidecar never declared and never will again. Returns the deleted keys.
+    """
+    declared = set(manifest.entries)
+    orphaned = sorted(
+        key
+        for prefix in prefixes
+        for key in _list_keys(client, bucket, prefix)
+        if key != REVISION_SIDECAR_KEY and key not in declared
+    )
+    for start in range(0, len(orphaned), 1000):  # S3 DeleteObjects caps at 1000 keys per call
+        batch = orphaned[start : start + 1000]
+        client.delete_objects(Bucket=bucket, Delete={"Objects": [{"Key": key} for key in batch]})
+    return orphaned
+
+
+def publish_sidecar(
+    client,
+    bucket: str,
+    manifest: RevisionManifest,
+    *,
+    prune: bool = True,
+    prefixes: tuple[str, ...] = DEFAULT_BUCKET_PREFIXES,
+) -> list[str]:
+    """Publish the revision sidecar, reconciling stale objects first by default.
+
+    Pruning runs before the sidecar write so a crash mid-prune still leaves the
+    previous sidecar pointing at a bucket state `revision verify` can still
+    explain, rather than a freshly-published sidecar describing a bucket that
+    has not actually been reconciled yet.
+    """
+    deleted = prune_orphaned_objects(client, bucket, manifest, prefixes=prefixes) if prune else []
     client.put_object(
         Bucket=bucket,
         Key=REVISION_SIDECAR_KEY,
@@ -159,6 +202,7 @@ def publish_sidecar(client, bucket: str, manifest: RevisionManifest) -> None:
         ContentType="application/json",
         Metadata={REVISION_METADATA_KEY: manifest.revision},
     )
+    return deleted
 
 
 def fetch_sidecar(client, bucket: str) -> RevisionManifest:

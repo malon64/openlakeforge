@@ -426,17 +426,40 @@ def _validate_artifact_revision(spec: ProductDefinitionSpec, manifest_uri: str, 
             problems.append(f"could not fetch the artifact revision sidecar {sidecar_uri}: {exc}")
         else:
             sidecar_revision = sidecar.get("revision")
-            sidecar_entry_hash = (sidecar.get("entries") or {}).get(_floe_manifest_object_key(spec))
+            sidecar_entries = sidecar.get("entries") or {}
+            entry_key = _floe_manifest_object_key(spec)
             if sidecar_revision != runtime_expectation:
                 problems.append(
                     f"the published artifact revision {sidecar_revision!r} recorded at {sidecar_uri} does not "
                     f"match the runtime environment's {_FLOE_MANIFEST_REVISION_ENV}={runtime_expectation!r}"
                 )
-            if sidecar_entry_hash is not None and sidecar_entry_hash != fetched_hash:
+            if entry_key not in sidecar_entries:
+                # A product missing from the published entry set -- e.g. dropped from the
+                # generated manifest set while an older S3 object for it survives -- must not
+                # be treated as an optional/absent comparison. The aggregate revision hash can
+                # still match while this specific product loads a stale, unaccounted-for object.
+                problems.append(
+                    f"product {spec.asset_prefix!r} (key {entry_key!r}) is not recorded in the published "
+                    f"artifact revision sidecar {sidecar_uri} at all, so its fetched manifest cannot be "
+                    "verified against the declared revision"
+                )
+            elif sidecar_entries[entry_key] != fetched_hash:
                 problems.append(
                     f"the manifest fetched from {manifest_uri} hashes to {fetched_hash!r}, which does not match "
-                    f"the published revision's recorded hash {sidecar_entry_hash!r} for this product"
+                    f"the published revision's recorded hash {sidecar_entries[entry_key]!r} for this product"
                 )
+    else:
+        # Per-product OPENLAKEFORGE_FLOE_MANIFEST_URI_<PRODUCT> overrides are a supported way to
+        # resolve manifest_uri, but they carry no way to locate the shared REVISION sidecar (it is
+        # only derivable from OPENLAKEFORGE_FLOE_MANIFEST_BASE_URI). Skipping validation here would
+        # let a non-"manual" revision pass on image-label/env agreement alone, even if the manifest
+        # fetched from the per-product URI is unrelated content -- fail closed instead.
+        problems.append(
+            f"{_FLOE_MANIFEST_REVISION_ENV}={runtime_expectation!r} requires "
+            "OPENLAKEFORGE_FLOE_MANIFEST_BASE_URI to be set so the published artifact revision "
+            "sidecar can be fetched and the manifest content verified; per-product "
+            f"OPENLAKEFORGE_FLOE_MANIFEST_URI_{spec.env_key} overrides alone cannot be verified"
+        )
 
     if problems:
         raise ArtifactRevisionError(
