@@ -303,10 +303,11 @@ def test_check_lockfiles_synced_flags_a_version_pinned_differently_than_locked(t
     assert "1.13.6" in result.detail
 
 
-def test_check_lockfiles_synced_ignores_transitive_only_and_range_pinned_deps(tmp_path: Path) -> None:
+def test_check_lockfiles_synced_ignores_transitive_only_deps_and_validates_ranges(tmp_path: Path) -> None:
     """A package present only as a transitive dependency must not satisfy a
-    direct pyproject requirement, and a range-pinned dependency (no exact '==')
-    is checked for presence only, since verifying a range needs a resolver.
+    direct pyproject requirement, and a range-constrained dependency (no exact
+    '==') is validated against the full constraint, not skipped -- 35.0.0
+    genuinely satisfies '<36' here.
     """
     project_code = tmp_path / "images/project-code"
     project_code.mkdir(parents=True)
@@ -320,6 +321,28 @@ def test_check_lockfiles_synced_ignores_transitive_only_and_range_pinned_deps(tm
     catalog = {"components": {"python": {"project_code_lock": "images/project-code/requirements.lock"}}}
     result = release._check_lockfiles_synced_with_pyproject(tmp_path, catalog)
     assert result.ok, result.detail
+
+
+def test_check_lockfiles_synced_flags_a_tightened_range_the_locked_version_no_longer_satisfies(
+    tmp_path: Path,
+) -> None:
+    """The scenario from the review: tightening a range (">=1.17,<2" to
+    ">=1.30,<2") without regenerating the lock previously passed, because only
+    exact '==' pins were checked. The locked version must now satisfy the full
+    declared constraint, range or exact.
+    """
+    project_code = tmp_path / "images/project-code"
+    project_code.mkdir(parents=True)
+    _write_pyproject(project_code / "pyproject.toml", ["dlt>=1.30,<2"])
+    _write_requirements_lock(project_code / "requirements.lock", direct={"dlt": "1.29.0"})
+
+    catalog = {"components": {"python": {"project_code_lock": "images/project-code/requirements.lock"}}}
+    result = release._check_lockfiles_synced_with_pyproject(tmp_path, catalog)
+
+    assert not result.ok
+    assert "dlt" in result.detail
+    assert "1.29.0" in result.detail
+    assert "does not satisfy" in result.detail
 
 
 def test_check_lockfiles_synced_flags_a_pyproject_dependency_absent_from_uv_lock(tmp_path: Path) -> None:
@@ -345,3 +368,32 @@ requires-dist = [
     assert not result.ok
     assert "httpx" in result.detail
     assert "requires-dist" in result.detail
+
+
+def test_check_lockfiles_synced_flags_a_specifier_uv_lock_no_longer_matches(tmp_path: Path) -> None:
+    """A pyproject.toml constraint tightened without running 'uv lock' leaves
+    uv.lock's own requires-dist snapshot stale; the two specifier strings must
+    match, not just the package's presence.
+    """
+    tooling = tmp_path / "tools/olf"
+    tooling.mkdir(parents=True)
+    _write_pyproject(tooling / "pyproject.toml", ["boto3>=1.40,<2"])
+    (tooling / "uv.lock").write_text(
+        """
+[[package]]
+name = "openlakeforge-tools"
+version = "0.1.0"
+
+[package.metadata]
+requires-dist = [
+    { name = "boto3", specifier = ">=1.34,<2" },
+]
+"""
+    )
+
+    catalog = {"components": {"python": {"tooling_lock": "tools/olf/uv.lock"}}}
+    result = release._check_lockfiles_synced_with_pyproject(tmp_path, catalog)
+
+    assert not result.ok
+    assert "boto3" in result.detail
+    assert ">=1.40,<2" in result.detail

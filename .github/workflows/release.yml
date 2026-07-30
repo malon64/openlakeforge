@@ -84,11 +84,27 @@ jobs:
           import yaml
           print(yaml.safe_load(open('release/component-catalog.yaml'))['distribution']['version'])
           ")"
+          catalog_tag="v${catalog_version}"
 
           if [[ "${{ github.event_name }}" == "push" ]]; then
             tag="${GITHUB_REF_NAME}"
           else
-            tag="v${catalog_version}"
+            tag="${catalog_tag}"
+          fi
+
+          # For a non-dry-run workflow_dispatch, "tag" above is set from the
+          # catalog regardless of which ref was actually selected/checked out.
+          # cosign's keyless identity is derived from the real running ref
+          # (GITHUB_REF_NAME), so dispatching from any other pre-existing tag
+          # would sign as refs/tags/<that other tag> while every downstream
+          # step (release name, checksums, verify-install.sh's documented
+          # command) uses "${catalog_tag}" -- a published release whose
+          # signature verification names a ref that was never actually built.
+          if [[ "${{ github.event_name }}" != "push" && "${{ steps.mode.outputs.dry_run }}" != "true" \
+                && "${GITHUB_REF_NAME}" != "${catalog_tag}" ]]; then
+            echo "::error::Selected ref '${GITHUB_REF_NAME}' does not match the catalog-derived release tag" \
+              "'${catalog_tag}'. A non-dry-run release must be dispatched from that exact tag." >&2
+            exit 1
           fi
 
           {

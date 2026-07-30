@@ -20,6 +20,8 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from packaging.specifiers import SpecifierSet
+from packaging.version import InvalidVersion, Version
 
 DEFAULT_CATALOG_PATH = "release/component-catalog.yaml"
 VERSION_PATTERN = re.compile(r"^\d+\.\d+\.\d+-alpha\.\d+$")
@@ -350,27 +352,44 @@ def _pep503_normalize(name: str) -> str:
     return re.sub(r"[-_.]+", "-", name).lower()
 
 
-def _parse_pep508_name_and_pin(spec: str) -> tuple[str, str | None]:
-    """Split a PEP 508 dependency string into (normalized name, exact pin or None).
+def _parse_pep508_name_and_constraint(spec: str) -> tuple[str, str]:
+    """Split a PEP 508 dependency string into (normalized name, version constraint).
 
-    Only extracts a version when the spec is a single '==' constraint; range/
-    multi-constraint specs (e.g. ">=1.17,<2") return None for the pin, since
-    verifying those against a lock needs a resolver this check does not run --
-    presence as a direct dependency is still verified either way.
+    The constraint is the raw specifier text -- "==1.13.6", ">=1.17,<2", or ""
+    when unconstrained -- suitable for packaging.specifiers.SpecifierSet, so a
+    range can be validated against a locked version, not just an exact pin.
     """
     match = re.match(r"^([A-Za-z0-9][A-Za-z0-9._-]*)\s*(\[[^\]]*\])?\s*(.*)$", spec.strip())
     if not match:
-        return _pep503_normalize(spec.strip()), None
+        return _pep503_normalize(spec.strip()), ""
     name = _pep503_normalize(match.group(1))
     constraint = match.group(3).split(";", 1)[0].strip()  # drop any environment marker
-    pin_match = re.fullmatch(r"==\s*([^,\s]+)", constraint)
-    return name, (pin_match.group(1) if pin_match else None)
+    return name, constraint
 
 
-def _pyproject_dependencies(pyproject_path: Path) -> list[tuple[str, str | None]]:
+def _pyproject_dependencies(pyproject_path: Path) -> list[tuple[str, str]]:
     data = tomllib.loads(pyproject_path.read_text())
     deps = (data.get("project") or {}).get("dependencies") or []
-    return [_parse_pep508_name_and_pin(dep) for dep in deps]
+    return [_parse_pep508_name_and_constraint(dep) for dep in deps]
+
+
+def _locked_version_satisfies(locked_version: str, constraint: str) -> bool:
+    """Whether a locked version satisfies a PEP 508 constraint, range or exact.
+
+    A dependency tightened from ">=1.17,<2" to ">=1.30,<2" without regenerating
+    the lock previously passed unnoticed: only an exact "==" pin was checked
+    against the lock, so a still-in-range-but-now-too-old locked version (e.g.
+    1.29.0) was silently accepted even though it violates the new declared
+    constraint -- the Dockerfile installs it anyway with --no-deps.
+    """
+    if not constraint:
+        return True
+    try:
+        return Version(locked_version) in SpecifierSet(constraint)
+    except InvalidVersion:
+        # A locked version string packaging can't parse as PEP 440 is not this
+        # check's concern; presence as a direct dependency was already verified.
+        return True
 
 
 def _requirements_lock_direct_versions(lock_path: Path, *, owner_marker: str) -> dict[str, str]:
@@ -398,18 +417,22 @@ def _requirements_lock_direct_versions(lock_path: Path, *, owner_marker: str) ->
     return direct
 
 
-def _uv_lock_requires_dist(uv_lock_path: Path, package_name: str) -> set[str]:
-    """Normalized package names uv.lock records as `package_name`'s direct
-    dependencies, from that package's own [[package]] block's
-    [package.metadata].requires-dist -- uv's record of what the project
-    currently declares, distinct from the resolved transitive closure.
+def _uv_lock_requires_dist(uv_lock_path: Path, package_name: str) -> dict[str, str]:
+    """Map normalized package name -> declared specifier, from `package_name`'s
+    own [[package]] block's [package.metadata].requires-dist -- uv's own
+    record of what the project's pyproject.toml currently declares, distinct
+    from the resolved transitive closure.
     """
     data = tomllib.loads(uv_lock_path.read_text())
     for package in data.get("package", []):
         if package.get("name") == package_name:
             metadata = package.get("metadata") or {}
-            return {_pep503_normalize(entry["name"]) for entry in metadata.get("requires-dist", []) if "name" in entry}
-    return set()
+            return {
+                _pep503_normalize(entry["name"]): (entry.get("specifier") or "").strip()
+                for entry in metadata.get("requires-dist", [])
+                if "name" in entry
+            }
+    return {}
 
 
 def _check_lockfiles_synced_with_pyproject(repo_root: Path, catalog: dict[str, Any]) -> CheckResult:
@@ -432,16 +455,17 @@ def _check_lockfiles_synced_with_pyproject(repo_root: Path, catalog: dict[str, A
         lock_path = repo_root / project_code_lock_rel
         if lock_path.is_file():
             direct = _requirements_lock_direct_versions(lock_path, owner_marker="openlakeforge-project-code")
-            for name, pin in _pyproject_dependencies(project_code_pyproject):
+            for name, constraint in _pyproject_dependencies(project_code_pyproject):
                 if name not in direct:
                     problems.append(
                         f"images/project-code/pyproject.toml declares {name!r} but "
                         f"{project_code_lock_rel} has no direct entry for it -- regenerate the lock"
                     )
-                elif pin is not None and direct[name] != pin:
+                elif not _locked_version_satisfies(direct[name], constraint):
                     problems.append(
-                        f"images/project-code/pyproject.toml pins {name!r}=={pin} but "
-                        f"{project_code_lock_rel} locks it at {direct[name]!r} -- regenerate the lock"
+                        f"images/project-code/pyproject.toml requires {name!r}{constraint} but "
+                        f"{project_code_lock_rel} locks it at {direct[name]!r}, which does not satisfy that "
+                        "constraint -- regenerate the lock"
                     )
 
     tooling_pyproject = repo_root / "tools/olf/pyproject.toml"
@@ -450,11 +474,17 @@ def _check_lockfiles_synced_with_pyproject(repo_root: Path, catalog: dict[str, A
         lock_path = repo_root / tooling_lock_rel
         if lock_path.is_file():
             requires_dist = _uv_lock_requires_dist(lock_path, "openlakeforge-tools")
-            for name, _pin in _pyproject_dependencies(tooling_pyproject):
+            for name, constraint in _pyproject_dependencies(tooling_pyproject):
                 if name not in requires_dist:
                     problems.append(
                         f"tools/olf/pyproject.toml declares {name!r} but {tooling_lock_rel} records no "
                         "requires-dist entry for it -- run 'uv lock --project tools/olf'"
+                    )
+                elif SpecifierSet(requires_dist[name] or "") != SpecifierSet(constraint or ""):
+                    problems.append(
+                        f"tools/olf/pyproject.toml requires {name!r}{constraint} but {tooling_lock_rel} "
+                        f"records the specifier {requires_dist[name]!r} for it -- run "
+                        "'uv lock --project tools/olf'"
                     )
 
     if problems:
