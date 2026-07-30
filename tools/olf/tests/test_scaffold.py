@@ -347,3 +347,63 @@ def test_marketing_product_in_the_repo_was_scaffolded_not_hand_wired() -> None:
     assert product.job_name == "marketing_campaign_performance_pipeline"
     assert product.gold_namespace == "marketing_campaign_performance_gold"
     assert len(product.gold_tables) == 3
+
+
+def test_metric_free_mart_renders_valid_dataset_yaml(tmp_path: Path) -> None:
+    """A dimension-only mart (no metrics) must still round-trip through YAML.
+
+    `metrics:\\n{metrics or "  []"}columns:` glued the empty-list fallback
+    directly onto the following key with no line break -- `metrics:\\n
+    []columns:` -- which is not parseable YAML at all, not merely a semantic
+    mismatch.
+    """
+    spec_dict = {
+        **SPEC,
+        "marts": [
+            {
+                "name": "mart_route_region",
+                "description": "Region dimension only, no metrics.",
+                "sql": "select 1 as placeholder",
+                "columns": [
+                    {"name": "region", "type": "string"},
+                ],
+            }
+        ],
+    }
+    spec = scaffold.parse_spec(spec_dict)
+    scaffold.scaffold_product(spec, tmp_path)
+
+    dataset_path = (
+        tmp_path
+        / "domains/logistics/reports/superset/route_efficiency/datasets/OpenLakeForge_Trino/mart_route_region.yaml"
+    )
+    dataset = yaml.safe_load(dataset_path.read_text())
+
+    assert dataset["metrics"] == []
+    assert dataset["columns"] == [
+        {"column_name": "region", "type": "VARCHAR", "groupby": True, "filterable": True}
+    ]
+
+
+@pytest.mark.parametrize("bad_domain", ["supply-chain", "Supply_Chain", "1supply", "supply chain", "../../etc"])
+def test_non_identifier_domain_is_rejected(bad_domain: str) -> None:
+    """domain/product are used as both domains/<...>/ path components and Python
+    module segments (domains.<domain>.definitions). An unvalidated value like
+    'supply-chain' would report scaffold success while writing an unimportable
+    module, and a value containing '..' or '/' could write outside
+    domains/<domain>/** entirely.
+    """
+    with pytest.raises(scaffold.ScaffoldError, match=r"must match '\^\[a-z\]\[a-z0-9_\]\*\$'"):
+        scaffold.parse_spec({**SPEC, "domain": bad_domain})
+
+
+@pytest.mark.parametrize("bad_product", ["route-efficiency", "Route_Efficiency", "2fast"])
+def test_non_identifier_product_is_rejected(bad_product: str) -> None:
+    with pytest.raises(scaffold.ScaffoldError, match=r"must match '\^\[a-z\]\[a-z0-9_\]\*\$'"):
+        scaffold.parse_spec({**SPEC, "product": bad_product})
+
+
+def test_valid_identifier_domain_and_product_are_accepted() -> None:
+    spec = scaffold.parse_spec({**SPEC, "domain": "supply_chain2", "product": "route_efficiency_v2"})
+    assert spec.domain == "supply_chain2"
+    assert spec.product == "route_efficiency_v2"

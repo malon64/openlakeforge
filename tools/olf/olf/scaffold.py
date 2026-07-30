@@ -8,6 +8,7 @@ seed products exactly; see `docs/product-onboarding.md`.
 
 from __future__ import annotations
 
+import re
 import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
@@ -15,6 +16,14 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+
+# Matches the domain.yaml `name` convention enforced in descriptors.py. domain
+# and product are both used as filesystem path components (domains/<domain>/...)
+# and as Python module segments (domains.<domain>.definitions), so anything
+# outside this pattern -- hyphens, uppercase, path separators, ".." -- would
+# either produce a broken import or let a crafted spec write outside
+# domains/<domain>/**.
+_IDENTIFIER_PATTERN = re.compile(r"[a-z][a-z0-9_]*")
 
 # Every product bundle points at the one shared Superset Trino database, so this
 # UUID must match the `uuid` in each existing databases/openlakeforge_trino.yaml.
@@ -130,6 +139,16 @@ def _require(mapping: Mapping[str, Any], key: str, context: str) -> Any:
     return mapping[key]
 
 
+def _require_identifier(mapping: Mapping[str, Any], key: str, context: str) -> str:
+    value = _require(mapping, key, context)
+    if not isinstance(value, str) or not _IDENTIFIER_PATTERN.fullmatch(value):
+        raise ScaffoldError(
+            f"{context}: {key} {value!r} must match '^[a-z][a-z0-9_]*$' "
+            "(it is used as both a domains/<...>/ path component and a Python module name)"
+        )
+    return value
+
+
 def _columns(raw: Sequence[Mapping[str, Any]], context: str) -> tuple[Column, ...]:
     if not raw:
         raise ScaffoldError(f"{context}: at least one column is required")
@@ -156,8 +175,8 @@ def load_spec(path: str | Path) -> ProductSpec:
 
 
 def parse_spec(document: Mapping[str, Any], *, source: str = "spec") -> ProductSpec:
-    domain = _require(document, "domain", source)
-    product = _require(document, "product", source)
+    domain = _require_identifier(document, "domain", source)
+    product = _require_identifier(document, "product", source)
 
     sources: list[Source] = []
     for entry in _require(document, "sources", source):
@@ -569,7 +588,7 @@ description: {_scalar(mart.description or mart.name)}
 schema: {spec.gold_namespace}
 uuid: {dataset_uuid}
 metrics:
-{metrics or "  []"}columns:
+{metrics or "  []\n"}columns:
 {columns}version: 1.0.0
 database_uuid: {TRINO_DATABASE_UUID}
 """
