@@ -60,10 +60,28 @@ NAMESPACE="${NAMESPACE}" bash "${REPO_ROOT}/scripts/artifacts/floe-manifest.sh"
 
 # One artifact revision contract: the hash of the manifest set generated above
 # is stamped into the image, onto the uploaded objects, and into the Dagster env,
-# so a partial deploy cannot silently mix revisions.
-FLOE_MANIFEST_REVISION="$(olf_run revision compute --runtime-root "${FLOE_RUNTIME_ARTIFACT_DIR}")"
-export FLOE_MANIFEST_REVISION
-echo "==> Floe artifact revision: ${FLOE_MANIFEST_REVISION}"
+# so a partial deploy cannot silently mix revisions. This is only sound when the
+# image is actually (re)built from these manifests below (PROJECT_CODE_IMAGE_TAG=
+# local, the default) -- a custom pre-built tag is not rebuilt by
+# prepare_local_project_code_image, so nothing guarantees its baked
+# OPENLAKEFORGE_FLOE_MANIFEST_REVISION_BUILT label matches manifests generated
+# just now. Forcing that mismatch into Dagster's env would make a perfectly good
+# pre-built image fail ArtifactRevisionError at startup. Respect an
+# already-exported FLOE_MANIFEST_REVISION (the operator's own claim about what is
+# baked into that image) instead; otherwise leave it unset ("manual"), which
+# disables the runtime check rather than asserting something unverifiable.
+if [[ "${PROJECT_CODE_IMAGE_TAG}" == "local" ]]; then
+  FLOE_MANIFEST_REVISION="$(olf_run revision compute --runtime-root "${FLOE_RUNTIME_ARTIFACT_DIR}")"
+  export FLOE_MANIFEST_REVISION
+  echo "==> Floe artifact revision: ${FLOE_MANIFEST_REVISION}"
+else
+  FLOE_MANIFEST_REVISION="${FLOE_MANIFEST_REVISION:-manual}"
+  export FLOE_MANIFEST_REVISION
+  if [[ "${FLOE_MANIFEST_REVISION}" == "manual" ]]; then
+    echo "==> PROJECT_CODE_IMAGE_TAG=${PROJECT_CODE_IMAGE_TAG} is not rebuilt here; artifact revision checking" \
+      "stays disabled for it (export FLOE_MANIFEST_REVISION to enforce it against this image's baked value)."
+  fi
+fi
 
 prepare_local_project_code_image
 

@@ -122,9 +122,9 @@ def artifacts_upload_manifests(
         if not uploads:
             root = runtime_root or manifest_root or str(repo_root / ".tmp/floe-runtime/aws/manifests")
             raise typer.Exit(code=_fail(f"no rendered Floe artifacts found under {root}."))
-        artifact_revision = revision_module.manifest_from_uploads(uploads).revision
+        artifact_manifest = revision_module.manifest_from_uploads(uploads)
         s3.upload_direct(
-            bucket, uploads, region=config.env("OPENLAKEFORGE_STORAGE_REGION"), revision=artifact_revision
+            bucket, uploads, region=config.env("OPENLAKEFORGE_STORAGE_REGION"), revision=artifact_manifest.revision
         )
     elif via == "port-forward":
         if runtime_root:
@@ -133,7 +133,7 @@ def artifacts_upload_manifests(
             uploads = s3.discover_tracked_manifests(repo_root)
         if not uploads:
             raise typer.Exit(code=_fail("no generated product Floe artifacts found. Run 'make floe-manifest' first."))
-        artifact_revision = revision_module.manifest_from_uploads(uploads).revision
+        artifact_manifest = revision_module.manifest_from_uploads(uploads)
         secret_name = config.env("OPENLAKEFORGE_STORAGE_CREDENTIALS_SECRET_NAME")
         service = config.env("OPENLAKEFORGE_STORAGE_S3_SERVICE_NAME", "seaweedfs-s3")
         remote_port = int(config.env("OPENLAKEFORGE_STORAGE_S3_SERVICE_PORT", "8333"))
@@ -154,10 +154,19 @@ def artifacts_upload_manifests(
                 namespace,
             ),
             region=config.env("OPENLAKEFORGE_STORAGE_REGION", "us-east-1"),
-            revision=artifact_revision,
+            revision=artifact_manifest.revision,
         )
     else:
         raise typer.Exit(code=_fail(f"unknown --via mode: {via!r} (expected 'port-forward' or 'direct')."))
+
+    # Publish the matching REVISION sidecar so this command is self-consistent when
+    # invoked standalone (e.g. `make floe-manifest-upload`), not only as part of the
+    # full deploy sequence that separately calls `olf revision publish`. Without
+    # this, the uploaded objects' per-object revision metadata advances but the
+    # sidecar `revision verify`/the e2e artifact-revision check reads stays behind,
+    # so it looks like the deploy never happened even though the bucket did change.
+    with _s3_client(via) as (_bucket, client):
+        revision_module.publish_sidecar(client, bucket, artifact_manifest)
 
 
 @superset_app.command("deploy-reports")
