@@ -222,3 +222,126 @@ def test_check_actions_passes_when_every_occurrence_matches_the_catalog(tmp_path
 
     assert result.ok
     assert "2 action reference(s)" in result.detail
+
+
+def test_write_checksums_excludes_its_own_custom_output_path(tmp_path: Path) -> None:
+    """A custom --output inside the checksummed directory must never hash itself.
+
+    `compute_checksums` only ever excluded the literal name "checksums.txt". On
+    a rerun with a custom output path, the previous run's manifest file was
+    still sitting in `directory`, got hashed like any other asset, and the new
+    manifest overwrote it a moment later -- recording a checksum for bytes that
+    no longer existed there. `sha256sum -c` fails on that entry forever after.
+    """
+    (tmp_path / "asset.bin").write_text("v1")
+    out = tmp_path / "custom-checksums.txt"
+    release.write_checksums(tmp_path, output=out)
+
+    (tmp_path / "asset.bin").write_text("v2-different-content")
+    release.write_checksums(tmp_path, output=out)
+
+    content = out.read_text()
+    assert "custom-checksums.txt" not in content
+    assert "asset.bin" in content
+
+
+def _write_pyproject(path: Path, dependencies: list[str]) -> None:
+    deps = ",\n  ".join(f'"{dep}"' for dep in dependencies)
+    path.write_text(f'[project]\nname = "demo"\ndependencies = [\n  {deps},\n]\n')
+
+
+def _write_requirements_lock(path: Path, *, direct: dict[str, str], transitive: dict[str, str] | None = None) -> None:
+    # Must match the owner_marker _check_lockfiles_synced_with_pyproject passes:
+    # "openlakeforge-project-code" (the real repo's images/project-code package name).
+    lines = []
+    for name, version in direct.items():
+        lines.append(f"{name}=={version}")
+        lines.append("    # via openlakeforge-project-code (images/project-code/pyproject.toml)")
+    for name, version in (transitive or {}).items():
+        lines.append(f"{name}=={version}")
+        lines.append("    # via some-other-package")
+    path.write_text("\n".join(lines) + "\n")
+
+
+def test_check_lockfiles_synced_passes_on_real_repo_catalog() -> None:
+    catalog = release.load_catalog(ROOT / "release/component-catalog.yaml")
+    result = release._check_lockfiles_synced_with_pyproject(ROOT, catalog)
+    assert result.ok, result.detail
+
+
+def test_check_lockfiles_synced_flags_a_pyproject_dependency_absent_from_the_lock(tmp_path: Path) -> None:
+    """The scenario from the review: pyproject.toml gains a dependency and the
+    lock is never regenerated. check-project-code.sh installs straight from
+    pyproject metadata and would pass; only this check catches the drift before
+    the built image installs the stale lock instead.
+    """
+    project_code = tmp_path / "images/project-code"
+    project_code.mkdir(parents=True)
+    _write_pyproject(project_code / "pyproject.toml", ["boto3==1.37.3", "httpx==0.27.0"])
+    _write_requirements_lock(project_code / "requirements.lock", direct={"boto3": "1.37.3"})
+
+    catalog = {"components": {"python": {"project_code_lock": "images/project-code/requirements.lock"}}}
+    result = release._check_lockfiles_synced_with_pyproject(tmp_path, catalog)
+
+    assert not result.ok
+    assert "httpx" in result.detail
+    assert "no direct entry" in result.detail
+
+
+def test_check_lockfiles_synced_flags_a_version_pinned_differently_than_locked(tmp_path: Path) -> None:
+    project_code = tmp_path / "images/project-code"
+    project_code.mkdir(parents=True)
+    _write_pyproject(project_code / "pyproject.toml", ["dagster==1.14.0"])
+    _write_requirements_lock(project_code / "requirements.lock", direct={"dagster": "1.13.6"})
+
+    catalog = {"components": {"python": {"project_code_lock": "images/project-code/requirements.lock"}}}
+    result = release._check_lockfiles_synced_with_pyproject(tmp_path, catalog)
+
+    assert not result.ok
+    assert "dagster" in result.detail
+    assert "1.14.0" in result.detail
+    assert "1.13.6" in result.detail
+
+
+def test_check_lockfiles_synced_ignores_transitive_only_and_range_pinned_deps(tmp_path: Path) -> None:
+    """A package present only as a transitive dependency must not satisfy a
+    direct pyproject requirement, and a range-pinned dependency (no exact '==')
+    is checked for presence only, since verifying a range needs a resolver.
+    """
+    project_code = tmp_path / "images/project-code"
+    project_code.mkdir(parents=True)
+    _write_pyproject(project_code / "pyproject.toml", ["boto3==1.37.3", "kubernetes<36"])
+    _write_requirements_lock(
+        project_code / "requirements.lock",
+        direct={"boto3": "1.37.3", "kubernetes": "35.0.0"},
+        transitive={"botocore": "1.37.3"},
+    )
+
+    catalog = {"components": {"python": {"project_code_lock": "images/project-code/requirements.lock"}}}
+    result = release._check_lockfiles_synced_with_pyproject(tmp_path, catalog)
+    assert result.ok, result.detail
+
+
+def test_check_lockfiles_synced_flags_a_pyproject_dependency_absent_from_uv_lock(tmp_path: Path) -> None:
+    tooling = tmp_path / "tools/olf"
+    tooling.mkdir(parents=True)
+    _write_pyproject(tooling / "pyproject.toml", ["boto3>=1.34,<2", "httpx>=0.27,<1"])
+    (tooling / "uv.lock").write_text(
+        """
+[[package]]
+name = "openlakeforge-tools"
+version = "0.1.0"
+
+[package.metadata]
+requires-dist = [
+    { name = "boto3", specifier = ">=1.34,<2" },
+]
+"""
+    )
+
+    catalog = {"components": {"python": {"tooling_lock": "tools/olf/uv.lock"}}}
+    result = release._check_lockfiles_synced_with_pyproject(tmp_path, catalog)
+
+    assert not result.ok
+    assert "httpx" in result.detail
+    assert "requires-dist" in result.detail

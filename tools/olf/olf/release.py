@@ -14,6 +14,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -154,8 +155,23 @@ def render_checksums(entries: list[tuple[str, str]]) -> str:
 
 
 def write_checksums(directory: str | Path, output: str | Path | None = None) -> Path:
-    entries = compute_checksums(directory)
-    out_path = Path(output) if output else Path(directory) / "checksums.txt"
+    """Write a checksums manifest, excluding the manifest's own output path.
+
+    `compute_checksums` only ever excluded the literal name "checksums.txt". A
+    custom `output` path inside `directory` therefore got hashed on a rerun
+    (its previous content, since the new content hasn't been written yet), and
+    the manifest that overwrote it a moment later recorded a checksum for
+    bytes that no longer existed there -- `sha256sum -c` fails on that entry
+    forever afterward.
+    """
+    root = Path(directory)
+    out_path = Path(output) if output else root / "checksums.txt"
+    exclude: set[str] = set()
+    try:
+        exclude = {out_path.resolve().relative_to(root.resolve()).as_posix()}
+    except ValueError:
+        pass  # out_path is outside directory; nothing of its own to exclude.
+    entries = compute_checksums(root, exclude=exclude)
     out_path.write_text(render_checksums(entries))
     return out_path
 
@@ -330,6 +346,122 @@ def _check_lockfiles(repo_root: Path, catalog: dict[str, Any]) -> CheckResult:
     return CheckResult("Python lockfiles present and non-empty", True)
 
 
+def _pep503_normalize(name: str) -> str:
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def _parse_pep508_name_and_pin(spec: str) -> tuple[str, str | None]:
+    """Split a PEP 508 dependency string into (normalized name, exact pin or None).
+
+    Only extracts a version when the spec is a single '==' constraint; range/
+    multi-constraint specs (e.g. ">=1.17,<2") return None for the pin, since
+    verifying those against a lock needs a resolver this check does not run --
+    presence as a direct dependency is still verified either way.
+    """
+    match = re.match(r"^([A-Za-z0-9][A-Za-z0-9._-]*)\s*(\[[^\]]*\])?\s*(.*)$", spec.strip())
+    if not match:
+        return _pep503_normalize(spec.strip()), None
+    name = _pep503_normalize(match.group(1))
+    constraint = match.group(3).split(";", 1)[0].strip()  # drop any environment marker
+    pin_match = re.fullmatch(r"==\s*([^,\s]+)", constraint)
+    return name, (pin_match.group(1) if pin_match else None)
+
+
+def _pyproject_dependencies(pyproject_path: Path) -> list[tuple[str, str | None]]:
+    data = tomllib.loads(pyproject_path.read_text())
+    deps = (data.get("project") or {}).get("dependencies") or []
+    return [_parse_pep508_name_and_pin(dep) for dep in deps]
+
+
+def _requirements_lock_direct_versions(lock_path: Path, *, owner_marker: str) -> dict[str, str]:
+    """Map normalized package name -> locked version for packages `uv pip compile`
+    marked as directly requested by `owner_marker` (a "# via ... <owner> (<pyproject>)"
+    comment), as opposed to pulled in transitively by another package.
+    """
+    lines = lock_path.read_text().splitlines()
+    direct: dict[str, str] = {}
+    top_level_re = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._-]*)==([^\s\\]+)")
+    i = 0
+    while i < len(lines):
+        match = top_level_re.match(lines[i])
+        if not match:
+            i += 1
+            continue
+        name, version = match.group(1), match.group(2)
+        block_end = i + 1
+        while block_end < len(lines) and lines[block_end][:1] in (" ", "\t"):
+            block_end += 1
+        block = "\n".join(lines[i:block_end])
+        if f"{owner_marker} (" in block:
+            direct[_pep503_normalize(name)] = version
+        i = block_end
+    return direct
+
+
+def _uv_lock_requires_dist(uv_lock_path: Path, package_name: str) -> set[str]:
+    """Normalized package names uv.lock records as `package_name`'s direct
+    dependencies, from that package's own [[package]] block's
+    [package.metadata].requires-dist -- uv's record of what the project
+    currently declares, distinct from the resolved transitive closure.
+    """
+    data = tomllib.loads(uv_lock_path.read_text())
+    for package in data.get("package", []):
+        if package.get("name") == package_name:
+            metadata = package.get("metadata") or {}
+            return {_pep503_normalize(entry["name"]) for entry in metadata.get("requires-dist", []) if "name" in entry}
+    return set()
+
+
+def _check_lockfiles_synced_with_pyproject(repo_root: Path, catalog: dict[str, Any]) -> CheckResult:
+    """Catch a pyproject.toml dependency added or version-changed without
+    regenerating the corresponding lockfile.
+
+    `_check_lockfiles` only verifies the lockfiles exist and are non-empty.
+    `check-project-code.sh` and `uv sync` both install straight from
+    pyproject.toml metadata, so that drift can pass every other check while
+    `images/project-code/Dockerfile`'s `pip install --require-hashes --no-deps
+    -r requirements.lock` installs the stale, hash-pinned lock instead --
+    silently shipping the wrong (or a missing) runtime dependency.
+    """
+    python = (catalog.get("components") or {}).get("python") or {}
+    problems: list[str] = []
+
+    project_code_pyproject = repo_root / "images/project-code/pyproject.toml"
+    project_code_lock_rel = python.get("project_code_lock")
+    if project_code_pyproject.is_file() and project_code_lock_rel:
+        lock_path = repo_root / project_code_lock_rel
+        if lock_path.is_file():
+            direct = _requirements_lock_direct_versions(lock_path, owner_marker="openlakeforge-project-code")
+            for name, pin in _pyproject_dependencies(project_code_pyproject):
+                if name not in direct:
+                    problems.append(
+                        f"images/project-code/pyproject.toml declares {name!r} but "
+                        f"{project_code_lock_rel} has no direct entry for it -- regenerate the lock"
+                    )
+                elif pin is not None and direct[name] != pin:
+                    problems.append(
+                        f"images/project-code/pyproject.toml pins {name!r}=={pin} but "
+                        f"{project_code_lock_rel} locks it at {direct[name]!r} -- regenerate the lock"
+                    )
+
+    tooling_pyproject = repo_root / "tools/olf/pyproject.toml"
+    tooling_lock_rel = python.get("tooling_lock")
+    if tooling_pyproject.is_file() and tooling_lock_rel:
+        lock_path = repo_root / tooling_lock_rel
+        if lock_path.is_file():
+            requires_dist = _uv_lock_requires_dist(lock_path, "openlakeforge-tools")
+            for name, _pin in _pyproject_dependencies(tooling_pyproject):
+                if name not in requires_dist:
+                    problems.append(
+                        f"tools/olf/pyproject.toml declares {name!r} but {tooling_lock_rel} records no "
+                        "requires-dist entry for it -- run 'uv lock --project tools/olf'"
+                    )
+
+    if problems:
+        return CheckResult("lockfiles are synchronized with their pyproject.toml", False, "; ".join(problems))
+    return CheckResult("lockfiles are synchronized with their pyproject.toml", True)
+
+
 def _check_dockerfiles_pinned(repo_root: Path) -> CheckResult:
     problems: list[str] = []
     for dockerfile in sorted(repo_root.glob("images/*/Dockerfile")):
@@ -356,8 +488,9 @@ def run_release_check(
 
     Validates: catalog version matches the tag (when a tag is given), every
     catalog image is digest-pinned, every workflow action is SHA-pinned and
-    recorded in the catalog, both lockfiles exist and are non-empty, and no
-    Dockerfile FROM/ARG is unpinned outside of build-arg indirection.
+    recorded in the catalog, both lockfiles exist and are non-empty and stay
+    synchronized with their pyproject.toml, and no Dockerfile FROM/ARG is
+    unpinned outside of build-arg indirection.
     """
     root = Path(repo_root).resolve()
     catalog = load_catalog(root / catalog_path)
@@ -367,5 +500,6 @@ def run_release_check(
     report.results.append(_check_images_digest_pinned(catalog))
     report.results.append(_check_actions_sha_pinned(root, catalog))
     report.results.append(_check_lockfiles(root, catalog))
+    report.results.append(_check_lockfiles_synced_with_pyproject(root, catalog))
     report.results.append(_check_dockerfiles_pinned(root))
     return report
