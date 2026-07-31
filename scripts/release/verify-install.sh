@@ -45,7 +45,7 @@ for arg in "$@"; do
 done
 
 if [[ -z "${TAG:-}" ]]; then
-  TAG="v$(cd "${REPO_ROOT}" && uv run --project tools/olf python -c "
+  TAG="v$(cd "${REPO_ROOT}" && uv run --project tools/olf --locked python -c "
 import yaml
 print(yaml.safe_load(open('release/component-catalog.yaml'))['distribution']['version'])
 ")"
@@ -69,8 +69,35 @@ cd "${WORK_DIR}/assets"
 echo "==> Downloading release assets for ${TAG}"
 if command -v gh &>/dev/null; then
   gh release download "${TAG}" --repo "${REPO_SLUG}" --clobber
+elif [[ -f "checksums.txt" ]]; then
+  # A consumer who already downloaded every asset manually (as the previous
+  # error message here used to suggest, without this script ever actually
+  # checking for them) can re-run and proceed with what's already present.
+  echo "    'gh' not found, but assets already present in ${WORK_DIR}/assets -- using those."
+elif command -v curl &>/dev/null; then
+  echo "    'gh' not found; falling back to curl against the GitHub Releases API."
+  api_url="https://api.github.com/repos/${REPO_SLUG}/releases/tags/${TAG}"
+  release_json="$(curl -fsSL "${api_url}")" || {
+    echo "ERROR: could not fetch release metadata for ${TAG} from ${api_url}" >&2
+    exit 1
+  }
+  while IFS=$'\t' read -r asset_name asset_url; do
+    [[ -z "${asset_name}" ]] && continue
+    echo "    Downloading ${asset_name}..."
+    curl -fsSL -o "${asset_name}" "${asset_url}"
+  done < <(python3 -c "
+import json, sys
+data = json.loads(sys.argv[1])
+for asset in data.get('assets', []):
+    print(f\"{asset['name']}\t{asset['browser_download_url']}\")
+" "${release_json}")
+  if [[ ! -f "checksums.txt" ]]; then
+    echo "ERROR: no checksums.txt found among the downloaded assets for ${TAG}" >&2
+    exit 1
+  fi
 else
-  echo "ERROR: 'gh' (GitHub CLI) not found. Install it or download the release" >&2
+  echo "ERROR: neither 'gh' nor 'curl' found, and no assets already present in" >&2
+  echo "       ${WORK_DIR}/assets. Install one of them, or download the release" >&2
   echo "       assets for ${TAG} from https://github.com/${REPO_SLUG}/releases/tag/${TAG}" >&2
   echo "       into ${WORK_DIR}/assets and re-run." >&2
   exit 1

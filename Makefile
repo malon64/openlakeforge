@@ -115,7 +115,7 @@ check-dbt:
 	@bash scripts/test/check-dbt.sh
 
 release-check: check-structure check-components check-contracts check-infra check-project-code check-dbt
-	@uv run --project tools/olf olf release check
+	@uv run --project tools/olf --locked olf release check
 
 release-bundle:
 	@bash scripts/release/build-bundle.sh

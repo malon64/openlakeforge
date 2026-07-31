@@ -178,9 +178,32 @@ def write_checksums(directory: str | Path, output: str | Path | None = None) -> 
     return out_path
 
 
+COMPATIBILITY_MATRIX_HEADER = """<!--
+This file is generated from release/component-catalog.yaml. Do not hand-edit
+the tables below -- regenerate with:
+
+    olf release compatibility-matrix --output docs/release/compatibility-matrix.md
+
+(or `uv run --project tools/olf olf release compatibility-matrix --output ...`
+from the repo root). The same command produces the copy embedded in every
+release bundle by .github/workflows/release.yml, so this file always matches
+what a tagged release publishes as of the last catalog update. `make
+release-check` fails if this checked-in file drifts from a fresh render;
+regenerate it whenever release/component-catalog.yaml changes.
+-->
+
+"""
+
+
 def render_compatibility_matrix(catalog: dict[str, Any]) -> str:
     """Render the OpenLakeForge <-> Kubernetes <-> Terraform <-> Helm chart
     compatibility matrix as Markdown, sourced entirely from the catalog.
+
+    Always includes COMPATIBILITY_MATRIX_HEADER so the checked-in docs copy
+    and _check_compatibility_matrix_up_to_date's comparison can never drift
+    from each other by construction -- the header carries the regeneration
+    instructions this exact drift previously required someone to remember by
+    hand.
     """
     components = catalog.get("components") or {}
     distribution = catalog.get("distribution") or {}
@@ -275,7 +298,31 @@ def render_compatibility_matrix(catalog: dict[str, Any]) -> str:
     )
     lines.append("")
 
-    return "\n".join(lines)
+    return COMPATIBILITY_MATRIX_HEADER + "\n".join(lines)
+
+
+def _check_compatibility_matrix_up_to_date(repo_root: Path, catalog: dict[str, Any]) -> CheckResult:
+    """The checked-in docs/release/compatibility-matrix.md must match a fresh
+    render of the catalog exactly.
+
+    Nothing previously enforced this -- the file's own header admitted as
+    much -- so a catalog change (e.g. a Terraform provider bump) could ship
+    without the published-facing doc ever being regenerated, leaving it
+    presenting stale exact-version claims to consumers.
+    """
+    doc_path = repo_root / "docs/release/compatibility-matrix.md"
+    if not doc_path.is_file():
+        return CheckResult("compatibility matrix doc is up to date", False, f"{doc_path} does not exist")
+    expected = render_compatibility_matrix(catalog)
+    actual = doc_path.read_text()
+    if actual != expected:
+        return CheckResult(
+            "compatibility matrix doc is up to date",
+            False,
+            "docs/release/compatibility-matrix.md does not match a fresh render of release/component-catalog.yaml "
+            "-- regenerate with 'olf release compatibility-matrix --output docs/release/compatibility-matrix.md'",
+        )
+    return CheckResult("compatibility matrix doc is up to date", True)
 
 
 # ---------------------------------------------------------------------------
@@ -479,6 +526,7 @@ def _check_lockfiles_synced_with_pyproject(repo_root: Path, catalog: dict[str, A
         lock_path = repo_root / project_code_lock_rel
         if lock_path.is_file():
             direct = _requirements_lock_direct_versions(lock_path, owner_marker="openlakeforge-project-code")
+            declared = {name for name, _constraint in _pyproject_dependencies(project_code_pyproject)}
             for name, constraint in _pyproject_dependencies(project_code_pyproject):
                 if name not in direct:
                     problems.append(
@@ -491,6 +539,17 @@ def _check_lockfiles_synced_with_pyproject(repo_root: Path, catalog: dict[str, A
                         f"{project_code_lock_rel} locks it at {direct[name]!r}, which does not satisfy that "
                         "constraint -- regenerate the lock"
                     )
+            # The reverse direction: a dependency removed from pyproject.toml
+            # without regenerating the lock leaves an extra direct entry there.
+            # The Dockerfile installs the *entire* lock with --no-deps, so the
+            # removed package and its transitive closure would still ship in the
+            # published image even though nothing declares it anymore.
+            for name in sorted(direct):
+                if name not in declared:
+                    problems.append(
+                        f"{project_code_lock_rel} has a direct entry for {name!r} at {direct[name]!r}, but "
+                        "images/project-code/pyproject.toml no longer declares it -- regenerate the lock"
+                    )
 
     tooling_pyproject = repo_root / "tools/olf/pyproject.toml"
     tooling_lock_rel = python.get("tooling_lock")
@@ -498,6 +557,7 @@ def _check_lockfiles_synced_with_pyproject(repo_root: Path, catalog: dict[str, A
         lock_path = repo_root / tooling_lock_rel
         if lock_path.is_file():
             requires_dist = _uv_lock_requires_dist(lock_path, "openlakeforge-tools")
+            tooling_declared = {name for name, _constraint in _pyproject_dependencies(tooling_pyproject)}
             for name, constraint in _pyproject_dependencies(tooling_pyproject):
                 if name not in requires_dist:
                     problems.append(
@@ -509,6 +569,12 @@ def _check_lockfiles_synced_with_pyproject(repo_root: Path, catalog: dict[str, A
                         f"tools/olf/pyproject.toml requires {name!r}{constraint} but {tooling_lock_rel} "
                         f"records the specifier {requires_dist[name]!r} for it -- run "
                         "'uv lock --project tools/olf'"
+                    )
+            for name in sorted(requires_dist):
+                if name not in tooling_declared:
+                    problems.append(
+                        f"{tooling_lock_rel} records a requires-dist entry for {name!r}, but "
+                        "tools/olf/pyproject.toml no longer declares it -- run 'uv lock --project tools/olf'"
                     )
 
     if problems:
@@ -556,4 +622,5 @@ def run_release_check(
     report.results.append(_check_lockfiles(root, catalog))
     report.results.append(_check_lockfiles_synced_with_pyproject(root, catalog))
     report.results.append(_check_dockerfiles_pinned(root))
+    report.results.append(_check_compatibility_matrix_up_to_date(root, catalog))
     return report

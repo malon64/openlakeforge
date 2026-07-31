@@ -39,14 +39,14 @@ rm -rf "${RELEASE_BUNDLE_DIR}"
 mkdir -p "${RELEASE_BUNDLE_DIR}"
 
 echo "==> Writing component manifest"
-uv run --project tools/olf olf release manifest \
+uv run --project tools/olf --locked olf release manifest \
   --git-sha "${GIT_SHA}" \
   --image "project-code=${project_code_ref}@${project_code_digest} (local build, not pushed)" \
   --image "superset=${superset_ref}@${superset_digest} (local build, not pushed)" \
   --output "${RELEASE_BUNDLE_DIR}/component-manifest.json"
 
 echo "==> Writing compatibility matrix"
-uv run --project tools/olf olf release compatibility-matrix \
+uv run --project tools/olf --locked olf release compatibility-matrix \
   --output "${RELEASE_BUNDLE_DIR}/compatibility-matrix.md"
 
 echo "==> Copying catalog and changelog"
@@ -63,6 +63,6 @@ else
 fi
 
 echo "==> Writing checksums.txt"
-uv run --project tools/olf olf release checksums --dir "${RELEASE_BUNDLE_DIR}"
+uv run --project tools/olf --locked olf release checksums --dir "${RELEASE_BUNDLE_DIR}"
 
 echo "Release bundle written to ${RELEASE_BUNDLE_DIR}"

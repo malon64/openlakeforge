@@ -425,3 +425,82 @@ requires-dist = [
     assert not result.ok
     assert "boto3" in result.detail
     assert ">=1.40,<2" in result.detail
+
+
+def test_check_lockfiles_synced_flags_a_dependency_removed_from_pyproject(tmp_path: Path) -> None:
+    """The reverse direction: a dependency removed from pyproject.toml without
+    regenerating the lock leaves an extra direct entry there. The Dockerfile
+    installs the *entire* lock with --no-deps, so the removed package (and its
+    transitive closure) still ships in the published image even though
+    nothing declares it anymore -- the one-way (declared -> locked) check
+    never noticed.
+    """
+    project_code = tmp_path / "images/project-code"
+    project_code.mkdir(parents=True)
+    _write_pyproject(project_code / "pyproject.toml", ["boto3==1.37.3"])
+    _write_requirements_lock(
+        project_code / "requirements.lock", direct={"boto3": "1.37.3", "pyopenssl": "26.3.0"}
+    )
+
+    catalog = {"components": {"python": {"project_code_lock": "images/project-code/requirements.lock"}}}
+    result = release._check_lockfiles_synced_with_pyproject(tmp_path, catalog)
+
+    assert not result.ok
+    assert "pyopenssl" in result.detail
+    assert "no longer declares it" in result.detail
+
+
+def test_check_lockfiles_synced_flags_a_dependency_removed_from_tooling_pyproject(tmp_path: Path) -> None:
+    tooling = tmp_path / "tools/olf"
+    tooling.mkdir(parents=True)
+    _write_pyproject(tooling / "pyproject.toml", ["boto3>=1.34,<2"])
+    (tooling / "uv.lock").write_text(
+        """
+[[package]]
+name = "openlakeforge-tools"
+version = "0.1.0"
+
+[package.metadata]
+requires-dist = [
+    { name = "boto3", specifier = ">=1.34,<2" },
+    { name = "httpx", specifier = ">=0.27,<1" },
+]
+"""
+    )
+
+    catalog = {"components": {"python": {"tooling_lock": "tools/olf/uv.lock"}}}
+    result = release._check_lockfiles_synced_with_pyproject(tmp_path, catalog)
+
+    assert not result.ok
+    assert "httpx" in result.detail
+    assert "no longer declares it" in result.detail
+
+
+def test_compatibility_matrix_doc_is_up_to_date_on_real_repo() -> None:
+    catalog = release.load_catalog(ROOT / "release/component-catalog.yaml")
+    result = release._check_compatibility_matrix_up_to_date(ROOT, catalog)
+    assert result.ok, result.detail
+
+
+def test_compatibility_matrix_doc_flags_drift(tmp_path: Path) -> None:
+    """Nothing previously enforced that the checked-in doc matched the catalog
+    -- the file's own header admitted as much. A catalog change (e.g. a
+    Terraform provider bump) could ship without the doc ever being
+    regenerated, silently presenting stale exact-version claims to consumers.
+    """
+    catalog = release.load_catalog(_write_catalog(tmp_path))
+    docs_dir = tmp_path / "docs" / "release"
+    docs_dir.mkdir(parents=True)
+    (docs_dir / "compatibility-matrix.md").write_text("stale content from before the last catalog bump\n")
+
+    result = release._check_compatibility_matrix_up_to_date(tmp_path, catalog)
+
+    assert not result.ok
+    assert "does not match a fresh render" in result.detail
+
+
+def test_compatibility_matrix_doc_missing_is_flagged(tmp_path: Path) -> None:
+    catalog = release.load_catalog(_write_catalog(tmp_path))
+    result = release._check_compatibility_matrix_up_to_date(tmp_path, catalog)
+    assert not result.ok
+    assert "does not exist" in result.detail

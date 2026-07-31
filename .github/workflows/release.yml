@@ -80,7 +80,7 @@ jobs:
         id: version
         run: |
           set -euo pipefail
-          catalog_version="$(uv run --project tools/olf python -c "
+          catalog_version="$(uv run --project tools/olf --locked python -c "
           import yaml
           print(yaml.safe_load(open('release/component-catalog.yaml'))['distribution']['version'])
           ")"
@@ -116,11 +116,11 @@ jobs:
         id: images
         run: |
           set -euo pipefail
-          project_code_base_image="$(uv run --project tools/olf python -c "
+          project_code_base_image="$(uv run --project tools/olf --locked python -c "
           import yaml
           print(yaml.safe_load(open('release/component-catalog.yaml'))['components']['images']['project_code_base'])
           ")"
-          superset_base_image="$(uv run --project tools/olf python -c "
+          superset_base_image="$(uv run --project tools/olf --locked python -c "
           import yaml
           print(yaml.safe_load(open('release/component-catalog.yaml'))['components']['images']['superset_base'])
           ")"
@@ -130,7 +130,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Release-readiness gate (olf release check)
-        run: uv run --project tools/olf olf release check --tag "${{ steps.version.outputs.tag }}"
+        run: uv run --project tools/olf --locked olf release check --tag "${{ steps.version.outputs.tag }}"
 
       - name: Verify the tag matches the catalog version
         run: |
@@ -315,18 +315,18 @@ jobs:
 
           cp release/component-catalog.yaml "${bundle_dir}/component-catalog.yaml"
 
-          uv run --project tools/olf olf release manifest \
+          uv run --project tools/olf --locked olf release manifest \
             --git-sha "${GITHUB_SHA}" \
             --image "project-code=${project_code_reference}" \
             --image "superset=${superset_reference}" \
             --output "${bundle_dir}/component-manifest.json"
 
-          uv run --project tools/olf olf release compatibility-matrix \
+          uv run --project tools/olf --locked olf release compatibility-matrix \
             --output "${bundle_dir}/compatibility-matrix.md"
 
           cp CHANGELOG.md "${bundle_dir}/CHANGELOG.md"
 
-          uv run --project tools/olf olf release checksums --dir "${bundle_dir}"
+          uv run --project tools/olf --locked olf release checksums --dir "${bundle_dir}"
 
           echo "bundle_dir=${bundle_dir}" >> "$GITHUB_OUTPUT"
 

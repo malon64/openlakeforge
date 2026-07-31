@@ -1,6 +1,6 @@
 <!--
 This file is generated from release/component-catalog.yaml. Do not hand-edit
-the tables below — regenerate with:
+the tables below -- regenerate with:
 
     olf release compatibility-matrix --output docs/release/compatibility-matrix.md
 
@@ -8,9 +8,8 @@ the tables below — regenerate with:
 from the repo root). The same command produces the copy embedded in every
 release bundle by .github/workflows/release.yml, so this file always matches
 what a tagged release publishes as of the last catalog update. `make
-release-check` / `make check-components` do not currently fail on drift
-between this file and the catalog; regenerate it whenever
-release/component-catalog.yaml changes.
+release-check` fails if this checked-in file drifts from a fresh render;
+regenerate it whenever release/component-catalog.yaml changes.
 -->
 
 # OpenLakeForge 0.1.0-alpha.1 compatibility matrix
@@ -25,7 +24,9 @@ Generated from `release/component-catalog.yaml`. Every version below is the exac
 
 ## Terraform providers
 
-| Provider | Version |
+The tracked/approved version for each provider. Individual Terraform roots can lock an older compatible version (below) -- consult that table for the exact version actually applied to a given target.
+
+| Provider | Tracked version |
 | --- | --- |
 | hashicorp/aws | 5.100.0 |
 | hashicorp/azurerm | 4.77.0 |
@@ -33,6 +34,19 @@ Generated from `release/component-catalog.yaml`. Every version below is the exac
 | hashicorp/kubernetes | 2.38.0 |
 | hashicorp/random | 3.9.0 |
 | hashicorp/tls | 4.3.0 |
+
+### Terraform providers by root
+
+The exact version `.terraform.lock.hcl` pins for each root -- what a consumer of that target actually gets, not the tracked version above.
+
+| Provider | infra/terraform/environments/aws-poc/.terraform.lock.hcl | infra/terraform/environments/azure-poc/.terraform.lock.hcl | infra/terraform/environments/local/.terraform.lock.hcl | infra/terraform/foundations/aws-eks/.terraform.lock.hcl | infra/terraform/foundations/azure-aks/.terraform.lock.hcl |
+| --- | --- | --- | --- | --- | --- |
+| hashicorp/aws | 5.100.0 |  |  | 5.100.0 |  |
+| hashicorp/azurerm |  |  |  |  | 4.77.0 |
+| hashicorp/helm | 3.2.0 | 3.2.0 | 3.1.1 |  |  |
+| hashicorp/kubernetes | 2.38.0 | 2.38.0 | 2.38.0 |  |  |
+| hashicorp/random | 3.9.0 | 3.9.0 | 3.9.0 |  | 3.9.0 |
+| hashicorp/tls |  |  |  | 4.3.0 |  |
 
 ## Helm charts
 
