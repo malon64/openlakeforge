@@ -127,3 +127,17 @@ def test_upload_manifests_without_runtime_root_does_not_prune_configs_or_profile
     assert "floe/profiles/sales/order_revenue/local-k8s.yml" in fake_client.objects
     assert "floe/manifests/sales/customer_health/customer_health.manifest.json" not in fake_client.objects
     assert "floe/manifests/sales/order_revenue/order_revenue.manifest.json" in fake_client.objects
+
+    # The published sidecar must describe the bucket's *true total* state --
+    # including the configs/profiles this invocation preserved but never had
+    # local knowledge of -- not just the manifest-only set it uploaded.
+    # Otherwise `revision verify` would see every preserved config/profile as
+    # an undeclared extra forever, since this command never touches them again.
+    sidecar = revision_module.fetch_sidecar(fake_client, "ops-bucket")
+    assert "floe/configs/sales/order_revenue/order_revenue.yml" in sidecar.entries
+    assert "floe/profiles/sales/order_revenue/local-k8s.yml" in sidecar.entries
+    assert "floe/manifests/sales/order_revenue/order_revenue.manifest.json" in sidecar.entries
+    assert "floe/manifests/sales/customer_health/customer_health.manifest.json" not in sidecar.entries
+
+    actual_full_bucket = revision_module.fetch_bucket_manifest(fake_client, "ops-bucket")
+    assert sidecar.revision == actual_full_bucket.revision

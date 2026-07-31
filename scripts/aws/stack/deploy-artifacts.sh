@@ -101,6 +101,18 @@ olf_run k8s set-project-code-image \
   --image "${PROJECT_CODE_IMAGE}" \
   --floe-manifest-revision "${FLOE_MANIFEST_REVISION}"
 
+# Persist the just-deployed revision as an auto-loaded tfvars input. Terraform
+# only knows floe_manifest_revision through -var on this apply; the patch above
+# is applied directly via kubectl, so any *later*, unrelated `terraform apply`
+# against this root (a routine Helm chart bump, for example) would otherwise
+# reset the variable to its "manual" default and silently disable
+# ArtifactRevisionError checking until the next artifact deploy re-patches it.
+# Terraform auto-loads any *.auto.tfvars file in its working directory, so this
+# makes the deployed revision part of the root's desired state without a
+# manual -var-file flag.
+echo "floe_manifest_revision = \"${FLOE_MANIFEST_REVISION}\"" \
+  > "${CONTRACT_TERRAFORM_DIR}/olf-artifact-revision.auto.tfvars"
+
 echo "==> Deploying product Superset report assets..."
 olf_run superset deploy-reports
 

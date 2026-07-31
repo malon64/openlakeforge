@@ -165,18 +165,27 @@ def artifacts_upload_manifests(
     # this, the uploaded objects' per-object revision metadata advances but the
     # sidecar `revision verify`/the e2e artifact-revision check reads stays behind,
     # so it looks like the deploy never happened even though the bucket did change.
-    #
-    # Pruning is scoped to only the managed prefixes this upload actually
-    # declares (revision_module.prefixes_present): the default --runtime-root-less
-    # port-forward path uploads manifests only (discover_tracked_manifests), so
-    # reconciling against the full DEFAULT_BUCKET_PREFIXES would delete every
-    # object under floe/configs/ and floe/profiles/ -- prefixes this invocation
-    # never had an opinion on -- since none of their keys appear in this
-    # manifest-only entry set.
     with _s3_client(via) as (_bucket, client):
-        revision_module.publish_sidecar(
+        # Pruning is scoped to only the managed prefixes this upload actually
+        # declares: the default --runtime-root-less port-forward path uploads
+        # manifests only (discover_tracked_manifests), so reconciling against the
+        # full DEFAULT_BUCKET_PREFIXES would delete every object under
+        # floe/configs/ and floe/profiles/ -- prefixes this invocation never had
+        # an opinion on -- since none of their keys appear in this manifest-only
+        # entry set.
+        revision_module.prune_orphaned_objects(
             client, bucket, artifact_manifest, prefixes=revision_module.prefixes_present(artifact_manifest.entries)
         )
+        # The published sidecar, however, must describe the bucket's true total
+        # state, not just what this invocation happened to touch locally. A
+        # manifest-only artifact_manifest has no entries for the configs/profiles
+        # a prior full deploy uploaded and this invocation just preserved above --
+        # publishing it verbatim would make revision verify (and the e2e
+        # artifact-revision check) see every preserved config/profile as an
+        # undeclared extra, forever, since discover_tracked_manifests never has an
+        # opinion on them. Re-scan the bucket post-prune and publish that instead.
+        full_bucket_manifest = revision_module.fetch_bucket_manifest(client, bucket)
+        revision_module.publish_sidecar(client, bucket, full_bucket_manifest, prune=False)
 
 
 @superset_app.command("deploy-reports")
