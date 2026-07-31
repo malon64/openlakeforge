@@ -165,8 +165,18 @@ def artifacts_upload_manifests(
     # this, the uploaded objects' per-object revision metadata advances but the
     # sidecar `revision verify`/the e2e artifact-revision check reads stays behind,
     # so it looks like the deploy never happened even though the bucket did change.
+    #
+    # Pruning is scoped to only the managed prefixes this upload actually
+    # declares (revision_module.prefixes_present): the default --runtime-root-less
+    # port-forward path uploads manifests only (discover_tracked_manifests), so
+    # reconciling against the full DEFAULT_BUCKET_PREFIXES would delete every
+    # object under floe/configs/ and floe/profiles/ -- prefixes this invocation
+    # never had an opinion on -- since none of their keys appear in this
+    # manifest-only entry set.
     with _s3_client(via) as (_bucket, client):
-        revision_module.publish_sidecar(client, bucket, artifact_manifest)
+        revision_module.publish_sidecar(
+            client, bucket, artifact_manifest, prefixes=revision_module.prefixes_present(artifact_manifest.entries)
+        )
 
 
 @superset_app.command("deploy-reports")

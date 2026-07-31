@@ -214,6 +214,31 @@ FLOE_MANIFEST_REVISION=<rev>` verifies the bucket out of band, and the full e2e
 suite asserts the published sidecar still matches the objects actually in the
 bucket.
 
+### Known limitation: the rollout-window race
+
+The deploy flow rolls Dagster onto the new image/revision immediately after
+publishing (before Superset/OpenMetadata), which narrows but does not close
+one gap: the object keys under `floe/manifests/`, `floe/configs/`, and
+`floe/profiles/` are **mutable** (fixed paths, overwritten in place), not
+revision-qualified. Between the bucket being overwritten and Dagster's
+rollout actually completing (or if that rollout fails outright), the
+*previous* code server can still be running and can still launch a Floe
+runner pod. That pod resolves the same mutable manifest URI the new deploy
+just overwrote, so it fetches the *new* manifest content -- the runtime
+fail-fast validation in `_cache_remote_manifest_for_dagster` only runs at
+Dagster code-server start, not per Floe run, so it does not catch this case.
+
+Closing this fully needs the object keys themselves to be revision-qualified
+(content-addressed under a `<revision>/...` prefix) with Dagster and Floe
+runners both resolving the URI for their *own* expected revision, so an old
+code server always reads old objects and a new one always reads new ones,
+with no shared mutable path between them. That is a larger change than this
+contract makes today -- it touches manifest generation, upload key
+derivation, `libs/product_dagster.py`'s URI resolution, and the retention
+policy for `prune_orphaned_objects` (which currently assumes one canonical
+current set, not several coexisting revisions during a rollout) -- and is
+tracked as follow-up work, not implemented here.
+
 ## Observability Contract
 
 The local observability adapter is `observability.object_log_archive`. It does

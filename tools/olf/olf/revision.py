@@ -30,6 +30,26 @@ REVISION_METADATA_KEY = "olf-floe-revision"
 DEFAULT_BUCKET_PREFIXES = ("floe/configs/", "floe/profiles/", "floe/manifests/")
 
 
+def prefixes_present(entries: dict[str, str]) -> tuple[str, ...]:
+    """The managed-prefix subset actually represented in a set of entries.
+
+    `discover_tracked_manifests` (the default `olf artifacts upload-manifests
+    --via port-forward` path, i.e. `make floe-manifest-upload`) returns only
+    `floe/manifests/...` keys -- no configs or profiles. Pruning with the full
+    `DEFAULT_BUCKET_PREFIXES` against that manifest-only entry set would
+    reconcile `floe/configs/` and `floe/profiles/` against zero declared
+    entries and delete every object under them, even though this invocation
+    never had an opinion on configs/profiles at all. Scope the prune to only
+    the prefixes this upload actually declares.
+    """
+    found = set()
+    for key in entries:
+        parts = key.split("/")
+        if len(parts) >= 2:
+            found.add(f"{parts[0]}/{parts[1]}/")
+    return tuple(sorted(found))
+
+
 class RevisionError(RuntimeError):
     pass
 
