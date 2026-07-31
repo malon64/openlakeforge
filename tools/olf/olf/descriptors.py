@@ -22,6 +22,7 @@ import yaml
 DOMAIN_API_VERSION = "openlakeforge.io/v1alpha1"
 DOMAIN_KIND = "Domain"
 DOMAINS_DIRNAME = "domains"
+_IDENTIFIER_PATTERN = re.compile(r"[a-z][a-z0-9_]*")
 
 
 class DomainDescriptorError(ValueError):
@@ -59,12 +60,26 @@ def validate_domain_descriptor(document: Mapping[str, Any], *, source: str = "do
                 raise DomainDescriptorError(
                     f"{source}: data_products[{index}].{field} must be a non-empty string"
                 )
+        # `id` and `asset_prefix` are used unvalidated by discovery to derive
+        # manifest object keys, Dagster job names, and Terraform/catalog
+        # namespaces (see discovery section below). A value like "../other"
+        # would pass the "non-empty string" check above yet escape the
+        # product's own directory in a derived path and produce invalid
+        # downstream identifiers, so both must match the same identifier
+        # convention domain `name` already enforces.
+        if not _IDENTIFIER_PATTERN.fullmatch(product["id"]):
+            raise DomainDescriptorError(
+                f"{source}: data_products[{index}].id must match '^[a-z][a-z0-9_]*$'"
+            )
         if not isinstance(product["description"], str):
             raise DomainDescriptorError(f"{source}: data_products[{index}].description must be a string")
-        if "asset_prefix" in product and (
-            not isinstance(product["asset_prefix"], str) or not product["asset_prefix"]
-        ):
-            raise DomainDescriptorError(f"{source}: data_products[{index}].asset_prefix must be a non-empty string")
+        if "asset_prefix" in product:
+            if not isinstance(product["asset_prefix"], str) or not _IDENTIFIER_PATTERN.fullmatch(
+                product["asset_prefix"]
+            ):
+                raise DomainDescriptorError(
+                    f"{source}: data_products[{index}].asset_prefix must match '^[a-z][a-z0-9_]*$'"
+                )
         if "domain" in product and (not isinstance(product["domain"], str) or not product["domain"]):
             raise DomainDescriptorError(f"{source}: data_products[{index}].domain must be a non-empty string")
         if "domains" in product and (

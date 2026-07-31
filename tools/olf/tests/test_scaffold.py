@@ -735,3 +735,70 @@ def test_forced_rerun_removes_the_old_dashboard_when_product_display_name_change
     assert not old_dashboard.exists()
     assert old_dashboard in result.removed
     assert new_dashboard.exists()
+
+
+def test_chart_filename_collision_rejects_identical_names_too() -> None:
+    """The normalized-filename collision check must also catch two charts with
+    the exact same name, not only names that merely normalize to the same
+    filename: both still collide on the generated file and stable UUID.
+    """
+    spec_dict = {
+        **SPEC,
+        "marts": [
+            {**SPEC["marts"][0], "name": "mart_a", "chart": {**SPEC["marts"][0]["chart"], "name": "Route Cost"}},
+            {**SPEC["marts"][0], "name": "mart_b", "chart": {**SPEC["marts"][0]["chart"], "name": "Route Cost"}},
+        ],
+    }
+    with pytest.raises(scaffold.ScaffoldError, match="both normalize to the filename"):
+        scaffold.parse_spec(spec_dict)
+
+
+@pytest.mark.parametrize("missing_field", ["x_axis", "metrics"])
+@pytest.mark.parametrize("viz_type", ["echarts_timeseries_bar", "echarts_timeseries_line"])
+def test_timeseries_chart_requires_axis_and_metrics(viz_type: str, missing_field: str) -> None:
+    """A time-series chart missing x_axis or metrics renders with a null
+    temporal axis and/or no series to plot. The chart bundle would still
+    import -- structure checks only validate fields that are present -- so
+    this must be caught at scaffold time instead.
+    """
+    chart = {**SPEC["marts"][0]["chart"], "viz_type": viz_type}
+    chart[missing_field] = [] if missing_field == "metrics" else None
+    spec_dict = {**SPEC, "marts": [{**SPEC["marts"][0], "chart": chart}]}
+    expected = "requires x_axis" if missing_field == "x_axis" else "requires at least one metric"
+    with pytest.raises(scaffold.ScaffoldError, match=expected):
+        scaffold.parse_spec(spec_dict)
+
+
+def test_forced_rerun_invalidates_a_stale_generated_manifest(tmp_path: Path) -> None:
+    """`make floe-manifest` compiles contracts/floe/<product>.yml into
+    contracts/floe/manifests/<product>.manifest.json. A --force rerun that
+    changes the contract (e.g. a new source or column) must not leave that
+    manifest in place: check-project-code.sh treats its mere existence as
+    readiness, and artifact deployment uploads whatever is on disk, so a
+    stale manifest would let CI pass while Dagster loads outdated Floe
+    assets and run configuration.
+    """
+    scaffold.scaffold_product(scaffold.parse_spec(SPEC), tmp_path)
+    manifest_path = tmp_path / "domains/logistics/contracts/floe/manifests/route_efficiency.manifest.json"
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text('{"placeholder": true}')
+
+    result = scaffold.scaffold_product(scaffold.parse_spec(SPEC), tmp_path, force=True)
+
+    assert not manifest_path.exists()
+    assert manifest_path in result.removed
+
+
+def test_rerun_without_force_leaves_a_generated_manifest_alone(tmp_path: Path) -> None:
+    """Without --force, the contract itself is not rewritten (the file already
+    exists and is skipped), so there is nothing for a generated manifest to
+    go stale against -- it must survive a plain rerun.
+    """
+    scaffold.scaffold_product(scaffold.parse_spec(SPEC), tmp_path)
+    manifest_path = tmp_path / "domains/logistics/contracts/floe/manifests/route_efficiency.manifest.json"
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text('{"placeholder": true}')
+
+    scaffold.scaffold_product(scaffold.parse_spec(SPEC), tmp_path, force=False)
+
+    assert manifest_path.exists()

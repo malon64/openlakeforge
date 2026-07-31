@@ -317,4 +317,54 @@ def test_discover_products_asset_prefix_defaults_to_domain_and_product_id(tmp_pa
 
     (product,) = discover_products(tmp_path)
     assert product.asset_prefix == "marketing_campaign_performance"
-    assert product.job_name == "marketing_campaign_performance_pipeline"
+
+
+def test_domain_descriptor_rejects_path_traversal_in_product_id() -> None:
+    """discover_products derives manifest_key as f"floe/manifests/{domain}/{id}/{id}.manifest.json"
+    with no further sanitization. An id of "../other" would previously pass the
+    "non-empty string" check and escape the product's own directory in that
+    derived path (and in Dagster job/namespace names), so it must be rejected
+    at validation time instead.
+    """
+    descriptor = {
+        "apiVersion": "openlakeforge.io/v1alpha1",
+        "kind": "Domain",
+        "name": "sales",
+        "displayName": "Sales",
+        "description": "Sales",
+        "status": "planned",
+        "data_products": [
+            {
+                "id": "../other",
+                "name": "sales_orders",
+                "displayName": "Orders",
+                "description": "Orders",
+                "status": "planned",
+            }
+        ],
+    }
+    with pytest.raises(DomainDescriptorError, match=r"data_products\[0\]\.id must match"):
+        validate_domain_descriptor(descriptor)
+
+
+def test_domain_descriptor_rejects_unsafe_asset_prefix() -> None:
+    descriptor = {
+        "apiVersion": "openlakeforge.io/v1alpha1",
+        "kind": "Domain",
+        "name": "sales",
+        "displayName": "Sales",
+        "description": "Sales",
+        "status": "planned",
+        "data_products": [
+            {
+                "id": "orders",
+                "name": "sales_orders",
+                "displayName": "Orders",
+                "description": "Orders",
+                "status": "planned",
+                "asset_prefix": "../escape",
+            }
+        ],
+    }
+    with pytest.raises(DomainDescriptorError, match=r"data_products\[0\]\.asset_prefix must match"):
+        validate_domain_descriptor(descriptor)

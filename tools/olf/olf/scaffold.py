@@ -301,7 +301,7 @@ def _validate_chart_filename_collisions(spec: ProductSpec, source: str) -> None:
         if not mart.chart:
             continue
         chart_file = mart.chart.name.replace(" ", "_").replace("-", "_")
-        if chart_file in seen and seen[chart_file] != mart.chart.name:
+        if chart_file in seen:
             raise ScaffoldError(
                 f"{source}: charts {seen[chart_file]!r} and {mart.chart.name!r} both normalize to the "
                 f"filename {chart_file!r} -- rename one of them"
@@ -349,6 +349,19 @@ def _validate_chart_references(spec: ProductSpec, source: str) -> None:
                 f"{source}: pie chart {mart.chart.name!r} must declare exactly one metric, "
                 f"got {len(mart.chart.metrics)}"
             )
+        # A time-series chart with no x_axis or no metrics renders with a null
+        # temporal axis and/or an empty series list. The chart bundle still
+        # imports -- structure checks only validate fields that are present --
+        # but Superset has nothing to plot, so the generated chart is unusable.
+        if mart.chart.viz_type in ("echarts_timeseries_bar", "echarts_timeseries_line"):
+            if not mart.chart.x_axis:
+                raise ScaffoldError(
+                    f"{source}: chart {mart.chart.name!r} ({mart.chart.viz_type}) requires x_axis"
+                )
+            if not mart.chart.metrics:
+                raise ScaffoldError(
+                    f"{source}: chart {mart.chart.name!r} ({mart.chart.viz_type}) requires at least one metric"
+                )
 
 
 # --- Renderers ---------------------------------------------------------------
@@ -943,6 +956,19 @@ def scaffold_product(spec: ProductSpec, repo_root: str | Path, *, force: bool = 
         force=force,
         result=result,
     )
+    if force:
+        # A forced rerun may have changed sources/marts/columns, which changes
+        # the Floe contract just written above. Any previously generated
+        # manifest at this path was compiled from the *old* contract by
+        # `make floe-manifest` and is now stale. check-project-code.sh treats
+        # the manifest's mere existence as readiness, and artifact deployment
+        # uploads whatever is on disk, so a stale manifest would let CI pass
+        # and Dagster load outdated Floe assets/run config. Remove it so
+        # `make floe-manifest` is required again before validation succeeds.
+        stale_manifest = domain_dir / "contracts" / "floe" / "manifests" / f"{spec.product}.manifest.json"
+        if stale_manifest.exists():
+            stale_manifest.unlink()
+            result.removed.append(stale_manifest)
     _write(
         domain_dir / "extract" / "dlt" / f"{spec.product}.py",
         render_dlt_loader(spec),
