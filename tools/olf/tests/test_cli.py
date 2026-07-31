@@ -148,12 +148,13 @@ def _upload_manifests_with_live_cluster_state(
     monkeypatch: pytest.MonkeyPatch,
     *,
     current_revision: str | None,
-    current_image: str | None = "ghcr.io/openlakeforge/project-code:v1",
 ):
-    """Shared setup for the two tests below: run `upload-manifests` against a
-    fake bucket while monkeypatching k8s_module to report a given
-    already-deployed revision/image, and return the recorded
-    set_project_code_image call args (or None if it was never called).
+    """Shared setup for the tests below: run `upload-manifests` against a fake
+    bucket while monkeypatching k8s_module to report a given already-deployed
+    revision, and return (calls, result) where `calls` records any
+    set_project_code_image invocation (must always stay empty -- see the
+    tests) and `result` is the CliRunner invocation, for asserting on the
+    warning text.
     """
     domain_dir = tmp_path / "domains/sales/contracts/floe/manifests"
     domain_dir.mkdir(parents=True)
@@ -164,7 +165,6 @@ def _upload_manifests_with_live_cluster_state(
     monkeypatch.setenv("OPENLAKEFORGE_REPO_ROOT", str(tmp_path))
     monkeypatch.setattr(k8s_module, "secret_value", lambda *args, **kwargs: "dummy")
     monkeypatch.setattr(k8s_module, "current_floe_manifest_revision", lambda namespace: current_revision)
-    monkeypatch.setattr(k8s_module, "current_project_code_image", lambda namespace: current_image)
 
     calls = []
     monkeypatch.setattr(
@@ -186,28 +186,28 @@ def _upload_manifests_with_live_cluster_state(
 
     result = runner.invoke(app, ["artifacts", "upload-manifests", "--via", "port-forward"])
     assert result.exit_code == 0, result.output
-    return calls
+    return calls, result
 
 
-def test_upload_manifests_rolls_dagster_when_revision_contract_is_active(
+def test_upload_manifests_warns_but_does_not_roll_when_revision_contract_is_active(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """If the artifact revision contract is already active on the running
     deployment, a standalone upload that advances the bucket to a new
-    revision must roll Dagster onto it too. Otherwise the running code
-    server keeps its cached asset graph from the old revision while a Floe
-    runner launched by the next run resolves the manifest fresh and gets the
-    new content -- the runner side has no revision gate of its own, only
-    Dagster's code-server startup does.
+    revision must NOT roll Dagster onto it: the running image's
+    OPENLAKEFORGE_FLOE_MANIFEST_REVISION_BUILT is baked in at image build
+    time, so patching only the OPENLAKEFORGE_FLOE_MANIFEST_REVISION
+    expectation onto the *same* image would make _validate_artifact_revision
+    reject every new pod at startup -- a self-inflicted outage. It must warn
+    that a full (image-rebuilding) deploy is required instead.
     """
-    calls = _upload_manifests_with_live_cluster_state(tmp_path, monkeypatch, current_revision="sha256:stale-old")
+    calls, result = _upload_manifests_with_live_cluster_state(
+        tmp_path, monkeypatch, current_revision="sha256:stale-old"
+    )
 
-    assert len(calls) == 1
-    image, namespace, kwargs = calls[0]
-    assert image == "ghcr.io/openlakeforge/project-code:v1"
-    assert namespace == "lakehouse"
-    # The published revision must differ from the stale one that was deployed.
-    assert kwargs["floe_manifest_revision"] not in (None, "manual", "sha256:stale-old")
+    assert calls == []
+    assert "Not rolling Dagster" in result.output
+    assert "full artifact deploy" in result.output
 
 
 def test_upload_manifests_does_not_roll_dagster_when_revision_is_manual(
@@ -216,12 +216,12 @@ def test_upload_manifests_does_not_roll_dagster_when_revision_is_manual(
     """The existing debug/local-only workflow (no revision tracking deployed
     yet) must not suddenly start forcing rollouts from a standalone upload.
     """
-    calls = _upload_manifests_with_live_cluster_state(tmp_path, monkeypatch, current_revision="manual")
+    calls, _result = _upload_manifests_with_live_cluster_state(tmp_path, monkeypatch, current_revision="manual")
     assert calls == []
 
 
 def test_upload_manifests_does_not_roll_dagster_when_no_deployment_exists_yet(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    calls = _upload_manifests_with_live_cluster_state(tmp_path, monkeypatch, current_revision=None)
+    calls, _result = _upload_manifests_with_live_cluster_state(tmp_path, monkeypatch, current_revision=None)
     assert calls == []
