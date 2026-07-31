@@ -120,6 +120,34 @@ def test_render_compatibility_matrix_includes_catalog_values(tmp_path: Path) -> 
     assert "python_project_code_base" not in rendered  # sanity: no stray key names leak in
 
 
+def test_render_compatibility_matrix_exposes_per_root_provider_drift() -> None:
+    """The single 'tracked version' table previously published one version per
+    provider (e.g. hashicorp/helm 3.2.0) even though individual Terraform
+    roots pin a different one -- the real repo's
+    infra/terraform/environments/local root locks helm at 3.1.1. A consumer
+    reading only that table would be told the wrong exact input for local.
+    """
+    catalog = release.load_catalog(ROOT / "release/component-catalog.yaml")
+    rendered = release.render_compatibility_matrix(catalog)
+
+    assert "Terraform providers by root" in rendered
+    local_root = "infra/terraform/environments/local/.terraform.lock.hcl"
+    assert local_root in rendered
+
+    # Extract the hashicorp/helm row from the per-root table (not the tracked-
+    # version table above it, which has an identically-prefixed row) and
+    # confirm the local column reads 3.1.1, not the tracked 3.2.0 -- parsed
+    # structurally, not just substring search, since "3.2.0" and "3.1.1" both
+    # appear elsewhere in the document.
+    per_root_section = rendered.split("### Terraform providers by root", 1)[1]
+    header = next(line for line in per_root_section.splitlines() if line.startswith("| Provider | infra/"))
+    columns = [c.strip() for c in header.strip("|").split("|")]
+    local_index = columns.index(local_root)
+    helm_row = next(line for line in per_root_section.splitlines() if line.startswith("| hashicorp/helm |"))
+    cells = [c.strip() for c in helm_row.strip("|").split("|")]
+    assert cells[local_index] == "3.1.1"
+
+
 def test_run_release_check_passes_on_real_repo_catalog() -> None:
     report = release.run_release_check(ROOT, tag="v0.1.0-alpha.1")
     assert report.ok, report.render()

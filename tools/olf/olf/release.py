@@ -208,11 +208,35 @@ def render_compatibility_matrix(catalog: dict[str, Any]) -> str:
 
     lines.append("## Terraform providers")
     lines.append("")
-    lines.append("| Provider | Version |")
+    lines.append(
+        "The tracked/approved version for each provider. Individual Terraform "
+        "roots can lock an older compatible version (below) -- consult that "
+        "table for the exact version actually applied to a given target."
+    )
+    lines.append("")
+    lines.append("| Provider | Tracked version |")
     lines.append("| --- | --- |")
     for provider, provider_version in sorted((terraform.get("providers") or {}).items()):
         lines.append(f"| {provider} | {provider_version} |")
     lines.append("")
+
+    lockfiles = terraform.get("lockfiles") or {}
+    if lockfiles:
+        lines.append("### Terraform providers by root")
+        lines.append("")
+        lines.append(
+            "The exact version `.terraform.lock.hcl` pins for each root -- what a "
+            "consumer of that target actually gets, not the tracked version above."
+        )
+        lines.append("")
+        roots = sorted(lockfiles)
+        providers = sorted({provider for root_locks in lockfiles.values() for provider in root_locks})
+        lines.append("| Provider | " + " | ".join(roots) + " |")
+        lines.append("| --- | " + " | ".join("---" for _ in roots) + " |")
+        for provider in providers:
+            row = [lockfiles.get(root, {}).get(provider, "") for root in roots]
+            lines.append(f"| {provider} | " + " | ".join(row) + " |")
+        lines.append("")
 
     lines.append("## Helm charts")
     lines.append("")
