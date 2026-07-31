@@ -128,3 +128,74 @@ def test_fully_consistent_revision_passes(monkeypatch: pytest.MonkeyPatch) -> No
         ),
     )
     pd._validate_artifact_revision(_spec(), MANIFEST_URI, manifest_bytes)
+
+
+def _spec_with_local_manifest(tmp_path: Path) -> ProductDefinitionSpec:
+    manifest_dir = tmp_path / "contracts" / "floe" / "manifests"
+    manifest_dir.mkdir(parents=True)
+    (manifest_dir / "order_revenue.manifest.json").write_text('{"placeholder": true}')
+    return ProductDefinitionSpec(
+        domain="sales",
+        product="order_revenue",
+        asset_prefix="sales_order_revenue",
+        entities=(),
+        gold_assets=(),
+        domain_dir=tmp_path,
+        bronze_loader=lambda: {},
+    )
+
+
+def test_transient_fetch_failure_fails_closed_when_revision_enforced(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A network hiccup fetching the remote manifest must not silently
+    degrade to the local/baked-in manifest while revision enforcement is
+    active: _validate_artifact_revision never even runs for this attempt, so
+    falling back would run Dagster on a manifest that was never checked
+    against the runtime's expected revision. Once the transient failure
+    clears, this code server would keep running unchecked -- the exact skew
+    the contract exists to reject.
+    """
+    # No explicit OPENLAKEFORGE_FLOE_DAGSTER_MANIFEST_SOURCE/ACCESS_MODE override:
+    # remote is the resolved default already (_floe_manifest_access_mode()), so
+    # the remote code path is exercised without also tripping the separate,
+    # pre-existing "user explicitly demanded remote" no-fallback check, which
+    # is unrelated to this fix and would make this test pass for the wrong
+    # reason.
+    monkeypatch.delenv("OPENLAKEFORGE_FLOE_DAGSTER_MANIFEST_SOURCE", raising=False)
+    monkeypatch.delenv("OPENLAKEFORGE_FLOE_MANIFEST_ACCESS_MODE", raising=False)
+    monkeypatch.setenv("OPENLAKEFORGE_FLOE_MANIFEST_REVISION", "sha256:expected")
+    monkeypatch.setenv("OPENLAKEFORGE_FLOE_MANIFEST_BASE_URI", "s3://ops/floe/manifests")
+    import libs.product_dagster as pd
+
+    def _raise_transient(uri: str) -> str:
+        raise ConnectionError("simulated transient S3 read failure")
+
+    monkeypatch.setattr(pd, "read_text_uri", _raise_transient)
+    spec = _spec_with_local_manifest(tmp_path)
+    assert spec.manifest_path.exists()  # the fallback file genuinely exists
+
+    with pytest.raises(RuntimeError, match="Failed to load remote Floe manifest"):
+        pd._manifest_path_for_dagster(spec)
+
+
+def test_transient_fetch_failure_falls_back_to_local_when_revision_is_manual(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The existing debug/local-fallback behavior must be preserved when
+    revision enforcement is disabled (the default).
+    """
+    monkeypatch.delenv("OPENLAKEFORGE_FLOE_DAGSTER_MANIFEST_SOURCE", raising=False)
+    monkeypatch.delenv("OPENLAKEFORGE_FLOE_MANIFEST_ACCESS_MODE", raising=False)
+    monkeypatch.delenv("OPENLAKEFORGE_FLOE_MANIFEST_REVISION", raising=False)
+    monkeypatch.setenv("OPENLAKEFORGE_FLOE_MANIFEST_BASE_URI", "s3://ops/floe/manifests")
+    import libs.product_dagster as pd
+
+    def _raise_transient(uri: str) -> str:
+        raise ConnectionError("simulated transient S3 read failure")
+
+    monkeypatch.setattr(pd, "read_text_uri", _raise_transient)
+    spec = _spec_with_local_manifest(tmp_path)
+
+    result = pd._manifest_path_for_dagster(spec)
+    assert result == str(spec.manifest_path)

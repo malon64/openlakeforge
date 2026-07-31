@@ -277,6 +277,40 @@ _DAGSTER_CORE_DEPLOYMENTS = (
 )
 
 
+def _existing_dagster_deployments(namespace: str) -> list[str]:
+    return [
+        deployment
+        for deployment in (*_DAGSTER_CORE_DEPLOYMENTS, *discover_dagster_user_deployments(namespace))
+        if resource_exists("deployment", deployment, namespace)
+    ]
+
+
+def current_project_code_image(namespace: str) -> str | None:
+    """The image currently running on any Dagster surface, or None if none exist yet."""
+    for deployment in _existing_dagster_deployments(namespace):
+        containers = _get_json("deployment", deployment, namespace)["spec"]["template"]["spec"].get(
+            "containers", []
+        )
+        if containers:
+            return containers[0]["image"]
+    return None
+
+
+def current_floe_manifest_revision(namespace: str) -> str | None:
+    """The OPENLAKEFORGE_FLOE_MANIFEST_REVISION currently patched onto any
+    Dagster surface, or None if no deployment exists yet or none sets it.
+    """
+    for deployment in _existing_dagster_deployments(namespace):
+        containers = _get_json("deployment", deployment, namespace)["spec"]["template"]["spec"].get(
+            "containers", []
+        )
+        for container in containers:
+            for env_var in container.get("env") or []:
+                if env_var.get("name") == "OPENLAKEFORGE_FLOE_MANIFEST_REVISION":
+                    return env_var.get("value")
+    return None
+
+
 def _wait_for_rollout_with_diagnostics(deployment: str, namespace: str, timeout: str) -> None:
     try:
         _kubectl(

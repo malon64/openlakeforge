@@ -336,6 +336,17 @@ def _manifest_path_for_dagster(spec: ProductDefinitionSpec) -> str:
         except RuntimeError:
             if _explicit_floe_dagster_manifest_source() == _FLOE_MANIFEST_ACCESS_MODE_REMOTE:
                 raise
+            if _artifact_revision_enforced():
+                # _cache_remote_manifest_for_dagster's own read_text_uri failure
+                # raises a plain RuntimeError *before* _validate_artifact_revision
+                # ever runs -- a transient S3/network hiccup, not a revision
+                # mismatch. Falling back to the local/baked-in manifest here
+                # would skip validation entirely for this attempt; once the
+                # transient failure clears, this code server keeps running on a
+                # manifest that was never checked against the runtime's expected
+                # revision, recreating the exact skew this contract exists to
+                # reject. Fail closed instead of silently degrading.
+                raise
             if spec.manifest_path.exists():
                 return str(spec.manifest_path)
             raise
@@ -363,6 +374,15 @@ def _use_remote_manifest_for_dagster_definitions() -> bool:
 
 def _explicit_floe_dagster_manifest_source() -> str:
     return os.environ.get("OPENLAKEFORGE_FLOE_DAGSTER_MANIFEST_SOURCE", "").strip().lower()
+
+
+def _artifact_revision_enforced() -> bool:
+    """Whether OPENLAKEFORGE_FLOE_MANIFEST_REVISION currently opts into the
+    artifact revision contract (any value other than the "manual" default).
+    """
+    return os.environ.get(_FLOE_MANIFEST_REVISION_ENV, _FLOE_MANIFEST_REVISION_MANUAL).strip() != (
+        _FLOE_MANIFEST_REVISION_MANUAL
+    )
 
 
 def _cache_remote_manifest_for_dagster(spec: ProductDefinitionSpec, manifest_uri: str) -> str:

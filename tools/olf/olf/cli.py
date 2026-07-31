@@ -187,6 +187,45 @@ def artifacts_upload_manifests(
         full_bucket_manifest = revision_module.fetch_bucket_manifest(client, bucket)
         revision_module.publish_sidecar(client, bucket, full_bucket_manifest, prune=False)
 
+    # If the artifact revision contract is already active on the running
+    # deployment, this standalone upload just advanced the bucket to a new
+    # revision without Dagster's code server ever being told: it keeps its
+    # cached asset graph from the old revision, while a Floe runner pod
+    # launched by the *next* run resolves the manifest URI fresh and gets the
+    # new content -- the runner side has no revision gate at all, only
+    # Dagster's own code-server startup does. Roll Dagster onto the new
+    # revision (same image, so this is a same-tag restart, not a redeploy) so
+    # the fail-fast check re-validates against what was just published.
+    #
+    # Best-effort: this command previously had no cluster dependency at all
+    # for `--via direct`, and the upload + sidecar publish above already
+    # succeeded and is real, useful work on its own. If the live deployment
+    # state can't be read (no kube context configured, a transient kubectl
+    # error), warn instead of failing the whole command.
+    from olf import k8s as k8s_module
+
+    try:
+        current_revision = k8s_module.current_floe_manifest_revision(namespace)
+        if current_revision and current_revision != "manual" and current_revision != full_bucket_manifest.revision:
+            current_image = k8s_module.current_project_code_image(namespace)
+            if current_image:
+                typer.echo(
+                    f"Artifact revision contract is active ({current_revision!r} deployed); rolling Dagster onto "
+                    f"the newly published revision {full_bucket_manifest.revision!r} so the fail-fast check "
+                    "re-validates against it."
+                )
+                k8s_module.set_project_code_image(
+                    current_image, namespace, floe_manifest_revision=full_bucket_manifest.revision
+                )
+    except k8s_module.KubectlError as exc:
+        from olf import log
+
+        log.warn(
+            "Could not check whether the artifact revision contract is active on the running "
+            f"deployment ({exc}); Dagster may need a manual rollout to pick up the newly published "
+            "revision. Run 'olf k8s set-project-code-image' or a full artifact deploy to be certain."
+        )
+
 
 @superset_app.command("deploy-reports")
 def superset_deploy_reports() -> None:
