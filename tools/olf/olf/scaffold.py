@@ -282,7 +282,31 @@ def parse_spec(document: Mapping[str, Any], *, source: str = "spec") -> ProductS
         domain_type=document.get("domain_type", "Source-aligned"),
     )
     _validate_chart_references(spec, source)
+    _validate_chart_filename_collisions(spec, source)
     return spec
+
+
+def _validate_chart_filename_collisions(spec: ProductSpec, source: str) -> None:
+    """Reject two distinct chart names that normalize to the same filename.
+
+    Chart filenames are derived by replacing spaces and dashes with
+    underscores (e.g. "Spend-by Channel" and "Spend by-Channel" both become
+    "Spend_by_Channel"). On first scaffold the second chart is silently
+    skipped; under --force it overwrites the first -- either way the
+    dashboard ends up referencing two distinct chart UUIDs while the report
+    bundle contains only one chart asset.
+    """
+    seen: dict[str, str] = {}
+    for mart in spec.marts:
+        if not mart.chart:
+            continue
+        chart_file = mart.chart.name.replace(" ", "_").replace("-", "_")
+        if chart_file in seen and seen[chart_file] != mart.chart.name:
+            raise ScaffoldError(
+                f"{source}: charts {seen[chart_file]!r} and {mart.chart.name!r} both normalize to the "
+                f"filename {chart_file!r} -- rename one of them"
+            )
+        seen[chart_file] = mart.chart.name
 
 
 def _validate_chart_references(spec: ProductSpec, source: str) -> None:
@@ -620,10 +644,10 @@ def render_domain_descriptor(
 def render_superset_dataset(spec: ProductSpec, mart: Mart) -> str:
     dataset_uuid = _stable_uuid("dataset", spec.gold_namespace, mart.name)
     metrics = "".join(
-        f"""  - metric_name: {metric.name}
-    verbose_name: {metric.verbose_name}
+        f"""  - metric_name: {_scalar(metric.name)}
+    verbose_name: {_scalar(metric.verbose_name)}
     metric_type: {metric.metric_type}
-    expression: {metric.expression}
+    expression: {_scalar(metric.expression)}
 """
         for metric in mart.metrics
     )
@@ -1015,6 +1039,18 @@ def scaffold_product(spec: ProductSpec, repo_root: str | Path, *, force: bool = 
                 result=result,
             )
     dashboard_file = spec.product_display_name.replace(" ", "_").replace("-", "_")
+    if force:
+        # A --force rerun with a changed product_display_name writes the
+        # dashboard under a new filename but never removed the old one on its
+        # own; build_report_bundle recursively includes every YAML under the
+        # report directory, so the next Superset deploy would import both the
+        # obsolete dashboard and the renamed one.
+        _remove_stale(
+            reports_dir / "dashboards",
+            glob="*.yaml",
+            keep={f"{dashboard_file}_1.yaml"},
+            result=result,
+        )
     _write(
         reports_dir / "dashboards" / f"{dashboard_file}_1.yaml",
         render_superset_dashboard(spec),

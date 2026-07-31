@@ -660,3 +660,78 @@ def test_dbt_source_description_survives_a_colon_in_the_display_name(tmp_path: P
         (tmp_path / "domains/logistics/transformations/dbt/route_efficiency/models/sources.yml").read_text()
     )
     assert sources["sources"][0]["description"] == "Floe-owned Route: Efficiency Silver Iceberg tables."
+
+
+def test_metric_fields_survive_yaml_sensitive_content(tmp_path: Path) -> None:
+    """verbose_name and expression are unrestricted by parse_spec (unlike
+    metric names elsewhere), and were raw-interpolated into the Superset
+    dataset YAML: 'Revenue: USD' produced invalid YAML, and an expression
+    containing ' # ' would be silently truncated as a comment.
+    """
+    spec_dict = {
+        **SPEC,
+        "marts": [
+            {
+                **SPEC["marts"][0],
+                "metrics": [
+                    {
+                        "name": "rev: total",
+                        "expression": "SUM(cost_amount) # discounted",
+                        "verbose_name": "Revenue: USD",
+                    }
+                ],
+                "chart": {**SPEC["marts"][0]["chart"], "metrics": ["rev: total"]},
+            }
+        ],
+    }
+    scaffold.scaffold_product(scaffold.parse_spec(spec_dict), tmp_path)
+
+    dataset = yaml.safe_load(
+        (
+            tmp_path
+            / "domains/logistics/reports/superset/route_efficiency/datasets/OpenLakeForge_Trino/mart_route_cost.yaml"
+        ).read_text()
+    )
+    metric = dataset["metrics"][0]
+    assert metric["metric_name"] == "rev: total"
+    assert metric["verbose_name"] == "Revenue: USD"
+    assert metric["expression"] == "SUM(cost_amount) # discounted"
+
+
+def test_chart_filename_collision_is_rejected() -> None:
+    """'Spend-by Channel' and 'Spend by-Channel' both normalize to
+    'Spend_by_Channel' once spaces and dashes are replaced with underscores.
+    On first scaffold the second chart would be silently skipped; under
+    --force it would overwrite the first -- either way the dashboard
+    references two distinct chart UUIDs but the bundle contains only one
+    chart asset.
+    """
+    spec_dict = {
+        **SPEC,
+        "marts": [
+            {**SPEC["marts"][0], "name": "mart_a", "chart": {**SPEC["marts"][0]["chart"], "name": "Spend-by Channel"}},
+            {**SPEC["marts"][0], "name": "mart_b", "chart": {**SPEC["marts"][0]["chart"], "name": "Spend by-Channel"}},
+        ],
+    }
+    with pytest.raises(scaffold.ScaffoldError, match="both normalize to the filename"):
+        scaffold.parse_spec(spec_dict)
+
+
+def test_forced_rerun_removes_the_old_dashboard_when_product_display_name_changes(tmp_path: Path) -> None:
+    scaffold.scaffold_product(scaffold.parse_spec(SPEC), tmp_path)
+    old_dashboard = (
+        tmp_path / "domains/logistics/reports/superset/route_efficiency/dashboards/Logistics_Route_Efficiency_1.yaml"
+    )
+    assert old_dashboard.exists()
+
+    renamed_spec = {**SPEC, "product_display_name": "Logistics Route Cost Efficiency"}
+    result = scaffold.scaffold_product(scaffold.parse_spec(renamed_spec), tmp_path, force=True)
+
+    new_dashboard = (
+        tmp_path
+        / "domains/logistics/reports/superset/route_efficiency/dashboards"
+        / "Logistics_Route_Cost_Efficiency_1.yaml"
+    )
+    assert not old_dashboard.exists()
+    assert old_dashboard in result.removed
+    assert new_dashboard.exists()
