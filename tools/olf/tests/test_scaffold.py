@@ -222,6 +222,115 @@ def test_rerun_with_force_updates_the_descriptor_entry_to_match(tmp_path: Path) 
     assert "mart_extra_metric" in [t["name"] for t in entry["gold_tables"]["tables"]]
 
 
+def test_forced_rerun_removes_a_stale_mart_dropped_from_the_spec(tmp_path: Path) -> None:
+    """Removing a mart in --force rerun must delete its generated .sql model
+    (and Superset dataset/chart), not just stop writing it. Otherwise dbt
+    keeps discovering the stale model while domain.yaml and the
+    descriptor-derived e2e table count reflect only the new set.
+    """
+    two_mart_spec = {
+        **SPEC,
+        "marts": [
+            SPEC["marts"][0],
+            {
+                "name": "mart_extra_metric",
+                "description": "A mart present in the first scaffold only.",
+                "sql": "select 1 as placeholder",
+                "columns": [{"name": "region", "type": "string"}],
+                "chart": {
+                    "name": "Extra Metric Chart",
+                    "viz_type": "table",
+                    "groupby": ["region"],
+                },
+            },
+        ],
+    }
+    scaffold.scaffold_product(scaffold.parse_spec(two_mart_spec), tmp_path)
+    base = tmp_path / "domains/logistics"
+    stale_model = base / "transformations/dbt/route_efficiency/models/gold/mart_extra_metric.sql"
+    stale_dataset = base / "reports/superset/route_efficiency/datasets/OpenLakeForge_Trino/mart_extra_metric.yaml"
+    stale_chart = base / "reports/superset/route_efficiency/charts/Extra_Metric_Chart_1.yaml"
+    assert stale_model.exists()
+    assert stale_dataset.exists()
+    assert stale_chart.exists()
+
+    result = scaffold.scaffold_product(scaffold.parse_spec(SPEC), tmp_path, force=True)
+
+    assert not stale_model.exists()
+    assert not stale_dataset.exists()
+    assert not stale_chart.exists()
+    assert stale_model in result.removed
+    # The surviving mart's own file must not be touched by the cleanup.
+    assert (base / "transformations/dbt/route_efficiency/models/gold/mart_route_cost.sql").exists()
+
+
+def test_forced_rerun_without_removed_marts_deletes_nothing(tmp_path: Path) -> None:
+    scaffold.scaffold_product(scaffold.parse_spec(SPEC), tmp_path)
+    result = scaffold.scaffold_product(scaffold.parse_spec(SPEC), tmp_path, force=True)
+    assert result.removed == []
+
+
+def test_chart_name_with_colon_survives_in_dashboard_position_yaml(tmp_path: Path) -> None:
+    """The standalone chart renderer already escapes the chart name; the
+    dashboard's position_json sliceName is a second, independent
+    interpolation of the same value that was not.
+    """
+    spec = scaffold.parse_spec(
+        {
+            **SPEC,
+            "marts": [
+                {
+                    **SPEC["marts"][0],
+                    "chart": {**SPEC["marts"][0]["chart"], "name": "Revenue: USD"},
+                }
+            ],
+        }
+    )
+    scaffold.scaffold_product(spec, tmp_path)
+
+    dashboard_path = (
+        tmp_path
+        / "domains/logistics/reports/superset/route_efficiency/dashboards/Logistics_Route_Efficiency_1.yaml"
+    )
+    dashboard = yaml.safe_load(dashboard_path.read_text())
+    position = dashboard["position"]
+    slice_names = [
+        block["meta"]["sliceName"]
+        for block in position.values()
+        if isinstance(block, dict) and "sliceName" in block.get("meta", {})
+    ]
+    assert "Revenue: USD" in slice_names
+
+
+def test_example_rows_with_commas_and_quotes_are_csv_quoted(tmp_path: Path) -> None:
+    """A raw ",".join() breaks on a value containing a comma or quote (e.g. a
+    customer name "Smith, Inc."): the row splits into the wrong number of
+    fields and the strict Floe ingestion rejects or misreads it.
+    """
+    import csv
+    import io
+
+    spec_dict = {
+        **SPEC,
+        "sources": [
+            {
+                **SPEC["sources"][0],
+                "columns": [
+                    {"name": "route_id", "type": "string"},
+                    {"name": "customer_name", "type": "string"},
+                ],
+                "example_rows": [["RTE-1", 'Smith, Inc. "Prime"']],
+            }
+        ],
+    }
+    scaffold.scaffold_product(scaffold.parse_spec(spec_dict), tmp_path)
+
+    csv_text = (tmp_path / "domains/logistics/examples/raw/route_efficiency/routes.csv").read_text()
+    rows = list(csv.reader(io.StringIO(csv_text)))
+    assert rows[0] == ["route_id", "customer_name"]
+    assert rows[1] == ["RTE-1", 'Smith, Inc. "Prime"']
+
+
 def test_adding_a_product_to_an_existing_domain_keeps_both(tmp_path: Path) -> None:
     scaffold.scaffold_product(scaffold.parse_spec(SPEC), tmp_path)
     second = {**SPEC, "product": "carrier_cost", "product_display_name": "Logistics Carrier Cost"}

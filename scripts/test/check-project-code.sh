@@ -195,10 +195,23 @@ print(f"Loaded Dagster code locations: {', '.join(sorted(domain_defs))}")
 if not domain_defs:
     raise SystemExit("no domain exposed a loadable Dagster code location")
 
-for domain, missing in pending:
-    print(
-        f"PENDING: domains/{domain.name} not loaded -- run 'make floe-manifest' to generate "
-        f"the Floe manifest(s) for: {', '.join(missing)}"
+# A pending domain (missing Floe manifest) previously only printed a notice and
+# let the check pass as long as some other domain loaded -- so a broken or
+# never-validated code location could merge silently, discovered only later,
+# in whatever ran against the deployed cluster next. Terraform derives a real
+# Dagster user deployment for every discovered domain regardless of manifest
+# state, so an unloadable one is a genuine validation failure here, not an
+# acceptable interim state.
+if pending:
+    for domain, missing in pending:
+        print(
+            f"PENDING: domains/{domain.name} not loaded -- run 'make floe-manifest' to generate "
+            f"the Floe manifest(s) for: {', '.join(missing)}"
+        )
+    pending_names = ", ".join(sorted(domain.name for domain, _ in pending))
+    raise SystemExit(
+        f"domain(s) {pending_names} have no loadable Dagster code location "
+        "(missing generated Floe manifest(s) -- run 'make floe-manifest' and commit them)"
     )
 asset_key_list = [
     tuple(key.path)

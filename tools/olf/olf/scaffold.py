@@ -8,6 +8,8 @@ seed products exactly; see `docs/product-onboarding.md`.
 
 from __future__ import annotations
 
+import csv
+import io
 import re
 import uuid
 from collections.abc import Mapping, Sequence
@@ -116,6 +118,7 @@ class ProductSpec:
 class ScaffoldResult:
     written: list[Path] = field(default_factory=list)
     skipped: list[Path] = field(default_factory=list)
+    removed: list[Path] = field(default_factory=list)
 
 
 def _stable_uuid(*parts: str) -> str:
@@ -758,7 +761,7 @@ def render_superset_dashboard(spec: ProductSpec) -> str:
     meta:
       chartId: {index}
       height: 50
-      sliceName: {chart.name}
+      sliceName: {_scalar(chart.name)}
       uuid: {_stable_uuid("chart", spec.gold_namespace, chart.name)}
       width: {12 // max(len(charted), 1)}
     parents: [ROOT_ID, GRID_ID, ROW-1]
@@ -830,6 +833,39 @@ def _write(path: Path, content: str, *, force: bool, result: ScaffoldResult) -> 
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
     result.written.append(path)
+
+
+def _render_csv(header: Sequence[str], rows: Sequence[Sequence[str]]) -> str:
+    """Render example CSV rows with proper quoting.
+
+    A raw ",".join() breaks on any value containing a comma, quote, or
+    newline (e.g. a customer name "Smith, Inc."): the row splits into the
+    wrong number of fields, and the strict Floe ingestion this scaffold
+    generates rejects or misreads it.
+    """
+    buffer = io.StringIO()
+    writer = csv.writer(buffer, lineterminator="\n")
+    writer.writerow(header)
+    writer.writerows(rows)
+    return buffer.getvalue()
+
+
+def _remove_stale(directory: Path, *, glob: str, keep: set[str], result: ScaffoldResult) -> None:
+    """Delete generated files under `directory` matching `glob` that a mart or
+    chart removed/renamed from the spec left behind.
+
+    Only called under --force. Writing only the marts/charts in the new spec
+    (never deleting one that dropped out) leaves a stale `.sql` model or
+    Superset dataset/chart on disk that dbt/Superset still discovers, while
+    domain.yaml and the descriptor-derived e2e table count reflect only the
+    new set -- an exact-count mismatch.
+    """
+    if not directory.is_dir():
+        return
+    for existing in sorted(directory.glob(glob)):
+        if existing.name not in keep:
+            existing.unlink()
+            result.removed.append(existing)
 
 
 def scaffold_product(spec: ProductSpec, repo_root: str | Path, *, force: bool = False) -> ScaffoldResult:
@@ -913,6 +949,13 @@ def scaffold_product(spec: ProductSpec, repo_root: str | Path, *, force: bool = 
     _write(dbt_dir / "profiles.yml", render_dbt_profiles(spec), force=force, result=result)
     _write(dbt_dir / "models" / "sources.yml", render_dbt_sources(spec), force=force, result=result)
     _write(dbt_dir / "models" / "gold" / "schema.yml", render_dbt_gold_schema(spec), force=force, result=result)
+    if force:
+        _remove_stale(
+            dbt_dir / "models" / "gold",
+            glob="*.sql",
+            keep={f"{mart.name}.sql" for mart in spec.marts},
+            result=result,
+        )
     for mart in spec.marts:
         _write(
             dbt_dir / "models" / "gold" / f"{mart.name}.sql",
@@ -923,9 +966,7 @@ def scaffold_product(spec: ProductSpec, repo_root: str | Path, *, force: bool = 
 
     raw_dir = domain_dir / "examples" / "raw" / spec.product
     for src in spec.sources:
-        header = ",".join(column.name for column in src.columns)
-        rows = "\n".join(",".join(row) for row in src.example_rows)
-        csv_text = f"{header}\n{rows}\n" if rows else f"{header}\n"
+        csv_text = _render_csv([column.name for column in src.columns], src.example_rows)
         _write(raw_dir / f"{src.name}.csv", csv_text, force=force, result=result)
 
     reports_dir = domain_dir / "reports" / "superset" / spec.product
@@ -941,6 +982,23 @@ def scaffold_product(spec: ProductSpec, repo_root: str | Path, *, force: bool = 
         force=force,
         result=result,
     )
+    if force:
+        _remove_stale(
+            reports_dir / "datasets" / "OpenLakeForge_Trino",
+            glob="*.yaml",
+            keep={f"{mart.name}.yaml" for mart in spec.marts},
+            result=result,
+        )
+        _remove_stale(
+            reports_dir / "charts",
+            glob="*.yaml",
+            keep={
+                f"{mart.chart.name.replace(' ', '_').replace('-', '_')}_1.yaml"
+                for mart in spec.marts
+                if mart.chart
+            },
+            result=result,
+        )
     for mart in spec.marts:
         _write(
             reports_dir / "datasets" / "OpenLakeForge_Trino" / f"{mart.name}.yaml",
