@@ -1,0 +1,499 @@
+{
+  "schema": "floe.manifest.v1",
+  "generated_at_ts_ms": 0,
+  "floe_version": "0.6.11",
+  "spec_version": "0.2",
+  "manifest_name": "marketing.campaign_performance.local",
+  "manifest_id": "mfv1-5be684cbf12d9f6e",
+  "manifest_revision": "sha256:46793d9f51fbbba0bcd424dcad335a5dae790a1c0ffbf09f492ac7540c78c584",
+  "runtime_env": "image",
+  "work_root": "/work",
+  "config_uri": "local:///work/domains/marketing/contracts/floe/campaign_performance.yml",
+  "config_checksum": "sha256:3a60475db27543095d7a431d7ce4db192a58e4c35fa85916ae8a383a2f1a4f49",
+  "profile_uri": "local:///work/libs/floe/profiles/local-k8s.yml",
+  "profile_checksum": "sha256:aa752d0aa63e27e4292a5b2d9aa2c85d5c8646dd0bfa2885a46a3aa20cdc81cd",
+  "report_base_uri": "s3://openlakeforge-ops/floe/reports/marketing/campaign_performance",
+  "domains": [],
+  "execution": {
+    "entrypoint": "floe",
+    "base_args": [
+      "run",
+      "--manifest",
+      "{manifest_uri}",
+      "--log-format",
+      "json",
+      "--quiet"
+    ],
+    "per_entity_args": [
+      "--entities",
+      "{entity_name}"
+    ],
+    "log_format": "json",
+    "result_contract": {
+      "run_finished_event": true,
+      "summary_uri_field": "summary_uri",
+      "exit_codes": {
+        "0": "success_or_rejected",
+        "1": "technical_failure",
+        "2": "aborted"
+      }
+    },
+    "defaults": {
+      "env": {},
+      "workdir": null
+    },
+    "orchestration": {
+      "strategy": "sequential"
+    }
+  },
+  "runners": {
+    "default": "default",
+    "definitions": {
+      "default": {
+        "type": "kubernetes_job",
+        "command": null,
+        "args": null,
+        "timeout_seconds": 600,
+        "ttl_seconds_after_finished": 3600,
+        "poll_interval_seconds": 5,
+        "secrets": [
+          {
+            "name": "AWS_ACCESS_KEY_ID",
+            "secret_name": "seaweedfs-s3-creds",
+            "key": "AWS_ACCESS_KEY_ID"
+          },
+          {
+            "name": "AWS_SECRET_ACCESS_KEY",
+            "secret_name": "seaweedfs-s3-creds",
+            "key": "AWS_SECRET_ACCESS_KEY"
+          },
+          {
+            "name": "OPENLAKEFORGE_CATALOG_FLOE_CLIENT_ID",
+            "secret_name": "polaris-floe-creds",
+            "key": "POLARIS_FLOE_CLIENT_ID"
+          },
+          {
+            "name": "OPENLAKEFORGE_CATALOG_FLOE_CLIENT_SECRET",
+            "secret_name": "polaris-floe-creds",
+            "key": "POLARIS_FLOE_CLIENT_SECRET"
+          },
+          {
+            "name": "OPENLINEAGE_API_KEY",
+            "secret_name": "openmetadata-ingestion-bot",
+            "key": "OPENMETADATA_INGESTION_BOT_JWT"
+          }
+        ],
+        "image": "ghcr.io/malon64/floe:0.6.11",
+        "namespace": "lakehouse",
+        "service_account": "dagster",
+        "resources": null,
+        "env": {
+          "AWS_ALLOW_HTTP": "true",
+          "AWS_DEFAULT_REGION": "us-east-1",
+          "AWS_EC2_METADATA_DISABLED": "true",
+          "AWS_ENDPOINT_URL": "http://seaweedfs-s3:8333",
+          "AWS_ENDPOINT_URL_S3": "http://seaweedfs-s3:8333",
+          "AWS_REGION": "us-east-1",
+          "AWS_S3_FORCE_PATH_STYLE": "true"
+        },
+        "workspace_url": null,
+        "existing_cluster_id": null,
+        "config_uri": null,
+        "python_file_uri": null,
+        "job_name": null,
+        "auth": null,
+        "env_parameters": null
+      }
+    }
+  },
+  "entities": [
+    {
+      "name": "ad_spend",
+      "domain": "marketing_campaign_performance",
+      "group_name": "marketing_campaign_performance",
+      "asset_key": [
+        "marketing_campaign_performance",
+        "ad_spend"
+      ],
+      "source_format": "csv",
+      "accepted_sink_uri": "s3://lakehouse-silver/marketing/campaign_performance/ad_spend",
+      "rejected_sink_uri": "s3://lakehouse-silver/floe/rejected/marketing/campaign_performance/ad_spend",
+      "tags": null,
+      "source": {
+        "format": "csv",
+        "storage": "lakehouse_bronze",
+        "uri": "s3://lakehouse-bronze/marketing/campaign_performance/ad_spend",
+        "path": "s3://lakehouse-bronze/marketing/campaign_performance/ad_spend",
+        "resolved": true,
+        "cast_mode": "strict",
+        "options": {
+          "data_row": null,
+          "encoding": "utf-8",
+          "glob": "*.csv",
+          "header": true,
+          "header_row": 1,
+          "json_mode": null,
+          "namespace": null,
+          "null_values": [
+            ""
+          ],
+          "recursive": false,
+          "row_tag": null,
+          "separator": ",",
+          "sheet": null,
+          "value_tag": null
+        }
+      },
+      "sinks": {
+        "accepted": {
+          "format": "iceberg",
+          "storage": "lakehouse_silver",
+          "uri": "s3://lakehouse-silver/marketing/campaign_performance/ad_spend",
+          "path": "s3://lakehouse-silver/marketing/campaign_performance/ad_spend",
+          "resolved": true,
+          "iceberg": {
+            "catalog": "iceberg_catalog",
+            "location": null,
+            "namespace": "marketing_campaign_performance_silver",
+            "table": "ad_spend"
+          }
+        },
+        "rejected": {
+          "format": "csv",
+          "storage": "lakehouse_silver",
+          "uri": "s3://lakehouse-silver/floe/rejected/marketing/campaign_performance/ad_spend",
+          "path": "s3://lakehouse-silver/floe/rejected/marketing/campaign_performance/ad_spend",
+          "resolved": true
+        },
+        "archive": null
+      },
+      "runner": null,
+      "policy_severity": "reject",
+      "write_mode": "overwrite",
+      "incremental_mode": "none",
+      "schema": {
+        "columns": [
+          {
+            "name": "spend_id",
+            "column_type": "string",
+            "nullable": false
+          },
+          {
+            "name": "campaign_id",
+            "column_type": "string",
+            "nullable": false
+          },
+          {
+            "name": "spend_date",
+            "column_type": "date",
+            "nullable": false
+          },
+          {
+            "name": "impressions",
+            "column_type": "integer",
+            "nullable": false
+          },
+          {
+            "name": "clicks",
+            "column_type": "integer",
+            "nullable": false
+          },
+          {
+            "name": "spend_amount",
+            "column_type": "double",
+            "nullable": false
+          }
+        ],
+        "primary_key": [
+          "spend_id"
+        ],
+        "unique_keys": [],
+        "normalize_columns": {
+          "enabled": true,
+          "strategy": "snake_case"
+        }
+      }
+    },
+    {
+      "name": "campaigns",
+      "domain": "marketing_campaign_performance",
+      "group_name": "marketing_campaign_performance",
+      "asset_key": [
+        "marketing_campaign_performance",
+        "campaigns"
+      ],
+      "source_format": "csv",
+      "accepted_sink_uri": "s3://lakehouse-silver/marketing/campaign_performance/campaigns",
+      "rejected_sink_uri": "s3://lakehouse-silver/floe/rejected/marketing/campaign_performance/campaigns",
+      "tags": null,
+      "source": {
+        "format": "csv",
+        "storage": "lakehouse_bronze",
+        "uri": "s3://lakehouse-bronze/marketing/campaign_performance/campaigns",
+        "path": "s3://lakehouse-bronze/marketing/campaign_performance/campaigns",
+        "resolved": true,
+        "cast_mode": "strict",
+        "options": {
+          "data_row": null,
+          "encoding": "utf-8",
+          "glob": "*.csv",
+          "header": true,
+          "header_row": 1,
+          "json_mode": null,
+          "namespace": null,
+          "null_values": [
+            ""
+          ],
+          "recursive": false,
+          "row_tag": null,
+          "separator": ",",
+          "sheet": null,
+          "value_tag": null
+        }
+      },
+      "sinks": {
+        "accepted": {
+          "format": "iceberg",
+          "storage": "lakehouse_silver",
+          "uri": "s3://lakehouse-silver/marketing/campaign_performance/campaigns",
+          "path": "s3://lakehouse-silver/marketing/campaign_performance/campaigns",
+          "resolved": true,
+          "iceberg": {
+            "catalog": "iceberg_catalog",
+            "location": null,
+            "namespace": "marketing_campaign_performance_silver",
+            "table": "campaigns"
+          }
+        },
+        "rejected": {
+          "format": "csv",
+          "storage": "lakehouse_silver",
+          "uri": "s3://lakehouse-silver/floe/rejected/marketing/campaign_performance/campaigns",
+          "path": "s3://lakehouse-silver/floe/rejected/marketing/campaign_performance/campaigns",
+          "resolved": true
+        },
+        "archive": null
+      },
+      "runner": null,
+      "policy_severity": "reject",
+      "write_mode": "overwrite",
+      "incremental_mode": "none",
+      "schema": {
+        "columns": [
+          {
+            "name": "campaign_id",
+            "column_type": "string",
+            "nullable": false
+          },
+          {
+            "name": "campaign_name",
+            "column_type": "string",
+            "nullable": false
+          },
+          {
+            "name": "channel",
+            "column_type": "string",
+            "nullable": false
+          },
+          {
+            "name": "start_date",
+            "column_type": "date",
+            "nullable": false
+          },
+          {
+            "name": "end_date",
+            "column_type": "date",
+            "nullable": false
+          },
+          {
+            "name": "budget_amount",
+            "column_type": "double",
+            "nullable": false
+          }
+        ],
+        "primary_key": [
+          "campaign_id"
+        ],
+        "unique_keys": [],
+        "normalize_columns": {
+          "enabled": true,
+          "strategy": "snake_case"
+        }
+      }
+    },
+    {
+      "name": "conversions",
+      "domain": "marketing_campaign_performance",
+      "group_name": "marketing_campaign_performance",
+      "asset_key": [
+        "marketing_campaign_performance",
+        "conversions"
+      ],
+      "source_format": "csv",
+      "accepted_sink_uri": "s3://lakehouse-silver/marketing/campaign_performance/conversions",
+      "rejected_sink_uri": "s3://lakehouse-silver/floe/rejected/marketing/campaign_performance/conversions",
+      "tags": null,
+      "source": {
+        "format": "csv",
+        "storage": "lakehouse_bronze",
+        "uri": "s3://lakehouse-bronze/marketing/campaign_performance/conversions",
+        "path": "s3://lakehouse-bronze/marketing/campaign_performance/conversions",
+        "resolved": true,
+        "cast_mode": "strict",
+        "options": {
+          "data_row": null,
+          "encoding": "utf-8",
+          "glob": "*.csv",
+          "header": true,
+          "header_row": 1,
+          "json_mode": null,
+          "namespace": null,
+          "null_values": [
+            ""
+          ],
+          "recursive": false,
+          "row_tag": null,
+          "separator": ",",
+          "sheet": null,
+          "value_tag": null
+        }
+      },
+      "sinks": {
+        "accepted": {
+          "format": "iceberg",
+          "storage": "lakehouse_silver",
+          "uri": "s3://lakehouse-silver/marketing/campaign_performance/conversions",
+          "path": "s3://lakehouse-silver/marketing/campaign_performance/conversions",
+          "resolved": true,
+          "iceberg": {
+            "catalog": "iceberg_catalog",
+            "location": null,
+            "namespace": "marketing_campaign_performance_silver",
+            "table": "conversions"
+          }
+        },
+        "rejected": {
+          "format": "csv",
+          "storage": "lakehouse_silver",
+          "uri": "s3://lakehouse-silver/floe/rejected/marketing/campaign_performance/conversions",
+          "path": "s3://lakehouse-silver/floe/rejected/marketing/campaign_performance/conversions",
+          "resolved": true
+        },
+        "archive": null
+      },
+      "runner": null,
+      "policy_severity": "reject",
+      "write_mode": "overwrite",
+      "incremental_mode": "none",
+      "schema": {
+        "columns": [
+          {
+            "name": "conversion_id",
+            "column_type": "string",
+            "nullable": false
+          },
+          {
+            "name": "campaign_id",
+            "column_type": "string",
+            "nullable": false
+          },
+          {
+            "name": "conversion_date",
+            "column_type": "date",
+            "nullable": false
+          },
+          {
+            "name": "conversion_type",
+            "column_type": "string",
+            "nullable": false
+          },
+          {
+            "name": "conversion_count",
+            "column_type": "integer",
+            "nullable": false
+          },
+          {
+            "name": "revenue_amount",
+            "column_type": "double",
+            "nullable": false
+          }
+        ],
+        "primary_key": [
+          "conversion_id"
+        ],
+        "unique_keys": [],
+        "normalize_columns": {
+          "enabled": true,
+          "strategy": "snake_case"
+        }
+      }
+    }
+  ],
+  "storages": {
+    "default": "lakehouse_bronze",
+    "definitions": [
+      {
+        "account": null,
+        "bucket": "lakehouse-bronze",
+        "container": null,
+        "endpoint": null,
+        "fs_type": "s3",
+        "name": "lakehouse_bronze",
+        "path_style_access": null,
+        "prefix": null,
+        "region": "us-east-1"
+      },
+      {
+        "account": null,
+        "bucket": "lakehouse-silver",
+        "container": null,
+        "endpoint": null,
+        "fs_type": "s3",
+        "name": "lakehouse_silver",
+        "path_style_access": null,
+        "prefix": null,
+        "region": "us-east-1"
+      },
+      {
+        "account": null,
+        "bucket": "openlakeforge-ops",
+        "container": null,
+        "endpoint": null,
+        "fs_type": "s3",
+        "name": "openlakeforge_ops",
+        "path_style_access": null,
+        "prefix": null,
+        "region": "us-east-1"
+      }
+    ]
+  },
+  "catalogs": {
+    "default": "iceberg_catalog",
+    "definitions": [
+      {
+        "name": "iceberg_catalog",
+        "type_config": {
+          "credential": "client_credentials:${OPENLAKEFORGE_CATALOG_FLOE_CLIENT_ID}:${OPENLAKEFORGE_CATALOG_FLOE_CLIENT_SECRET}",
+          "oauth2_server_uri": "http://polaris:8181/api/catalog/v1/oauth/tokens",
+          "scope": "PRINCIPAL_ROLE:ALL",
+          "type": "rest",
+          "uri": "http://polaris:8181/api/catalog",
+          "warehouse": "lakehouse_dev"
+        },
+        "warehouse_prefix": "s3://lakehouse-silver",
+        "warehouse_storage": "lakehouse_silver"
+      }
+    ]
+  },
+  "lineage": {
+    "api_key": null,
+    "dataset_namespace": "polaris",
+    "endpoint": "api/v1/openlineage/lineage",
+    "job_name": null,
+    "max_failures": null,
+    "namespace": "dagster",
+    "producer": null,
+    "timeout_secs": 5,
+    "url": "http://openmetadata:8585"
+  }
+}
