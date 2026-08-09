@@ -54,11 +54,25 @@ def gold_marts(repo_root: Path | None = None) -> tuple[str, ...]:
 
 
 def expected_dashboards(repo_root: Path | None = None) -> dict[str, str]:
-    """Superset dashboard slug -> title for every discovered product."""
-    return {
-        product.dashboard_slug: product.dashboard_title
-        for product in discover_products(repo_root or _default_repo_root())
-    }
+    """Superset dashboard slug -> title for every discovered product.
+
+    Two products whose display names normalize to the same slug (e.g. "Sales
+    & Growth" and "Sales Growth") can't both exist as distinct Superset
+    dashboards -- Superset itself enforces unique slugs. A dict comprehension
+    would silently keep only the last one, so the E2E check for the other
+    product's dashboard would never run and could pass even though that
+    dashboard is missing.
+    """
+    expected: dict[str, str] = {}
+    for product in discover_products(repo_root or _default_repo_root()):
+        existing = expected.get(product.dashboard_slug)
+        if existing is not None and existing != product.dashboard_title:
+            raise E2EError(
+                f"dashboard slug {product.dashboard_slug!r} collides between "
+                f"{existing!r} and {product.dashboard_title!r}"
+            )
+        expected[product.dashboard_slug] = product.dashboard_title
+    return expected
 
 
 def expected_domains(repo_root: Path | None = None) -> tuple[str, ...]:

@@ -193,6 +193,7 @@ def _columns(raw: Sequence[Mapping[str, Any]], context: str) -> tuple[Column, ..
     if not raw:
         raise ScaffoldError(f"{context}: at least one column is required")
     columns = []
+    seen_names: set[str] = set()
     for entry in raw:
         column_type = _require(entry, "type", context)
         if column_type not in ALLOWED_COLUMN_TYPES:
@@ -206,17 +207,15 @@ def _columns(raw: Sequence[Mapping[str, Any]], context: str) -> tuple[Column, ..
         # rejected, since any nonempty string is truthy.
         if not isinstance(nullable, bool):
             raise ScaffoldError(f"{context}: nullable {nullable!r} must be a boolean")
-        columns.append(
-            Column(
-                # Renderers interpolate this both inside a double-quoted YAML
-                # scalar (Floe contract) and completely unquoted (Superset
-                # column_name), so a name containing '"' or ': ' breaks the
-                # generated file instead of just being ugly.
-                name=_require_identifier(entry, "name", context),
-                type=column_type,
-                nullable=nullable,
-            )
-        )
+        # Renderers interpolate this both inside a double-quoted YAML
+        # scalar (Floe contract) and completely unquoted (Superset
+        # column_name), so a name containing '"' or ': ' breaks the
+        # generated file instead of just being ugly.
+        name = _require_identifier(entry, "name", context)
+        if name in seen_names:
+            raise ScaffoldError(f"{context}: duplicate column name {name!r}")
+        seen_names.add(name)
+        columns.append(Column(name=name, type=column_type, nullable=nullable))
     return tuple(columns)
 
 
@@ -426,6 +425,13 @@ def _validate_chart_references(spec: ProductSpec, source: str) -> None:
                 raise ScaffoldError(
                     f"{source}: chart {mart.chart.name!r} ({mart.chart.viz_type}) requires at least one metric"
                 )
+        # table renders query_mode: aggregate with whatever groupby/metrics are
+        # given; with neither, the query has no dimension or measure to select
+        # and the imported chart has nothing to show.
+        if mart.chart.viz_type == "table" and not mart.chart.groupby and not mart.chart.metrics:
+            raise ScaffoldError(
+                f"{source}: table chart {mart.chart.name!r} requires at least one groupby column or metric"
+            )
 
 
 # --- Renderers ---------------------------------------------------------------
@@ -444,7 +450,7 @@ def render_floe_contract(spec: ProductSpec) -> str:
 
 metadata:
   project: "openlakeforge"
-  owner: "{spec.owner}"
+  owner: {_scalar(spec.owner)}
   description: {_scalar(f"{spec.product_display_name} Bronze to Silver Floe contracts.")}
   tags: {tags}
 

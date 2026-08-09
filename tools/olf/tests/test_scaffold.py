@@ -456,6 +456,27 @@ def test_unsupported_column_type_is_rejected() -> None:
         scaffold.parse_spec(broken)
 
 
+def test_duplicate_column_name_is_rejected() -> None:
+    """Retaining both entries emits duplicate CSV headers and duplicate Floe
+    or Superset schema fields, which can fail manifest generation/import or
+    make values ambiguous.
+    """
+    broken = {
+        **SPEC,
+        "sources": [
+            {
+                **SPEC["sources"][0],
+                "columns": [
+                    {"name": "route_id", "type": "string"},
+                    {"name": "route_id", "type": "string"},
+                ],
+            }
+        ],
+    }
+    with pytest.raises(scaffold.ScaffoldError, match="duplicate column name 'route_id'"):
+        scaffold.parse_spec(broken)
+
+
 def test_column_name_with_quote_is_rejected() -> None:
     """Interpolated raw into a double-quoted Floe contract scalar
     (`name: "{c.name}"`): an embedded '"' breaks that YAML mapping.
@@ -839,6 +860,20 @@ def test_metric_fields_survive_yaml_sensitive_content(tmp_path: Path) -> None:
     assert metric["expression"] == "SUM(cost_amount) # discounted"
 
 
+def test_floe_contract_owner_survives_a_quote(tmp_path: Path) -> None:
+    """owner was raw-interpolated inside hand-written double quotes
+    (`owner: "{spec.owner}"`); a value containing a '"' broke the generated
+    Floe contract's YAML even though scaffolding itself reported success.
+    """
+    spec = scaffold.parse_spec({**SPEC, "owner": 'Data "Platform"'})
+    scaffold.scaffold_product(spec, tmp_path)
+
+    contract = yaml.safe_load(
+        (tmp_path / "domains/logistics/contracts/floe/route_efficiency.yml").read_text()
+    )
+    assert contract["metadata"]["owner"] == 'Data "Platform"'
+
+
 def test_chart_filename_collision_is_rejected() -> None:
     """'Spend-by Channel' and 'Spend by-Channel' both normalize to
     'Spend_by_Channel' once spaces and dashes are replaced with underscores.
@@ -907,6 +942,17 @@ def test_timeseries_chart_requires_axis_and_metrics(viz_type: str, missing_field
     spec_dict = {**SPEC, "marts": [{**SPEC["marts"][0], "chart": chart}]}
     expected = "requires x_axis" if missing_field == "x_axis" else "requires at least one metric"
     with pytest.raises(scaffold.ScaffoldError, match=expected):
+        scaffold.parse_spec(spec_dict)
+
+
+def test_table_chart_without_groupby_or_metrics_is_rejected() -> None:
+    """A table chart renders `query_mode: aggregate`; with neither a
+    groupby column nor a metric, the query has nothing to select and the
+    imported chart shows nothing, even though the chart bundle imports.
+    """
+    chart = {"name": "Empty Table", "viz_type": "table", "groupby": [], "metrics": []}
+    spec_dict = {**SPEC, "marts": [{**SPEC["marts"][0], "chart": chart}]}
+    with pytest.raises(scaffold.ScaffoldError, match="requires at least one groupby column or metric"):
         scaffold.parse_spec(spec_dict)
 
 

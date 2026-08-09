@@ -99,6 +99,21 @@ def test_adding_a_product_changes_every_derived_e2e_expectation_with_no_code_edi
     )
 
 
+def test_expected_dashboards_rejects_colliding_slugs(tmp_path: Path) -> None:
+    """Superset itself enforces unique dashboard slugs, so two products
+    normalizing to the same slug ("Sales & Growth" and "Sales Growth" both
+    -> "sales-growth") can't both exist as distinct dashboards. A dict
+    comprehension would silently keep only the last product's expectation,
+    letting the E2E check pass even though the first product's dashboard
+    was never verified.
+    """
+    _write_fixture_domain(tmp_path, "sales", "growth", "Sales & Growth")
+    _write_fixture_domain(tmp_path, "marketing", "growth", "Sales Growth")
+
+    with pytest.raises(e2e.E2EError, match="collides"):
+        e2e.expected_dashboards(tmp_path)
+
+
 def test_unhealthy_pod_messages_accepts_ready_running_and_succeeded() -> None:
     payload = {
         "items": [
