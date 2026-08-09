@@ -213,7 +213,7 @@ class DomainRecord:
     products: tuple[ProductRecord, ...]
 
 
-def _slugify(value: str) -> str:
+def slugify(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
 
 
@@ -247,7 +247,7 @@ def _product_record(domain_name: str, product: Mapping[str, Any]) -> ProductReco
         manifest_key=f"floe/manifests/{domain_name}/{product_id}/{product_id}.manifest.json",
         silver_tables=_table_names(product, "silver_tables"),
         gold_tables=_table_names(product, "gold_tables"),
-        dashboard_slug=_slugify(display_name),
+        dashboard_slug=slugify(display_name),
         dashboard_title=display_name,
     )
 

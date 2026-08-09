@@ -14,7 +14,7 @@ import pytest
 import yaml
 
 from olf import scaffold
-from olf.descriptors import discover_domains, discover_products
+from olf.descriptors import discover_domains, discover_products, slugify
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
@@ -386,6 +386,36 @@ def test_unsupported_chart_viz_type_is_rejected() -> None:
 def test_spec_without_sources_is_rejected() -> None:
     with pytest.raises(scaffold.ScaffoldError, match="at least one source is required"):
         scaffold.parse_spec({**SPEC, "sources": []})
+
+
+def test_bare_string_primary_key_is_rejected() -> None:
+    """A string is a Sequence[str] too, so `tuple("route_id")` would silently
+    split it into one "key" per character instead of the intended single key.
+    """
+    broken = {
+        **SPEC,
+        "sources": [{**SPEC["sources"][0], "primary_key": "route_id"}],
+    }
+    with pytest.raises(scaffold.ScaffoldError, match="non-empty list of column names"):
+        scaffold.parse_spec(broken)
+
+
+def test_primary_key_referencing_an_undeclared_column_is_rejected() -> None:
+    broken = {
+        **SPEC,
+        "sources": [{**SPEC["sources"][0], "primary_key": ["route_idd"]}],
+    }
+    with pytest.raises(scaffold.ScaffoldError, match="route_idd"):
+        scaffold.parse_spec(broken)
+
+
+def test_empty_primary_key_is_rejected() -> None:
+    broken = {
+        **SPEC,
+        "sources": [{**SPEC["sources"][0], "primary_key": []}],
+    }
+    with pytest.raises(scaffold.ScaffoldError, match="non-empty list of column names"):
+        scaffold.parse_spec(broken)
 
 
 def _pie_spec() -> dict:
@@ -802,3 +832,55 @@ def test_rerun_without_force_leaves_a_generated_manifest_alone(tmp_path: Path) -
     scaffold.scaffold_product(scaffold.parse_spec(SPEC), tmp_path, force=False)
 
     assert manifest_path.exists()
+
+
+def test_dashboard_slug_matches_descriptor_discovery_for_a_punctuated_display_name(
+    tmp_path: Path,
+) -> None:
+    """render_superset_dashboard and descriptors._product_record must derive the
+    same slug from product_display_name independently -- descriptors.slugify
+    collapses 'Route: Efficiency' to 'route-efficiency', but the renderer's old
+    ad hoc `.replace("_", "-").replace(" ", "-")` left the colon in place,
+    producing 'route:-efficiency'. Discovery then can't find the dashboard the
+    scaffolder just wrote, and the E2E suite reports it missing.
+    """
+    display_name = "Route: Efficiency"
+    spec_dict = {**SPEC, "product_display_name": display_name}
+    scaffold.scaffold_product(scaffold.parse_spec(spec_dict), tmp_path)
+
+    dashboard_file = display_name.replace(" ", "_").replace("-", "_")
+    dashboard_path = (
+        tmp_path
+        / f"domains/logistics/reports/superset/route_efficiency/dashboards/{dashboard_file}_1.yaml"
+    )
+    dashboard = yaml.safe_load(dashboard_path.read_text())
+    assert dashboard["slug"] == slugify(display_name)
+
+
+def _mart_with_chart(index: int) -> dict:
+    return {
+        **SPEC["marts"][0],
+        "name": f"mart_route_cost_{index}",
+        "chart": {**SPEC["marts"][0]["chart"], "name": f"Route Cost by Region {index}"},
+    }
+
+
+def test_dashboard_charts_all_get_a_positive_width(tmp_path: Path) -> None:
+    """`12 // len(charted)` renders `width: 0` for every chart once a product
+    declares 13 or more charted marts, leaving the Superset dashboard grid
+    with no usable width for any of them.
+    """
+    spec_dict = {**SPEC, "marts": [_mart_with_chart(i) for i in range(13)]}
+    scaffold.scaffold_product(scaffold.parse_spec(spec_dict), tmp_path)
+
+    dashboard_path = (
+        tmp_path / "domains/logistics/reports/superset/route_efficiency/dashboards/Logistics_Route_Efficiency_1.yaml"
+    )
+    dashboard = yaml.safe_load(dashboard_path.read_text())
+    widths = [
+        block["meta"]["width"]
+        for block in dashboard["position"].values()
+        if isinstance(block, dict) and block.get("type") == "CHART"
+    ]
+    assert len(widths) == 13
+    assert all(width > 0 for width in widths)

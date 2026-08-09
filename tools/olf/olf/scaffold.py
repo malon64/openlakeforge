@@ -19,6 +19,8 @@ from typing import Any
 
 import yaml
 
+from olf.descriptors import slugify
+
 # Matches the domain.yaml `name` convention enforced in descriptors.py. domain
 # and product are both used as filesystem path components (domains/<domain>/...)
 # and as Python module segments (domains.<domain>.definitions), so anything
@@ -192,6 +194,27 @@ def _columns(raw: Sequence[Mapping[str, Any]], context: str) -> tuple[Column, ..
     )
 
 
+def _primary_key(
+    raw: Any, columns: tuple[Column, ...], context: str
+) -> tuple[str, ...]:
+    """Validate `primary_key` as a non-empty list of declared column names.
+
+    A bare string (`primary_key: customer_id`) is a `Sequence[str]` too, so
+    `tuple(raw)` would silently split it into one "key" per character instead
+    of raising; a typo'd key would otherwise pass through and end up in the
+    generated Floe contract declaring a primary key column that doesn't exist.
+    """
+    if not isinstance(raw, Sequence) or isinstance(raw, (str, bytes)) or not raw:
+        raise ScaffoldError(f"{context}: primary_key must be a non-empty list of column names")
+    if not all(isinstance(key, str) for key in raw):
+        raise ScaffoldError(f"{context}: primary_key entries must all be strings")
+    column_names = {column.name for column in columns}
+    unknown = [key for key in raw if key not in column_names]
+    if unknown:
+        raise ScaffoldError(f"{context}: primary_key {unknown} not declared in columns")
+    return tuple(raw)
+
+
 def load_spec(path: str | Path) -> ProductSpec:
     """Parse and validate a product scaffold spec."""
     source_path = Path(path)
@@ -211,12 +234,13 @@ def parse_spec(document: Mapping[str, Any], *, source: str = "spec") -> ProductS
     sources: list[Source] = []
     for entry in _require(document, "sources", source):
         context = f"{source}: source {entry.get('name')!r}"
+        columns = _columns(_require(entry, "columns", context), context)
         sources.append(
             Source(
                 name=_require_identifier(entry, "name", context),
                 description=entry.get("description", ""),
-                primary_key=tuple(_require(entry, "primary_key", context)),
-                columns=_columns(_require(entry, "columns", context), context),
+                primary_key=_primary_key(_require(entry, "primary_key", context), columns, context),
+                columns=columns,
                 example_rows=tuple(tuple(str(v) for v in row) for row in entry.get("example_rows", ())),
             )
         )
@@ -782,7 +806,10 @@ dataset_uuid: {dataset_uuid}
 
 def render_superset_dashboard(spec: ProductSpec) -> str:
     title = spec.product_display_name
-    slug = title.lower().replace("_", "-").replace(" ", "-")
+    # Shared with descriptors.slugify: descriptor discovery re-derives this
+    # same slug from the display name, so any divergence makes the E2E suite
+    # report the scaffolded dashboard as missing.
+    slug = slugify(title)
     dashboard_uuid = _stable_uuid("dashboard", spec.gold_namespace, title)
     charted = [mart for mart in spec.marts if mart.chart]
 
@@ -800,7 +827,7 @@ def render_superset_dashboard(spec: ProductSpec) -> str:
       height: 50
       sliceName: {_scalar(chart.name)}
       uuid: {_stable_uuid("chart", spec.gold_namespace, chart.name)}
-      width: {12 // max(len(charted), 1)}
+      width: {max(12 // max(len(charted), 1), 1)}
     parents: [ROOT_ID, GRID_ID, ROW-1]
     type: CHART
 """
