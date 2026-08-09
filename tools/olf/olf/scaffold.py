@@ -162,6 +162,20 @@ def _require_identifier(mapping: Mapping[str, Any], key: str, context: str) -> s
     return value
 
 
+def _check_string(value: Any, *, key: str, context: str) -> str:
+    """Require a plain string.
+
+    A non-string value like `product_description: 2026` parses fine here and
+    scaffolds successfully, but descriptors.validate_domain_descriptor
+    requires product descriptions to be strings -- so descriptor discovery,
+    and everything built on it (check-structure, e2e), then rejects the
+    scaffold's own output.
+    """
+    if not isinstance(value, str):
+        raise ScaffoldError(f"{context}: {key} must be a string")
+    return value
+
+
 def _check_safe_filename_value(value: Any, *, key: str, context: str) -> str:
     """Reject a value that could escape the product's own directory tree when
     concatenated into a filename.
@@ -357,7 +371,11 @@ def parse_spec(document: Mapping[str, Any], *, source: str = "spec") -> ProductS
             key="product_display_name",
             context=source,
         ),
-        product_description=document.get("product_description", f"{product} data product."),
+        product_description=_check_string(
+            document.get("product_description", f"{product} data product."),
+            key="product_description",
+            context=source,
+        ),
         sources=tuple(sources),
         marts=tuple(marts),
         domain_type=document.get("domain_type", "Source-aligned"),
@@ -996,6 +1014,48 @@ def _remove_stale(directory: Path, *, glob: str, keep: set[str], result: Scaffol
             result.removed.append(existing)
 
 
+def _product_owned_paths(domain_dir: Path, spec: ProductSpec) -> list[Path]:
+    """Every path `scaffold_product` writes for this product.
+
+    Mirrors the `_write` calls below (mart model/dataset filenames, chart
+    filenames, the dashboard filename derived from product_display_name) so
+    an unforced rerun of an existing product can check whether *every* one
+    of them already exists, not just source/mart names -- a product_display_name
+    or chart rename derives a filename that doesn't exist yet either, and
+    `_write` creates it regardless of `force` just like a new mart would.
+    """
+    dbt_dir = domain_dir / "transformations" / "dbt" / spec.product
+    raw_dir = domain_dir / "examples" / "raw" / spec.product
+    reports_dir = domain_dir / "reports" / "superset" / spec.product
+    dashboard_file = spec.product_display_name.replace(" ", "_").replace("-", "_")
+    paths = [
+        domain_dir / "contracts" / "floe" / f"{spec.product}.yml",
+        domain_dir / "extract" / "dlt" / f"{spec.product}.py",
+        domain_dir / "pipelines" / "dagster" / f"{spec.product}.py",
+        dbt_dir / "dbt_project.yml",
+        dbt_dir / "packages.yml",
+        dbt_dir / "profiles.yml",
+        dbt_dir / "models" / "sources.yml",
+        dbt_dir / "models" / "gold" / "schema.yml",
+        *(dbt_dir / "models" / "gold" / f"{mart.name}.sql" for mart in spec.marts),
+        *(raw_dir / f"{src.name}.csv" for src in spec.sources),
+        reports_dir / "metadata.yaml",
+        reports_dir / "databases" / "openlakeforge_trino.yaml",
+        *(
+            reports_dir / "datasets" / "OpenLakeForge_Trino" / f"{mart.name}.yaml"
+            for mart in spec.marts
+        ),
+        *(
+            reports_dir / "charts" / f"{mart.chart.name.replace(' ', '_').replace('-', '_')}_1.yaml"
+            for mart in spec.marts
+            if mart.chart
+        ),
+        reports_dir / "dashboards" / f"{dashboard_file}_1.yaml",
+        reports_dir / "README.md",
+    ]
+    return paths
+
+
 def scaffold_product(spec: ProductSpec, repo_root: str | Path, *, force: bool = False) -> ScaffoldResult:
     """Generate every product-owned file for `spec` under `repo_root/domains`."""
     root = Path(repo_root)
@@ -1024,26 +1084,20 @@ def scaffold_product(spec: ProductSpec, repo_root: str | Path, *, force: bool = 
         None,
     )
     if existing_product_entry is not None and not force:
-        # The per-file `force` check above only protects files that already
-        # exist: a mart or source *added* to the spec has no file on disk yet,
-        # so `_write` creates it regardless of `force`, while the descriptor
-        # entry stays pinned to the old shape. dbt/Superset then discover an
-        # extra model/dataset that domain.yaml and the descriptor-derived E2E
-        # count don't know about. Refuse instead of partially applying it.
-        existing_sources = {
-            table.get("name")
-            for table in (existing_product_entry.get("silver_tables") or {}).get("tables", [])
-        }
-        existing_marts = {
-            table.get("name")
-            for table in (existing_product_entry.get("gold_tables") or {}).get("tables", [])
-        }
-        new_sources = {src.name for src in spec.sources}
-        new_marts = {mart.name for mart in spec.marts}
-        if existing_sources != new_sources or existing_marts != new_marts:
+        # The per-file `force` check below only protects files that already
+        # exist: any path this spec would write that doesn't exist yet gets
+        # created regardless of `force` -- not just a newly added mart or
+        # source, but also a renamed chart or a changed product_display_name,
+        # both of which derive a filename nothing on disk has yet. dbt/Superset
+        # then discover an extra or duplicate model/dataset/chart/dashboard
+        # that domain.yaml and the descriptor-derived E2E count don't know
+        # about. Refuse the whole rerun instead of partially applying it.
+        missing = [path for path in _product_owned_paths(domain_dir, spec) if not path.exists()]
+        if missing:
             raise ScaffoldError(
-                f"{spec.domain}/{spec.product}: sources/marts changed from what is already "
-                "scaffolded on disk; rerun with --force to regenerate this product's files"
+                f"{spec.domain}/{spec.product}: spec no longer matches what is already "
+                "scaffolded on disk (missing " + ", ".join(str(p) for p in missing) + "); "
+                "rerun with --force to regenerate this product's files"
             )
     product_entry_override = existing_product_entry if existing_product_entry is not None and not force else None
     _write(
@@ -1053,15 +1107,22 @@ def scaffold_product(spec: ProductSpec, repo_root: str | Path, *, force: bool = 
         result=result,
     )
 
-    _write(domain_dir / "__init__.py", "", force=force, result=result)
+    # Domain-level files shared by every product in this domain. --force on
+    # one product's spec must not regenerate them: forcing a Sales rerun
+    # while a Marketing product also lives in this domain would otherwise
+    # erase the domain's actual README/docstrings, which are unrelated to
+    # the product being forced. force=False here still creates them on a
+    # brand-new domain (the path doesn't exist yet) but never overwrites an
+    # existing one.
+    _write(domain_dir / "__init__.py", "", force=False, result=result)
     _write(
         domain_dir / "README.md",
         f"# {spec.domain_display_name}\n\n{spec.domain_description}\n",
-        force=force,
+        force=False,
         result=result,
     )
     for package in ("extract", "extract/dlt", "pipelines", "pipelines/dagster"):
-        _write(domain_dir / package / "__init__.py", "", force=force, result=result)
+        _write(domain_dir / package / "__init__.py", "", force=False, result=result)
 
     _write(
         domain_dir / "contracts" / "floe" / f"{spec.product}.yml",

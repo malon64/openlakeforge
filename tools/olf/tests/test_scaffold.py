@@ -201,6 +201,60 @@ def test_rerun_without_force_rejects_a_changed_spec(tmp_path: Path) -> None:
     assert descriptor == original_descriptor
 
 
+def test_rerun_without_force_rejects_a_renamed_product_display_name(tmp_path: Path) -> None:
+    """Source and mart names are unchanged, so the earlier name-based guard
+    would miss this: product_display_name derives the dashboard filename,
+    which doesn't exist on disk under the new name yet, so `_write` would
+    create a second dashboard alongside the original instead of renaming it.
+    """
+    scaffold.scaffold_product(scaffold.parse_spec(SPEC), tmp_path)
+
+    renamed_spec = {**SPEC, "product_display_name": "Logistics Route Cost Efficiency"}
+    with pytest.raises(scaffold.ScaffoldError, match="rerun with --force"):
+        scaffold.scaffold_product(scaffold.parse_spec(renamed_spec), tmp_path)
+
+    new_dashboard = (
+        tmp_path
+        / "domains/logistics/reports/superset/route_efficiency/dashboards"
+        / "Logistics_Route_Cost_Efficiency_1.yaml"
+    )
+    assert not new_dashboard.exists()
+
+
+def test_rerun_without_force_rejects_a_renamed_chart(tmp_path: Path) -> None:
+    """Mart names are unchanged, so the earlier name-based guard would miss
+    this: the chart filename is derived from chart.name, which doesn't exist
+    on disk under the new name yet.
+    """
+    scaffold.scaffold_product(scaffold.parse_spec(SPEC), tmp_path)
+
+    renamed_spec = {
+        **SPEC,
+        "marts": [{**SPEC["marts"][0], "chart": {**SPEC["marts"][0]["chart"], "name": "Renamed Chart"}}],
+    }
+    with pytest.raises(scaffold.ScaffoldError, match="rerun with --force"):
+        scaffold.scaffold_product(scaffold.parse_spec(renamed_spec), tmp_path)
+
+    new_chart = tmp_path / "domains/logistics/reports/superset/route_efficiency/charts/Renamed_Chart_1.yaml"
+    assert not new_chart.exists()
+
+
+def test_forced_rerun_of_one_product_preserves_the_domain_readme(tmp_path: Path) -> None:
+    """--force is documented as regenerating this product's own files, not
+    the whole domain. A shared domain README/`__init__.py` hand-edited (or
+    simply differing from what this rerun's spec would derive) must survive
+    a --force rerun of a single product in that domain.
+    """
+    scaffold.scaffold_product(scaffold.parse_spec(SPEC), tmp_path)
+    readme = tmp_path / "domains/logistics/README.md"
+    readme.write_text("# Logistics\n\nHand-maintained domain documentation.\n", encoding="utf-8")
+
+    result = scaffold.scaffold_product(scaffold.parse_spec(SPEC), tmp_path, force=True)
+
+    assert readme not in result.written
+    assert readme.read_text(encoding="utf-8") == "# Logistics\n\nHand-maintained domain documentation.\n"
+
+
 def test_rerun_with_force_updates_the_descriptor_entry_to_match(tmp_path: Path) -> None:
     scaffold.scaffold_product(scaffold.parse_spec(SPEC), tmp_path)
     changed_spec_dict = {
@@ -806,6 +860,16 @@ def test_product_display_name_path_traversal_is_rejected() -> None:
     """
     with pytest.raises(scaffold.ScaffoldError, match="must not contain a path separator"):
         scaffold.parse_spec({**SPEC, "product_display_name": "../../../../../escaped"})
+
+
+def test_non_string_product_description_is_rejected() -> None:
+    """A non-string like `product_description: 2026` parses fine here and
+    scaffolds successfully, but descriptors.validate_domain_descriptor
+    requires product descriptions to be strings, so descriptor discovery
+    then rejects the scaffold's own output.
+    """
+    with pytest.raises(scaffold.ScaffoldError, match="product_description must be a string"):
+        scaffold.parse_spec({**SPEC, "product_description": 2026})
 
 
 def test_dttm_col_is_validated_even_without_a_chart() -> None:
