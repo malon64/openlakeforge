@@ -67,9 +67,25 @@ def expected_domains(repo_root: Path | None = None) -> tuple[str, ...]:
 
 
 def expected_data_products(repo_root: Path | None = None) -> dict[str, tuple[str, ...]]:
-    """OpenMetadata data-product name candidates, keyed by asset prefix."""
+    """OpenMetadata data-product name candidates, keyed by asset prefix.
+
+    openmetadata.py deploys the data product under `product.name` -- the raw
+    descriptor field, which defaults to asset_prefix but a descriptor may
+    override -- not asset_prefix. Checking only asset_prefix candidates then
+    reports a successfully deployed product as missing whenever a descriptor
+    sets `name` explicitly.
+    """
     return {
-        product.asset_prefix: (product.asset_prefix, f"{product.domain}.{product.asset_prefix}")
+        product.asset_prefix: tuple(
+            dict.fromkeys(
+                (
+                    product.name,
+                    f"{product.domain}.{product.name}",
+                    product.asset_prefix,
+                    f"{product.domain}.{product.asset_prefix}",
+                )
+            )
+        )
         for product in discover_products(repo_root or _default_repo_root())
     }
 

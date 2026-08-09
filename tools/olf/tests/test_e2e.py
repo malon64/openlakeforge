@@ -429,6 +429,45 @@ def test_superset_dashboard_assertion_reports_missing_dashboard() -> None:
         e2e.assert_superset_dashboards([])
 
 
+def test_expected_data_products_include_a_descriptor_name_that_diverges_from_asset_prefix(
+    tmp_path: Path,
+) -> None:
+    """openmetadata.py deploys the data product under `product.name`, the raw
+    descriptor field -- not asset_prefix. A descriptor is free to set `name`
+    to anything, so candidates must include it or a genuinely deployed
+    product is reported missing.
+    """
+    domain_dir = tmp_path / "domains" / "marketing"
+    domain_dir.mkdir(parents=True)
+    (domain_dir / "domain.yaml").write_text(
+        """\
+apiVersion: openlakeforge.io/v1alpha1
+kind: Domain
+name: marketing
+displayName: Marketing
+description: Marketing domain fixture.
+status: planned
+data_products:
+  - id: campaign_performance
+    name: legacy_campaign_metrics
+    displayName: Campaign Performance
+    description: Fixture product.
+    status: planned
+    silver_tables:
+      tables:
+        - name: raw_events
+    gold_tables:
+      tables:
+        - name: mart_events_by_day
+""",
+        encoding="utf-8",
+    )
+
+    candidates = e2e.expected_data_products(tmp_path)["marketing_campaign_performance"]
+    assert "legacy_campaign_metrics" in candidates
+    assert "marketing.legacy_campaign_metrics" in candidates
+
+
 def test_openmetadata_data_product_candidates_try_short_and_domain_names() -> None:
     seen: list[str] = []
 

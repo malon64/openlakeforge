@@ -38,6 +38,14 @@ ALLOWED_VIZ_TYPES = frozenset(
     {"echarts_timeseries_bar", "echarts_timeseries_line", "pie", "table"}
 )
 
+# Must match _superset_type's mapping exactly: that function silently falls
+# back to VARCHAR for anything not listed there, so an unvalidated type here
+# (e.g. a typo'd "timestmp") would write into the Floe contract unchanged
+# while the Superset dataset silently represents the same column as VARCHAR.
+ALLOWED_COLUMN_TYPES = frozenset(
+    {"string", "integer", "long", "double", "decimal", "date", "timestamp", "boolean"}
+)
+
 _UUID_NAMESPACE = uuid.UUID("6f6d1f9c-0f4a-5b7e-8c2d-1a2b3c4d5e6f")
 
 
@@ -186,6 +194,12 @@ def _columns(raw: Sequence[Mapping[str, Any]], context: str) -> tuple[Column, ..
         raise ScaffoldError(f"{context}: at least one column is required")
     columns = []
     for entry in raw:
+        column_type = _require(entry, "type", context)
+        if column_type not in ALLOWED_COLUMN_TYPES:
+            raise ScaffoldError(
+                f"{context}: unsupported column type {column_type!r}; "
+                f"expected one of {', '.join(sorted(ALLOWED_COLUMN_TYPES))}"
+            )
         nullable = entry.get("nullable", False)
         # bool("false") is True: a quoted or templated "false" would silently
         # weaken the generated Floe schema to nullable instead of being
@@ -195,7 +209,7 @@ def _columns(raw: Sequence[Mapping[str, Any]], context: str) -> tuple[Column, ..
         columns.append(
             Column(
                 name=_require(entry, "name", context),
-                type=_require(entry, "type", context),
+                type=column_type,
                 nullable=nullable,
             )
         )

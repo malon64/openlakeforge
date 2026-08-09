@@ -434,6 +434,28 @@ def test_spec_without_sources_is_rejected() -> None:
         scaffold.parse_spec({**SPEC, "sources": []})
 
 
+def test_unsupported_column_type_is_rejected() -> None:
+    """A misspelled type like "timestmp" was written verbatim into the Floe
+    contract while _superset_type silently mapped the same unrecognized
+    value to VARCHAR -- scaffolding reported success with a contract that
+    disagreed with its own reporting schema.
+    """
+    broken = {
+        **SPEC,
+        "sources": [
+            {
+                **SPEC["sources"][0],
+                "columns": [
+                    {"name": "route_id", "type": "string"},
+                    {"name": "run_date", "type": "timestmp"},
+                ],
+            }
+        ],
+    }
+    with pytest.raises(scaffold.ScaffoldError, match="timestmp"):
+        scaffold.parse_spec(broken)
+
+
 def test_bare_string_primary_key_is_rejected() -> None:
     """A string is a Sequence[str] too, so `tuple("route_id")` would silently
     split it into one "key" per character instead of the intended single key.
