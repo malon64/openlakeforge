@@ -6,6 +6,8 @@ import pytest
 from olf.contracts import build_contract_env, render_shell_exports
 
 FIXTURES = Path(__file__).parent / "fixtures"
+REPO_ROOT = Path(__file__).resolve().parents[3]
+BASE_WITH_REPO_ROOT = {"OPENLAKEFORGE_REPO_ROOT": str(REPO_ROOT)}
 
 
 def load_fixture(name: str) -> dict:
@@ -13,7 +15,11 @@ def load_fixture(name: str) -> dict:
 
 
 def test_defaults_without_contracts_match_local_profile() -> None:
-    exports, unsets = build_contract_env({}, None)
+    """Default schema FQNs are discovered from domains/*/domain.yaml (like
+    descriptors.py and openmetadata.py's own fallback), not a static product
+    list.
+    """
+    exports, unsets = build_contract_env(BASE_WITH_REPO_ROOT, None)
     assert exports["OPENLAKEFORGE_STORAGE_IMPLEMENTATION"] == "storage.s3_compatible.seaweedfs"
     assert exports["OPENLAKEFORGE_STORAGE_ENDPOINT"] == "http://seaweedfs-s3:8333"
     assert exports["OPENLAKEFORGE_CATALOG_PROVIDER"] == "polaris"
@@ -26,6 +32,7 @@ def test_defaults_without_contracts_match_local_profile() -> None:
         "supply_chain_inventory_reliability": (
             "polaris.lakehouse_dev.supply_chain_inventory_reliability_silver"
         ),
+        "marketing_campaign_performance": "polaris.lakehouse_dev.marketing_campaign_performance_silver",
     }
     assert json.loads(exports["OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON"]) == {
         "sales_order_revenue": "polaris.lakehouse_dev.sales_order_revenue_gold",
@@ -33,6 +40,7 @@ def test_defaults_without_contracts_match_local_profile() -> None:
         "supply_chain_inventory_reliability": (
             "polaris.lakehouse_dev.supply_chain_inventory_reliability_gold"
         ),
+        "marketing_campaign_performance": "polaris.lakehouse_dev.marketing_campaign_performance_gold",
     }
     assert exports["OPENMETADATA_CATALOG_SERVICE"] == "polaris"
     assert exports["OPENLAKEFORGE_STORAGE_OM_SERVICE"] == "seaweedfs"
@@ -56,7 +64,7 @@ def test_unsupported_provider_contract_version_is_rejected() -> None:
 
 
 def test_local_contracts_apply_seaweedfs_values() -> None:
-    exports, unsets = build_contract_env({}, load_fixture("local-provider-contracts.json"))
+    exports, unsets = build_contract_env(BASE_WITH_REPO_ROOT, load_fixture("local-provider-contracts.json"))
     assert exports["OPENLAKEFORGE_STORAGE_PROVIDER"] == "local"
     assert exports["OPENLAKEFORGE_STORAGE_S3_SERVICE_PORT"] == "8333"
     assert exports["OPENLAKEFORGE_STORAGE_PATH_STYLE_ACCESS"] == "true"
@@ -69,6 +77,7 @@ def test_local_contracts_apply_seaweedfs_values() -> None:
         "supply_chain_inventory_reliability": (
             "polaris.lakehouse_dev.supply_chain_inventory_reliability_silver"
         ),
+        "marketing_campaign_performance": "polaris.lakehouse_dev.marketing_campaign_performance_silver",
     }
     assert json.loads(exports["OPENLAKEFORGE_CATALOG_SILVER_NAMESPACES_JSON"]) == {
         "sales_order_revenue": "sales_order_revenue_silver"

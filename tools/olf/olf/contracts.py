@@ -23,7 +23,10 @@ import json
 import shlex
 import subprocess
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Any
+
+from olf.descriptors import discover_products
 
 PROVIDER_CONTRACT_SCHEMA_VERSION = "1.0.0"
 
@@ -56,7 +59,20 @@ _DEFAULT_CATALOG_GOLD_NAMESPACES_JSON = (
     '"supply_chain_inventory_reliability":"supply_chain_inventory_reliability_gold"}'
 )
 
-_PRODUCTS = ("sales_order_revenue", "sales_customer_health", "supply_chain_inventory_reliability")
+
+def _discovered_asset_prefixes(base: Mapping[str, str]) -> tuple[str, ...]:
+    """Every product's asset_prefix, discovered from domain.yaml like
+    descriptors.py and openmetadata.py's own fallback already do.
+
+    Onboarding a product touches only `domains/<domain>/**` (see
+    docs/product-onboarding.md), so this must not be a static product list:
+    a hardcoded tuple silently excludes every product added after it was
+    written, and `make openmetadata-metadata-deploy` then fails with "not
+    covered by the provider contract schema FQNs" for that product even
+    though its Terraform contracts were never applied.
+    """
+    repo_root = Path(base.get("OPENLAKEFORGE_REPO_ROOT", ".")).resolve()
+    return tuple(product.asset_prefix for product in discover_products(repo_root))
 
 
 def load_provider_contracts(terraform_dir: str) -> dict[str, Any] | None:
@@ -408,12 +424,13 @@ def build_contract_env(base: Mapping[str, str], contracts: dict[str, Any] | None
     catalog_om_service_name = "aws_glue" if is_glue else "polaris"
     catalog_name = env.get("OPENLAKEFORGE_CATALOG_NAME")
     database_fqn = f"{catalog_om_service_name}.{catalog_name}"
+    asset_prefixes = _discovered_asset_prefixes(base)
     default_silver_fqns = json.dumps(
-        {product: f"{database_fqn}.{product}_silver" for product in _PRODUCTS},
+        {product: f"{database_fqn}.{product}_silver" for product in asset_prefixes},
         separators=(",", ":"),
     )
     default_gold_fqns = json.dumps(
-        {product: f"{database_fqn}.{product}_gold" for product in _PRODUCTS},
+        {product: f"{database_fqn}.{product}_gold" for product in asset_prefixes},
         separators=(",", ":"),
     )
     if env.get("OPENLAKEFORGE_CATALOG_DATABASE_FQN") == "":

@@ -184,14 +184,22 @@ def _require_safe_filename_component(mapping: Mapping[str, Any], key: str, conte
 def _columns(raw: Sequence[Mapping[str, Any]], context: str) -> tuple[Column, ...]:
     if not raw:
         raise ScaffoldError(f"{context}: at least one column is required")
-    return tuple(
-        Column(
-            name=_require(entry, "name", context),
-            type=_require(entry, "type", context),
-            nullable=bool(entry.get("nullable", False)),
+    columns = []
+    for entry in raw:
+        nullable = entry.get("nullable", False)
+        # bool("false") is True: a quoted or templated "false" would silently
+        # weaken the generated Floe schema to nullable instead of being
+        # rejected, since any nonempty string is truthy.
+        if not isinstance(nullable, bool):
+            raise ScaffoldError(f"{context}: nullable {nullable!r} must be a boolean")
+        columns.append(
+            Column(
+                name=_require(entry, "name", context),
+                type=_require(entry, "type", context),
+                nullable=nullable,
+            )
         )
-        for entry in raw
-    )
+    return tuple(columns)
 
 
 def _primary_key(
@@ -241,7 +249,10 @@ def parse_spec(document: Mapping[str, Any], *, source: str = "spec") -> ProductS
                 description=entry.get("description", ""),
                 primary_key=_primary_key(_require(entry, "primary_key", context), columns, context),
                 columns=columns,
-                example_rows=tuple(tuple(str(v) for v in row) for row in entry.get("example_rows", ())),
+                example_rows=tuple(
+                    tuple("" if v is None else str(v) for v in row)
+                    for row in entry.get("example_rows", ())
+                ),
             )
         )
     if not sources:

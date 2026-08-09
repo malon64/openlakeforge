@@ -331,6 +331,52 @@ def test_example_rows_with_commas_and_quotes_are_csv_quoted(tmp_path: Path) -> N
     assert rows[1] == ["RTE-1", 'Smith, Inc. "Prime"']
 
 
+def test_example_row_null_becomes_an_empty_csv_field_not_the_string_none(tmp_path: Path) -> None:
+    """A YAML `null` in example_rows previously round-tripped through
+    `str(v)` to the literal string "None". Floe's strict casting treats an
+    empty CSV field as null but "None" as an invalid value for a numeric/date
+    column, so the scaffold's own example row failed its own contract.
+    """
+    import csv
+    import io
+
+    spec_dict = {
+        **SPEC,
+        "sources": [
+            {
+                **SPEC["sources"][0],
+                "columns": [
+                    {"name": "route_id", "type": "string"},
+                    {"name": "distance_km", "type": "double", "nullable": True},
+                ],
+                "example_rows": [["RTE-1", None]],
+            }
+        ],
+    }
+    scaffold.scaffold_product(scaffold.parse_spec(spec_dict), tmp_path)
+
+    csv_text = (tmp_path / "domains/logistics/examples/raw/route_efficiency/routes.csv").read_text()
+    rows = list(csv.reader(io.StringIO(csv_text)))
+    assert rows[1] == ["RTE-1", ""]
+
+
+def test_string_nullable_value_is_rejected() -> None:
+    """`bool("false")` is True: a quoted or templated "false" would silently
+    reverse the requested nullability instead of being rejected.
+    """
+    broken = {
+        **SPEC,
+        "sources": [
+            {
+                **SPEC["sources"][0],
+                "columns": [{"name": "route_id", "type": "string", "nullable": "false"}],
+            }
+        ],
+    }
+    with pytest.raises(scaffold.ScaffoldError, match="nullable"):
+        scaffold.parse_spec(broken)
+
+
 def test_adding_a_product_to_an_existing_domain_keeps_both(tmp_path: Path) -> None:
     scaffold.scaffold_product(scaffold.parse_spec(SPEC), tmp_path)
     second = {**SPEC, "product": "carrier_cost", "product_display_name": "Logistics Carrier Cost"}
