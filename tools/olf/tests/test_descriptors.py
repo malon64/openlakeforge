@@ -319,6 +319,73 @@ def test_discover_products_asset_prefix_defaults_to_domain_and_product_id(tmp_pa
     assert product.asset_prefix == "marketing_campaign_performance"
 
 
+def test_domain_descriptor_name_must_match_its_directory(tmp_path: Path) -> None:
+    """A syntactically valid `name` that disagrees with the directory it
+    lives in (domains/foo/domain.yaml declaring `name: bar`) is discovered
+    as domain "bar" while the actual product code stays under domains/foo:
+    the structure check then searches domains/bar, and Terraform deploys
+    domains.bar.definitions, neither of which the on-disk layout matches.
+    """
+    document = """\
+    apiVersion: openlakeforge.io/v1alpha1
+    kind: Domain
+    name: bar
+    displayName: Bar
+    description: Mismatched domain fixture.
+    status: planned
+    data_products: []
+    """
+    _write_domain(tmp_path, "foo", document)
+
+    with pytest.raises(DomainDescriptorError, match="must match its directory name 'foo'"):
+        load_domain_descriptor(tmp_path / "domains" / "foo" / "domain.yaml")
+
+
+def test_discover_products_rejects_duplicate_asset_prefix_across_domains(tmp_path: Path) -> None:
+    """asset_prefix is used as an object key throughout (Terraform's
+    product_floe_manifest_relative_paths/catalog_product_namespaces outputs,
+    contracts.py's fallback schema-FQN maps). Two products declaring the
+    same explicit asset_prefix, even from different domain files, produce a
+    duplicate Terraform object key that fails evaluation with no reference
+    to which descriptors caused it.
+    """
+    shared_prefix_a = """\
+    apiVersion: openlakeforge.io/v1alpha1
+    kind: Domain
+    name: alpha
+    displayName: Alpha
+    description: Alpha domain fixture.
+    status: planned
+    data_products:
+      - id: widgets
+        name: alpha_widgets
+        asset_prefix: shared_prefix
+        displayName: Alpha Widgets
+        description: Fixture product.
+        status: planned
+    """
+    shared_prefix_b = """\
+    apiVersion: openlakeforge.io/v1alpha1
+    kind: Domain
+    name: beta
+    displayName: Beta
+    description: Beta domain fixture.
+    status: planned
+    data_products:
+      - id: widgets
+        name: beta_widgets
+        asset_prefix: shared_prefix
+        displayName: Beta Widgets
+        description: Fixture product.
+        status: planned
+    """
+    _write_domain(tmp_path, "alpha", shared_prefix_a)
+    _write_domain(tmp_path, "beta", shared_prefix_b)
+
+    with pytest.raises(DomainDescriptorError, match="asset_prefix 'shared_prefix' is declared by both"):
+        discover_products(tmp_path)
+
+
 def test_domain_descriptor_rejects_path_traversal_in_product_id() -> None:
     """discover_products derives manifest_key as f"floe/manifests/{domain}/{id}/{id}.manifest.json"
     with no further sanitization. An id of "../other" would previously pass the

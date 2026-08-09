@@ -162,17 +162,18 @@ def _require_identifier(mapping: Mapping[str, Any], key: str, context: str) -> s
     return value
 
 
-def _check_string(value: Any, *, key: str, context: str) -> str:
-    """Require a plain string.
+def _check_string(value: Any, *, key: str, context: str, allow_empty: bool = True) -> str:
+    """Require a plain string (optionally non-empty).
 
     A non-string value like `product_description: 2026` parses fine here and
     scaffolds successfully, but descriptors.validate_domain_descriptor
-    requires product descriptions to be strings -- so descriptor discovery,
-    and everything built on it (check-structure, e2e), then rejects the
-    scaffold's own output.
+    requires descriptions (and, non-empty, displayName) to be strings -- so
+    descriptor discovery, and everything built on it (check-structure, e2e),
+    then rejects the scaffold's own output.
     """
-    if not isinstance(value, str):
-        raise ScaffoldError(f"{context}: {key} must be a string")
+    if not isinstance(value, str) or (not allow_empty and not value):
+        expected = "a non-empty string" if not allow_empty else "a string"
+        raise ScaffoldError(f"{context}: {key} must be {expected}")
     return value
 
 
@@ -317,7 +318,7 @@ def parse_spec(document: Mapping[str, Any], *, source: str = "spec") -> ProductS
         sources.append(
             Source(
                 name=_require_identifier(entry, "name", context),
-                description=entry.get("description", ""),
+                description=_check_string(entry.get("description", ""), key="description", context=context),
                 primary_key=_primary_key(_require(entry, "primary_key", context), columns, context),
                 columns=columns,
                 example_rows=_example_rows(entry.get("example_rows", ()), context),
@@ -349,7 +350,7 @@ def parse_spec(document: Mapping[str, Any], *, source: str = "spec") -> ProductS
         marts.append(
             Mart(
                 name=_require_identifier(entry, "name", context),
-                description=entry.get("description", ""),
+                description=_check_string(entry.get("description", ""), key="description", context=context),
                 sql=_require(entry, "sql", context),
                 columns=_columns(_require(entry, "columns", context), context),
                 metrics=_metrics(entry.get("metrics", ()), context),
@@ -362,8 +363,17 @@ def parse_spec(document: Mapping[str, Any], *, source: str = "spec") -> ProductS
 
     spec = ProductSpec(
         domain=domain,
-        domain_display_name=document.get("domain_display_name", domain.replace("_", " ").title()),
-        domain_description=document.get("domain_description", f"{domain} domain."),
+        domain_display_name=_check_string(
+            document.get("domain_display_name", domain.replace("_", " ").title()),
+            key="domain_display_name",
+            context=source,
+            allow_empty=False,
+        ),
+        domain_description=_check_string(
+            document.get("domain_description", f"{domain} domain."),
+            key="domain_description",
+            context=source,
+        ),
         owner=document.get("owner", domain.replace("_", "-")),
         product=product,
         product_display_name=_check_safe_filename_value(

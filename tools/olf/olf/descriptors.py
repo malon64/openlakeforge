@@ -168,6 +168,16 @@ def load_domain_descriptor(path: str | Path) -> dict[str, Any]:
     if not isinstance(document, dict):
         raise DomainDescriptorError(f"{source}: descriptor must contain a YAML object")
     validate_domain_descriptor(document, source=source)
+    # A syntactically valid `name` that disagrees with the directory it
+    # lives in (domains/foo/domain.yaml declaring `name: bar`) is discovered
+    # as domain "bar" while the actual product code stays under domains/foo:
+    # the structure check then searches domains/bar, and Terraform deploys
+    # domains.bar.definitions, neither of which the on-disk layout matches.
+    directory_name = Path(path).parent.name
+    if document["name"] != directory_name:
+        raise DomainDescriptorError(
+            f"{source}: name {document['name']!r} must match its directory name {directory_name!r}"
+        )
     return document
 
 
@@ -280,9 +290,29 @@ def discover_domains(repo_root: str | Path, *, domains_dir: str = DOMAINS_DIRNAM
 
 
 def discover_products(repo_root: str | Path, *, domains_dir: str = DOMAINS_DIRNAME) -> tuple[ProductRecord, ...]:
-    """Discover every data product across every domain, flattened."""
-    return tuple(
+    """Discover every data product across every domain, flattened.
+
+    asset_prefix is used as an object key throughout -- Terraform's
+    product_floe_manifest_relative_paths/catalog_product_namespaces outputs
+    (infra/terraform/modules/domains/main.tf), contracts.py's fallback
+    schema-FQN maps, and openmetadata.py's product lookups all key by it. Two
+    products sharing one (including an explicit asset_prefix collision
+    across different domain files) produce a duplicate Terraform object key
+    that fails evaluation with no reference to which descriptors caused it;
+    raise here instead with an actionable message before that point.
+    """
+    products = tuple(
         product
         for domain in discover_domains(repo_root, domains_dir=domains_dir)
         for product in domain.products
     )
+    seen: dict[str, str] = {}
+    for product in products:
+        qualified = f"{product.domain}/{product.id}"
+        collision = seen.get(product.asset_prefix)
+        if collision is not None:
+            raise DomainDescriptorError(
+                f"asset_prefix {product.asset_prefix!r} is declared by both {collision!r} and {qualified!r}"
+            )
+        seen[product.asset_prefix] = qualified
+    return products

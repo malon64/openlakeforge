@@ -872,6 +872,43 @@ def test_non_string_product_description_is_rejected() -> None:
         scaffold.parse_spec({**SPEC, "product_description": 2026})
 
 
+def test_non_string_source_description_is_rejected() -> None:
+    """A non-string source description parses fine here and is copied into
+    the generated Bronze descriptor entry, which validate_domain_descriptor
+    rejects because Bronze descriptions must be strings.
+    """
+    broken = {**SPEC, "sources": [{**SPEC["sources"][0], "description": 2026}]}
+    with pytest.raises(scaffold.ScaffoldError, match="description must be a string"):
+        scaffold.parse_spec(broken)
+
+
+def test_non_string_mart_description_is_rejected() -> None:
+    """The analogous failure for mart descriptions in generated Gold table
+    entries.
+    """
+    broken = {**SPEC, "marts": [{**SPEC["marts"][0], "description": 2026}]}
+    with pytest.raises(scaffold.ScaffoldError, match="description must be a string"):
+        scaffold.parse_spec(broken)
+
+
+def test_non_string_domain_description_is_rejected() -> None:
+    with pytest.raises(scaffold.ScaffoldError, match="domain_description must be a string"):
+        scaffold.parse_spec({**SPEC, "domain_description": 2026})
+
+
+def test_empty_domain_display_name_is_rejected() -> None:
+    """validate_domain_descriptor requires displayName to be a non-empty
+    string; an empty one scaffolds successfully but fails discovery.
+    """
+    with pytest.raises(scaffold.ScaffoldError, match="domain_display_name must be a non-empty string"):
+        scaffold.parse_spec({**SPEC, "domain_display_name": ""})
+
+
+def test_non_string_domain_display_name_is_rejected() -> None:
+    with pytest.raises(scaffold.ScaffoldError, match="domain_display_name must be a non-empty string"):
+        scaffold.parse_spec({**SPEC, "domain_display_name": 2026})
+
+
 def test_dttm_col_is_validated_even_without_a_chart() -> None:
     """A typo'd or undeclared dttm_col previously bypassed validation entirely
     for a chartless mart, since the check sat after `if not mart.chart:
