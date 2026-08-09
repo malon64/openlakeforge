@@ -456,6 +456,49 @@ def test_unsupported_column_type_is_rejected() -> None:
         scaffold.parse_spec(broken)
 
 
+def test_column_name_with_quote_is_rejected() -> None:
+    """Interpolated raw into a double-quoted Floe contract scalar
+    (`name: "{c.name}"`): an embedded '"' breaks that YAML mapping.
+    """
+    broken = {
+        **SPEC,
+        "sources": [
+            {
+                **SPEC["sources"][0],
+                "columns": [{"name": 'customer"id', "type": "string"}],
+            }
+        ],
+    }
+    with pytest.raises(scaffold.ScaffoldError, match=r"must match '\^\[a-z\]\[a-z0-9_\]\*\$'"):
+        scaffold.parse_spec(broken)
+
+
+def test_mart_column_name_with_colon_is_rejected() -> None:
+    """Interpolated raw and unquoted into the Superset dataset YAML
+    (`column_name: {column.name}`): 'cost: usd' is not a valid unquoted
+    scalar there.
+    """
+    broken = {
+        **SPEC,
+        "marts": [{**SPEC["marts"][0], "columns": [{"name": "cost: usd", "type": "double"}]}],
+    }
+    with pytest.raises(scaffold.ScaffoldError, match=r"must match '\^\[a-z\]\[a-z0-9_\]\*\$'"):
+        scaffold.parse_spec(broken)
+
+
+def test_source_without_example_rows_is_rejected() -> None:
+    """A header-only example CSV makes libs/bronze_csv.py's
+    load_entity_to_bronze raise "did not produce any rows", so the
+    scaffold's own golden-path pipeline can never run.
+    """
+    broken = {
+        **SPEC,
+        "sources": [{**SPEC["sources"][0], "example_rows": []}],
+    }
+    with pytest.raises(scaffold.ScaffoldError, match="at least one example_rows entry is required"):
+        scaffold.parse_spec(broken)
+
+
 def test_bare_string_primary_key_is_rejected() -> None:
     """A string is a Sequence[str] too, so `tuple("route_id")` would silently
     split it into one "key" per character instead of the intended single key.

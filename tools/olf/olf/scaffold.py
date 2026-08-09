@@ -208,7 +208,11 @@ def _columns(raw: Sequence[Mapping[str, Any]], context: str) -> tuple[Column, ..
             raise ScaffoldError(f"{context}: nullable {nullable!r} must be a boolean")
         columns.append(
             Column(
-                name=_require(entry, "name", context),
+                # Renderers interpolate this both inside a double-quoted YAML
+                # scalar (Floe contract) and completely unquoted (Superset
+                # column_name), so a name containing '"' or ': ' breaks the
+                # generated file instead of just being ugly.
+                name=_require_identifier(entry, "name", context),
                 type=column_type,
                 nullable=nullable,
             )
@@ -237,6 +241,20 @@ def _primary_key(
     return tuple(raw)
 
 
+def _example_rows(raw: Any, context: str) -> tuple[tuple[str, ...], ...]:
+    """Require at least one example row.
+
+    A source with no example rows scaffolds a header-only CSV.
+    `libs/bronze_csv.py::load_entity_to_bronze` explicitly raises "did not
+    produce any rows" for that file, so the scaffold's own golden-path
+    pipeline can never run -- scaffolding reported success for a product
+    that cannot execute.
+    """
+    if not raw:
+        raise ScaffoldError(f"{context}: at least one example_rows entry is required")
+    return tuple(tuple("" if v is None else str(v) for v in row) for row in raw)
+
+
 def load_spec(path: str | Path) -> ProductSpec:
     """Parse and validate a product scaffold spec."""
     source_path = Path(path)
@@ -263,10 +281,7 @@ def parse_spec(document: Mapping[str, Any], *, source: str = "spec") -> ProductS
                 description=entry.get("description", ""),
                 primary_key=_primary_key(_require(entry, "primary_key", context), columns, context),
                 columns=columns,
-                example_rows=tuple(
-                    tuple("" if v is None else str(v) for v in row)
-                    for row in entry.get("example_rows", ())
-                ),
+                example_rows=_example_rows(entry.get("example_rows", ()), context),
             )
         )
     if not sources:
