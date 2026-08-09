@@ -114,6 +114,22 @@ def test_expected_dashboards_rejects_colliding_slugs(tmp_path: Path) -> None:
         e2e.expected_dashboards(tmp_path)
 
 
+def test_expected_dashboards_rejects_colliding_slugs_even_with_identical_titles(
+    tmp_path: Path,
+) -> None:
+    """Two distinct products can never share one Superset dashboard, even if
+    their display names happen to be identical -- matching titles do not
+    make them the same dashboard. A collision check keyed on title equality
+    would let the second product silently displace the first product's
+    expectation.
+    """
+    _write_fixture_domain(tmp_path, "sales", "growth", "Growth")
+    _write_fixture_domain(tmp_path, "marketing", "growth", "Growth")
+
+    with pytest.raises(e2e.E2EError, match="collides"):
+        e2e.expected_dashboards(tmp_path)
+
+
 def test_unhealthy_pod_messages_accepts_ready_running_and_succeeded() -> None:
     payload = {
         "items": [

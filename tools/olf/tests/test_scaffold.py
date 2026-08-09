@@ -477,6 +477,27 @@ def test_duplicate_column_name_is_rejected() -> None:
         scaffold.parse_spec(broken)
 
 
+def test_duplicate_metric_name_is_rejected() -> None:
+    """Superset treats metric_name as a dataset-local identity; two metrics
+    with the same name produce a dataset with duplicate metric_name entries,
+    which check-structure.sh cannot catch since it converts names to a set.
+    """
+    broken = {
+        **SPEC,
+        "marts": [
+            {
+                **SPEC["marts"][0],
+                "metrics": [
+                    {"name": "sum__cost_amount", "expression": "SUM(cost_amount)"},
+                    {"name": "sum__cost_amount", "expression": "SUM(cost_amount * 2)"},
+                ],
+            }
+        ],
+    }
+    with pytest.raises(scaffold.ScaffoldError, match="duplicate metric name 'sum__cost_amount'"):
+        scaffold.parse_spec(broken)
+
+
 def test_column_name_with_quote_is_rejected() -> None:
     """Interpolated raw into a double-quoted Floe contract scalar
     (`name: "{c.name}"`): an embedded '"' breaks that YAML mapping.

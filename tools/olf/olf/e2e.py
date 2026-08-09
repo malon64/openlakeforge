@@ -56,21 +56,24 @@ def gold_marts(repo_root: Path | None = None) -> tuple[str, ...]:
 def expected_dashboards(repo_root: Path | None = None) -> dict[str, str]:
     """Superset dashboard slug -> title for every discovered product.
 
-    Two products whose display names normalize to the same slug (e.g. "Sales
-    & Growth" and "Sales Growth") can't both exist as distinct Superset
-    dashboards -- Superset itself enforces unique slugs. A dict comprehension
-    would silently keep only the last one, so the E2E check for the other
-    product's dashboard would never run and could pass even though that
-    dashboard is missing.
+    Two distinct products can never share one Superset dashboard -- Superset
+    itself enforces unique slugs -- even if their display names happen to be
+    identical (matching titles do not make them the same dashboard). Keying
+    the collision check on title, or building a plain dict comprehension,
+    would let a second product silently displace the first product's
+    expectation, so the E2E check for the displaced product's dashboard
+    would never run and could pass even though that dashboard is absent.
     """
     expected: dict[str, str] = {}
+    claimed_by: dict[str, str] = {}
     for product in discover_products(repo_root or _default_repo_root()):
-        existing = expected.get(product.dashboard_slug)
-        if existing is not None and existing != product.dashboard_title:
+        claimant = claimed_by.get(product.dashboard_slug)
+        if claimant is not None and claimant != product.asset_prefix:
             raise E2EError(
                 f"dashboard slug {product.dashboard_slug!r} collides between "
-                f"{existing!r} and {product.dashboard_title!r}"
+                f"{claimant!r} and {product.asset_prefix!r}"
             )
+        claimed_by[product.dashboard_slug] = product.asset_prefix
         expected[product.dashboard_slug] = product.dashboard_title
     return expected
 

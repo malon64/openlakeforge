@@ -240,6 +240,32 @@ def _primary_key(
     return tuple(raw)
 
 
+def _metrics(raw: Sequence[Mapping[str, Any]], context: str) -> tuple[Metric, ...]:
+    """Build a mart's metrics, rejecting a duplicate `name`.
+
+    Superset treats metric_name as a dataset-local identity; two metrics with
+    the same name produce a dataset with duplicate metric_name entries, which
+    can fail import or leave chart references to that name ambiguous.
+    check-structure.sh converts names to a set and so cannot catch this.
+    """
+    metrics = []
+    seen_names: set[str] = set()
+    for m in raw:
+        name = _require(m, "name", context)
+        if name in seen_names:
+            raise ScaffoldError(f"{context}: duplicate metric name {name!r}")
+        seen_names.add(name)
+        metrics.append(
+            Metric(
+                name=name,
+                expression=_require(m, "expression", context),
+                verbose_name=m.get("verbose_name", name),
+                metric_type=m.get("metric_type", "sum"),
+            )
+        )
+    return tuple(metrics)
+
+
 def _example_rows(raw: Any, context: str) -> tuple[tuple[str, ...], ...]:
     """Require at least one example row.
 
@@ -312,15 +338,7 @@ def parse_spec(document: Mapping[str, Any], *, source: str = "spec") -> ProductS
                 description=entry.get("description", ""),
                 sql=_require(entry, "sql", context),
                 columns=_columns(_require(entry, "columns", context), context),
-                metrics=tuple(
-                    Metric(
-                        name=_require(m, "name", context),
-                        expression=_require(m, "expression", context),
-                        verbose_name=m.get("verbose_name", m["name"]),
-                        metric_type=m.get("metric_type", "sum"),
-                    )
-                    for m in entry.get("metrics", ())
-                ),
+                metrics=_metrics(entry.get("metrics", ()), context),
                 dttm_col=entry.get("dttm_col"),
                 chart=chart,
             )
