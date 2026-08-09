@@ -747,7 +747,7 @@ def render_superset_dataset(spec: ProductSpec, mart: Mart) -> str:
     metrics = "".join(
         f"""  - metric_name: {_scalar(metric.name)}
     verbose_name: {_scalar(metric.verbose_name)}
-    metric_type: {metric.metric_type}
+    metric_type: {_scalar(metric.metric_type)}
     expression: {_scalar(metric.expression)}
 """
         for metric in mart.metrics
@@ -1023,6 +1023,28 @@ def scaffold_product(spec: ProductSpec, repo_root: str | Path, *, force: bool = 
         ),
         None,
     )
+    if existing_product_entry is not None and not force:
+        # The per-file `force` check above only protects files that already
+        # exist: a mart or source *added* to the spec has no file on disk yet,
+        # so `_write` creates it regardless of `force`, while the descriptor
+        # entry stays pinned to the old shape. dbt/Superset then discover an
+        # extra model/dataset that domain.yaml and the descriptor-derived E2E
+        # count don't know about. Refuse instead of partially applying it.
+        existing_sources = {
+            table.get("name")
+            for table in (existing_product_entry.get("silver_tables") or {}).get("tables", [])
+        }
+        existing_marts = {
+            table.get("name")
+            for table in (existing_product_entry.get("gold_tables") or {}).get("tables", [])
+        }
+        new_sources = {src.name for src in spec.sources}
+        new_marts = {mart.name for mart in spec.marts}
+        if existing_sources != new_sources or existing_marts != new_marts:
+            raise ScaffoldError(
+                f"{spec.domain}/{spec.product}: sources/marts changed from what is already "
+                "scaffolded on disk; rerun with --force to regenerate this product's files"
+            )
     product_entry_override = existing_product_entry if existing_product_entry is not None and not force else None
     _write(
         descriptor_path,

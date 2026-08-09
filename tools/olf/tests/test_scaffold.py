@@ -161,14 +161,16 @@ def test_scaffold_force_overwrites_existing_files(tmp_path: Path) -> None:
     assert "load_all_entities_to_bronze" in loader.read_text(encoding="utf-8")
 
 
-def test_rerun_without_force_preserves_the_existing_descriptor_entry(tmp_path: Path) -> None:
+def test_rerun_without_force_rejects_a_changed_spec(tmp_path: Path) -> None:
     """Rerunning scaffold for an already-existing product with a *changed*
-    spec and no --force must not let the descriptor drift from what is
-    actually on disk. This product's contract, dbt models, datasets, and
-    pipeline are all skipped (they already exist); previously the descriptor
-    was rewritten from the new spec anyway, so discovery/Terraform would
-    expect a mart_extra_metric gold table that the retained (unforced) dbt
-    project and dataset files do not implement.
+    spec and no --force must not partially apply it. This product's
+    contract, dbt models, datasets, and pipeline are all skipped (they
+    already exist) -- but a newly named mart has no file on disk yet, so
+    `_write` would create it regardless of `force` while the descriptor,
+    dbt project, and dataset files stayed pinned to the old shape. dbt would
+    then discover and materialize a mart_extra_metric gold table that
+    domain.yaml and the descriptor-derived E2E table count don't know about.
+    Reject the rerun outright instead of applying it halfway.
     """
     scaffold.scaffold_product(scaffold.parse_spec(SPEC), tmp_path)
     original_descriptor = yaml.safe_load(
@@ -187,18 +189,16 @@ def test_rerun_without_force_preserves_the_existing_descriptor_entry(tmp_path: P
             },
         ],
     }
-    result = scaffold.scaffold_product(scaffold.parse_spec(changed_spec_dict), tmp_path)
+    with pytest.raises(scaffold.ScaffoldError, match="rerun with --force"):
+        scaffold.scaffold_product(scaffold.parse_spec(changed_spec_dict), tmp_path)
 
-    # The new mart's own file is written (it didn't exist before)...
-    assert any(p.name == "mart_extra_metric.sql" for p in result.written)
-    # ...but the descriptor entry for the product as a whole stays exactly
-    # what it was: the source of truth still matches the retained files, not
-    # the new spec that was only partially applied.
+    # Nothing was partially applied: no new mart file, descriptor untouched.
+    new_mart_sql = (
+        tmp_path / "domains/logistics/transformations/dbt/route_efficiency/models/gold/mart_extra_metric.sql"
+    )
+    assert not new_mart_sql.exists()
     descriptor = yaml.safe_load((tmp_path / "domains/logistics/domain.yaml").read_text(encoding="utf-8"))
-    entry = next(p for p in descriptor["data_products"] if p["id"] == "route_efficiency")
-    original_entry = next(p for p in original_descriptor["data_products"] if p["id"] == "route_efficiency")
-    assert entry == original_entry
-    assert "mart_extra_metric" not in [t["name"] for t in entry["gold_tables"]["tables"]]
+    assert descriptor == original_descriptor
 
 
 def test_rerun_with_force_updates_the_descriptor_entry_to_match(tmp_path: Path) -> None:
@@ -893,6 +893,38 @@ def test_floe_contract_owner_survives_a_quote(tmp_path: Path) -> None:
         (tmp_path / "domains/logistics/contracts/floe/route_efficiency.yml").read_text()
     )
     assert contract["metadata"]["owner"] == 'Data "Platform"'
+
+
+def test_metric_type_survives_yaml_sensitive_content(tmp_path: Path) -> None:
+    """metric_type was raw-interpolated (`metric_type: {metric.metric_type}`)
+    unlike every other free-form metric field: "ratio: custom" produced
+    invalid YAML (`metric_type: ratio: custom`), and a value containing ' # '
+    would be silently truncated as a comment before Superset import.
+    """
+    spec_dict = {
+        **SPEC,
+        "marts": [
+            {
+                **SPEC["marts"][0],
+                "metrics": [
+                    {
+                        "name": "sum__cost_amount",
+                        "expression": "SUM(cost_amount)",
+                        "metric_type": "ratio: custom # v2",
+                    }
+                ],
+            }
+        ],
+    }
+    scaffold.scaffold_product(scaffold.parse_spec(spec_dict), tmp_path)
+
+    dataset = yaml.safe_load(
+        (
+            tmp_path
+            / "domains/logistics/reports/superset/route_efficiency/datasets/OpenLakeForge_Trino/mart_route_cost.yaml"
+        ).read_text()
+    )
+    assert dataset["metrics"][0]["metric_type"] == "ratio: custom # v2"
 
 
 def test_chart_filename_collision_is_rejected() -> None:
