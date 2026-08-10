@@ -1,33 +1,39 @@
 # OpenLakeForge Industrialization Roadmap
 
-Status: Proposed
+Status: Active
 
-Last updated: 2026-07-16
+Last updated: 2026-08-10
 
 Roadmap board: [OpenLakeForge Industrialization Roadmap](https://github.com/users/malon64/projects/3)
 
-This document proposes the route from the current proof of concept to a
-supportable OpenLakeForge distribution. It is a planning baseline, not a claim
-that the capabilities below already exist. After review, the GitHub roadmap
-should be reconciled with this document and remain the execution view of the
-approved plan.
+This document defines the route from the current proof of concept to a
+supportable OpenLakeForge distribution. GitHub milestones and issues are the
+execution view and must be reconciled with this document after each release.
+
+The `v0.1.0-alpha.1` closeout is intentionally narrow: it validates the local
+kind profile and the three existing seed products. Its release gates are an
+immutable Floe artifact-revision contract, a clean local full end-to-end run,
+and a signed, independently verifiable release bundle. Generic product
+discovery, a product scaffold, a fourth product, and scheduled local
+conformance are deferred to `v0.2-alpha`.
 
 ## Product Boundary
 
-The first supported product is a self-hosted enterprise distribution for one
-organization and one environment per deployment.
+The first supported `v1.0` product is a self-hosted enterprise distribution for
+one organization and one environment per deployment.
 
-- Local kind is the developer and conformance profile.
-- AWS is the first production reference profile.
-- Azure remains a preview profile until after `v1.0`.
+- Local kind is the `v0.1.0-alpha.1` validated developer profile.
+- AWS is an experimental POC until the secure beta reference profile.
+- Azure remains an experimental preview until after `v1.0`.
 - Streaming, a SaaS control plane, hard multi-tenancy, GCP, multi-region high
   availability, and simultaneous AWS/Azure parity are outside the `v1.0`
   boundary.
 
-OpenLakeForge is currently a late-stage proof of concept or early alpha. Its
-strong foundations should be preserved: ADR-backed decisions, provider
-contracts, the foundation/platform/artifact separation, shared typed deployment
-tooling, and working local, Azure, and AWS paths.
+OpenLakeForge is currently an early alpha. Its strong foundations should be
+preserved: ADR-backed decisions, provider contracts, the
+foundation/platform/artifact separation, and shared typed deployment tooling.
+The cloud paths are not alpha release evidence until their own compatibility and
+recovery gates pass.
 
 ## Why the Existing Roadmap Needs Rebalancing
 
@@ -108,18 +114,16 @@ Goal: create a reproducible, versioned alpha that proves the product contract.
 - Complete #19 by hashing all generated Floe artifacts, stamping the
   project-code image and uploaded manifest set, and rejecting mismatched
   revisions before rollout.
-- Resolve #17 with a local-and-AWS spike. Adopt `dbt-trino` for Gold only if it
-  proves atomic replacement, canonical OpenMetadata identity, green full
-  pipelines, and no material runtime regression. Otherwise retain
-  `dbt-trino` as the Gold compute engine, with atomic replacement and recovery tests.
+- Keep the #17 decision in `main`: `dbt-trino` is the Gold engine after the
+  local atomic-replacement, canonical-identity, and full-pipeline proof. AWS
+  compatibility validation belongs to the secure AWS reference-profile gate,
+  not this local-only alpha release.
 - Introduce an independently versioned `domain.yaml` schema with `apiVersion`
   and `kind`.
 - Remove provider-specific Polaris names from domain descriptors and derive
   physical names from provider contracts.
-- Discover products, jobs, expected tables, manifests, and end-to-end
-  assertions from domain descriptors rather than hardcoded lists.
-- Add a golden-path product scaffold and prove a fourth sample product can be
-  added without changing shared platform code.
+- Keep the three current seed products as the alpha product boundary. Do not
+  claim self-service product onboarding or generic discovery in this release.
 - Establish a version catalog covering OpenLakeForge, charts, Terraform
   providers, Python dependencies, runner images, and base images.
 - Lock project-code dependencies; pin container bases and GitHub Actions by
@@ -129,7 +133,18 @@ Goal: create a reproducible, versioned alpha that proves the product contract.
   compatibility matrix, and the exact component manifest.
 
 Exit gate: a tagged alpha installs from a clean checkout, reproduces the same
-artifact digests, and passes the full local result.
+artifact digests, and passes the full local result for the three seed products.
+
+## Follow-on Alpha — Extensibility and Continuous Conformance (`v0.2-alpha`)
+
+Goal: prove product extensibility and automate the validated local path after
+the initial release boundary is stable.
+
+- Complete descriptor-driven discovery across Terraform, runtime tooling, and
+  end-to-end assertions (#39).
+- Add the supported scaffold and fourth-product conformance proof (#40).
+- Run a fresh local full end-to-end deployment on main or nightly with retained
+  diagnostics (#60).
 
 ## Milestone 2 — Secure AWS Reference Profile (`v0.5-beta`)
 
@@ -230,9 +245,9 @@ private networking, ingress/TLS, and restore validation.
 | Cadence | Required verification |
 | --- | --- |
 | Pull request | Existing static/unit checks, contract-schema validation, image build, SBOM, vulnerability/IaC/secret scans, and kind smoke |
-| Main/nightly | Fresh local full end-to-end run |
-| Scheduled AWS | Ephemeral deployment, all product pipelines, restore drill, and teardown |
-| Release | Digest-mismatch negative test, clean install, previous-version upgrade, rollback, backup/restore, security scan, failure recovery, and fourth-product onboarding |
+| Main/nightly | Fresh local full end-to-end run from `v0.2-alpha` onward; `v0.1.0-alpha.1` records one clean local release run instead |
+| Scheduled AWS | Ephemeral deployment, all product pipelines, restore drill, and teardown after the secure beta profile is introduced |
+| Release | `v0.1.0-alpha.1`: digest-mismatch negative test, clean local install, full three-product result, and release-bundle verification. Later releases add lifecycle, recovery, and onboarding gates cumulatively. |
 
 Release gates are cumulative. A feature can be deferred, but an unmet security,
 recovery, reproducibility, or lifecycle gate cannot be waived merely to meet a
@@ -242,7 +257,7 @@ target date.
 
 | Stage | Intended use | Compatibility commitment |
 | --- | --- | --- |
-| Alpha | Development and product-contract validation | Breaking changes allowed with migration notes |
+| Alpha | Development and product-contract validation; `v0.1.0-alpha.1` is validated on local kind only | Breaking changes allowed with migration notes |
 | Beta | Controlled AWS evaluation | Best-effort forward migration within the beta line |
 | Release candidate | Operational and upgrade qualification | No planned breaking changes before the associated stable release |
 | Stable | Supported production use within the published reference envelope | Compatible changes in minor releases; breaking changes only in major releases |
