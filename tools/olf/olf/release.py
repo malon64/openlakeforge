@@ -631,6 +631,15 @@ def _check_terraform_lockfiles_synced_with_catalog(
     terraform = ((catalog.get("components") or {}).get("terraform") or {})
     catalog_lockfiles = terraform.get("lockfiles") or {}
     problems: list[str] = []
+    lockfile_root = repo_root / "infra" / "terraform"
+    discovered_lockfiles = (
+        {path.relative_to(repo_root).as_posix() for path in lockfile_root.rglob(".terraform.lock.hcl")}
+        if lockfile_root.is_dir()
+        else set()
+    )
+    cataloged_paths = set(catalog_lockfiles)
+    for relative_path in sorted(discovered_lockfiles - cataloged_paths):
+        problems.append(f"{relative_path} is not recorded in components.terraform.lockfiles")
     for relative_path, cataloged_versions in sorted(catalog_lockfiles.items()):
         lock_path = repo_root / relative_path
         if not lock_path.is_file():
