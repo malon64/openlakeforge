@@ -84,17 +84,18 @@ thin shell orchestrators over docker/cosign/syft/git, per
   digest, or (for images with a Helm deployment source) doesn't match the
   digest actually referenced under `infra/helm/values`.
 - Any `.github/workflows/*.yml` `uses:` line isn't pinned to a 40-character
-  commit SHA, or isn't recorded in `components.actions`.
+  commit SHA, differs from `components.actions`, or leaves an unused catalog
+  action entry behind.
 - Any `images/*/Dockerfile` has an unpinned `FROM`/`ARG *_IMAGE=` outside of
   `FROM ${...}` build-arg indirection.
 - Any Terraform root's `terraform.required_version` differs from
   `components.terraform.required_version` in the catalog.
 - `docs/release/compatibility-matrix.md` doesn't match a fresh render of the
   catalog.
-- Either Python lockfile (`images/project-code/requirements.lock`,
-  `tools/olf/uv.lock`) is out of sync with its `pyproject.toml` --
-  checked with `uv lock --check` and a seeded `uv pip compile` re-run
-  (`scripts/test/check-lockfiles.sh`), not a hand-rolled parser.
+- Any Python lockfile declared in `components.python` is missing, or is out
+  of sync with its sibling `pyproject.toml` -- checked with `uv lock --check`
+  and a seeded `uv pip compile` re-run (`scripts/test/check-lockfiles.sh`),
+  not a hand-rolled parser.
 
 ## Consumer verification
 

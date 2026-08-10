@@ -515,6 +515,31 @@ def test_check_actions_passes_when_every_occurrence_matches_the_catalog(tmp_path
     assert "2 action reference(s)" in result.detail
 
 
+def test_check_actions_flags_unused_catalog_entry(tmp_path: Path) -> None:
+    workflows = tmp_path / ".github" / "workflows"
+    workflows.mkdir(parents=True)
+    sha = "d" * 40
+    (workflows / "release.yml").write_text(
+        f"jobs:\n  a:\n    steps:\n      - uses: actions/checkout@{sha}\n"
+    )
+
+    result = release._check_actions_sha_pinned(
+        tmp_path,
+        {
+            "components": {
+                "actions": {
+                    "actions/checkout": sha,
+                    "actions/cache": "e" * 40,
+                }
+            }
+        },
+    )
+
+    assert not result.ok
+    assert "unused entries" in result.detail
+    assert "actions/cache" in result.detail
+
+
 def test_write_checksums_excludes_its_own_custom_output_path(tmp_path: Path) -> None:
     """A custom --output inside the checksummed directory must never hash itself,
     even across a rerun where the file already exists with stale content.

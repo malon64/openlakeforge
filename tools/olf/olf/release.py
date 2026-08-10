@@ -576,6 +576,13 @@ def _check_actions_sha_pinned(repo_root: Path, catalog: dict[str, Any]) -> Check
                 occurrences.append((workflow_file.name, action, ref))
 
     catalog_actions = (catalog.get("components") or {}).get("actions") or {}
+    if not isinstance(catalog_actions, dict):
+        return CheckResult(
+            "workflow actions are recorded in the component catalog",
+            False,
+            "components.actions must be a mapping",
+        )
+
     missing_from_catalog = sorted(
         {
             f"{workflow_name}: {action}@{ref}"
@@ -583,6 +590,7 @@ def _check_actions_sha_pinned(repo_root: Path, catalog: dict[str, Any]) -> Check
             if catalog_actions.get(action) != ref
         }
     )
+    unused_catalog_actions = sorted(set(catalog_actions) - {action for _, action, _ in occurrences})
 
     if problems:
         return CheckResult("workflow actions are SHA-pinned", False, "; ".join(problems))
@@ -591,6 +599,12 @@ def _check_actions_sha_pinned(repo_root: Path, catalog: dict[str, Any]) -> Check
             "workflow actions are recorded in the component catalog",
             False,
             f"not recorded (or mismatched) in components.actions: {', '.join(missing_from_catalog)}",
+        )
+    if unused_catalog_actions:
+        return CheckResult(
+            "workflow actions are recorded in the component catalog",
+            False,
+            f"unused entries in components.actions: {', '.join(unused_catalog_actions)}",
         )
     return CheckResult(
         "workflow actions are SHA-pinned and cataloged",

@@ -17,9 +17,10 @@ for the matrix rendered from it. `make release-check` is the release-readiness
 gate. It runs `olf release check` (fails if the tag doesn't match
 `distribution.version`, if any catalog image is missing its `@sha256` digest,
 if any workflow action isn't SHA-pinned and recorded under
-`components.actions`, or if a Dockerfile base image is unpinned) and
-`scripts/test/check-lockfiles.sh` (fails if either Python lockfile is out of
-sync with its `pyproject.toml`, checked with `uv` directly rather than a
+`components.actions`, if an action catalog entry is unused, or if a Dockerfile
+base image is unpinned) and `scripts/test/check-lockfiles.sh` (reads every
+lockfile declared in `components.python` and fails if one is out of sync with
+its sibling `pyproject.toml`, checked with `uv` directly rather than a
 duplicate implementation here).
 
 The gate also rejects a catalog Terraform requirement that differs from any
