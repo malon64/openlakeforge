@@ -113,7 +113,7 @@ Every release publishes:
 
 ```sh
 cosign verify \
-  --certificate-identity-regexp '^https://github.com/malon64/openlakeforge/\.github/workflows/release\.yml@refs/tags/v0\.1\.0-alpha\.1$' \
+  --certificate-identity-regexp '^https://github\.com/malon64/openlakeforge/\.github/workflows/release\.yml@refs/tags/v0\.1\.0-alpha\.1$' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   ghcr.io/malon64/openlakeforge/project-code@sha256:<digest>
 ```
@@ -127,7 +127,7 @@ a mutable tag.
 ```sh
 cosign verify-attestation \
   --type spdxjson \
-  --certificate-identity-regexp '^https://github.com/malon64/openlakeforge/\.github/workflows/release\.yml@refs/tags/v0\.1\.0-alpha\.1$' \
+  --certificate-identity-regexp '^https://github\.com/malon64/openlakeforge/\.github/workflows/release\.yml@refs/tags/v0\.1\.0-alpha\.1$' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   ghcr.io/malon64/openlakeforge/project-code@sha256:<digest>
 ```

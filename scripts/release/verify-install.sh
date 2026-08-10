@@ -64,6 +64,13 @@ sha256_cmd() {
   fi
 }
 
+# Escape ERE metacharacters so a value used as a --certificate-identity-regexp
+# fragment is matched literally -- an unescaped "." matches any character, so
+# e.g. "v0.1.0-alpha.1" would also accept an identity ending in "v0x1x0-alphaX1".
+regex_escape() {
+  printf '%s' "$1" | sed -e 's/[].^$*+?(){}|[\]/\\&/g'
+}
+
 # --- 1. Download release assets -------------------------------------------------
 mkdir -p "${WORK_DIR}/assets"
 cd "${WORK_DIR}/assets"
@@ -120,6 +127,7 @@ if [[ ! -f "${manifest_json}" ]]; then
   exit 1
 fi
 
+identity_regexp="^$(regex_escape "https://github.com/${REPO_SLUG}/.github/workflows/release.yml@refs/tags/${TAG}")\$"
 for image in project-code superset; do
   reference="$(python3 -c "
 import json
@@ -129,7 +137,7 @@ print(manifest['resolved_images']['${image}'])
 ")"
   echo "==> Verifying cosign signature for ${reference}"
   cosign verify \
-    --certificate-identity-regexp "^https://github.com/${REPO_SLUG}/.github/workflows/release.yml@refs/tags/${TAG}\$" \
+    --certificate-identity-regexp "${identity_regexp}" \
     --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
     "${reference}"
 done
@@ -138,6 +146,7 @@ echo "    Signatures OK."
 # --- 4. Clean-checkout structural verification ------------------------------------
 echo "==> Cloning ${REPO_SLUG}@${TAG} into a clean checkout"
 clone_dir="${WORK_DIR}/checkout"
+rm -rf "${clone_dir}"
 git clone --depth 1 --branch "${TAG}" "https://github.com/${REPO_SLUG}.git" "${clone_dir}"
 
 # A force-moved or deleted-and-recreated tag would still pass the structural
