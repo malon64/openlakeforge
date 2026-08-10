@@ -11,7 +11,7 @@ ephemeral Kubernetes job model, the Terraform contract flow, and provider portab
 across kind/AKS/EKS — see the
 [architecture charts](docs/architecture/diagrams/README.md).
 
-The v1 proof of concept focuses on a local Kubernetes lakehouse path across
+The v0.1 alpha focuses on a local Kubernetes lakehouse reference path across
 multiple domain-owned data products:
 
 ```text
@@ -25,7 +25,7 @@ CSV examples
   -> Dagster asset graph
 ```
 
-The current seed POC contains two Sales data products, `order_revenue` and
+The current alpha seed set contains two Sales data products, `order_revenue` and
 `customer_health`, plus one Supply Chain data product,
 `inventory_reliability`.
 
@@ -53,6 +53,10 @@ The current seed POC contains two Sales data products, `order_revenue` and
 
 The first AWS query path still uses Trino. Athena is documented as a future
 adapter because it changes query pricing, Superset wiring, and e2e validation.
+
+`v0.1.0-alpha.1` validates only the local kind profile and these three seed
+products. AWS and Azure are experimental POCs: they are not covered by the
+alpha compatibility, recovery, or support boundary.
 
 To deploy the AWS or Azure POC into your own account — credentials, the
 per-account `sandbox.tfvars`, and the `make` targets — see
@@ -114,9 +118,11 @@ domain, data-product, Bronze, Silver, and Gold metadata in
 
 ## Roadmap
 
-The proposed path from the current POC to a supportable distribution is defined
+The active path from the current POC to a supportable distribution is defined
 in the [OpenLakeForge Industrialization Roadmap](docs/industrialization-roadmap.md).
-The GitHub project remains the execution view after the proposal is approved.
+The GitHub project is the execution view. The current alpha closeout is limited
+to immutable artifact revisions, one clean local full end-to-end result, and a
+verifiable release bundle; generic product scaffolding follows in `v0.2-alpha`.
 
 The iterations below record the POC delivery history:
 
