@@ -138,6 +138,26 @@ echo "==> Cloning ${REPO_SLUG}@${TAG} into a clean checkout"
 clone_dir="${WORK_DIR}/checkout"
 git clone --depth 1 --branch "${TAG}" "https://github.com/${REPO_SLUG}.git" "${clone_dir}"
 
+# A force-moved or deleted-and-recreated tag would still pass the structural
+# checks below (the newly checked-out tree is self-consistent) even though it
+# no longer corresponds to the commit the downloaded assets/images were built
+# from. Tie the checkout to the release it claims to verify.
+cloned_sha="$(git -C "${clone_dir}" rev-parse HEAD)"
+manifest_sha="$(python3 -c "
+import json
+with open('${manifest_json}') as f:
+    manifest = json.load(f)
+print(manifest['distribution']['git_sha'])
+")"
+if [[ "${cloned_sha}" != "${manifest_sha}" ]]; then
+  echo "ERROR: tag ${TAG} now points at ${cloned_sha}, but the published release's" >&2
+  echo "       component-manifest.json records distribution.git_sha=${manifest_sha}." >&2
+  echo "       The tag moved after the release was published; the checked-out source" >&2
+  echo "       no longer corresponds to the verified assets and images." >&2
+  exit 1
+fi
+echo "    Checked-out commit ${cloned_sha} matches the manifest's recorded git_sha."
+
 echo "==> Running repository structural/component checks from the clean checkout"
 (
   cd "${clone_dir}"
