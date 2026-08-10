@@ -154,10 +154,20 @@ jobs:
           # failure, API outage, or wrong repo -- distinguish by message, not
           # exit code, so an indeterminate lookup aborts instead of silently
           # proceeding as if the tag were free to publish.
-          if release_lookup="$(gh release view "${tag}" --repo "${{ github.repository }}" 2>&1)"; then
-            echo "Release ${tag} already exists. Release tags are create-only" \
-                 "(immutable-semver per release/component-catalog.yaml); refusing to republish." >&2
-            exit 1
+          if release_lookup="$(gh release view "${tag}" --repo "${{ github.repository }}" --json isDraft 2>&1)"; then
+            if [[ "$(jq -r '.isDraft' <<<"${release_lookup}")" == "true" ]]; then
+              # The bundle job stages the Release as a draft and only
+              # publishes it after every asset uploads successfully, so a
+              # leftover draft means an earlier run failed partway through
+              # upload. It was never publicly visible; delete it and retry.
+              echo "Found a leftover draft Release for ${tag} from a previously failed run;" \
+                   "deleting it so this run can publish cleanly."
+              gh release delete "${tag}" --repo "${{ github.repository }}" --yes
+            else
+              echo "Release ${tag} already exists and is published. Release tags are create-only" \
+                   "(immutable-semver per release/component-catalog.yaml); refusing to republish." >&2
+              exit 1
+            fi
           elif [[ "${release_lookup}" == "release not found" ]]; then
             echo "No existing Release for ${tag}; safe to publish."
           else
@@ -380,7 +390,7 @@ jobs:
           } > "${notes_file}"
           echo "notes_file=${notes_file}" >> "$GITHUB_OUTPUT"
 
-      - name: Create the GitHub Release
+      - name: Create the GitHub Release (as a draft)
         if: needs.prepare.outputs.dry_run == 'false'
         uses: softprops/action-gh-release@fe965f7af51af5f2602596916f38a38df2e33de0
         with:
@@ -388,6 +398,7 @@ jobs:
           name: OpenLakeForge ${{ needs.prepare.outputs.version }}
           body_path: ${{ steps.notes.outputs.notes_file }}
           prerelease: true
+          draft: true
           files: |
             ${{ steps.assemble.outputs.bundle_dir }}/component-catalog.yaml
             ${{ steps.assemble.outputs.bundle_dir }}/component-manifest.json
@@ -396,3 +407,15 @@ jobs:
             ${{ steps.assemble.outputs.bundle_dir }}/project-code.spdx.json
             ${{ steps.assemble.outputs.bundle_dir }}/superset.spdx.json
             ${{ steps.assemble.outputs.bundle_dir }}/checksums.txt
+
+      # This step only runs if the draft above succeeded, which for
+      # softprops/action-gh-release means every asset uploaded -- it uploads
+      # files in a loop and fails the step on the first error. Staying a
+      # draft until here means a partial-upload failure never publishes an
+      # incomplete, unverifiable release; the create-only guard above deletes
+      # and retries a leftover draft on the next run.
+      - name: Publish the GitHub Release
+        if: needs.prepare.outputs.dry_run == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release edit "${{ needs.prepare.outputs.tag }}" --repo "${{ github.repository }}" --draft=false
