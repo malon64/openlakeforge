@@ -62,7 +62,7 @@ variable "postgresql_ssl_mode" {
 variable "bootstrap_job_image" {
   description = "Image used by the OpenMetadata bootstrap Kubernetes Job."
   type        = string
-  default     = "alpine/k8s:1.30.0"
+  default     = "alpine/k8s:1.30.0@sha256:bd01dae02676ce4cab62fc744e43443eee5bf660054e94d3496d23bfc35d384e"
 }
 
 variable "admin_email" {
