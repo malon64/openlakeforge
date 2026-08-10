@@ -68,6 +68,11 @@ echo "==> Publishing immutable Floe runtime-artifact revision ${FLOE_MANIFEST_RE
 olf_run revision publish --via port-forward --runtime-root "${FLOE_RUNTIME_ARTIFACT_DIR}"
 olf_run revision verify --via port-forward --revision "${FLOE_MANIFEST_REVISION}"
 
+if [[ "${PROJECT_CODE_IMAGE_TAG}" != "local" ]]; then
+  echo "==> Publishing legacy Floe manifests for the supplied project-code image..."
+  olf_run artifacts upload-manifests --via port-forward --runtime-root "${FLOE_RUNTIME_ARTIFACT_DIR}"
+fi
+
 echo "==> Pointing Dagster at project-code image ${PROJECT_CODE_IMAGE}..."
 olf_run k8s set-project-code-image --image "${PROJECT_CODE_IMAGE}"
 
