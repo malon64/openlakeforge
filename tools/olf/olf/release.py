@@ -357,9 +357,9 @@ _IMAGE_TAG_DIGEST_PATTERN = re.compile(r"@sha256:[0-9a-f]{64}$")
 
 @dataclass(frozen=True)
 class _ImageDeploymentSource:
-    """A repository source that resolves to one complete deployed image ref."""
+    """Registered files that resolve to one or more deployed image refs."""
 
-    path: str
+    paths: tuple[str, ...]
     full_ref_pattern: re.Pattern[str] | None = None
     full_ref_key_path: tuple[str, ...] | None = None
     repository_key_path: tuple[str, ...] | None = None
@@ -380,26 +380,29 @@ class _ImageDeploymentSource:
 # version bump made the drift this check exists to catch disappear silently.
 _IMAGE_DEPLOYMENT_SOURCES: dict[str, _ImageDeploymentSource] = {
     "postgres": _ImageDeploymentSource(
-        path="infra/terraform/modules/storage/postgresql/main.tf",
+        paths=(
+            "infra/terraform/modules/storage/postgresql/main.tf",
+            "infra/terraform/modules/storage/rds-postgresql/main.tf",
+        ),
         full_ref_pattern=re.compile(r'image\s*=\s*"([^"]+@sha256:[0-9a-f]{64})"'),
     ),
     "seaweedfs": _ImageDeploymentSource(
-        path="infra/helm/values/local/seaweedfs.yaml",
+        paths=("infra/helm/values/local/seaweedfs.yaml",),
         repository_key_path=("image", "repository"),
         tag_key_path=("image", "tag"),
     ),
     "polaris": _ImageDeploymentSource(
-        path="infra/helm/values/local/polaris.yaml",
+        paths=("infra/helm/values/local/polaris.yaml",),
         repository_key_path=("image", "repository"),
         tag_key_path=("image", "tag"),
     ),
     "trino": _ImageDeploymentSource(
-        path="infra/helm/values/local/trino.yaml",
+        paths=("infra/helm/values/local/trino.yaml",),
         repository_key_path=("image", "repository"),
         tag_key_path=("image", "tag"),
     ),
     "openmetadata_ingestion": _ImageDeploymentSource(
-        path="infra/helm/values/local/openmetadata.yaml",
+        paths=("infra/helm/values/local/openmetadata.yaml",),
         full_ref_key_path=(
             "openmetadata",
             "config",
@@ -421,29 +424,28 @@ def _value_at_key_path(data: Any, key_path: tuple[str, ...]) -> Any:
     return value
 
 
-def _deployed_image_reference(source_path: Path, source: _ImageDeploymentSource) -> str | None:
-    """Read one complete image reference from its registered source."""
+def _deployed_image_references(source_path: Path, source: _ImageDeploymentSource) -> list[str]:
+    """Read every complete image reference from one registered source file."""
     source_text = source_path.read_text()
     if source.full_ref_pattern is not None:
-        found = source.full_ref_pattern.search(source_text)
-        return found.group(1) if found is not None else None
+        return [found.group(1) for found in source.full_ref_pattern.finditer(source_text)]
 
     try:
         values = yaml.safe_load(source_text)
     except yaml.YAMLError:
-        return None
+        return []
 
     if source.full_ref_key_path is not None:
         found = _value_at_key_path(values, source.full_ref_key_path)
-        return found if isinstance(found, str) else None
+        return [found] if isinstance(found, str) else []
 
     if source.repository_key_path is None or source.tag_key_path is None:
-        return None
+        return []
     repository = _value_at_key_path(values, source.repository_key_path)
     tag = _value_at_key_path(values, source.tag_key_path)
     if not isinstance(repository, str) or not isinstance(tag, str):
-        return None
-    return f"{repository}:{tag}"
+        return []
+    return [f"{repository}:{tag}"]
 
 
 def _check_images_match_deployment_sources(repo_root: Path, catalog: dict[str, Any]) -> CheckResult:
@@ -458,6 +460,9 @@ def _check_images_match_deployment_sources(repo_root: Path, catalog: dict[str, A
     images = (catalog.get("components") or {}).get("images") or {}
 
     problems: list[str] = []
+    for name in sorted(set(_IMAGE_DEPLOYMENT_SOURCES) - set(images)):
+        problems.append(f"{name}: registered deployment image is missing from the component catalog")
+
     for name, ref in sorted(images.items()):
         ref = str(ref)
         if not _IMAGE_TAG_DIGEST_PATTERN.search(ref):
@@ -473,18 +478,20 @@ def _check_images_match_deployment_sources(repo_root: Path, catalog: dict[str, A
             )
             continue
 
-        source_path = repo_root / source.path
-        if not source_path.is_file():
-            problems.append(f"{name}: deployment source {source.path} does not exist")
-            continue
+        for relative_path in source.paths:
+            source_path = repo_root / relative_path
+            if not source_path.is_file():
+                problems.append(f"{name}: deployment source {relative_path} does not exist")
+                continue
 
-        deployed = _deployed_image_reference(source_path, source)
-        if deployed is None:
-            problems.append(f"{name}: {source.path} has no complete image reference")
-            continue
+            deployed_references = _deployed_image_references(source_path, source)
+            if not deployed_references:
+                problems.append(f"{name}: {relative_path} has no complete image reference")
+                continue
 
-        if deployed != ref:
-            problems.append(f"{name}: catalog pins {ref!r} but {source.path} pins {deployed!r}")
+            for deployed in deployed_references:
+                if deployed != ref:
+                    problems.append(f"{name}: catalog pins {ref!r} but {relative_path} pins {deployed!r}")
 
     if problems:
         return CheckResult("catalog images match their deployment sources", False, "; ".join(problems))
