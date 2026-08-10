@@ -607,7 +607,7 @@ def _terraform_lock_provider_versions(lock_path: Path) -> dict[str, str]:
     catalog.
     """
     provider_blocks = re.finditer(
-        r'^provider\s+"registry\.terraform\.io/(?P<provider>[^"]+)"\s*\{(?P<body>.*?)^\}',
+        r'^provider\s+"(?P<provider>[^"]+)"\s*\{(?P<body>.*?)^\}',
         lock_path.read_text(),
         re.MULTILINE | re.DOTALL,
     )
@@ -615,7 +615,8 @@ def _terraform_lock_provider_versions(lock_path: Path) -> dict[str, str]:
     for block in provider_blocks:
         version = re.search(r'^\s*version\s*=\s*"(?P<version>[^"]+)"\s*$', block.group("body"), re.MULTILINE)
         if version is not None:
-            versions[block.group("provider")] = version.group("version")
+            provider = block.group("provider").removeprefix("registry.terraform.io/")
+            versions[provider] = version.group("version")
     return versions
 
 
