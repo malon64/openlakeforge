@@ -321,6 +321,8 @@ def _manifest_path_for_dagster(spec: ProductDefinitionSpec) -> str:
             )
         try:
             return _cache_remote_manifest_for_dagster(spec, manifest_uri)
+        except ArtifactRevisionError:
+            raise
         except RuntimeError:
             if _explicit_floe_dagster_manifest_source() == _FLOE_MANIFEST_ACCESS_MODE_REMOTE:
                 raise
