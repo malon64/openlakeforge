@@ -353,45 +353,101 @@ def _check_images_digest_pinned(catalog: dict[str, Any]) -> CheckResult:
 
 
 IMAGE_REF_PATTERN = re.compile(r"^(?P<repo>.+):(?P<tag>[^:@]+)@(?P<digest>sha256:[0-9a-f]{64})$")
+_IMAGE_TAG_DIGEST_PATTERN = re.compile(r"@sha256:[0-9a-f]{64}$")
+
+# Every non-build-only catalog image, mapped to exactly where its deployed
+# reference lives and how to read it. "full" means the file embeds the
+# complete "repo:tag@digest" as one string (compare verbatim against the
+# catalog ref); "tag_digest" means the chart/module declares repository and
+# tag/image separately (Helm's image.repository vs image.tag), so only
+# "<tag>@sha256:<digest>" is present there -- reconstructed from the
+# catalog's own repo prefix before comparing.
+#
+# A catalog image not covered by this map and not in _BUILD_ONLY_IMAGES fails
+# the check outright: matching by loose text search (an earlier version of
+# this check) could not tell "not deployed anywhere in this repo" apart from
+# "deployed, but the tag changed since this was last searched for" -- a
+# version bump made the drift this check exists to catch disappear silently.
+_IMAGE_DEPLOYMENT_SOURCES: dict[str, tuple[str, re.Pattern[str], str]] = {
+    "postgres": (
+        "infra/terraform/modules/storage/postgresql/main.tf",
+        re.compile(r'image\s*=\s*"([^"]+@sha256:[0-9a-f]{64})"'),
+        "full",
+    ),
+    "seaweedfs": (
+        "infra/helm/values/local/seaweedfs.yaml",
+        re.compile(r'^\s*tag:\s*"([^"]+@sha256:[0-9a-f]{64})"', re.MULTILINE),
+        "tag_digest",
+    ),
+    "polaris": (
+        "infra/helm/values/local/polaris.yaml",
+        re.compile(r'^\s*tag:\s*"([^"]+@sha256:[0-9a-f]{64})"', re.MULTILINE),
+        "tag_digest",
+    ),
+    "trino": (
+        "infra/helm/values/local/trino.yaml",
+        re.compile(r'^\s*tag:\s*"([^"]+@sha256:[0-9a-f]{64})"', re.MULTILINE),
+        "tag_digest",
+    ),
+    "openmetadata_ingestion": (
+        "infra/helm/values/local/openmetadata.yaml",
+        re.compile(r'ingestionImage:\s*"([^"]+@sha256:[0-9a-f]{64})"'),
+        "full",
+    ),
+}
+_BUILD_ONLY_IMAGES = frozenset({"project_code_base", "superset_base"})
 
 
 def _check_images_match_deployment_sources(repo_root: Path, catalog: dict[str, Any]) -> CheckResult:
-    """Cross-check each catalog image against infra/helm/values/**/*.yaml.
+    """Cross-check each catalog image against its registered deployment source.
 
-    Only some catalog images are deployed via Helm (e.g. trino, polaris);
-    others (project_code_base, superset_base) are Dockerfile-only build
-    inputs with no Helm counterpart to check against. Helm charts commonly
-    split `image.repository` and `image.tag` into separate values keys (the
-    repository comes from the chart's own default), so a values override
-    only ever contains "<tag>@sha256:<digest>", never the full "repo:tag" --
-    matching on the tag+digest suffix, not the full reference, is what
-    actually finds these overrides.
+    _check_images_digest_pinned only validates the catalog's own shape.
+    Deployed images are Dockerfile build inputs baked in at build time
+    (project_code_base, superset_base -- no independent source to compare
+    against) or specific fields in Helm values / Terraform module source, so
+    each is checked against exactly where it is actually deployed from.
     """
     images = (catalog.get("components") or {}).get("images") or {}
-    values_root = repo_root / "infra" / "helm" / "values"
-    if not values_root.is_dir():
-        return CheckResult("catalog images match Helm deployment sources", True, "no infra/helm/values directory")
-
-    values_text = "\n".join(path.read_text() for path in sorted(values_root.rglob("*.yaml")))
 
     problems: list[str] = []
     for name, ref in sorted(images.items()):
-        match = IMAGE_REF_PATTERN.match(str(ref))
-        if match is None:
+        ref = str(ref)
+        if not _IMAGE_TAG_DIGEST_PATTERN.search(ref):
             continue  # missing/malformed digest is already caught by _check_images_digest_pinned
-        tag, catalog_digest = match.group("tag"), match.group("digest")
-        deployed = re.search(re.escape(tag) + r"@(sha256:[0-9a-f]{64})", values_text)
-        if deployed is None:
-            continue  # tag not referenced under infra/helm/values -- e.g. a Dockerfile-only build input
-        deployed_digest = deployed.group(1)
-        if deployed_digest != catalog_digest:
+        if name in _BUILD_ONLY_IMAGES:
+            continue
+
+        source = _IMAGE_DEPLOYMENT_SOURCES.get(name)
+        if source is None:
             problems.append(
-                f"{name}: catalog pins {ref!r} but infra/helm/values pins '{tag}@{deployed_digest}'"
+                f"{name}: no registered deployment source -- add it to _IMAGE_DEPLOYMENT_SOURCES or "
+                "_BUILD_ONLY_IMAGES in tools/olf/olf/release.py"
             )
+            continue
+
+        rel_path, pattern, mode = source
+        source_path = repo_root / rel_path
+        if not source_path.is_file():
+            problems.append(f"{name}: deployment source {rel_path} does not exist")
+            continue
+
+        found = pattern.search(source_path.read_text())
+        if found is None:
+            problems.append(f"{name}: {rel_path} has no matching image reference")
+            continue
+        deployed = found.group(1)
+
+        if mode == "full":
+            expected = ref
+        else:
+            match = IMAGE_REF_PATTERN.match(ref)
+            expected = f"{match.group('tag')}@{match.group('digest')}" if match else ref
+        if deployed != expected:
+            problems.append(f"{name}: catalog pins {ref!r} but {rel_path} pins {deployed!r}")
 
     if problems:
-        return CheckResult("catalog images match Helm deployment sources", False, "; ".join(problems))
-    return CheckResult("catalog images match Helm deployment sources", True)
+        return CheckResult("catalog images match their deployment sources", False, "; ".join(problems))
+    return CheckResult("catalog images match their deployment sources", True)
 
 
 def _check_actions_sha_pinned(repo_root: Path, catalog: dict[str, Any]) -> CheckResult:

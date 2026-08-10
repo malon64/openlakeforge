@@ -290,6 +290,54 @@ def test_check_images_match_deployment_sources_ignores_build_only_images(tmp_pat
     assert result.ok, result.detail
 
 
+def test_check_images_match_deployment_sources_catches_a_tag_bump_the_catalog_missed(
+    tmp_path: Path,
+) -> None:
+    """The scenario from the review: bumping a deployed image to a new tag
+    AND digest (e.g. Trino 480 -> 481) without updating the catalog removes
+    every occurrence of the catalog's old tag from the deployment source.
+    Matching against a registered file/field (not a substring search for the
+    old tag) still catches this -- it reads whatever the field currently
+    contains, not what the catalog remembers.
+    """
+    values_dir = tmp_path / "infra/helm/values/local"
+    values_dir.mkdir(parents=True)
+    (values_dir / "trino.yaml").write_text('image:\n  tag: "481@sha256:' + "b" * 64 + '"\n')
+
+    catalog = {"components": {"images": {"trino": "trinodb/trino:480@sha256:" + "a" * 64}}}
+    result = release._check_images_match_deployment_sources(tmp_path, catalog)
+
+    assert not result.ok
+    assert "480" in result.detail
+    assert "481" in result.detail
+
+
+def test_check_images_match_deployment_sources_flags_an_unregistered_image(tmp_path: Path) -> None:
+    """A catalog image with no entry in _IMAGE_DEPLOYMENT_SOURCES or
+    _BUILD_ONLY_IMAGES must fail loudly, not silently skip -- silently
+    skipping is exactly how the tag-bump case above went unnoticed before.
+    """
+    catalog = {"components": {"images": {"brand_new_image": "example/new:1.0@sha256:" + "a" * 64}}}
+    result = release._check_images_match_deployment_sources(tmp_path, catalog)
+
+    assert not result.ok
+    assert "brand_new_image" in result.detail
+    assert "no registered deployment source" in result.detail
+
+
+def test_check_images_match_deployment_sources_flags_postgres_terraform_drift(tmp_path: Path) -> None:
+    module_dir = tmp_path / "infra/terraform/modules/storage/postgresql"
+    module_dir.mkdir(parents=True)
+    (module_dir / "main.tf").write_text('image = "postgres:16-alpine@sha256:' + "b" * 64 + '"\n')
+
+    catalog = {"components": {"images": {"postgres": "postgres:16-alpine@sha256:" + "a" * 64}}}
+    result = release._check_images_match_deployment_sources(tmp_path, catalog)
+
+    assert not result.ok
+    assert "postgres" in result.detail
+    assert "b" * 64 in result.detail
+
+
 def test_check_dockerfiles_pinned_passes_on_real_repo() -> None:
     result = release._check_dockerfiles_pinned(ROOT)
     assert result.ok, result.detail
