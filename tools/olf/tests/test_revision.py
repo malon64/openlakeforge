@@ -68,6 +68,28 @@ def test_publish_refuses_different_existing_content(tmp_path: Path) -> None:
         revision.publish(client, "ops", uploads)
 
 
+def test_publish_uses_one_byte_snapshot_per_artifact(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    uploads = _uploads(tmp_path)
+    client = FakeS3()
+    target = uploads[0].path
+    original_read_bytes = Path.read_bytes
+    reads = 0
+
+    def changing_read_bytes(path: Path) -> bytes:
+        nonlocal reads
+        if path == target:
+            reads += 1
+            return b"before" if reads == 1 else b"after"
+        return original_read_bytes(path)
+
+    monkeypatch.setattr(Path, "read_bytes", changing_read_bytes)
+    manifest = revision.publish(client, "ops", uploads)
+
+    assert reads == 1
+    assert client.objects[("ops", revision.revision_key(manifest.revision, uploads[0].key))] == b"before"
+    assert revision.verify(client, "ops", manifest.revision) == manifest
+
+
 def test_verify_detects_tampered_artifact(tmp_path: Path) -> None:
     uploads = _uploads(tmp_path)
     client = FakeS3()

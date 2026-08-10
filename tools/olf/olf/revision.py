@@ -29,6 +29,12 @@ class RevisionError(RuntimeError):
 
 
 @dataclass(frozen=True)
+class _ArtifactSnapshot:
+    upload: s3.ManifestUpload
+    content: bytes
+
+
+@dataclass(frozen=True)
 class RevisionManifest:
     """Aggregate revision and the content hash of each legacy artifact key."""
 
@@ -82,8 +88,16 @@ def aggregate_revision(entries: dict[str, str]) -> str:
 
 
 def manifest_from_uploads(uploads: list[s3.ManifestUpload]) -> RevisionManifest:
-    entries = {upload.key: _content_hash(upload.path.read_bytes()) for upload in uploads}
-    if len(entries) != len(uploads):
+    return _manifest_from_snapshots(_snapshot_uploads(uploads))
+
+
+def _snapshot_uploads(uploads: list[s3.ManifestUpload]) -> list[_ArtifactSnapshot]:
+    return [_ArtifactSnapshot(upload=upload, content=upload.path.read_bytes()) for upload in uploads]
+
+
+def _manifest_from_snapshots(snapshots: list[_ArtifactSnapshot]) -> RevisionManifest:
+    entries = {snapshot.upload.key: _content_hash(snapshot.content) for snapshot in snapshots}
+    if len(entries) != len(snapshots):
         raise RevisionError("runtime artifact discovery produced duplicate object keys.")
     return RevisionManifest(revision=aggregate_revision(entries), entries=entries)
 
@@ -113,14 +127,15 @@ def publish(client: Any, bucket: str, uploads: list[s3.ManifestUpload]) -> Revis
     A failed or partial publish leaves at most an unreferenced revision prefix;
     it cannot change the mutable runtime paths used by existing code servers.
     """
-    manifest = manifest_from_uploads(uploads)
-    for upload in uploads:
+    snapshots = _snapshot_uploads(uploads)
+    manifest = _manifest_from_snapshots(snapshots)
+    for snapshot in snapshots:
         _publish_immutable(
             client,
             bucket,
-            revision_key(manifest.revision, upload.key),
-            upload.path.read_bytes(),
-            content_type=_content_type(upload.path),
+            revision_key(manifest.revision, snapshot.upload.key),
+            snapshot.content,
+            content_type=_content_type(snapshot.upload.path),
         )
     _publish_immutable(
         client,
