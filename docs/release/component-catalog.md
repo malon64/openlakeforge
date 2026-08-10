@@ -22,6 +22,11 @@ if any workflow action isn't SHA-pinned and recorded under
 sync with its `pyproject.toml`, checked with `uv` directly rather than a
 duplicate implementation here).
 
+The gate also rejects a catalog Terraform requirement that differs from any
+Terraform root's own `terraform.required_version`, so the compatibility matrix
+cannot advertise a broader or narrower Terraform version range than the code
+actually accepts.
+
 The compatibility matrix's per-root Terraform provider table and Helm charts
 table are both read directly from their real source at render time — the
 former from each `.terraform.lock.hcl` under `infra/terraform`, the latter

@@ -231,6 +231,39 @@ def test_run_release_check_without_tag_only_validates_catalog_shape() -> None:
     assert version_result.ok
 
 
+def test_check_terraform_required_versions_match_real_catalog() -> None:
+    catalog = release.load_catalog(ROOT / "release/component-catalog.yaml")
+    result = release._check_terraform_required_versions_match_catalog(ROOT, catalog)
+    assert result.ok, result.detail
+
+
+def test_check_terraform_required_versions_flags_catalog_drift(tmp_path: Path) -> None:
+    root_dir = tmp_path / "infra/terraform/environments/demo"
+    root_dir.mkdir(parents=True)
+    (root_dir / "main.tf").write_text('terraform {\n  required_version = ">= 1.9.0"\n}\n')
+
+    catalog = {"components": {"terraform": {"required_version": ">= 1.6.0"}}}
+    result = release._check_terraform_required_versions_match_catalog(tmp_path, catalog)
+
+    assert not result.ok
+    assert "environments/demo/main.tf" in result.detail
+    assert "terraform='>= 1.9.0'" in result.detail
+
+
+def test_check_terraform_required_versions_requires_each_root_to_declare_a_constraint(
+    tmp_path: Path,
+) -> None:
+    root_dir = tmp_path / "infra/terraform/environments/demo"
+    root_dir.mkdir(parents=True)
+    (root_dir / "main.tf").write_text("terraform {\n  required_providers {}\n}\n")
+
+    catalog = {"components": {"terraform": {"required_version": ">= 1.6.0"}}}
+    result = release._check_terraform_required_versions_match_catalog(tmp_path, catalog)
+
+    assert not result.ok
+    assert "has no required_version" in result.detail
+
+
 def test_terraform_lock_provider_versions_ignores_nondefault_registry_provider(tmp_path: Path) -> None:
     lock_path = tmp_path / ".terraform.lock.hcl"
     lock_path.write_text('provider "registry.example.com/acme/example" {\n  version = "1.2.3"\n}\n')

@@ -25,8 +25,16 @@ if ! command -v docker &>/dev/null; then
 fi
 
 echo "==> Building local images for the release bundle"
-PROJECT_CODE_IMAGE_TAG="bundle" make project-code-image
-SUPERSET_IMAGE_TAG="bundle" make superset-image
+project_code_base_image="$(uv run --project tools/olf --locked python -c "
+import yaml
+print(yaml.safe_load(open('release/component-catalog.yaml'))['components']['images']['project_code_base'])
+")"
+superset_base_image="$(uv run --project tools/olf --locked python -c "
+import yaml
+print(yaml.safe_load(open('release/component-catalog.yaml'))['components']['images']['superset_base'])
+")"
+PROJECT_CODE_IMAGE_TAG="bundle" PROJECT_CODE_PYTHON_BASE_IMAGE="${project_code_base_image}" make project-code-image
+SUPERSET_IMAGE_TAG="bundle" SUPERSET_BASE_IMAGE="${superset_base_image}" make superset-image
 
 project_code_ref="ghcr.io/openlakeforge/project-code:bundle"
 superset_ref="ghcr.io/openlakeforge/superset:bundle"

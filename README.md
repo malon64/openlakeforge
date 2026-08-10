@@ -141,9 +141,11 @@ Tagged releases are signed, SBOM'd, and provenance-attested. Every release
 publishes `ghcr.io/malon64/openlakeforge/project-code` and
 `ghcr.io/malon64/openlakeforge/superset` by digest, an SPDX SBOM per image,
 build provenance, the exact component manifest, the compatibility matrix,
-and a `checksums.txt` over every asset. See
+an authenticated `checksums.txt` over every asset, and its keyless Sigstore
+verification bundle. See
 [docs/release/releasing.md](docs/release/releasing.md) for how a release is
-cut, the consumer verification commands (`cosign verify`, `sha256sum -c`),
+cut, the consumer verification commands (`cosign verify`, `cosign verify-blob`,
+`sha256sum -c`),
 and `scripts/release/verify-install.sh`, the scripted clean-checkout install
 check. [docs/release/compatibility-matrix.md](docs/release/compatibility-matrix.md)
 tracks the supported Kubernetes/Terraform/Helm/cloud-service combinations,

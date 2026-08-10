@@ -321,6 +321,62 @@ def _check_compatibility_matrix_up_to_date(repo_root: Path, catalog: dict[str, A
     return CheckResult("compatibility matrix doc is up to date", True)
 
 
+def _check_terraform_required_versions_match_catalog(repo_root: Path, catalog: dict[str, Any]) -> CheckResult:
+    """Every Terraform root must declare the catalog's advertised constraint."""
+    catalog_required_version = ((catalog.get("components") or {}).get("terraform") or {}).get(
+        "required_version"
+    )
+    if not isinstance(catalog_required_version, str) or not catalog_required_version:
+        return CheckResult(
+            "Terraform required versions match the component catalog",
+            False,
+            "components.terraform.required_version is missing",
+        )
+
+    terraform_root = repo_root / "infra" / "terraform"
+    if not terraform_root.is_dir():
+        return CheckResult(
+            "Terraform required versions match the component catalog",
+            False,
+            "infra/terraform does not exist",
+        )
+
+    terraform_blocks = re.compile(r"^terraform\s*\{(?P<body>.*?)^\}", re.MULTILINE | re.DOTALL)
+    required_version = re.compile(
+        r'^\s*required_version\s*=\s*"(?P<version>[^"]+)"\s*$', re.MULTILINE
+    )
+    problems: list[str] = []
+    roots_checked = 0
+    for source_path in sorted(terraform_root.rglob("*.tf")):
+        source_text = source_path.read_text()
+        blocks = list(terraform_blocks.finditer(source_text))
+        if not blocks:
+            continue
+        roots_checked += 1
+        relative_path = source_path.relative_to(repo_root).as_posix()
+        for block in blocks:
+            found = required_version.search(block.group("body"))
+            if found is None:
+                problems.append(f"{relative_path}: terraform block has no required_version")
+                continue
+            actual_version = found.group("version")
+            if actual_version != catalog_required_version:
+                problems.append(
+                    f"{relative_path}: catalog={catalog_required_version!r}, "
+                    f"terraform={actual_version!r}"
+                )
+
+    if roots_checked == 0:
+        problems.append("no Terraform root declares a terraform block")
+    if problems:
+        return CheckResult(
+            "Terraform required versions match the component catalog", False, "; ".join(problems)
+        )
+    return CheckResult(
+        "Terraform required versions match the component catalog", True, f"{roots_checked} root(s) checked"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Release-readiness gate ("olf release check")
 # ---------------------------------------------------------------------------
@@ -619,8 +675,9 @@ def run_release_check(
     Validates: catalog version matches the tag (when a tag is given), every
     catalog image is digest-pinned and matches its Helm deployment source
     (where one exists), every workflow action is SHA-pinned and recorded in
-    the catalog, no Dockerfile FROM/ARG is unpinned outside of build-arg
-    indirection, and the compatibility matrix doc matches a fresh render.
+    the catalog, every Terraform root's required_version matches the catalog,
+    no Dockerfile FROM/ARG is unpinned outside of build-arg indirection, and
+    the compatibility matrix doc matches a fresh render.
     Lockfile/pyproject.toml sync is validated separately by
     `scripts/test/check-lockfiles.sh` using `uv` directly.
     """
@@ -633,5 +690,6 @@ def run_release_check(
     report.results.append(_check_images_match_deployment_sources(root, catalog))
     report.results.append(_check_actions_sha_pinned(root, catalog))
     report.results.append(_check_dockerfiles_pinned(root))
+    report.results.append(_check_terraform_required_versions_match_catalog(root, catalog))
     report.results.append(_check_compatibility_matrix_up_to_date(root, catalog))
     return report

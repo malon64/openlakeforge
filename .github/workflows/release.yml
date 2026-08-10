@@ -317,6 +317,10 @@ jobs:
       - name: Setup uv
         uses: astral-sh/setup-uv@e58605a9b6da7c637471fab8847a5e5a6b8df081
 
+      - name: Install cosign
+        if: needs.prepare.outputs.dry_run == 'false'
+        uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5
+
       - name: Download per-image release assets
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
@@ -352,6 +356,15 @@ jobs:
           uv run --project tools/olf --locked olf release checksums --dir "${bundle_dir}"
 
           echo "bundle_dir=${bundle_dir}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign the checksum manifest (keyless OIDC)
+        if: needs.prepare.outputs.dry_run == 'false'
+        env:
+          COSIGN_EXPERIMENTAL: "1"
+        run: |
+          cosign sign-blob --yes \
+            --bundle "${{ steps.assemble.outputs.bundle_dir }}/checksums.txt.bundle" \
+            "${{ steps.assemble.outputs.bundle_dir }}/checksums.txt"
 
       - name: Upload dry-run bundle as a workflow artifact
         if: needs.prepare.outputs.dry_run == 'true'
@@ -407,6 +420,7 @@ jobs:
             ${{ steps.assemble.outputs.bundle_dir }}/project-code.spdx.json
             ${{ steps.assemble.outputs.bundle_dir }}/superset.spdx.json
             ${{ steps.assemble.outputs.bundle_dir }}/checksums.txt
+            ${{ steps.assemble.outputs.bundle_dir }}/checksums.txt.bundle
 
       # This step only runs if the draft above succeeded, which for
       # softprops/action-gh-release means every asset uploaded -- it uploads

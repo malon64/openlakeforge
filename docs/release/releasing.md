@@ -40,8 +40,10 @@ Jobs:
    compatibility matrix (`olf release compatibility-matrix`), a verbatim
    copy of `release/component-catalog.yaml`, `CHANGELOG.md`, both SBOMs, and
    a deterministic `checksums.txt` (`olf release checksums`) covering every
-   asset. On a real publish this becomes the GitHub Release; in dry-run mode
-   it is uploaded as a single workflow artifact.
+   asset. On a real publish, keyless cosign signs that checksum manifest and
+   publishes its `checksums.txt.bundle` verification bundle alongside it; in
+   dry-run mode the unsigned inspection bundle is uploaded as a single
+   workflow artifact.
 
 The heavy cross-environment logic (manifest construction, checksums,
 compatibility-matrix rendering, the readiness gate) lives in
@@ -85,6 +87,8 @@ thin shell orchestrators over docker/cosign/syft/git, per
   commit SHA, or isn't recorded in `components.actions`.
 - Any `images/*/Dockerfile` has an unpinned `FROM`/`ARG *_IMAGE=` outside of
   `FROM ${...}` build-arg indirection.
+- Any Terraform root's `terraform.required_version` differs from
+  `components.terraform.required_version` in the catalog.
 - `docs/release/compatibility-matrix.md` doesn't match a fresh render of the
   catalog.
 - Either Python lockfile (`images/project-code/requirements.lock`,
@@ -108,6 +112,8 @@ Every release publishes:
   attached to the Release and available as cosign attestations on the image
   digests.
 - `checksums.txt` — sha256 over every asset above.
+- `checksums.txt.bundle` — the keyless Sigstore verification bundle that
+  authenticates `checksums.txt` before it is trusted.
 - `CHANGELOG.md`.
 
 ### Verify signatures
@@ -136,6 +142,10 @@ cosign verify-attestation \
 ### Verify checksums
 
 ```sh
+cosign verify-blob checksums.txt \
+  --bundle checksums.txt.bundle \
+  --certificate-identity-regexp '^https://github\.com/malon64/openlakeforge/\.github/workflows/release\.yml@refs/tags/v0\.1\.0-alpha\.1$' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
 sha256sum -c checksums.txt
 ```
 
@@ -145,10 +155,11 @@ sha256sum -c checksums.txt
 scripts/release/verify-install.sh v0.1.0-alpha.1
 ```
 
-This script downloads the release assets with `gh release download`,
-verifies `checksums.txt`, verifies the cosign signature on both published
-image digests, then does a fresh `git clone --branch v0.1.0-alpha.1` into a
-scratch directory and runs `scripts/test/check-structure.sh` and
+This script downloads the release assets with `gh release download`, uses
+the keyless Sigstore bundle to authenticate `checksums.txt` before checking
+the assets, verifies the cosign signature on both published image digests,
+then does a fresh `git clone --branch v0.1.0-alpha.1` into a scratch directory
+and runs `scripts/test/check-structure.sh` and
 `scripts/test/check-components.sh` from that clean checkout — proving the
 tagged tree is self-consistent with no local state carried over. Pass
 `--pull-images` to additionally `docker pull` both published images by

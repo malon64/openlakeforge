@@ -6,7 +6,8 @@
 # proves the three acceptance-criteria claims in docs/release/releasing.md:
 #
 #   1. Signatures verify:  cosign verify against the published image digests.
-#   2. Checksums verify:   sha256sum -c against the downloaded release assets.
+#   2. Checksum manifest:  keyless cosign verification authenticates the
+#                          manifest before sha256sum -c checks the assets.
 #   3. Clean checkout:     a fresh `git clone` at the release tag passes the
 #                          repository's own structural/component consistency
 #                          checks with no local state carried over.
@@ -120,25 +121,35 @@ else
   exit 1
 fi
 
-# --- 2. Verify checksums ---------------------------------------------------------
-echo "==> Verifying checksums.txt"
-sha256_cmd -c checksums.txt
-echo "    Checksums OK."
-
-# --- 3. Verify cosign signatures --------------------------------------------------
+# --- 2. Authenticate and verify checksums ----------------------------------------
 if ! command -v cosign &>/dev/null; then
   echo "ERROR: 'cosign' not found on PATH. Install from https://docs.sigstore.dev/cosign/installation/" >&2
   exit 1
 fi
 
-version="${TAG#v}"
+if [[ ! -f "checksums.txt.bundle" ]]; then
+  echo "ERROR: checksums.txt.bundle not found among downloaded assets" >&2
+  exit 1
+fi
+
+identity_regexp="^$(regex_escape "https://github.com/${REPO_SLUG}/.github/workflows/release.yml@refs/tags/${TAG}")\$"
+echo "==> Authenticating checksums.txt with its keyless Sigstore bundle"
+cosign verify-blob checksums.txt \
+  --bundle checksums.txt.bundle \
+  --certificate-identity-regexp "${identity_regexp}" \
+  --certificate-oidc-issuer "https://token.actions.githubusercontent.com"
+
+echo "==> Verifying release asset checksums"
+sha256_cmd -c checksums.txt
+echo "    Authenticated checksums OK."
+
+# --- 3. Verify image cosign signatures -------------------------------------------
 manifest_json="component-manifest.json"
 if [[ ! -f "${manifest_json}" ]]; then
   echo "ERROR: ${manifest_json} not found among downloaded assets" >&2
   exit 1
 fi
 
-identity_regexp="^$(regex_escape "https://github.com/${REPO_SLUG}/.github/workflows/release.yml@refs/tags/${TAG}")\$"
 for image in project-code superset; do
   reference="$(python3 -c "
 import json
@@ -208,4 +219,4 @@ print(manifest['resolved_images']['${image}'])
 fi
 
 echo ""
-echo "OpenLakeForge ${TAG} verified: checksums OK, signatures OK, clean checkout OK."
+echo "OpenLakeForge ${TAG} verified: authenticated checksums OK, signatures OK, clean checkout OK."
