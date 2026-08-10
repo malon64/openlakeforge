@@ -114,10 +114,10 @@ Goal: create a reproducible, versioned alpha that proves the product contract.
 - Complete #19 by hashing all generated Floe artifacts, stamping the
   project-code image and uploaded manifest set, and rejecting mismatched
   revisions before rollout.
-- Resolve #17 with a local-and-AWS spike. Adopt `dbt-trino` for Gold only if it
-  proves atomic replacement, canonical OpenMetadata identity, green full
-  pipelines, and no material runtime regression. Otherwise retain
-  `dbt-trino` as the Gold compute engine, with atomic replacement and recovery tests.
+- Keep the #17 decision in `main`: `dbt-trino` is the Gold engine after the
+  local atomic-replacement, canonical-identity, and full-pipeline proof. AWS
+  compatibility validation belongs to the secure AWS reference-profile gate,
+  not this local-only alpha release.
 - Introduce an independently versioned `domain.yaml` schema with `apiVersion`
   and `kind`.
 - Remove provider-specific Polaris names from domain descriptors and derive

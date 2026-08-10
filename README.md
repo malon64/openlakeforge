@@ -54,9 +54,9 @@ The current alpha seed set contains two Sales data products, `order_revenue` and
 The first AWS query path still uses Trino. Athena is documented as a future
 adapter because it changes query pricing, Superset wiring, and e2e validation.
 
-`v0.1.0-alpha.1` validates only the local kind profile and these three seed
-products. AWS and Azure are experimental POCs: they are not covered by the
-alpha compatibility, recovery, or support boundary.
+When tagged, `v0.1.0-alpha.1` will validate only the local kind profile and
+these three seed products. AWS and Azure are experimental POCs: they are not
+covered by the alpha compatibility, recovery, or support boundary.
 
 To deploy the AWS or Azure POC into your own account — credentials, the
 per-account `sandbox.tfvars`, and the `make` targets — see
