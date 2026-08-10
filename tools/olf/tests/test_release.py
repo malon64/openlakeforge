@@ -259,7 +259,9 @@ def test_check_images_match_deployment_sources_flags_a_stale_catalog_digest(tmp_
     """
     values_dir = tmp_path / "infra/helm/values/local"
     values_dir.mkdir(parents=True)
-    (values_dir / "trino.yaml").write_text('image:\n  tag: "480@sha256:' + "b" * 64 + '"\n')
+    (values_dir / "trino.yaml").write_text(
+        'image:\n  repository: trinodb/trino\n  tag: "480@sha256:' + "b" * 64 + '"\n'
+    )
 
     catalog = {"components": {"images": {"trino": "trinodb/trino:480@sha256:" + "a" * 64}}}
     result = release._check_images_match_deployment_sources(tmp_path, catalog)
@@ -276,7 +278,9 @@ def test_check_images_match_deployment_sources_ignores_build_only_images(tmp_pat
     """
     values_dir = tmp_path / "infra/helm/values/local"
     values_dir.mkdir(parents=True)
-    (values_dir / "trino.yaml").write_text('image:\n  tag: "480@sha256:' + "a" * 64 + '"\n')
+    (values_dir / "trino.yaml").write_text(
+        'image:\n  repository: trinodb/trino\n  tag: "480@sha256:' + "a" * 64 + '"\n'
+    )
 
     catalog = {
         "components": {
@@ -302,7 +306,9 @@ def test_check_images_match_deployment_sources_catches_a_tag_bump_the_catalog_mi
     """
     values_dir = tmp_path / "infra/helm/values/local"
     values_dir.mkdir(parents=True)
-    (values_dir / "trino.yaml").write_text('image:\n  tag: "481@sha256:' + "b" * 64 + '"\n')
+    (values_dir / "trino.yaml").write_text(
+        'image:\n  repository: trinodb/trino\n  tag: "481@sha256:' + "b" * 64 + '"\n'
+    )
 
     catalog = {"components": {"images": {"trino": "trinodb/trino:480@sha256:" + "a" * 64}}}
     result = release._check_images_match_deployment_sources(tmp_path, catalog)
@@ -310,6 +316,45 @@ def test_check_images_match_deployment_sources_catches_a_tag_bump_the_catalog_mi
     assert not result.ok
     assert "480" in result.detail
     assert "481" in result.detail
+
+
+def test_check_images_match_deployment_sources_catches_a_repository_override(
+    tmp_path: Path,
+) -> None:
+    """A mirror override with an unchanged tag and digest is still drift."""
+    values_dir = tmp_path / "infra/helm/values/local"
+    values_dir.mkdir(parents=True)
+    digest = "a" * 64
+    (values_dir / "polaris.yaml").write_text(
+        'image:\n  repository: mirror.example.com/apache/polaris\n  tag: "1.4.0@sha256:'
+        + digest
+        + '"\n'
+    )
+
+    catalog = {
+        "components": {"images": {"polaris": "apache/polaris:1.4.0@sha256:" + digest}}
+    }
+    result = release._check_images_match_deployment_sources(tmp_path, catalog)
+
+    assert not result.ok
+    assert "apache/polaris" in result.detail
+    assert "mirror.example.com/apache/polaris" in result.detail
+
+
+def test_check_images_match_deployment_sources_requires_a_complete_split_reference(
+    tmp_path: Path,
+) -> None:
+    """Split Helm values must pin the repository as well as tag and digest."""
+    values_dir = tmp_path / "infra/helm/values/local"
+    values_dir.mkdir(parents=True)
+    digest = "a" * 64
+    (values_dir / "trino.yaml").write_text('image:\n  tag: "480@sha256:' + digest + '"\n')
+
+    catalog = {"components": {"images": {"trino": "trinodb/trino:480@sha256:" + digest}}}
+    result = release._check_images_match_deployment_sources(tmp_path, catalog)
+
+    assert not result.ok
+    assert "no complete image reference" in result.detail
 
 
 def test_check_images_match_deployment_sources_flags_an_unregistered_image(tmp_path: Path) -> None:

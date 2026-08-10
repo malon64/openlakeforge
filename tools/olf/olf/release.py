@@ -352,50 +352,98 @@ def _check_images_digest_pinned(catalog: dict[str, Any]) -> CheckResult:
     return CheckResult("catalog images are digest-pinned", True, f"{len(images)} image(s) checked")
 
 
-IMAGE_REF_PATTERN = re.compile(r"^(?P<repo>.+):(?P<tag>[^:@]+)@(?P<digest>sha256:[0-9a-f]{64})$")
 _IMAGE_TAG_DIGEST_PATTERN = re.compile(r"@sha256:[0-9a-f]{64}$")
 
+
+@dataclass(frozen=True)
+class _ImageDeploymentSource:
+    """A repository source that resolves to one complete deployed image ref."""
+
+    path: str
+    full_ref_pattern: re.Pattern[str] | None = None
+    full_ref_key_path: tuple[str, ...] | None = None
+    repository_key_path: tuple[str, ...] | None = None
+    tag_key_path: tuple[str, ...] | None = None
+
+
 # Every non-build-only catalog image, mapped to exactly where its deployed
-# reference lives and how to read it. "full" means the file embeds the
-# complete "repo:tag@digest" as one string (compare verbatim against the
-# catalog ref); "tag_digest" means the chart/module declares repository and
-# tag/image separately (Helm's image.repository vs image.tag), so only
-# "<tag>@sha256:<digest>" is present there -- reconstructed from the
-# catalog's own repo prefix before comparing.
+# reference lives and how to read it. Terraform embeds the complete
+# "repo:tag@digest" as one string. Helm values either embed a full reference
+# at one YAML key path or split it across explicit repository and tag keys;
+# split values are reconstructed from both deployment fields, never from the
+# catalog, so a mirror/repository change is detected as drift too.
 #
 # A catalog image not covered by this map and not in _BUILD_ONLY_IMAGES fails
 # the check outright: matching by loose text search (an earlier version of
 # this check) could not tell "not deployed anywhere in this repo" apart from
 # "deployed, but the tag changed since this was last searched for" -- a
 # version bump made the drift this check exists to catch disappear silently.
-_IMAGE_DEPLOYMENT_SOURCES: dict[str, tuple[str, re.Pattern[str], str]] = {
-    "postgres": (
-        "infra/terraform/modules/storage/postgresql/main.tf",
-        re.compile(r'image\s*=\s*"([^"]+@sha256:[0-9a-f]{64})"'),
-        "full",
+_IMAGE_DEPLOYMENT_SOURCES: dict[str, _ImageDeploymentSource] = {
+    "postgres": _ImageDeploymentSource(
+        path="infra/terraform/modules/storage/postgresql/main.tf",
+        full_ref_pattern=re.compile(r'image\s*=\s*"([^"]+@sha256:[0-9a-f]{64})"'),
     ),
-    "seaweedfs": (
-        "infra/helm/values/local/seaweedfs.yaml",
-        re.compile(r'^\s*tag:\s*"([^"]+@sha256:[0-9a-f]{64})"', re.MULTILINE),
-        "tag_digest",
+    "seaweedfs": _ImageDeploymentSource(
+        path="infra/helm/values/local/seaweedfs.yaml",
+        repository_key_path=("image", "repository"),
+        tag_key_path=("image", "tag"),
     ),
-    "polaris": (
-        "infra/helm/values/local/polaris.yaml",
-        re.compile(r'^\s*tag:\s*"([^"]+@sha256:[0-9a-f]{64})"', re.MULTILINE),
-        "tag_digest",
+    "polaris": _ImageDeploymentSource(
+        path="infra/helm/values/local/polaris.yaml",
+        repository_key_path=("image", "repository"),
+        tag_key_path=("image", "tag"),
     ),
-    "trino": (
-        "infra/helm/values/local/trino.yaml",
-        re.compile(r'^\s*tag:\s*"([^"]+@sha256:[0-9a-f]{64})"', re.MULTILINE),
-        "tag_digest",
+    "trino": _ImageDeploymentSource(
+        path="infra/helm/values/local/trino.yaml",
+        repository_key_path=("image", "repository"),
+        tag_key_path=("image", "tag"),
     ),
-    "openmetadata_ingestion": (
-        "infra/helm/values/local/openmetadata.yaml",
-        re.compile(r'ingestionImage:\s*"([^"]+@sha256:[0-9a-f]{64})"'),
-        "full",
+    "openmetadata_ingestion": _ImageDeploymentSource(
+        path="infra/helm/values/local/openmetadata.yaml",
+        full_ref_key_path=(
+            "openmetadata",
+            "config",
+            "pipelineServiceClientConfig",
+            "k8s",
+            "ingestionImage",
+        ),
     ),
 }
 _BUILD_ONLY_IMAGES = frozenset({"project_code_base", "superset_base"})
+
+
+def _value_at_key_path(data: Any, key_path: tuple[str, ...]) -> Any:
+    value = data
+    for key in key_path:
+        if not isinstance(value, dict) or key not in value:
+            return None
+        value = value[key]
+    return value
+
+
+def _deployed_image_reference(source_path: Path, source: _ImageDeploymentSource) -> str | None:
+    """Read one complete image reference from its registered source."""
+    source_text = source_path.read_text()
+    if source.full_ref_pattern is not None:
+        found = source.full_ref_pattern.search(source_text)
+        return found.group(1) if found is not None else None
+
+    try:
+        values = yaml.safe_load(source_text)
+    except yaml.YAMLError:
+        return None
+
+    if source.full_ref_key_path is not None:
+        found = _value_at_key_path(values, source.full_ref_key_path)
+        return found if isinstance(found, str) else None
+
+    if source.repository_key_path is None or source.tag_key_path is None:
+        return None
+    repository = _value_at_key_path(values, source.repository_key_path)
+    tag = _value_at_key_path(values, source.tag_key_path)
+    if not isinstance(repository, str) or not isinstance(tag, str):
+        return None
+    return f"{repository}:{tag}"
 
 
 def _check_images_match_deployment_sources(repo_root: Path, catalog: dict[str, Any]) -> CheckResult:
@@ -425,25 +473,18 @@ def _check_images_match_deployment_sources(repo_root: Path, catalog: dict[str, A
             )
             continue
 
-        rel_path, pattern, mode = source
-        source_path = repo_root / rel_path
+        source_path = repo_root / source.path
         if not source_path.is_file():
-            problems.append(f"{name}: deployment source {rel_path} does not exist")
+            problems.append(f"{name}: deployment source {source.path} does not exist")
             continue
 
-        found = pattern.search(source_path.read_text())
-        if found is None:
-            problems.append(f"{name}: {rel_path} has no matching image reference")
+        deployed = _deployed_image_reference(source_path, source)
+        if deployed is None:
+            problems.append(f"{name}: {source.path} has no complete image reference")
             continue
-        deployed = found.group(1)
 
-        if mode == "full":
-            expected = ref
-        else:
-            match = IMAGE_REF_PATTERN.match(ref)
-            expected = f"{match.group('tag')}@{match.group('digest')}" if match else ref
-        if deployed != expected:
-            problems.append(f"{name}: catalog pins {ref!r} but {rel_path} pins {deployed!r}")
+        if deployed != ref:
+            problems.append(f"{name}: catalog pins {ref!r} but {source.path} pins {deployed!r}")
 
     if problems:
         return CheckResult("catalog images match their deployment sources", False, "; ".join(problems))
