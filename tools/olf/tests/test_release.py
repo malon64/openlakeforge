@@ -214,6 +214,43 @@ def test_helm_chart_versions_from_terraform_modules_ignores_variables_without_de
     assert release._helm_chart_versions_from_terraform_modules(tmp_path) == {}
 
 
+def test_chart_versions_match_deployment_wrappers_flags_cached_chart_drift(tmp_path: Path) -> None:
+    trino_module = tmp_path / "infra/terraform/modules/query/trino"
+    dagster_module = tmp_path / "infra/terraform/modules/orchestration/dagster"
+    trino_module.mkdir(parents=True)
+    dagster_module.mkdir(parents=True)
+    (trino_module / "variables.tf").write_text(
+        'variable "chart_version" {\n  default = "1.42.2"\n}\n'
+    )
+    (dagster_module / "variables.tf").write_text(
+        'variable "chart_version" {\n  default = "1.13.6"\n}\n'
+    )
+    for path, contents in {
+        "scripts/local/stack/platform-up.sh": 'TRINO_CHART_VERSION="${TRINO_CHART_VERSION:-9.9.9}"\n',
+        "scripts/azure/stack/platform-up.sh": (
+            'TRINO_CHART_VERSION="${TRINO_CHART_VERSION:-1.42.2}"\n'
+            'DAGSTER_CHART_VERSION="${DAGSTER_CHART_VERSION:-1.13.6}"\n'
+        ),
+        "scripts/aws/stack/platform-up.sh": (
+            'TRINO_CHART_VERSION="${TRINO_CHART_VERSION:-1.42.2}"\n'
+            'DAGSTER_CHART_VERSION="${DAGSTER_CHART_VERSION:-1.13.6}"\n'
+        ),
+    }.items():
+        wrapper_path = tmp_path / path
+        wrapper_path.parent.mkdir(parents=True, exist_ok=True)
+        wrapper_path.write_text(contents)
+
+    result = release._check_chart_versions_match_deployment_wrappers(tmp_path)
+
+    assert not result.ok
+    assert "TRINO_CHART_VERSION='9.9.9'" in result.detail
+
+
+def test_chart_versions_match_deployment_wrappers_passes_on_real_repo() -> None:
+    result = release._check_chart_versions_match_deployment_wrappers(ROOT)
+    assert result.ok, result.detail
+
+
 def test_run_release_check_passes_on_real_repo_catalog() -> None:
     report = release.run_release_check(ROOT, tag="v0.1.0-alpha.1")
     assert report.ok, report.render()
@@ -276,6 +313,24 @@ def test_check_terraform_required_versions_requires_a_terraform_block_in_every_r
 
     assert not result.ok
     assert "environments/demo: no terraform block" in result.detail
+
+
+def test_provider_using_terraform_roots_require_tracked_lockfiles(tmp_path: Path) -> None:
+    root_dir = tmp_path / "infra/terraform/environments/demo"
+    root_dir.mkdir(parents=True)
+    (root_dir / "main.tf").write_text(
+        'terraform {\n  required_providers {\n    example = { source = "hashicorp/example" }\n  }\n}\n'
+    )
+
+    result = release._check_provider_using_terraform_roots_have_lockfiles(tmp_path)
+
+    assert not result.ok
+    assert "infra/terraform/environments/demo/.terraform.lock.hcl" in result.detail
+
+
+def test_provider_using_terraform_roots_with_lockfiles_passes() -> None:
+    result = release._check_provider_using_terraform_roots_have_lockfiles(ROOT)
+    assert result.ok, result.detail
 
 
 def test_terraform_lock_provider_versions_ignores_nondefault_registry_provider(tmp_path: Path) -> None:

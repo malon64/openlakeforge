@@ -196,7 +196,8 @@ def render_compatibility_matrix(catalog: dict[str, Any], repo_root: str | Path =
     `infra/terraform` -- the exact version a consumer of that root actually
     gets, with no intermediate copy to fall out of sync. Likewise "Helm
     charts" is read from each Terraform module's own `chart_version`
-    variable default, not a cataloged copy.
+    variable default, which the release check cross-validates against the
+    cached-chart versions used by the deployment wrappers.
 
     Always includes COMPATIBILITY_MATRIX_HEADER so the checked-in docs copy
     and _check_compatibility_matrix_up_to_date's comparison stay identical by
@@ -321,6 +322,33 @@ def _check_compatibility_matrix_up_to_date(repo_root: Path, catalog: dict[str, A
     return CheckResult("compatibility matrix doc is up to date", True)
 
 
+_TERRAFORM_BLOCK_PATTERN = re.compile(r"^terraform\s*\{(?P<body>.*?)^\}", re.MULTILINE | re.DOTALL)
+_REQUIRED_VERSION_PATTERN = re.compile(
+    r'^\s*required_version\s*=\s*"(?P<version>[^"]+)"\s*$', re.MULTILINE
+)
+_REQUIRED_PROVIDERS_PATTERN = re.compile(r"\brequired_providers\s*\{")
+
+
+def _terraform_root_dirs(repo_root: Path) -> list[Path]:
+    """Return supported deployment/foundation Terraform roots."""
+    terraform_root = repo_root / "infra" / "terraform"
+    return [
+        root_dir
+        for group_dir in (terraform_root / "foundations", terraform_root / "environments")
+        if group_dir.is_dir()
+        for root_dir in sorted(path for path in group_dir.iterdir() if path.is_dir())
+    ]
+
+
+def _provider_using_terraform_roots(repo_root: Path) -> list[Path]:
+    """Return supported Terraform roots that declare provider dependencies."""
+    return [
+        root_dir
+        for root_dir in _terraform_root_dirs(repo_root)
+        if any(_REQUIRED_PROVIDERS_PATTERN.search(path.read_text()) for path in root_dir.glob("*.tf"))
+    ]
+
+
 def _check_terraform_required_versions_match_catalog(repo_root: Path, catalog: dict[str, Any]) -> CheckResult:
     """Every Terraform root must declare the catalog's advertised constraint."""
     catalog_required_version = ((catalog.get("components") or {}).get("terraform") or {}).get(
@@ -341,18 +369,9 @@ def _check_terraform_required_versions_match_catalog(repo_root: Path, catalog: d
             "infra/terraform does not exist",
         )
 
-    terraform_blocks = re.compile(r"^terraform\s*\{(?P<body>.*?)^\}", re.MULTILINE | re.DOTALL)
-    required_version = re.compile(
-        r'^\s*required_version\s*=\s*"(?P<version>[^"]+)"\s*$', re.MULTILINE
-    )
     problems: list[str] = []
     roots_checked = 0
-    root_dirs = [
-        root_dir
-        for group_dir in (terraform_root / "foundations", terraform_root / "environments")
-        if group_dir.is_dir()
-        for root_dir in sorted(path for path in group_dir.iterdir() if path.is_dir())
-    ]
+    root_dirs = _terraform_root_dirs(repo_root)
     if not root_dirs:
         problems.append("no Terraform roots found under infra/terraform/foundations or environments")
 
@@ -360,7 +379,7 @@ def _check_terraform_required_versions_match_catalog(repo_root: Path, catalog: d
         blocks = [
             (source_path, block)
             for source_path in sorted(root_dir.glob("*.tf"))
-            for block in terraform_blocks.finditer(source_path.read_text())
+            for block in _TERRAFORM_BLOCK_PATTERN.finditer(source_path.read_text())
         ]
         relative_root = root_dir.relative_to(repo_root).as_posix()
         if not blocks:
@@ -370,7 +389,7 @@ def _check_terraform_required_versions_match_catalog(repo_root: Path, catalog: d
         roots_checked += 1
         for source_path, block in blocks:
             relative_path = source_path.relative_to(repo_root).as_posix()
-            found = required_version.search(block.group("body"))
+            found = _REQUIRED_VERSION_PATTERN.search(block.group("body"))
             if found is None:
                 problems.append(f"{relative_path}: terraform block has no required_version")
                 continue
@@ -387,6 +406,30 @@ def _check_terraform_required_versions_match_catalog(repo_root: Path, catalog: d
     return CheckResult(
         "Terraform required versions match the component catalog", True, f"{roots_checked} root(s) checked"
     )
+
+
+def _check_provider_using_terraform_roots_have_lockfiles(repo_root: Path) -> CheckResult:
+    """Every provider-using supported root must commit its resolved lockfile."""
+    roots = _provider_using_terraform_roots(repo_root)
+    if not roots:
+        return CheckResult(
+            "provider-using Terraform roots have lockfiles",
+            False,
+            "no provider-using Terraform roots found under infra/terraform/foundations or environments",
+        )
+
+    missing = [
+        (root_dir / ".terraform.lock.hcl").relative_to(repo_root).as_posix()
+        for root_dir in roots
+        if not (root_dir / ".terraform.lock.hcl").is_file()
+    ]
+    if missing:
+        return CheckResult(
+            "provider-using Terraform roots have lockfiles",
+            False,
+            f"missing tracked lockfile(s): {', '.join(missing)}",
+        )
+    return CheckResult("provider-using Terraform roots have lockfiles", True, f"{len(roots)} root(s) checked")
 
 
 # ---------------------------------------------------------------------------
@@ -720,6 +763,71 @@ def _helm_chart_versions_from_terraform_modules(repo_root: Path) -> dict[str, st
     return versions
 
 
+@dataclass(frozen=True)
+class _DeploymentWrapperChartVersion:
+    """Chart version exported by a supported platform deployment wrapper."""
+
+    path: str
+    chart: str
+    variable: str
+
+
+_DEPLOYMENT_WRAPPER_CHART_VERSIONS = (
+    _DeploymentWrapperChartVersion("scripts/local/stack/platform-up.sh", "trino", "TRINO_CHART_VERSION"),
+    _DeploymentWrapperChartVersion("scripts/azure/stack/platform-up.sh", "trino", "TRINO_CHART_VERSION"),
+    _DeploymentWrapperChartVersion("scripts/azure/stack/platform-up.sh", "dagster", "DAGSTER_CHART_VERSION"),
+    _DeploymentWrapperChartVersion("scripts/aws/stack/platform-up.sh", "trino", "TRINO_CHART_VERSION"),
+    _DeploymentWrapperChartVersion("scripts/aws/stack/platform-up.sh", "dagster", "DAGSTER_CHART_VERSION"),
+)
+
+
+def _wrapper_chart_version_default(source_path: Path, variable: str) -> str | None:
+    """Read ``VAR=\"${VAR:-version}\"`` default from a wrapper shell script."""
+    pattern = re.compile(
+        rf'^\s*{re.escape(variable)}="\$\{{{re.escape(variable)}:-(?P<version>[^}}"\n]+)\}}"\s*$',
+        re.MULTILINE,
+    )
+    match = pattern.search(source_path.read_text())
+    return match.group("version") if match else None
+
+
+def _check_chart_versions_match_deployment_wrappers(repo_root: Path) -> CheckResult:
+    """Ensure cached chart packages and Terraform module defaults stay aligned.
+
+    The platform wrappers pass chart package paths to Terraform for Trino and
+    Dagster, which bypasses each module's ``helm_release.version`` argument.
+    The compatibility matrix is still sourced from the module defaults, so
+    every wrapper default must match that matrix value.
+    """
+    module_versions = _helm_chart_versions_from_terraform_modules(repo_root)
+    problems: list[str] = []
+    checked = 0
+    for source in _DEPLOYMENT_WRAPPER_CHART_VERSIONS:
+        source_path = repo_root / source.path
+        if not source_path.is_file():
+            problems.append(f"{source.path}: deployment wrapper does not exist")
+            continue
+        wrapper_version = _wrapper_chart_version_default(source_path, source.variable)
+        if wrapper_version is None:
+            problems.append(f"{source.path}: missing {source.variable} default")
+            continue
+        module_version = module_versions.get(source.chart)
+        if module_version is None:
+            problems.append(f"{source.path}: no Terraform chart_version default for {source.chart}")
+            continue
+        checked += 1
+        if wrapper_version != module_version:
+            problems.append(
+                f"{source.path}: {source.variable}={wrapper_version!r} but "
+                f"Terraform {source.chart} chart_version={module_version!r}"
+            )
+    if problems:
+        return CheckResult(
+            "Helm chart versions match deployment wrappers", False, "; ".join(problems)
+        )
+    return CheckResult("Helm chart versions match deployment wrappers", True, f"{checked} wrapper value(s) checked")
+
+
 def run_release_check(
     repo_root: str | Path = ".",
     *,
@@ -732,8 +840,10 @@ def run_release_check(
     catalog image is digest-pinned and matches its Helm deployment source
     (where one exists), every workflow action is SHA-pinned and recorded in
     the catalog, every Terraform root's required_version matches the catalog,
-    no Dockerfile FROM/ARG is unpinned outside of build-arg indirection, and
-    the compatibility matrix doc matches a fresh render.
+    provider-using Terraform roots retain their lockfiles, effective wrapper
+    chart versions match the rendered Terraform-module values, no Dockerfile
+    FROM/ARG is unpinned outside of build-arg indirection, and the
+    compatibility matrix doc matches a fresh render.
     Lockfile/pyproject.toml sync is validated separately by
     `scripts/test/check-lockfiles.sh` using `uv` directly.
     """
@@ -747,5 +857,7 @@ def run_release_check(
     report.results.append(_check_actions_sha_pinned(root, catalog))
     report.results.append(_check_dockerfiles_pinned(root))
     report.results.append(_check_terraform_required_versions_match_catalog(root, catalog))
+    report.results.append(_check_provider_using_terraform_roots_have_lockfiles(root))
+    report.results.append(_check_chart_versions_match_deployment_wrappers(root))
     report.results.append(_check_compatibility_matrix_up_to_date(root, catalog))
     return report
