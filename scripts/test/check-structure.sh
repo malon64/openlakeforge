@@ -234,6 +234,23 @@ def list_values(text, key):
 datasets = {}
 errors = []
 
+release_workflow = Path(".github/workflows/release.yml").read_text()
+release_gate_requirements = (
+    "actions: read",
+    "name: Require a green main commit before publishing",
+    "if: steps.mode.outputs.dry_run == 'false'",
+    "compare/${GITHUB_SHA}...main",
+    "actions/workflows/checks.yml/runs?head_sha=${GITHUB_SHA}&event=push&per_page=100",
+    '.head_branch == "main"',
+    ".conclusion",
+)
+for requirement in release_gate_requirements:
+    if requirement not in release_workflow:
+        errors.append(
+            ".github/workflows/release.yml: missing release publication guard "
+            f"{requirement!r}"
+        )
+
 for dataset_path in sorted(Path("domains").glob("*/reports/superset/*/datasets/*/*.yaml")):
     text = dataset_path.read_text()
     uuid = scalar(text, "uuid")
