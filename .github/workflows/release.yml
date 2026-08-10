@@ -150,12 +150,22 @@ jobs:
         run: |
           set -euo pipefail
           tag="${{ steps.version.outputs.tag }}"
-          if gh release view "${tag}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+          # gh exits 1 both for a genuinely missing release and for an auth
+          # failure, API outage, or wrong repo -- distinguish by message, not
+          # exit code, so an indeterminate lookup aborts instead of silently
+          # proceeding as if the tag were free to publish.
+          if release_lookup="$(gh release view "${tag}" --repo "${{ github.repository }}" 2>&1)"; then
             echo "Release ${tag} already exists. Release tags are create-only" \
                  "(immutable-semver per release/component-catalog.yaml); refusing to republish." >&2
             exit 1
+          elif [[ "${release_lookup}" == "release not found" ]]; then
+            echo "No existing Release for ${tag}; safe to publish."
+          else
+            echo "::error::Could not determine whether Release ${tag} already exists" \
+                 "-- 'gh release view' failed with an error other than 'release not found':" >&2
+            echo "${release_lookup}" >&2
+            exit 1
           fi
-          echo "No existing Release for ${tag}; safe to publish."
 
   build:
     name: Build, sign, and attest ${{ matrix.image }}
