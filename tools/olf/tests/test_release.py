@@ -264,6 +264,20 @@ def test_check_terraform_required_versions_requires_each_root_to_declare_a_const
     assert "has no required_version" in result.detail
 
 
+def test_check_terraform_required_versions_requires_a_terraform_block_in_every_root(
+    tmp_path: Path,
+) -> None:
+    root_dir = tmp_path / "infra/terraform/environments/demo"
+    root_dir.mkdir(parents=True)
+    (root_dir / "main.tf").write_text('locals { name = "demo" }\n')
+
+    catalog = {"components": {"terraform": {"required_version": ">= 1.6.0"}}}
+    result = release._check_terraform_required_versions_match_catalog(tmp_path, catalog)
+
+    assert not result.ok
+    assert "environments/demo: no terraform block" in result.detail
+
+
 def test_terraform_lock_provider_versions_ignores_nondefault_registry_provider(tmp_path: Path) -> None:
     lock_path = tmp_path / ".terraform.lock.hcl"
     lock_path.write_text('provider "registry.example.com/acme/example" {\n  version = "1.2.3"\n}\n')
@@ -409,6 +423,24 @@ def test_check_images_match_deployment_sources_flags_every_postgres_terraform_re
 
     assert not result.ok
     assert "postgres" in result.detail
+    assert stale_ref in result.detail
+
+
+def test_check_images_match_deployment_sources_flags_bootstrap_image_drift(tmp_path: Path) -> None:
+    polaris_dir = tmp_path / "infra/terraform/modules/catalog/polaris"
+    polaris_dir.mkdir(parents=True)
+    openmetadata_dir = tmp_path / "infra/terraform/modules/governance/openmetadata"
+    openmetadata_dir.mkdir(parents=True)
+    bootstrap_ref = "alpine/k8s:1.30.0@sha256:" + "a" * 64
+    stale_ref = "alpine/k8s:1.30.0@sha256:" + "b" * 64
+    (polaris_dir / "variables.tf").write_text(f'default = "{bootstrap_ref}"\n')
+    (openmetadata_dir / "variables.tf").write_text(f'default = "{stale_ref}"\n')
+
+    catalog = {"components": {"images": {"k8s_bootstrap": bootstrap_ref}}}
+    result = release._check_images_match_deployment_sources(tmp_path, catalog)
+
+    assert not result.ok
+    assert "k8s_bootstrap" in result.detail
     assert stale_ref in result.detail
 
 

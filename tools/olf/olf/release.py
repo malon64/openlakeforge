@@ -347,14 +347,29 @@ def _check_terraform_required_versions_match_catalog(repo_root: Path, catalog: d
     )
     problems: list[str] = []
     roots_checked = 0
-    for source_path in sorted(terraform_root.rglob("*.tf")):
-        source_text = source_path.read_text()
-        blocks = list(terraform_blocks.finditer(source_text))
+    root_dirs = [
+        root_dir
+        for group_dir in (terraform_root / "foundations", terraform_root / "environments")
+        if group_dir.is_dir()
+        for root_dir in sorted(path for path in group_dir.iterdir() if path.is_dir())
+    ]
+    if not root_dirs:
+        problems.append("no Terraform roots found under infra/terraform/foundations or environments")
+
+    for root_dir in root_dirs:
+        blocks = [
+            (source_path, block)
+            for source_path in sorted(root_dir.glob("*.tf"))
+            for block in terraform_blocks.finditer(source_path.read_text())
+        ]
+        relative_root = root_dir.relative_to(repo_root).as_posix()
         if not blocks:
+            problems.append(f"{relative_root}: no terraform block")
             continue
+
         roots_checked += 1
-        relative_path = source_path.relative_to(repo_root).as_posix()
-        for block in blocks:
+        for source_path, block in blocks:
+            relative_path = source_path.relative_to(repo_root).as_posix()
             found = required_version.search(block.group("body"))
             if found is None:
                 problems.append(f"{relative_path}: terraform block has no required_version")
@@ -365,9 +380,6 @@ def _check_terraform_required_versions_match_catalog(repo_root: Path, catalog: d
                     f"{relative_path}: catalog={catalog_required_version!r}, "
                     f"terraform={actual_version!r}"
                 )
-
-    if roots_checked == 0:
-        problems.append("no Terraform root declares a terraform block")
     if problems:
         return CheckResult(
             "Terraform required versions match the component catalog", False, "; ".join(problems)
@@ -435,6 +447,13 @@ class _ImageDeploymentSource:
 # "deployed, but the tag changed since this was last searched for" -- a
 # version bump made the drift this check exists to catch disappear silently.
 _IMAGE_DEPLOYMENT_SOURCES: dict[str, _ImageDeploymentSource] = {
+    "k8s_bootstrap": _ImageDeploymentSource(
+        paths=(
+            "infra/terraform/modules/catalog/polaris/variables.tf",
+            "infra/terraform/modules/governance/openmetadata/variables.tf",
+        ),
+        full_ref_pattern=re.compile(r'^\s*default\s*=\s*"([^"\n]+@sha256:[0-9a-f]{64})"\s*$', re.MULTILINE),
+    ),
     "postgres": _ImageDeploymentSource(
         paths=(
             "infra/terraform/modules/storage/postgresql/main.tf",
