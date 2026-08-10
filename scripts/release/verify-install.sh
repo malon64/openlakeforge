@@ -76,12 +76,22 @@ mkdir -p "${WORK_DIR}/assets"
 cd "${WORK_DIR}/assets"
 
 echo "==> Downloading release assets for ${TAG}"
+gh_downloaded="false"
 if command -v gh &>/dev/null; then
-  gh release download "${TAG}" --repo "${REPO_SLUG}" --clobber
+  if gh release download "${TAG}" --repo "${REPO_SLUG}" --clobber; then
+    gh_downloaded="true"
+  else
+    echo "    'gh' is installed but failed to download (not authenticated, or a network" >&2
+    echo "    issue); falling back." >&2
+  fi
+fi
+
+if [[ "${gh_downloaded}" == "true" ]]; then
+  :
 elif [[ -f "checksums.txt" ]]; then
-  echo "    'gh' not found, but assets already present in ${WORK_DIR}/assets -- using those."
+  echo "    Assets already present in ${WORK_DIR}/assets -- using those."
 elif command -v curl &>/dev/null; then
-  echo "    'gh' not found; falling back to curl against the GitHub Releases API."
+  echo "    Falling back to curl against the GitHub Releases API."
   api_url="https://api.github.com/repos/${REPO_SLUG}/releases/tags/${TAG}"
   release_json="$(curl -fsSL "${api_url}")" || {
     echo "ERROR: could not fetch release metadata for ${TAG} from ${api_url}" >&2
@@ -102,8 +112,9 @@ for asset in data.get('assets', []):
     exit 1
   fi
 else
-  echo "ERROR: neither 'gh' nor 'curl' found, and no assets already present in" >&2
-  echo "       ${WORK_DIR}/assets. Install one of them, or download the release" >&2
+  echo "ERROR: could not download release assets ('gh' unavailable or failed, 'curl'" >&2
+  echo "       not found), and no assets already present in ${WORK_DIR}/assets." >&2
+  echo "       Install 'curl', authenticate 'gh', or download the release" >&2
   echo "       assets for ${TAG} from https://github.com/${REPO_SLUG}/releases/tag/${TAG}" >&2
   echo "       into ${WORK_DIR}/assets and re-run." >&2
   exit 1
