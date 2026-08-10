@@ -11,6 +11,7 @@ IMAGE_TAG="${PROJECT_CODE_IMAGE_TAG:-local}"
 IMAGE="${PROJECT_CODE_IMAGE:-${IMAGE_REPOSITORY}:${IMAGE_TAG}}"
 PROJECT_CODE_PYTHON_BASE_IMAGE="${PROJECT_CODE_PYTHON_BASE_IMAGE:-python:3.12-slim@sha256:57cd7c3a7a273101a6485ba99423ee568157882804b1124b4dd04266317710de}"
 PROJECT_CODE_DBT_PROFILE_ENV="${PROJECT_CODE_DBT_PROFILE_ENV:-local}"
+FLOE_MANIFEST_REVISION="${FLOE_MANIFEST_REVISION:-manual}"
 
 if ! command -v docker &>/dev/null; then
   echo "ERROR: 'docker' not found on PATH" >&2
@@ -24,6 +25,7 @@ echo "==> Building project-code image: ${IMAGE}"
 docker_build_with_retries \
   --build-arg "PYTHON_BASE_IMAGE=${PROJECT_CODE_PYTHON_BASE_IMAGE}" \
   --build-arg "DBT_PROFILE_ENV=${PROJECT_CODE_DBT_PROFILE_ENV}" \
+  --build-arg "FLOE_MANIFEST_REVISION=${FLOE_MANIFEST_REVISION}" \
   --file images/project-code/Dockerfile \
   --tag "${IMAGE}" \
   .

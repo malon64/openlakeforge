@@ -84,6 +84,7 @@ echo "==> Loading domain Dagster product definitions"
 PATH="${site_dir}/bin:${PATH}" PYTHONPATH="${site_dir}:${PWD}" "${PYTHON_BIN}" - <<'PY'
 import json
 import os
+from hashlib import sha256
 from pathlib import Path
 
 from dagster import AssetKey
@@ -271,6 +272,7 @@ previous_env = {
         "OPENLAKEFORGE_CATALOG_TYPE",
         "OPENLAKEFORGE_CATALOG_PROVIDER",
         "OPENLAKEFORGE_FLOE_MANIFEST_CACHE_DIR",
+        "OPENLAKEFORGE_FLOE_MANIFEST_REVISION_BUILT",
     ]
 }
 previous_reader = product_dagster_lib.read_text_uri
@@ -292,6 +294,43 @@ try:
     cached_manifest = load_manifest(cached_manifest_path)
     if cached_manifest.execution.base_args[:3] != ["run", "--manifest", "{manifest_uri}"]:
         raise SystemExit("AWS remote Floe manifest was not used for Dagster manifest replay args")
+
+    artifact_key = (
+        f"floe/manifests/{sample_product['domain']}/{sample_product['product']}/"
+        f"{sample_product['product']}.manifest.json"
+    )
+    entries = {artifact_key: sha256(json.dumps(remote_payload).encode()).hexdigest()}
+    revision = product_dagster_lib._aggregate_revision(entries)
+    os.environ["OPENLAKEFORGE_FLOE_MANIFEST_REVISION_BUILT"] = revision
+    revision_uri = product_dagster_lib._remote_manifest_uri(sample_spec)
+    expected_revision_uri = (
+        f"s3://openlakeforge-ops/floe/revisions/sha256/{revision.removeprefix('sha256:')}/"
+        f"{artifact_key}"
+    )
+    if revision_uri != expected_revision_uri:
+        raise SystemExit("project-code image did not select its immutable Floe manifest revision")
+
+    sidecar_uri = expected_revision_uri.rsplit("/floe/manifests/", 1)[0] + "/REVISION.json"
+    product_dagster_lib.read_text_uri = lambda uri: (
+        json.dumps({"revision": revision, "entries": entries})
+        if uri == sidecar_uri
+        else json.dumps(remote_payload)
+    )
+    cached_revision_path = product_dagster_lib._manifest_path_for_dagster(sample_spec)
+    if Path(cached_revision_path).read_text() != json.dumps(remote_payload):
+        raise SystemExit("project-code image did not cache its verified immutable Floe manifest")
+
+    product_dagster_lib.read_text_uri = lambda uri: (
+        json.dumps({"revision": revision, "entries": entries})
+        if uri == sidecar_uri
+        else "tampered"
+    )
+    try:
+        product_dagster_lib._manifest_path_for_dagster(sample_spec)
+    except product_dagster_lib.ArtifactRevisionError:
+        pass
+    else:
+        raise SystemExit("project-code image accepted an immutable Floe manifest with the wrong digest")
 finally:
     product_dagster_lib.read_text_uri = previous_reader
     for key, value in previous_env.items():
