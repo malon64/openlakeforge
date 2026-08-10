@@ -40,7 +40,11 @@ while IFS= read -r match; do
     printf 'Unpinned Helm image value in %s: %s\n' "$file" "$line" >&2
     bad=1
   fi
-done < <(rg -n '^[[:space:]]*(tag:|[[:alnum:]_]*Image:)' infra/helm/values --glob '*.yaml')
+# `tag:` carries the digest for split image blocks.  A CamelCase `*Image:`
+# entry is only a complete image reference when it has an inline value;
+# matching an object key such as `initImage:` would incorrectly require the
+# key name itself to contain a digest instead of validating its nested tag.
+done < <(rg -n '^[[:space:]]*(tag:|[[:alnum:]_]*Image:[[:space:]]*[^[:space:]#])' infra/helm/values --glob '*.yaml')
 
 (( bad == 0 )) || exit 1
 echo 'Component catalog and immutable input checks passed.'

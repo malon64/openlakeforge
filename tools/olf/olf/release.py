@@ -430,6 +430,7 @@ class _ImageDeploymentSource:
     paths: tuple[str, ...]
     full_ref_pattern: re.Pattern[str] | None = None
     full_ref_key_path: tuple[str, ...] | None = None
+    registry_key_path: tuple[str, ...] | None = None
     repository_key_path: tuple[str, ...] | None = None
     tag_key_path: tuple[str, ...] | None = None
 
@@ -437,9 +438,9 @@ class _ImageDeploymentSource:
 # Every non-build-only catalog image, mapped to exactly where its deployed
 # reference lives and how to read it. Terraform embeds the complete
 # "repo:tag@digest" as one string. Helm values either embed a full reference
-# at one YAML key path or split it across explicit repository and tag keys;
-# split values are reconstructed from both deployment fields, never from the
-# catalog, so a mirror/repository change is detected as drift too.
+# at one YAML key path or split it across explicit registry, repository, and
+# tag keys; split values are reconstructed from deployment fields, never from
+# the catalog, so a mirror/repository change is detected as drift too.
 #
 # A catalog image not covered by this map and not in _BUILD_ONLY_IMAGES fails
 # the check outright: matching by loose text search (an earlier version of
@@ -453,6 +454,11 @@ _IMAGE_DEPLOYMENT_SOURCES: dict[str, _ImageDeploymentSource] = {
             "infra/terraform/modules/governance/openmetadata/variables.tf",
         ),
         full_ref_pattern=re.compile(r'^\s*default\s*=\s*"([^"\n]+@sha256:[0-9a-f]{64})"\s*$', re.MULTILINE),
+    ),
+    "opensearch": _ImageDeploymentSource(
+        paths=("infra/helm/values/local/openmetadata-deps.yaml",),
+        repository_key_path=("opensearch", "image", "repository"),
+        tag_key_path=("opensearch", "image", "tag"),
     ),
     "postgres": _ImageDeploymentSource(
         paths=(
@@ -485,6 +491,17 @@ _IMAGE_DEPLOYMENT_SOURCES: dict[str, _ImageDeploymentSource] = {
             "k8s",
             "ingestionImage",
         ),
+    ),
+    "superset_init": _ImageDeploymentSource(
+        paths=("infra/helm/values/local/superset.yaml",),
+        repository_key_path=("initImage", "repository"),
+        tag_key_path=("initImage", "tag"),
+    ),
+    "superset_redis": _ImageDeploymentSource(
+        paths=("infra/helm/values/local/superset.yaml",),
+        registry_key_path=("redis", "image", "registry"),
+        repository_key_path=("redis", "image", "repository"),
+        tag_key_path=("redis", "image", "tag"),
     ),
 }
 _BUILD_ONLY_IMAGES = frozenset({"project_code_base", "superset_base"})
@@ -520,7 +537,13 @@ def _deployed_image_references(source_path: Path, source: _ImageDeploymentSource
     tag = _value_at_key_path(values, source.tag_key_path)
     if not isinstance(repository, str) or not isinstance(tag, str):
         return []
-    return [f"{repository}:{tag}"]
+    registry_prefix = ""
+    if source.registry_key_path is not None:
+        registry = _value_at_key_path(values, source.registry_key_path)
+        if not isinstance(registry, str) or not registry:
+            return []
+        registry_prefix = f"{registry.rstrip('/')}/"
+    return [f"{registry_prefix}{repository}:{tag}"]
 
 
 def _check_images_match_deployment_sources(repo_root: Path, catalog: dict[str, Any]) -> CheckResult:

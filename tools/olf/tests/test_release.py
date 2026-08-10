@@ -444,6 +444,40 @@ def test_check_images_match_deployment_sources_flags_bootstrap_image_drift(tmp_p
     assert stale_ref in result.detail
 
 
+def test_check_images_match_deployment_sources_flags_chart_managed_image_drift(
+    tmp_path: Path,
+) -> None:
+    helm_values = tmp_path / "infra/helm/values/local"
+    helm_values.mkdir(parents=True)
+    opensearch_ref = "opensearchproject/opensearch:3.3.2@sha256:" + "a" * 64
+    stale_redis_ref = "docker.io/bitnamilegacy/redis:7.0.10@sha256:" + "b" * 64
+    (helm_values / "openmetadata-deps.yaml").write_text(
+        "opensearch:\n  image:\n    repository: opensearchproject/opensearch\n"
+        f'    tag: "3.3.2@sha256:{"a" * 64}"\n'
+    )
+    (helm_values / "superset.yaml").write_text(
+        "redis:\n  image:\n    registry: docker.io\n    repository: bitnamilegacy/redis\n"
+        f'    tag: "7.0.10@sha256:{"b" * 64}"\n'
+        "initImage:\n  repository: apache/superset\n"
+        f'  tag: "dockerize@sha256:{"c" * 64}"\n'
+    )
+
+    catalog = {
+        "components": {
+            "images": {
+                "opensearch": opensearch_ref,
+                "superset_redis": "docker.io/bitnamilegacy/redis:7.0.10@sha256:" + "d" * 64,
+                "superset_init": "apache/superset:dockerize@sha256:" + "c" * 64,
+            }
+        }
+    }
+    result = release._check_images_match_deployment_sources(tmp_path, catalog)
+
+    assert not result.ok
+    assert "superset_redis" in result.detail
+    assert stale_redis_ref in result.detail
+
+
 def test_check_images_match_deployment_sources_flags_aws_postgres_reference_drift(
     tmp_path: Path,
 ) -> None:

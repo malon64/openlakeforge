@@ -7,6 +7,12 @@ mysql:
 opensearch:
   enabled: true
   singleNode: true
+  # The chart otherwise derives majorVersion by semver-parsing image.tag;
+  # supply it explicitly so image.tag can include the immutable digest.
+  majorVersion: 3
+  image:
+    repository: opensearchproject/opensearch
+    tag: "3.3.2@sha256:798cf28e226a32f5c928dd1ed9478dd3a33d2212176aad3679020088ad3afa1a"
   persistence:
     enabled: false
   resources:
