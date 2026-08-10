@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import os
+import re
 import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -29,7 +32,13 @@ from libs.s3_artifacts import is_s3_uri, read_json_uri, read_text_uri, upload_fi
 _FLOE_MANIFEST_ACCESS_MODE_ENV = "OPENLAKEFORGE_FLOE_MANIFEST_ACCESS_MODE"
 _FLOE_MANIFEST_ACCESS_MODE_REMOTE = "remote"
 _FLOE_MANIFEST_ACCESS_MODE_LOCAL = "local"
+_FLOE_MANIFEST_REVISION_BUILT_ENV = "OPENLAKEFORGE_FLOE_MANIFEST_REVISION_BUILT"
+_FLOE_MANIFEST_REVISION_PATTERN = re.compile(r"^sha256:([0-9a-f]{64})$")
 _FLOE_S3_REPORT_LOADER_INSTALLED = False
+
+
+class ArtifactRevisionError(RuntimeError):
+    """A project-code image cannot safely use its declared artifact revision."""
 
 
 @dataclass(frozen=True)
@@ -312,6 +321,8 @@ def _manifest_path_for_dagster(spec: ProductDefinitionSpec) -> str:
             )
         try:
             return _cache_remote_manifest_for_dagster(spec, manifest_uri)
+        except ArtifactRevisionError:
+            raise
         except RuntimeError:
             if _explicit_floe_dagster_manifest_source() == _FLOE_MANIFEST_ACCESS_MODE_REMOTE:
                 raise
@@ -351,7 +362,13 @@ def _cache_remote_manifest_for_dagster(spec: ProductDefinitionSpec, manifest_uri
     target = cache_root / spec.domain / spec.product / f"{spec.product}.manifest.json"
     target.parent.mkdir(parents=True, exist_ok=True)
     try:
-        target.write_text(read_text_uri(manifest_uri), encoding="utf-8")
+        manifest_content = read_text_uri(manifest_uri)
+        revision = _built_manifest_revision()
+        if revision is not None:
+            _verify_revision_manifest(spec, revision, manifest_content)
+        target.write_text(manifest_content, encoding="utf-8")
+    except ArtifactRevisionError:
+        raise
     except Exception as exc:  # noqa: BLE001
         raise RuntimeError(f"Failed to load remote Floe manifest {manifest_uri}") from exc
     return str(target)
@@ -423,6 +440,19 @@ def _validate_local_floe_manifest_access(
 
 
 def _remote_manifest_uri(spec: ProductDefinitionSpec) -> str | None:
+    revision = _built_manifest_revision()
+    if revision is not None:
+        artifact_base_uri = os.environ.get("OPENLAKEFORGE_ARTIFACT_BASE_URI")
+        if not artifact_base_uri:
+            raise ArtifactRevisionError(
+                f"{_FLOE_MANIFEST_REVISION_BUILT_ENV} is set, but "
+                "OPENLAKEFORGE_ARTIFACT_BASE_URI is not configured."
+            )
+        return (
+            f"{artifact_base_uri.rstrip('/')}/floe/revisions/sha256/{_revision_digest(revision)}/"
+            f"floe/manifests/{spec.domain}/{spec.product}/{spec.product}.manifest.json"
+        )
+
     specific = os.environ.get(f"OPENLAKEFORGE_FLOE_MANIFEST_URI_{spec.env_key}")
     if specific:
         return specific
@@ -432,3 +462,76 @@ def _remote_manifest_uri(spec: ProductDefinitionSpec) -> str | None:
         return None
 
     return f"{base_uri.rstrip('/')}/{spec.domain}/{spec.product}/{spec.product}.manifest.json"
+
+
+def _built_manifest_revision() -> str | None:
+    revision = os.environ.get(_FLOE_MANIFEST_REVISION_BUILT_ENV, "").strip()
+    if not revision or revision == "manual":
+        return None
+    _revision_digest(revision)
+    return revision
+
+
+def _revision_digest(revision: str) -> str:
+    match = _FLOE_MANIFEST_REVISION_PATTERN.fullmatch(revision)
+    if match is None:
+        raise ArtifactRevisionError(
+            f"invalid {_FLOE_MANIFEST_REVISION_BUILT_ENV} value {revision!r}; "
+            "expected sha256:<64 lowercase hex characters> or 'manual'."
+        )
+    return match.group(1)
+
+
+def _verify_revision_manifest(
+    spec: ProductDefinitionSpec, revision: str, manifest_content: str
+) -> None:
+    artifact_base_uri = os.environ.get("OPENLAKEFORGE_ARTIFACT_BASE_URI")
+    if not artifact_base_uri:
+        raise ArtifactRevisionError(
+            f"{_FLOE_MANIFEST_REVISION_BUILT_ENV} is set, but "
+            "OPENLAKEFORGE_ARTIFACT_BASE_URI is not configured."
+        )
+    sidecar_uri = (
+        f"{artifact_base_uri.rstrip('/')}/floe/revisions/sha256/{_revision_digest(revision)}/"
+        "REVISION.json"
+    )
+    try:
+        sidecar = json.loads(read_text_uri(sidecar_uri))
+        sidecar_revision = sidecar["revision"]
+        entries = sidecar["entries"]
+    except (json.JSONDecodeError, KeyError, TypeError) as exc:
+        raise ArtifactRevisionError(f"malformed immutable revision sidecar {sidecar_uri}") from exc
+    except Exception as exc:  # noqa: BLE001
+        raise ArtifactRevisionError(f"failed to load immutable revision sidecar {sidecar_uri}") from exc
+
+    if not isinstance(sidecar_revision, str) or not isinstance(entries, dict) or not all(
+        isinstance(key, str) and isinstance(digest, str) for key, digest in entries.items()
+    ):
+        raise ArtifactRevisionError(f"malformed immutable revision sidecar {sidecar_uri}")
+    if sidecar_revision != revision:
+        raise ArtifactRevisionError(
+            f"immutable revision sidecar {sidecar_uri} declares {sidecar_revision!r}, "
+            f"not image revision {revision!r}."
+        )
+    if _aggregate_revision(entries) != revision:
+        raise ArtifactRevisionError(
+            f"immutable revision sidecar {sidecar_uri} does not aggregate to {revision!r}."
+        )
+
+    artifact_key = f"floe/manifests/{spec.domain}/{spec.product}/{spec.product}.manifest.json"
+    expected_digest = entries.get(artifact_key)
+    actual_digest = hashlib.sha256(manifest_content.encode("utf-8")).hexdigest()
+    if expected_digest != actual_digest:
+        raise ArtifactRevisionError(
+            f"immutable manifest {artifact_key} hashes to {actual_digest}, "
+            f"not the revision sidecar value {expected_digest!r}."
+        )
+
+
+def _aggregate_revision(entries: dict[str, str]) -> str:
+    if not entries:
+        raise ArtifactRevisionError("immutable revision sidecar has no artifact entries.")
+    hasher = hashlib.sha256()
+    for key in sorted(entries):
+        hasher.update(f"{key}\0{entries[key]}\n".encode())
+    return f"sha256:{hasher.hexdigest()}"
