@@ -153,7 +153,7 @@ tagged tree is self-consistent with no local state carried over. Pass
 `--pull-images` to additionally `docker pull` both published images by
 digest.
 
-This script requires `git`, `gh`, `cosign`, `docker` (only for
+This script requires `git`, `gh`, `cosign`, `uv`, `docker` (only for
 `--pull-images`), and either `sha256sum` or `shasum`. It is safe to run by
 anyone: it only reads public release assets and verifies public Sigstore
 signatures.

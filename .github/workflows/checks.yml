@@ -34,6 +34,9 @@ jobs:
         with:
           version: v3.18.6
 
+      - name: Setup uv
+        uses: astral-sh/setup-uv@e58605a9b6da7c637471fab8847a5e5a6b8df081
+
       - name: Check immutable release inputs
         run: make check-components
 

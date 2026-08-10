@@ -16,7 +16,9 @@
 #
 # TAG defaults to v<distribution.version> from release/component-catalog.yaml
 # in the current checkout. Requires: git, curl or gh, cosign, sha256sum (or
-# shasum on macOS), and docker (for the optional --pull-images smoke).
+# shasum on macOS), uv (https://docs.astral.sh/uv/, used by the cloned
+# checkout's own scripts/test/check-components.sh), and docker (for the
+# optional --pull-images smoke).
 #
 # This script is intentionally runnable by anyone outside CI: it downloads
 # public release assets and verifies public Sigstore signatures, no

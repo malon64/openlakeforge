@@ -132,6 +132,9 @@ jobs:
       - name: Release-readiness gate (olf release check)
         run: uv run --project tools/olf --locked olf release check --tag "${{ steps.version.outputs.tag }}"
 
+      - name: Release-readiness gate (lockfiles in sync)
+        run: bash scripts/test/check-lockfiles.sh
+
       - name: Verify the tag matches the catalog version
         run: |
           set -euo pipefail
