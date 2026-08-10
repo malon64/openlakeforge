@@ -34,6 +34,14 @@ permissions:
 env:
   IMAGE_NAMESPACE: ghcr.io/${{ github.repository }}
 
+# A tag push and a non-dry manual dispatch can target the same immutable
+# release tag. They must not concurrently build and retag the versioned images:
+# the generated inputs can differ, leaving the mutable image tag and bundle
+# manifest from separate runs.
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
 jobs:
   prepare:
     name: Resolve release version and validate readiness

@@ -598,6 +598,58 @@ def _check_dockerfiles_pinned(repo_root: Path) -> CheckResult:
     return CheckResult("Dockerfile base images are digest-pinned", True)
 
 
+def _terraform_lock_provider_versions(lock_path: Path) -> dict[str, str]:
+    """Read provider versions from a Terraform dependency lockfile.
+
+    Terraform lockfiles are HCL rather than TOML. The small, deliberately
+    strict parser below only extracts provider blocks and their exact selected
+    versions, which are the release inputs represented in the component
+    catalog.
+    """
+    provider_blocks = re.finditer(
+        r'^provider\s+"registry\.terraform\.io/(?P<provider>[^"]+)"\s*\{(?P<body>.*?)^\}',
+        lock_path.read_text(),
+        re.MULTILINE | re.DOTALL,
+    )
+    versions: dict[str, str] = {}
+    for block in provider_blocks:
+        version = re.search(r'^\s*version\s*=\s*"(?P<version>[^"]+)"\s*$', block.group("body"), re.MULTILINE)
+        if version is not None:
+            versions[block.group("provider")] = version.group("version")
+    return versions
+
+
+def _check_terraform_lockfiles_synced_with_catalog(
+    repo_root: Path, catalog: dict[str, Any]
+) -> CheckResult:
+    """Ensure cataloged per-root provider versions match Terraform locks.
+
+    Rendering the compatibility matrix from the catalog alone cannot catch a
+    lockfile update that was not copied into the catalog. That would publish a
+    stale value as the target's exact provider version.
+    """
+    terraform = ((catalog.get("components") or {}).get("terraform") or {})
+    catalog_lockfiles = terraform.get("lockfiles") or {}
+    problems: list[str] = []
+    for relative_path, cataloged_versions in sorted(catalog_lockfiles.items()):
+        lock_path = repo_root / relative_path
+        if not lock_path.is_file():
+            problems.append(f"{relative_path} does not exist")
+            continue
+        actual_versions = _terraform_lock_provider_versions(lock_path)
+        expected_versions = cataloged_versions if isinstance(cataloged_versions, dict) else {}
+        for provider in sorted(set(expected_versions) | set(actual_versions)):
+            expected = expected_versions.get(provider)
+            actual = actual_versions.get(provider)
+            if expected != actual:
+                problems.append(
+                    f"{relative_path}: {provider} catalog={expected!r}, lockfile={actual!r}"
+                )
+    if problems:
+        return CheckResult("Terraform lockfiles match the component catalog", False, "; ".join(problems))
+    return CheckResult("Terraform lockfiles match the component catalog", True)
+
+
 def run_release_check(
     repo_root: str | Path = ".",
     *,
@@ -609,8 +661,9 @@ def run_release_check(
     Validates: catalog version matches the tag (when a tag is given), every
     catalog image is digest-pinned, every workflow action is SHA-pinned and
     recorded in the catalog, both lockfiles exist and are non-empty and stay
-    synchronized with their pyproject.toml, and no Dockerfile FROM/ARG is
-    unpinned outside of build-arg indirection.
+    synchronized with their pyproject.toml, cataloged Terraform providers
+    match per-root lockfiles, and no Dockerfile FROM/ARG is unpinned outside
+    of build-arg indirection.
     """
     root = Path(repo_root).resolve()
     catalog = load_catalog(root / catalog_path)
@@ -622,5 +675,6 @@ def run_release_check(
     report.results.append(_check_lockfiles(root, catalog))
     report.results.append(_check_lockfiles_synced_with_pyproject(root, catalog))
     report.results.append(_check_dockerfiles_pinned(root))
+    report.results.append(_check_terraform_lockfiles_synced_with_catalog(root, catalog))
     report.results.append(_check_compatibility_matrix_up_to_date(root, catalog))
     return report

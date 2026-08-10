@@ -165,6 +165,34 @@ def test_run_release_check_without_tag_only_validates_catalog_shape() -> None:
     assert version_result.ok
 
 
+def test_check_terraform_lockfiles_match_real_catalog() -> None:
+    catalog = release.load_catalog(ROOT / "release/component-catalog.yaml")
+    result = release._check_terraform_lockfiles_synced_with_catalog(ROOT, catalog)
+    assert result.ok, result.detail
+
+
+def test_check_terraform_lockfiles_flags_catalog_drift(tmp_path: Path) -> None:
+    lock_path = tmp_path / "infra/terraform/demo/.terraform.lock.hcl"
+    lock_path.parent.mkdir(parents=True)
+    lock_path.write_text(
+        'provider "registry.terraform.io/hashicorp/example" {\n'
+        '  version = "1.2.3"\n'
+        '}\n'
+    )
+    catalog = {
+        "components": {
+            "terraform": {
+                "lockfiles": {
+                    "infra/terraform/demo/.terraform.lock.hcl": {"hashicorp/example": "9.9.9"}
+                }
+            }
+        }
+    }
+    result = release._check_terraform_lockfiles_synced_with_catalog(tmp_path, catalog)
+    assert not result.ok
+    assert "catalog='9.9.9', lockfile='1.2.3'" in result.detail
+
+
 def test_check_images_digest_pinned_flags_missing_digest() -> None:
     catalog = {"components": {"images": {"bad": "python:3.12-slim"}}}
     result = release._check_images_digest_pinned(catalog)
