@@ -352,6 +352,48 @@ def _check_images_digest_pinned(catalog: dict[str, Any]) -> CheckResult:
     return CheckResult("catalog images are digest-pinned", True, f"{len(images)} image(s) checked")
 
 
+IMAGE_REF_PATTERN = re.compile(r"^(?P<repo>.+):(?P<tag>[^:@]+)@(?P<digest>sha256:[0-9a-f]{64})$")
+
+
+def _check_images_match_deployment_sources(repo_root: Path, catalog: dict[str, Any]) -> CheckResult:
+    """Cross-check each catalog image against infra/helm/values/**/*.yaml.
+
+    Only some catalog images are deployed via Helm (e.g. trino, polaris);
+    others (project_code_base, superset_base) are Dockerfile-only build
+    inputs with no Helm counterpart to check against. Helm charts commonly
+    split `image.repository` and `image.tag` into separate values keys (the
+    repository comes from the chart's own default), so a values override
+    only ever contains "<tag>@sha256:<digest>", never the full "repo:tag" --
+    matching on the tag+digest suffix, not the full reference, is what
+    actually finds these overrides.
+    """
+    images = (catalog.get("components") or {}).get("images") or {}
+    values_root = repo_root / "infra" / "helm" / "values"
+    if not values_root.is_dir():
+        return CheckResult("catalog images match Helm deployment sources", True, "no infra/helm/values directory")
+
+    values_text = "\n".join(path.read_text() for path in sorted(values_root.rglob("*.yaml")))
+
+    problems: list[str] = []
+    for name, ref in sorted(images.items()):
+        match = IMAGE_REF_PATTERN.match(str(ref))
+        if match is None:
+            continue  # missing/malformed digest is already caught by _check_images_digest_pinned
+        tag, catalog_digest = match.group("tag"), match.group("digest")
+        deployed = re.search(re.escape(tag) + r"@(sha256:[0-9a-f]{64})", values_text)
+        if deployed is None:
+            continue  # tag not referenced under infra/helm/values -- e.g. a Dockerfile-only build input
+        deployed_digest = deployed.group(1)
+        if deployed_digest != catalog_digest:
+            problems.append(
+                f"{name}: catalog pins {ref!r} but infra/helm/values pins '{tag}@{deployed_digest}'"
+            )
+
+    if problems:
+        return CheckResult("catalog images match Helm deployment sources", False, "; ".join(problems))
+    return CheckResult("catalog images match Helm deployment sources", True)
+
+
 def _check_actions_sha_pinned(repo_root: Path, catalog: dict[str, Any]) -> CheckResult:
     workflows_dir = repo_root / ".github" / "workflows"
     if not workflows_dir.is_dir():
@@ -471,10 +513,11 @@ def run_release_check(
     """Run the release-readiness / clean-install consistency gate.
 
     Validates: catalog version matches the tag (when a tag is given), every
-    catalog image is digest-pinned, every workflow action is SHA-pinned and
-    recorded in the catalog, no Dockerfile FROM/ARG is unpinned outside of
-    build-arg indirection, and the compatibility matrix doc matches a fresh
-    render. Lockfile/pyproject.toml sync is validated separately by
+    catalog image is digest-pinned and matches its Helm deployment source
+    (where one exists), every workflow action is SHA-pinned and recorded in
+    the catalog, no Dockerfile FROM/ARG is unpinned outside of build-arg
+    indirection, and the compatibility matrix doc matches a fresh render.
+    Lockfile/pyproject.toml sync is validated separately by
     `scripts/test/check-lockfiles.sh` using `uv` directly.
     """
     root = Path(repo_root).resolve()
@@ -483,6 +526,7 @@ def run_release_check(
     report = ReleaseCheckReport()
     report.results.append(_check_version_matches_tag(catalog, tag))
     report.results.append(_check_images_digest_pinned(catalog))
+    report.results.append(_check_images_match_deployment_sources(root, catalog))
     report.results.append(_check_actions_sha_pinned(root, catalog))
     report.results.append(_check_dockerfiles_pinned(root))
     report.results.append(_check_compatibility_matrix_up_to_date(root, catalog))

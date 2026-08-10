@@ -79,7 +79,8 @@ thin shell orchestrators over docker/cosign/syft/git, per
 - `distribution.version` isn't a valid alpha semver, or (when `--tag` is
   passed) the tag doesn't match it.
 - Any catalog image under `components.images` is missing an `@sha256:...`
-  digest.
+  digest, or (for images with a Helm deployment source) doesn't match the
+  digest actually referenced under `infra/helm/values`.
 - Any `.github/workflows/*.yml` `uses:` line isn't pinned to a 40-character
   commit SHA, or isn't recorded in `components.actions`.
 - Any `images/*/Dockerfile` has an unpinned `FROM`/`ARG *_IMAGE=` outside of

@@ -245,6 +245,51 @@ def test_check_images_digest_pinned_flags_missing_digest() -> None:
     assert "bad" in result.detail
 
 
+def test_check_images_match_deployment_sources_passes_on_real_repo_catalog() -> None:
+    catalog = release.load_catalog(ROOT / "release/component-catalog.yaml")
+    result = release._check_images_match_deployment_sources(ROOT, catalog)
+    assert result.ok, result.detail
+
+
+def test_check_images_match_deployment_sources_flags_a_stale_catalog_digest(tmp_path: Path) -> None:
+    """A Helm values file's digest changing without the matching catalog
+    update must be caught -- neither _check_images_digest_pinned (validates
+    only the catalog's own shape) nor check-components.sh's Helm-values loop
+    (validates only that some digest is present) compares the two.
+    """
+    values_dir = tmp_path / "infra/helm/values/local"
+    values_dir.mkdir(parents=True)
+    (values_dir / "trino.yaml").write_text('image:\n  tag: "480@sha256:' + "b" * 64 + '"\n')
+
+    catalog = {"components": {"images": {"trino": "trinodb/trino:480@sha256:" + "a" * 64}}}
+    result = release._check_images_match_deployment_sources(tmp_path, catalog)
+
+    assert not result.ok
+    assert "trino" in result.detail
+    assert "b" * 64 in result.detail
+
+
+def test_check_images_match_deployment_sources_ignores_build_only_images(tmp_path: Path) -> None:
+    """project_code_base/superset_base are Dockerfile-only build inputs with
+    no Helm values counterpart -- absence from infra/helm/values must not be
+    flagged as drift.
+    """
+    values_dir = tmp_path / "infra/helm/values/local"
+    values_dir.mkdir(parents=True)
+    (values_dir / "trino.yaml").write_text('image:\n  tag: "480@sha256:' + "a" * 64 + '"\n')
+
+    catalog = {
+        "components": {
+            "images": {
+                "trino": "trinodb/trino:480@sha256:" + "a" * 64,
+                "project_code_base": "python:3.12-slim@sha256:" + "c" * 64,
+            }
+        }
+    }
+    result = release._check_images_match_deployment_sources(tmp_path, catalog)
+    assert result.ok, result.detail
+
+
 def test_check_dockerfiles_pinned_passes_on_real_repo() -> None:
     result = release._check_dockerfiles_pinned(ROOT)
     assert result.ok, result.detail
