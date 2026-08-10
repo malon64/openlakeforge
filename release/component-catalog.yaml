@@ -16,26 +16,6 @@ components:
       hashicorp/kubernetes: 2.38.0
       hashicorp/random: 3.9.0
       hashicorp/tls: 4.3.0
-    lockfiles:
-      infra/terraform/environments/local/.terraform.lock.hcl:
-        hashicorp/helm: 3.1.1
-        hashicorp/kubernetes: 2.38.0
-        hashicorp/random: 3.9.0
-      infra/terraform/environments/azure-poc/.terraform.lock.hcl:
-        hashicorp/helm: 3.2.0
-        hashicorp/kubernetes: 2.38.0
-        hashicorp/random: 3.9.0
-      infra/terraform/environments/aws-poc/.terraform.lock.hcl:
-        hashicorp/aws: 5.100.0
-        hashicorp/helm: 3.2.0
-        hashicorp/kubernetes: 2.38.0
-        hashicorp/random: 3.9.0
-      infra/terraform/foundations/azure-aks/.terraform.lock.hcl:
-        hashicorp/azurerm: 4.77.0
-        hashicorp/random: 3.9.0
-      infra/terraform/foundations/aws-eks/.terraform.lock.hcl:
-        hashicorp/aws: 5.100.0
-        hashicorp/tls: 4.3.0
   helm:
     seaweedfs: 4.23.0
     polaris: 1.4.1
@@ -61,6 +41,15 @@ components:
     astral-sh/setup-uv: e58605a9b6da7c637471fab8847a5e5a6b8df081
     azure/setup-helm: bf6a7d304bc2fdb57e0331155b7ebf2c504acf0a
     hashicorp/setup-terraform: b9cd54a3c349d3f38e8881555d616ced269862dd
+    docker/setup-buildx-action: f7ce87c1d6bead3e36075b2ce75da1f6cc28aaca
+    docker/login-action: c94ce9fb468520275223c153574b00df6fe4bcc9
+    docker/build-push-action: 4f58ea79222b3b9dc2c8bbdd6debcef730109a75
+    sigstore/cosign-installer: 7e8b541eb2e61bf99390e1afd4be13a184e9ebc5
+    anchore/sbom-action: 9f7302141466aa6482940f15371237e9d9f4c34a
+    actions/attest-build-provenance: e8998f949152b193b063cb0ec769d69d929409be
+    actions/upload-artifact: ea165f8d65b6e75b540449e92b4886f43607fa02
+    actions/download-artifact: d3f86a106a0bac45b974a628896c90dbdf5c8093
+    softprops/action-gh-release: fe965f7af51af5f2602596916f38a38df2e33de0
 update_process:
   owner: release-engineering
   steps:

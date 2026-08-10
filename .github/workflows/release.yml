@@ -1,0 +1,380 @@
+name: Release
+
+# Publishes signed, SBOM'd, provenance-attested OpenLakeForge release bundles.
+#
+# Triggers:
+#   - push: tags: ['v*']            real release, driven by an immutable-semver tag
+#   - workflow_dispatch (dry_run)    rehearses the full pipeline without publishing;
+#                                     dry_run defaults to true so this can be run safely
+#                                     at any time to prove the pipeline works.
+#
+# See docs/release/releasing.md for the consumer verification commands and
+# docs/release/compatibility-matrix.md for the published compatibility matrix.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: >
+          Rehearse the release pipeline without pushing images, creating the
+          tag/Release, or signing/attesting anything (those require a real
+          pushed digest). Would-be assets are uploaded as workflow artifacts.
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+  packages: write
+  id-token: write
+  attestations: write
+
+env:
+  IMAGE_NAMESPACE: ghcr.io/${{ github.repository }}
+
+# A tag push and a non-dry manual dispatch can target the same immutable
+# release tag. They must not concurrently build and retag the versioned images:
+# the generated inputs can differ, leaving the mutable image tag and bundle
+# manifest from separate runs.
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Resolve release version and validate readiness
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      dry_run: ${{ steps.mode.outputs.dry_run }}
+      project_code_base_image: ${{ steps.images.outputs.project_code_base_image }}
+      superset_base_image: ${{ steps.images.outputs.superset_base_image }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@e58605a9b6da7c637471fab8847a5e5a6b8df081
+
+      - name: Determine dry-run mode
+        id: mode
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            dry_run="${{ inputs.dry_run }}"
+            # A real publish must originate from the tag ref it claims to be:
+            # keyless cosign derives the certificate identity from the running
+            # ref, and scripts/release/verify-install.sh only accepts
+            # identities ending in refs/tags/<tag>.
+            if [[ "${dry_run}" != "true" && "${{ github.ref_type }}" != "tag" ]]; then
+              echo "::error::Refusing to publish from ${{ github.ref }}." \
+                "A non-dry-run release must be triggered by pushing the release tag" \
+                "(or dispatched with the tag selected as the ref), otherwise the keyless" \
+                "cosign identity records refs/heads/... and signature verification fails." >&2
+              exit 1
+            fi
+            echo "dry_run=${dry_run}" >> "$GITHUB_OUTPUT"
+          else
+            echo "dry_run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Resolve version and tag from the component catalog
+        id: version
+        run: |
+          set -euo pipefail
+          catalog_version="$(uv run --project tools/olf --locked python -c "
+          import yaml
+          print(yaml.safe_load(open('release/component-catalog.yaml'))['distribution']['version'])
+          ")"
+          catalog_tag="v${catalog_version}"
+
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            tag="${GITHUB_REF_NAME}"
+          else
+            tag="${catalog_tag}"
+          fi
+
+          # A non-dry-run dispatch must run from the tag it will publish as:
+          # cosign's keyless identity is derived from the real running ref
+          # (GITHUB_REF_NAME), which every downstream step must match.
+          if [[ "${{ github.event_name }}" != "push" && "${{ steps.mode.outputs.dry_run }}" != "true" \
+                && "${GITHUB_REF_NAME}" != "${catalog_tag}" ]]; then
+            echo "::error::Selected ref '${GITHUB_REF_NAME}' does not match the catalog-derived release tag" \
+              "'${catalog_tag}'. A non-dry-run release must be dispatched from that exact tag." >&2
+            exit 1
+          fi
+
+          {
+            echo "tag=${tag}"
+            echo "version=${catalog_version}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Resolve pinned base images from the component catalog
+        id: images
+        run: |
+          set -euo pipefail
+          project_code_base_image="$(uv run --project tools/olf --locked python -c "
+          import yaml
+          print(yaml.safe_load(open('release/component-catalog.yaml'))['components']['images']['project_code_base'])
+          ")"
+          superset_base_image="$(uv run --project tools/olf --locked python -c "
+          import yaml
+          print(yaml.safe_load(open('release/component-catalog.yaml'))['components']['images']['superset_base'])
+          ")"
+          {
+            echo "project_code_base_image=${project_code_base_image}"
+            echo "superset_base_image=${superset_base_image}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Release-readiness gate (olf release check)
+        run: uv run --project tools/olf --locked olf release check --tag "${{ steps.version.outputs.tag }}"
+
+      - name: Verify the tag matches the catalog version
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "push" && "${{ steps.version.outputs.tag }}" != "${GITHUB_REF_NAME}" ]]; then
+            echo "Pushed tag ${GITHUB_REF_NAME} does not match catalog distribution.version" >&2
+            exit 1
+          fi
+
+      - name: Verify the release tag is create-only (immutable-semver)
+        if: steps.mode.outputs.dry_run == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="${{ steps.version.outputs.tag }}"
+          if gh release view "${tag}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "Release ${tag} already exists. Release tags are create-only" \
+                 "(immutable-semver per release/component-catalog.yaml); refusing to republish." >&2
+            exit 1
+          fi
+          echo "No existing Release for ${tag}; safe to publish."
+
+  build:
+    name: Build, sign, and attest ${{ matrix.image }}
+    needs: prepare
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: project-code
+            context: .
+            dockerfile: images/project-code/Dockerfile
+          - image: superset
+            context: images/superset
+            dockerfile: images/superset/Dockerfile
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@f7ce87c1d6bead3e36075b2ce75da1f6cc28aaca
+
+      - name: Log in to GHCR
+        if: needs.prepare.outputs.dry_run == 'false'
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install cosign
+        if: needs.prepare.outputs.dry_run == 'false'
+        uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5
+
+      - name: Build (dry run — load locally, do not push)
+        if: needs.prepare.outputs.dry_run == 'true'
+        id: build_dry_run
+        uses: docker/build-push-action@4f58ea79222b3b9dc2c8bbdd6debcef730109a75
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          build-args: |
+            PYTHON_BASE_IMAGE=${{ needs.prepare.outputs.project_code_base_image }}
+            SUPERSET_BASE_IMAGE=${{ needs.prepare.outputs.superset_base_image }}
+          load: true
+          push: false
+          tags: ${{ env.IMAGE_NAMESPACE }}/${{ matrix.image }}:${{ needs.prepare.outputs.version }}
+
+      - name: Resolve local (dry-run) image digest
+        if: needs.prepare.outputs.dry_run == 'true'
+        id: local_digest
+        run: |
+          set -euo pipefail
+          image_ref="${{ env.IMAGE_NAMESPACE }}/${{ matrix.image }}:${{ needs.prepare.outputs.version }}"
+          digest="$(docker image inspect --format='{{.Id}}' "${image_ref}")"
+          {
+            echo "image_ref=${image_ref}"
+            echo "digest=${digest}"
+            echo "manifest_reference=${{ env.IMAGE_NAMESPACE }}/${{ matrix.image }}@${digest} (local build id, not pushed — dry run)"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build and push by digest
+        if: needs.prepare.outputs.dry_run == 'false'
+        id: build_push
+        uses: docker/build-push-action@4f58ea79222b3b9dc2c8bbdd6debcef730109a75
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          build-args: |
+            PYTHON_BASE_IMAGE=${{ needs.prepare.outputs.project_code_base_image }}
+            SUPERSET_BASE_IMAGE=${{ needs.prepare.outputs.superset_base_image }}
+          outputs: type=image,name=${{ env.IMAGE_NAMESPACE }}/${{ matrix.image }},push-by-digest=true,name-canonical=true,push=true
+
+      - name: Tag the pushed digest with the release version
+        if: needs.prepare.outputs.dry_run == 'false'
+        id: pushed_digest
+        run: |
+          set -euo pipefail
+          image="${{ env.IMAGE_NAMESPACE }}/${{ matrix.image }}"
+          digest="${{ steps.build_push.outputs.digest }}"
+          docker buildx imagetools create -t "${image}:${{ needs.prepare.outputs.version }}" "${image}@${digest}"
+          {
+            echo "digest=${digest}"
+            echo "reference=${image}@${digest}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Generate SBOM (SPDX JSON)
+        uses: anchore/sbom-action@9f7302141466aa6482940f15371237e9d9f4c34a
+        with:
+          image: ${{ needs.prepare.outputs.dry_run == 'true' && steps.local_digest.outputs.image_ref || steps.pushed_digest.outputs.reference }}
+          format: spdx-json
+          output-file: ${{ matrix.image }}.spdx.json
+
+      - name: Sign the image digest (keyless OIDC)
+        if: needs.prepare.outputs.dry_run == 'false'
+        env:
+          COSIGN_EXPERIMENTAL: "1"
+        run: cosign sign --yes "${{ steps.pushed_digest.outputs.reference }}"
+
+      - name: Attach the SBOM as a cosign attestation
+        if: needs.prepare.outputs.dry_run == 'false'
+        env:
+          COSIGN_EXPERIMENTAL: "1"
+        run: |
+          cosign attest --yes --type spdxjson --predicate "${{ matrix.image }}.spdx.json" \
+            "${{ steps.pushed_digest.outputs.reference }}"
+
+      - name: Generate build provenance attestation
+        if: needs.prepare.outputs.dry_run == 'false'
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be
+        with:
+          subject-name: ${{ env.IMAGE_NAMESPACE }}/${{ matrix.image }}
+          subject-digest: ${{ steps.pushed_digest.outputs.digest }}
+          push-to-registry: true
+
+      - name: Collect release assets for this image
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cp "${{ matrix.image }}.spdx.json" "dist/${{ matrix.image }}.spdx.json"
+          reference="${{ needs.prepare.outputs.dry_run == 'true' && steps.local_digest.outputs.manifest_reference || steps.pushed_digest.outputs.reference }}"
+          printf '%s\n' "${reference}" > "dist/${{ matrix.image }}.digest.txt"
+
+      - name: Upload image release assets
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-assets-${{ matrix.image }}
+          path: dist
+          if-no-files-found: error
+
+  bundle:
+    name: Assemble and publish the release bundle
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@e58605a9b6da7c637471fab8847a5e5a6b8df081
+
+      - name: Download per-image release assets
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: release-assets-*
+          path: artifacts
+          merge-multiple: true
+
+      - name: Assemble the release bundle
+        id: assemble
+        run: |
+          set -euo pipefail
+          bundle_dir="dist/bundle"
+          mkdir -p "${bundle_dir}"
+
+          project_code_reference="$(cat artifacts/project-code.digest.txt)"
+          superset_reference="$(cat artifacts/superset.digest.txt)"
+          cp artifacts/project-code.spdx.json "${bundle_dir}/project-code.spdx.json"
+          cp artifacts/superset.spdx.json "${bundle_dir}/superset.spdx.json"
+
+          cp release/component-catalog.yaml "${bundle_dir}/component-catalog.yaml"
+
+          uv run --project tools/olf --locked olf release manifest \
+            --git-sha "${GITHUB_SHA}" \
+            --image "project-code=${project_code_reference}" \
+            --image "superset=${superset_reference}" \
+            --output "${bundle_dir}/component-manifest.json"
+
+          uv run --project tools/olf --locked olf release compatibility-matrix \
+            --output "${bundle_dir}/compatibility-matrix.md"
+
+          cp CHANGELOG.md "${bundle_dir}/CHANGELOG.md"
+
+          uv run --project tools/olf --locked olf release checksums --dir "${bundle_dir}"
+
+          echo "bundle_dir=${bundle_dir}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload dry-run bundle as a workflow artifact
+        if: needs.prepare.outputs.dry_run == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-dry-run-bundle-${{ needs.prepare.outputs.version }}
+          path: ${{ steps.assemble.outputs.bundle_dir }}
+          if-no-files-found: error
+
+      - name: Render release notes
+        if: needs.prepare.outputs.dry_run == 'false'
+        id: notes
+        run: |
+          set -euo pipefail
+          version="${{ needs.prepare.outputs.version }}"
+          notes_file="dist/release-notes.md"
+          {
+            echo "## OpenLakeForge ${version}"
+            echo
+            awk -v ver="## \\[${version}\\]" '
+              $0 ~ ver {found=1; next}
+              found && /^## \[/ {exit}
+              found {print}
+            ' CHANGELOG.md
+            echo
+            echo "### Verification"
+            echo
+            echo "See [docs/release/releasing.md](docs/release/releasing.md) for the full"
+            echo "consumer verification walkthrough (cosign signature verification,"
+            echo "checksum verification, and the clean-checkout install check)."
+          } > "${notes_file}"
+          echo "notes_file=${notes_file}" >> "$GITHUB_OUTPUT"
+
+      - name: Create the GitHub Release
+        if: needs.prepare.outputs.dry_run == 'false'
+        uses: softprops/action-gh-release@fe965f7af51af5f2602596916f38a38df2e33de0
+        with:
+          tag_name: ${{ needs.prepare.outputs.tag }}
+          name: OpenLakeForge ${{ needs.prepare.outputs.version }}
+          body_path: ${{ steps.notes.outputs.notes_file }}
+          prerelease: true
+          files: |
+            ${{ steps.assemble.outputs.bundle_dir }}/component-catalog.yaml
+            ${{ steps.assemble.outputs.bundle_dir }}/component-manifest.json
+            ${{ steps.assemble.outputs.bundle_dir }}/compatibility-matrix.md
+            ${{ steps.assemble.outputs.bundle_dir }}/CHANGELOG.md
+            ${{ steps.assemble.outputs.bundle_dir }}/project-code.spdx.json
+            ${{ steps.assemble.outputs.bundle_dir }}/superset.spdx.json
+            ${{ steps.assemble.outputs.bundle_dir }}/checksums.txt
