@@ -313,6 +313,7 @@ jobs:
           image: ${{ needs.prepare.outputs.dry_run == 'true' && steps.local_digest.outputs.image_ref || steps.pushed_digest.outputs.reference }}
           format: spdx-json
           output-file: ${{ matrix.image }}.spdx.json
+          upload-artifact: false
 
       - name: Sign the image digest (keyless OIDC)
         if: needs.prepare.outputs.dry_run == 'false'

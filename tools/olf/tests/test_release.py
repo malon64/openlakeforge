@@ -700,3 +700,22 @@ def test_compatibility_matrix_doc_missing_is_flagged(tmp_path: Path) -> None:
     result = release._check_compatibility_matrix_up_to_date(tmp_path, catalog)
     assert not result.ok
     assert "does not exist" in result.detail
+
+
+def test_release_workflow_disables_redundant_matrix_sbom_uploads() -> None:
+    workflow = yaml.safe_load((ROOT / ".github/workflows/release.yml").read_text())
+    sbom_step = next(
+        step
+        for step in workflow["jobs"]["build"]["steps"]
+        if str(step.get("uses", "")).startswith("anchore/sbom-action@")
+    )
+
+    assert sbom_step["with"]["upload-artifact"] is False
+
+
+def test_verify_install_uses_uv_managed_python_only() -> None:
+    verifier = (ROOT / "scripts/release/verify-install.sh").read_text()
+
+    assert "python3" not in verifier
+    assert 'uv run --project "${REPO_ROOT}/tools/olf" --locked python "$@"' in verifier
+    assert verifier.count("run_python -c") == 5

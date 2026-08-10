@@ -107,7 +107,7 @@ check_compiled_lock() {
   rm -f "${tmp_lock}"
 }
 
-while IFS=$'\t' read -r lock_name lock_path; do
+while IFS=$'\t' read -r _ lock_path; do
   case "$(basename "${lock_path}")" in
     uv.lock)
       check_uv_lock "${lock_path}"

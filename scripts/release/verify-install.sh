@@ -32,6 +32,10 @@ REPO_SLUG="${OPENLAKEFORGE_REPO_SLUG:-malon64/openlakeforge}"
 WORK_DIR="${OPENLAKEFORGE_VERIFY_WORKDIR:-$(mktemp -d /tmp/openlakeforge-verify.XXXXXX)}"
 PULL_IMAGES="false"
 
+run_python() {
+  uv run --project "${REPO_ROOT}/tools/olf" --locked python "$@"
+}
+
 for arg in "$@"; do
   case "${arg}" in
     --pull-images)
@@ -48,10 +52,10 @@ for arg in "$@"; do
 done
 
 if [[ -z "${TAG:-}" ]]; then
-  TAG="v$(cd "${REPO_ROOT}" && uv run --project tools/olf --locked python -c "
-import yaml
-print(yaml.safe_load(open('release/component-catalog.yaml'))['distribution']['version'])
-")"
+  TAG="v$(run_python -c "
+import sys, yaml
+print(yaml.safe_load(open(sys.argv[1]))['distribution']['version'])
+" "${REPO_ROOT}/release/component-catalog.yaml")"
 fi
 
 echo "==> Verifying OpenLakeForge release ${TAG} (repo ${REPO_SLUG})"
@@ -102,7 +106,7 @@ elif command -v curl &>/dev/null; then
     [[ -z "${asset_name}" ]] && continue
     echo "    Downloading ${asset_name}..."
     curl -fsSL -o "${asset_name}" "${asset_url}"
-  done < <(python3 -c "
+  done < <(run_python -c "
 import json, sys
 data = json.loads(sys.argv[1])
 for asset in data.get('assets', []):
@@ -151,7 +155,7 @@ if [[ ! -f "${manifest_json}" ]]; then
 fi
 
 for image in project-code superset; do
-  reference="$(python3 -c "
+  reference="$(run_python -c "
 import json
 with open('${manifest_json}') as f:
     manifest = json.load(f)
@@ -176,7 +180,7 @@ git clone --depth 1 --branch "${TAG}" "https://github.com/${REPO_SLUG}.git" "${c
 # no longer corresponds to the commit the downloaded assets/images were built
 # from. Tie the checkout to the release it claims to verify.
 cloned_sha="$(git -C "${clone_dir}" rev-parse HEAD)"
-manifest_sha="$(python3 -c "
+manifest_sha="$(run_python -c "
 import json
 with open('${manifest_json}') as f:
     manifest = json.load(f)
@@ -206,7 +210,7 @@ if [[ "${PULL_IMAGES}" == "true" ]]; then
     exit 1
   fi
   for image in project-code superset; do
-    reference="$(python3 -c "
+    reference="$(run_python -c "
 import json
 with open('${manifest_json}') as f:
     manifest = json.load(f)
