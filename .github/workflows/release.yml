@@ -358,6 +358,11 @@ jobs:
           set -euo pipefail
           version="${{ needs.prepare.outputs.version }}"
           notes_file="dist/release-notes.md"
+          if ! grep -qF "## [${version}]" CHANGELOG.md; then
+            echo "::error::CHANGELOG.md has no '## [${version}]' section -- add one with" \
+                 "migration notes before tagging a release." >&2
+            exit 1
+          fi
           {
             echo "## OpenLakeForge ${version}"
             echo
