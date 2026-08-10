@@ -16,14 +16,6 @@ components:
       hashicorp/kubernetes: 2.38.0
       hashicorp/random: 3.9.0
       hashicorp/tls: 4.3.0
-  helm:
-    seaweedfs: 4.23.0
-    polaris: 1.4.1
-    trino: 1.42.2
-    dagster: 1.13.6
-    openmetadata: 1.12.10
-    openmetadata-dependencies: 1.12.10
-    superset: 0.15.5
   python:
     project_code_lock: images/project-code/requirements.lock
     tooling_lock: tools/olf/uv.lock

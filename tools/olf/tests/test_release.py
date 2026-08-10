@@ -17,7 +17,6 @@ def _write_catalog(tmp_path: Path, **overrides) -> Path:
         "distribution": {"version": "0.1.0-alpha.1", "release_tag_policy": "immutable-semver"},
         "components": {
             "terraform": {"required_version": ">= 1.6.0", "providers": {"hashicorp/aws": "5.100.0"}},
-            "helm": {"trino": "1.42.2"},
             "python": {
                 "project_code_lock": "images/project-code/requirements.lock",
                 "tooling_lock": "tools/olf/uv.lock",
@@ -115,9 +114,28 @@ def test_render_compatibility_matrix_includes_catalog_values(tmp_path: Path) -> 
     rendered = release.render_compatibility_matrix(catalog, tmp_path)
     assert "hashicorp/aws" in rendered
     assert "5.100.0" in rendered
-    assert "trino" in rendered
-    assert "1.42.2" in rendered
     assert "python_project_code_base" not in rendered  # sanity: no stray key names leak in
+
+
+def test_render_compatibility_matrix_helm_charts_read_from_terraform_modules_not_catalog(
+    tmp_path: Path,
+) -> None:
+    """The Helm charts table has no catalog counterpart to keep in sync -- it
+    is read directly from each Terraform module's own `chart_version`
+    variable default.
+    """
+    catalog = release.load_catalog(_write_catalog(tmp_path))
+    module_dir = tmp_path / "infra/terraform/modules/query/trino"
+    module_dir.mkdir(parents=True)
+    (module_dir / "variables.tf").write_text(
+        'variable "namespace" {\n  type = string\n}\n\n'
+        'variable "chart_version" {\n  type    = string\n  default = "1.42.2"\n}\n'
+    )
+
+    rendered = release.render_compatibility_matrix(catalog, tmp_path)
+
+    assert "## Helm charts" in rendered
+    assert "| trino | 1.42.2 |" in rendered
 
 
 def test_render_compatibility_matrix_omits_per_root_table_with_no_lockfiles(tmp_path: Path) -> None:
@@ -176,6 +194,24 @@ def test_terraform_lock_provider_versions_parses_real_local_lockfile() -> None:
     )
     assert versions["hashicorp/helm"] == "3.1.1"
     assert versions["hashicorp/kubernetes"] == "2.38.0"
+
+
+def test_helm_chart_versions_from_terraform_modules_matches_real_repo() -> None:
+    versions = release._helm_chart_versions_from_terraform_modules(ROOT)
+    assert versions["trino"] == "1.42.2"
+    assert versions["seaweedfs"] == "4.23.0"
+    # The paired dependencies chart, from deps_chart_version in the same module.
+    assert versions["openmetadata"] == "1.12.10"
+    assert versions["openmetadata-dependencies"] == "1.12.10"
+
+
+def test_helm_chart_versions_from_terraform_modules_ignores_variables_without_defaults(
+    tmp_path: Path,
+) -> None:
+    module_dir = tmp_path / "infra/terraform/modules/query/trino"
+    module_dir.mkdir(parents=True)
+    (module_dir / "variables.tf").write_text('variable "chart_version" {\n  type = string\n}\n')
+    assert release._helm_chart_versions_from_terraform_modules(tmp_path) == {}
 
 
 def test_run_release_check_passes_on_real_repo_catalog() -> None:

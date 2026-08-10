@@ -194,7 +194,9 @@ def render_compatibility_matrix(catalog: dict[str, Any], repo_root: str | Path =
     Every table is sourced from the catalog except "Terraform providers by
     root", which is read directly from each `.terraform.lock.hcl` under
     `infra/terraform` -- the exact version a consumer of that root actually
-    gets, with no intermediate copy to fall out of sync.
+    gets, with no intermediate copy to fall out of sync. Likewise "Helm
+    charts" is read from each Terraform module's own `chart_version`
+    variable default, not a cataloged copy.
 
     Always includes COMPATIBILITY_MATRIX_HEADER so the checked-in docs copy
     and _check_compatibility_matrix_up_to_date's comparison stay identical by
@@ -205,7 +207,6 @@ def render_compatibility_matrix(catalog: dict[str, Any], repo_root: str | Path =
     distribution = catalog.get("distribution") or {}
     version = distribution.get("version", "unknown")
     terraform = components.get("terraform") or {}
-    helm = components.get("helm") or {}
     images = components.get("images") or {}
 
     lines: list[str] = []
@@ -265,7 +266,7 @@ def render_compatibility_matrix(catalog: dict[str, Any], repo_root: str | Path =
     lines.append("")
     lines.append("| Chart | Version |")
     lines.append("| --- | --- |")
-    for chart, chart_version in sorted(helm.items()):
+    for chart, chart_version in sorted(_helm_chart_versions_from_terraform_modules(root).items()):
         lines.append(f"| {chart} | {chart_version} |")
     lines.append("")
 
@@ -430,6 +431,34 @@ def _terraform_lock_provider_versions(lock_path: Path) -> dict[str, str]:
         if version is not None:
             provider = block.group("provider").removeprefix("registry.terraform.io/")
             versions[provider] = version.group("version")
+    return versions
+
+
+def _helm_chart_versions_from_terraform_modules(repo_root: Path) -> dict[str, str]:
+    """Read Helm chart name -> version from each Terraform module's own
+    `chart_version` variable default under infra/terraform/modules, keyed by
+    the module directory name (e.g. .../query/trino -> "trino"). A module
+    with a `deps_chart_version` variable (governance/openmetadata's paired
+    dependencies chart) also contributes "<module>-dependencies".
+    """
+    variable_blocks = re.compile(r'variable\s+"(?P<name>[^"]+)"\s*\{(?P<body>.*?)^\}', re.MULTILINE | re.DOTALL)
+    default_value = re.compile(r'^\s*default\s*=\s*"(?P<default>[^"]+)"\s*$', re.MULTILINE)
+
+    versions: dict[str, str] = {}
+    modules_root = repo_root / "infra" / "terraform" / "modules"
+    if not modules_root.is_dir():
+        return versions
+    for variables_file in sorted(modules_root.rglob("variables.tf")):
+        module_name = variables_file.parent.name
+        text = variables_file.read_text()
+        for block in variable_blocks.finditer(text):
+            if block.group("name") not in ("chart_version", "deps_chart_version"):
+                continue
+            default = default_value.search(block.group("body"))
+            if default is None:
+                continue
+            key = module_name if block.group("name") == "chart_version" else f"{module_name}-dependencies"
+            versions[key] = default.group("default")
     return versions
 
 

@@ -1,7 +1,7 @@
 # Component catalog
 
 `release/component-catalog.yaml` is the release input inventory. It records the
-distribution version, Terraform providers, Helm charts, Python lockfiles,
+distribution version, tracked Terraform providers, Python lockfiles,
 container digests, and GitHub Action commits used by a release.
 
 Release tags are create-only semantic-version tags. Development tags may move,
@@ -22,6 +22,9 @@ if any workflow action isn't SHA-pinned and recorded under
 sync with its `pyproject.toml`, checked with `uv` directly rather than a
 duplicate implementation here).
 
-The compatibility matrix's per-root Terraform provider table is read directly
-from each `.terraform.lock.hcl` under `infra/terraform` at render time, not
-from the catalog — there is nothing to keep in sync.
+The compatibility matrix's per-root Terraform provider table and Helm charts
+table are both read directly from their real source at render time — the
+former from each `.terraform.lock.hcl` under `infra/terraform`, the latter
+from each Terraform module's own `chart_version` variable default under
+`infra/terraform/modules` — rather than from a cataloged copy, so neither can
+drift from what actually gets deployed.
