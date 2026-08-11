@@ -110,6 +110,17 @@ def bundle_identity(report_source_dir: str) -> ReportBundle:
     return ReportBundle(root=root, name=f"{root}.zip")
 
 
+REPORT_YAML_SUFFIXES = {".yaml", ".yml"}
+
+
+def discover_dashboard_files(report_dir: Path) -> list[Path]:
+    """List a report bundle's dashboard export files, matching what packaging accepts."""
+    dashboards_dir = report_dir / "dashboards"
+    return sorted(
+        path for path in dashboards_dir.glob("*") if path.is_file() and path.suffix.lower() in REPORT_YAML_SUFFIXES
+    )
+
+
 def build_report_bundle(source_dir: Path, bundle_path: Path, bundle_root: str, sqlalchemy_uri: str) -> None:
     """Zip the report YAML, rewriting the database sqlalchemy_uri in place."""
     with ZipFile(bundle_path, "w", ZIP_DEFLATED) as bundle:

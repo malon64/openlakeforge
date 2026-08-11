@@ -23,7 +23,7 @@ import requests
 import yaml
 from botocore.config import Config
 
-from olf import contracts, k8s, log
+from olf import contracts, k8s, log, superset
 from olf.inventory import DomainInventory, inventory_for
 
 Environment = Literal["local", "azure", "aws"]
@@ -842,17 +842,20 @@ def discovered_dashboards(cfg: E2EConfig) -> dict[str, str]:
     A product's descriptor cannot say what its dashboard is titled or slugged
     as, or how many it exports — that identity lives only in the
     source-controlled Superset export YAML under
-    ``<report_source_dir>/dashboards/*.yaml``, which is what actually gets
+    ``<report_source_dir>/dashboards/*.yaml`` (or ``.yml``, both of which
+    ``superset.build_report_bundle`` packages), which is what actually gets
     imported. Reading it here (rather than inventing slug/title from
     asset_prefix/displayName) is what lets a product export a differently
     named or multiple dashboards without failing this check.
     """
     expected: dict[str, str] = {}
     for product in cfg.inventory.products:
-        dashboards_dir = cfg.repo_root / product.report_source_dir / "dashboards"
-        dashboard_files = sorted(dashboards_dir.glob("*.yaml"))
+        report_dir = cfg.repo_root / product.report_source_dir
+        dashboard_files = superset.discover_dashboard_files(report_dir)
         if not dashboard_files:
-            raise E2EError(f"{dashboards_dir}: product {product.asset_prefix!r} exports no Superset dashboards")
+            raise E2EError(
+                f"{report_dir / 'dashboards'}: product {product.asset_prefix!r} exports no Superset dashboards"
+            )
         for dashboard_file in dashboard_files:
             document = yaml.safe_load(dashboard_file.read_text())
             slug = document.get("slug") if isinstance(document, Mapping) else None
