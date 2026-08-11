@@ -7,6 +7,7 @@ import re
 import sys
 from collections.abc import Mapping
 from dataclasses import dataclass
+from functools import cache
 from pathlib import Path
 from typing import Any
 
@@ -87,6 +88,14 @@ class Product:
             floe_report_prefix=f"floe/reports/{self.domain_name}/{self.id}/",
             dbt_artifact_prefix=f"run-artifacts/dbt/{self.domain_name}/{self.id}/",
         )
+
+    @property
+    def superset_export_bundle_name(self) -> str:
+        return f"{self.name}_superset_assets_export.zip"
+
+    @property
+    def gold_mart_names(self) -> tuple[str, ...]:
+        return tuple(f"{self.gold_namespace}.{table.name}" for table in self.gold_tables)
 
 
 @dataclass(frozen=True)
@@ -191,6 +200,38 @@ class DomainInventory:
     @property
     def artifact_prefixes(self) -> tuple[ArtifactPrefixes, ...]:
         return tuple(product.artifact_prefixes for product in self.products)
+
+    @property
+    def domain_names(self) -> tuple[str, ...]:
+        return tuple(domain.name for domain in self.domains)
+
+    @property
+    def silver_table_count(self) -> int:
+        return sum(len(product.silver_tables) for product in self.products)
+
+    @property
+    def gold_table_count(self) -> int:
+        return sum(len(product.gold_tables) for product in self.products)
+
+    @property
+    def gold_mart_names(self) -> tuple[str, ...]:
+        return tuple(mart for product in self.products for mart in product.gold_mart_names)
+
+    @property
+    def manifest_keys(self) -> tuple[str, ...]:
+        return tuple(product.artifact_prefixes.manifest_key for product in self.products)
+
+    @property
+    def openmetadata_data_products(self) -> dict[str, tuple[str, str]]:
+        return {product.name: product.openmetadata_data_product_fqns for product in self.products}
+
+    @property
+    def silver_namespace_names(self) -> frozenset[str]:
+        return frozenset(product.silver_namespace for product in self.products)
+
+    @property
+    def gold_namespace_names(self) -> frozenset[str]:
+        return frozenset(product.gold_namespace for product in self.products)
 
     def resolve_physical_names(
         self,
@@ -402,6 +443,20 @@ def load_domain_inventory(path: str | Path) -> DomainInventory:
     _validate_inventory_identities(inventory.domains)
     _ = inventory.default_product
     return inventory
+
+
+@cache
+def _cached_domain_inventory(resolved_path: str) -> DomainInventory:
+    return load_domain_inventory(resolved_path)
+
+
+def inventory_for(repo_root: str | Path) -> DomainInventory:
+    """Load and cache the domain inventory for a repository root.
+
+    Every consumer within one process (e2e, contracts, the CLI) resolves the
+    same descriptors, so this avoids re-parsing and re-validating YAML per call.
+    """
+    return _cached_domain_inventory(str(Path(repo_root).resolve()))
 
 
 def external_result(repo_root: str | Path) -> dict[str, str]:

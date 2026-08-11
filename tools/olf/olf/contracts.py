@@ -23,40 +23,16 @@ import json
 import shlex
 import subprocess
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Any
+
+from olf.inventory import inventory_for
 
 PROVIDER_CONTRACT_SCHEMA_VERSION = "1.0.0"
 
 
 class ProviderContractError(ValueError):
     """Raised when Terraform returns an unsupported provider contract version."""
-
-
-# Kept as literal compact-JSON strings for byte parity with the previous bash
-# defaults.
-_DEFAULT_CATALOG_NAMESPACES_JSON = (
-    '[{"name":"sales_order_revenue_silver","location":"s3://lakehouse-silver/'
-    'sales_order_revenue_silver/"},{"name":"sales_order_revenue_gold","location":'
-    '"s3://lakehouse-gold/sales_order_revenue_gold/"},{"name":"sales_customer_health_silver",'
-    '"location":"s3://lakehouse-silver/sales_customer_health_silver/"},'
-    '{"name":"sales_customer_health_gold","location":"s3://lakehouse-gold/'
-    'sales_customer_health_gold/"},{"name":"supply_chain_inventory_reliability_silver",'
-    '"location":"s3://lakehouse-silver/supply_chain_inventory_reliability_silver/"},'
-    '{"name":"supply_chain_inventory_reliability_gold","location":"s3://lakehouse-gold/'
-    'supply_chain_inventory_reliability_gold/"}]'
-)
-_DEFAULT_CATALOG_SILVER_NAMESPACES_JSON = (
-    '{"sales_order_revenue":"sales_order_revenue_silver",'
-    '"sales_customer_health":"sales_customer_health_silver",'
-    '"supply_chain_inventory_reliability":"supply_chain_inventory_reliability_silver"}'
-)
-_DEFAULT_CATALOG_GOLD_NAMESPACES_JSON = (
-    '{"sales_order_revenue":"sales_order_revenue_gold",'
-    '"sales_customer_health":"sales_customer_health_gold",'
-    '"supply_chain_inventory_reliability":"supply_chain_inventory_reliability_gold"}'
-)
-
-_PRODUCTS = ("sales_order_revenue", "sales_customer_health", "supply_chain_inventory_reliability")
 
 
 def load_provider_contracts(terraform_dir: str) -> dict[str, Any] | None:
@@ -129,7 +105,27 @@ def _contract_value(value: Any) -> str:
     return str(value)
 
 
-def _apply_default_contract_env(env: _Env, base: Mapping[str, str]) -> None:
+def _default_catalog_namespace_json(env: _Env, repo_root: Path) -> tuple[str, str, str]:
+    """Render the three namespace JSON defaults from the domain inventory.
+
+    Returns (catalog_namespaces_json, silver_namespaces_json, gold_namespaces_json).
+    """
+    physical = inventory_for(repo_root).resolve_physical_names(
+        catalog_database_fqn="",
+        silver_bucket=env.get("OPENLAKEFORGE_STORAGE_SILVER_BUCKET"),
+        gold_bucket=env.get("OPENLAKEFORGE_STORAGE_GOLD_BUCKET"),
+        manifest_base_uri="",
+    )
+    catalog_namespaces_json = json.dumps(
+        [{"name": namespace.name, "location": namespace.location} for namespace in physical.catalog_namespaces],
+        separators=(",", ":"),
+    )
+    silver_namespaces_json = json.dumps(physical.silver_namespaces, separators=(",", ":"))
+    gold_namespaces_json = json.dumps(physical.gold_namespaces, separators=(",", ":"))
+    return catalog_namespaces_json, silver_namespaces_json, gold_namespaces_json
+
+
+def _apply_default_contract_env(env: _Env, base: Mapping[str, str], repo_root: Path) -> None:
     env.default("OPENLAKEFORGE_STORAGE_LOGICAL_NAME", "lakehouse_storage")
     env.default("OPENLAKEFORGE_STORAGE_PROVIDER", "local")
     env.default("OPENLAKEFORGE_STORAGE_IMPLEMENTATION", "storage.s3_compatible.seaweedfs")
@@ -166,9 +162,12 @@ def _apply_default_contract_env(env: _Env, base: Mapping[str, str]) -> None:
     env.default("OPENLAKEFORGE_CATALOG_GLUE_DATABASE", "")
     env.default("OPENLAKEFORGE_CATALOG_GLUE_WAREHOUSE_PREFIX", "warehouse/iceberg")
     env.default("OPENLAKEFORGE_CATALOG_NAMESPACE_MODEL", "product-layer")
-    env.default("OPENLAKEFORGE_CATALOG_NAMESPACES_JSON", _DEFAULT_CATALOG_NAMESPACES_JSON)
-    env.default("OPENLAKEFORGE_CATALOG_SILVER_NAMESPACES_JSON", _DEFAULT_CATALOG_SILVER_NAMESPACES_JSON)
-    env.default("OPENLAKEFORGE_CATALOG_GOLD_NAMESPACES_JSON", _DEFAULT_CATALOG_GOLD_NAMESPACES_JSON)
+    default_catalog_namespaces_json, default_silver_namespaces_json, default_gold_namespaces_json = (
+        _default_catalog_namespace_json(env, repo_root)
+    )
+    env.default("OPENLAKEFORGE_CATALOG_NAMESPACES_JSON", default_catalog_namespaces_json)
+    env.default("OPENLAKEFORGE_CATALOG_SILVER_NAMESPACES_JSON", default_silver_namespaces_json)
+    env.default("OPENLAKEFORGE_CATALOG_GOLD_NAMESPACES_JSON", default_gold_namespaces_json)
     env.default("OPENLAKEFORGE_CATALOG_SILVER_NAMESPACE", "")
     env.default("OPENLAKEFORGE_CATALOG_GOLD_NAMESPACE", "")
     env.default("OPENLAKEFORGE_CATALOG_FLOE_CREDENTIALS_SECRET_NAME", "polaris-floe-creds")
@@ -351,7 +350,9 @@ def _apply_provider_contracts(env: _Env, contracts: dict[str, Any]) -> None:
             emit("OPENLAKEFORGE_QUERY_TRINO_PORT", port)
 
 
-def build_contract_env(base: Mapping[str, str], contracts: dict[str, Any] | None) -> tuple[dict[str, str], list[str]]:
+def build_contract_env(
+    base: Mapping[str, str], contracts: dict[str, Any] | None, *, repo_root: Path
+) -> tuple[dict[str, str], list[str]]:
     """Compute the runtime contract environment.
 
     Returns (exports, unsets): the variables to export (insertion-ordered)
@@ -365,7 +366,7 @@ def build_contract_env(base: Mapping[str, str], contracts: dict[str, Any] | None
     aws_default_region_user_set = "AWS_DEFAULT_REGION" in base
 
     env = _Env(base)
-    _apply_default_contract_env(env, base)
+    _apply_default_contract_env(env, base, repo_root)
     if contracts is not None:
         schema_version = contracts.get("schema_version")
         if schema_version != PROVIDER_CONTRACT_SCHEMA_VERSION:
@@ -374,7 +375,7 @@ def build_contract_env(base: Mapping[str, str], contracts: dict[str, Any] | None
                 f"expected {PROVIDER_CONTRACT_SCHEMA_VERSION!r}"
             )
         _apply_provider_contracts(env, contracts)
-        _apply_default_contract_env(env, base)
+        _apply_default_contract_env(env, base, repo_root)
 
     if env.get("OPENLAKEFORGE_STORAGE_IMPLEMENTATION") == "storage.aws_s3":
         env.set("OPENLAKEFORGE_STORAGE_ENDPOINT", "")
@@ -408,14 +409,14 @@ def build_contract_env(base: Mapping[str, str], contracts: dict[str, Any] | None
     catalog_om_service_name = "aws_glue" if is_glue else "polaris"
     catalog_name = env.get("OPENLAKEFORGE_CATALOG_NAME")
     database_fqn = f"{catalog_om_service_name}.{catalog_name}"
-    default_silver_fqns = json.dumps(
-        {product: f"{database_fqn}.{product}_silver" for product in _PRODUCTS},
-        separators=(",", ":"),
+    schema_fqn_physical = inventory_for(repo_root).resolve_physical_names(
+        catalog_database_fqn=database_fqn,
+        silver_bucket=env.get("OPENLAKEFORGE_STORAGE_SILVER_BUCKET"),
+        gold_bucket=env.get("OPENLAKEFORGE_STORAGE_GOLD_BUCKET"),
+        manifest_base_uri=env.get("OPENLAKEFORGE_FLOE_MANIFEST_BASE_URI"),
     )
-    default_gold_fqns = json.dumps(
-        {product: f"{database_fqn}.{product}_gold" for product in _PRODUCTS},
-        separators=(",", ":"),
-    )
+    default_silver_fqns = json.dumps(schema_fqn_physical.silver_schema_fqns, separators=(",", ":"))
+    default_gold_fqns = json.dumps(schema_fqn_physical.gold_schema_fqns, separators=(",", ":"))
     if env.get("OPENLAKEFORGE_CATALOG_DATABASE_FQN") == "":
         env.set("OPENLAKEFORGE_CATALOG_DATABASE_FQN", database_fqn)
     if env.get("OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON") == "":

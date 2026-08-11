@@ -19,12 +19,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from olf.descriptors import load_domain_descriptor
-
-_SEED_PRODUCT_KEYS = (
-    "sales_order_revenue",
-    "sales_customer_health",
-    "supply_chain_inventory_reliability",
-)
+from olf.inventory import inventory_for
 
 
 class OpenMetadataError(RuntimeError):
@@ -89,12 +84,12 @@ class OpenMetadataConfig:
             catalog_silver_schema_fqns=(
                 _parse_json_env("OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON", silver_schema_fqns_raw)
                 if silver_schema_fqns_raw
-                else _default_schema_fqns(catalog_database_fqn, "silver")
+                else _default_schema_fqns(metadata_root, catalog_database_fqn, "silver")
             ),
             catalog_gold_schema_fqns=(
                 _parse_json_env("OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON", gold_schema_fqns_raw)
                 if gold_schema_fqns_raw
-                else _default_schema_fqns(catalog_database_fqn, "gold")
+                else _default_schema_fqns(metadata_root, catalog_database_fqn, "gold")
             ),
             storage_service=environ.get("OPENLAKEFORGE_STORAGE_OM_SERVICE", "seaweedfs"),
             storage_display_name=environ.get("OPENLAKEFORGE_STORAGE_DISPLAY_NAME", "SeaweedFS S3"),
@@ -119,9 +114,19 @@ def _parse_json_env(name: str, raw: str) -> dict:
     return value
 
 
-def _default_schema_fqns(catalog_database_fqn: str, layer: str) -> dict[str, str]:
-    """Return the seed-product contract used by direct local CLI execution."""
-    return {product: f"{catalog_database_fqn}.{product}_{layer}" for product in _SEED_PRODUCT_KEYS}
+def _default_schema_fqns(metadata_root: str, catalog_database_fqn: str, layer: str) -> dict[str, str]:
+    """Derive the default schema FQN contract from the domain inventory.
+
+    Used for direct local CLI execution, where the contract environment has
+    not resolved OPENLAKEFORGE_CATALOG_{SILVER,GOLD}_SCHEMA_FQNS_JSON.
+    """
+    physical = inventory_for(metadata_root).resolve_physical_names(
+        catalog_database_fqn=catalog_database_fqn,
+        silver_bucket="",
+        gold_bucket="",
+        manifest_base_uri="",
+    )
+    return physical.silver_schema_fqns if layer == "silver" else physical.gold_schema_fqns
 
 
 @dataclass

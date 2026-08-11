@@ -79,7 +79,7 @@ def contracts_env(
     yet. Intended for `eval` from scripts/contracts/load-runtime-env.sh.
     """
     provider_contracts = contracts_module.load_provider_contracts(terraform_dir)
-    exports, unsets = contracts_module.build_contract_env(os.environ, provider_contracts)
+    exports, unsets = contracts_module.build_contract_env(os.environ, provider_contracts, repo_root=_repo_root())
     output = contracts_module.render_shell_exports(exports, unsets)
     if output:
         typer.echo(output)
@@ -284,19 +284,20 @@ def superset_export_reports() -> None:
     """Export a live Superset dashboard back into a source-controlled bundle."""
     from olf import superset
 
+    repo_root = _repo_root()
+    default_product = inventory_module.inventory_for(repo_root).default_product
+
     superset.export_report(
-        _repo_root(),
+        repo_root,
         config.namespace(),
-        report_source_dir=config.env(
-            "SUPERSET_REPORT_SOURCE_DIR", "domains/sales/reports/superset/order_revenue"
-        ),
+        report_source_dir=config.env("SUPERSET_REPORT_SOURCE_DIR", default_product.report_source_dir),
         bundle_name=config.env(
-            "SUPERSET_REPORT_EXPORT_BUNDLE_NAME", "sales_order_revenue_superset_assets_export.zip"
+            "SUPERSET_REPORT_EXPORT_BUNDLE_NAME", default_product.superset_export_bundle_name
         ),
         work_dir=Path(config.env("SUPERSET_REPORT_WORK_DIR", ".tmp/superset-reports")),
         reports_mount_path=config.env("SUPERSET_REPORTS_MOUNT_PATH", superset.REPORTS_MOUNT_PATH_DEFAULT),
         admin_username=config.env("SUPERSET_ADMIN_USERNAME", "admin"),
-        dashboard_title=config.env("SUPERSET_DASHBOARD_TITLE", "Sales Order Revenue"),
+        dashboard_title=config.env("SUPERSET_DASHBOARD_TITLE", default_product.display_name),
     )
 
 

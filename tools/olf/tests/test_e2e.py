@@ -5,6 +5,58 @@ from typing import Any
 import pytest
 
 from olf import e2e
+from olf.inventory import inventory_for, load_domain_inventory
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
+INVENTORY = inventory_for(REPO_ROOT)
+
+
+def _write_two_product_fixture(root: Path) -> None:
+    """A minimal two-product, single-domain descriptor for isolation tests."""
+    path = root / "domains" / "widgets" / "domain.yaml"
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        """\
+apiVersion: openlakeforge.io/v1alpha1
+kind: Domain
+name: widgets
+displayName: Widgets
+description: Widgets domain fixture.
+status: planned
+data_products:
+  - id: alpha
+    name: widgets_alpha
+    displayName: Widgets Alpha
+    description: Alpha product.
+    status: planned
+    asset_prefix: widgets_alpha
+    bronze:
+      - name: source
+        path: s3://lakehouse-bronze/widgets/alpha/source
+    silver_tables:
+      tables:
+        - name: source
+    gold_tables:
+      tables:
+        - name: mart_alpha_summary
+  - id: beta
+    name: widgets_beta
+    displayName: Widgets Beta
+    description: Beta product.
+    status: planned
+    asset_prefix: widgets_beta
+    bronze:
+      - name: source
+        path: s3://lakehouse-bronze/widgets/beta/source
+    silver_tables:
+      tables:
+        - name: source
+    gold_tables:
+      tables:
+        - name: mart_beta_summary
+""",
+        encoding="utf-8",
+    )
 
 
 def cfg(tmp_path: Path, env: e2e.Environment = "local", suite: e2e.Suite = "full") -> e2e.E2EConfig:
@@ -16,6 +68,7 @@ def cfg(tmp_path: Path, env: e2e.Environment = "local", suite: e2e.Suite = "full
         repo_root=tmp_path,
         foundation_terraform_dir=tmp_path / "foundation",
         contract_terraform_dir=tmp_path / "contract",
+        inventory=INVENTORY,
         aws_region="eu-west-1" if env == "aws" else None,
     )
 
@@ -64,7 +117,8 @@ def test_classify_pod_health_warns_for_unrelated_failed_job() -> None:
                     "status": {"phase": "Failed"},
                 }
             ]
-        }
+        },
+        suite_jobs=INVENTORY.job_names,
     )
     assert bad == []
     assert "unrelated Job om-job-pod" in warned[0]
@@ -82,7 +136,8 @@ def test_classify_pod_health_blocks_suite_owned_job() -> None:
                     "status": {"phase": "Failed"},
                 }
             ]
-        }
+        },
+        suite_jobs=INVENTORY.job_names,
     )
     assert warned == []
     assert bad == ["run-pod: Failed"]
@@ -104,7 +159,8 @@ def test_classify_pod_health_blocks_platform_bootstrap_job() -> None:
                     "status": {"phase": "Failed"},
                 }
             ]
-        }
+        },
+        suite_jobs=INVENTORY.job_names,
     )
 
     assert warned == []
@@ -112,7 +168,10 @@ def test_classify_pod_health_blocks_platform_bootstrap_job() -> None:
 
 
 def test_workload_health_classifies_required_service() -> None:
-    assert e2e.workload_health_class({"metadata": {"name": "dagster-webserver"}}) == "required-service"
+    assert (
+        e2e.workload_health_class({"metadata": {"name": "dagster-webserver"}}, INVENTORY.job_names)
+        == "required-service"
+    )
 
 
 def test_check_pods_ready_retries_until_pods_are_ready(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -141,7 +200,7 @@ def test_aws_default_suite_includes_smoke_and_full_checks(monkeypatch: pytest.Mo
     monkeypatch.setattr(e2e, "run_smoke", lambda _cfg: calls.append("smoke"))
     monkeypatch.setattr(e2e, "run_full", lambda _cfg: calls.append("full"))
 
-    e2e.run("aws", repo_root=tmp_path)
+    e2e.run("aws", repo_root=REPO_ROOT)
 
     assert calls == ["smoke", "full"]
 
@@ -155,7 +214,7 @@ def test_aws_explicit_smoke_suite_skips_full_checks(monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr(e2e, "run_smoke", lambda _cfg: calls.append("smoke"))
     monkeypatch.setattr(e2e, "run_full", lambda _cfg: calls.append("full"))
 
-    e2e.run("aws", suite="smoke", repo_root=tmp_path)
+    e2e.run("aws", suite="smoke", repo_root=REPO_ROOT)
 
     assert calls == ["smoke"]
 
@@ -418,13 +477,14 @@ def test_superset_dashboard_assertion_accepts_slug_or_title_match() -> None:
                 "slug": "supply-chain-inventory-reliability",
                 "dashboard_title": "Supply Chain Inventory Reliability",
             },
-        ]
+        ],
+        INVENTORY.expected_dashboards,
     )
 
 
 def test_superset_dashboard_assertion_reports_missing_dashboard() -> None:
     with pytest.raises(e2e.E2EError, match="missing Superset dashboards"):
-        e2e.assert_superset_dashboards([])
+        e2e.assert_superset_dashboards([], INVENTORY.expected_dashboards)
 
 
 def test_openmetadata_data_product_candidates_try_short_and_domain_names() -> None:
@@ -445,7 +505,7 @@ def test_openmetadata_data_product_candidates_try_short_and_domain_names() -> No
                 return 200, {}
             return 404, {}
 
-    client = Client("http://openmetadata")
+    client = Client("http://openmetadata", INVENTORY)
 
     assert client._first_existing_data_product(("sales_order_revenue", "sales.sales_order_revenue"), "token") == (
         "sales.sales_order_revenue"
@@ -893,36 +953,40 @@ def test_launch_and_poll_dagster_jobs_defaults_to_previous_shell_timeout(
         repo_root=tmp_path,
         foundation_terraform_dir=tmp_path / "foundation",
         contract_terraform_dir=tmp_path / "contract",
+        inventory=INVENTORY,
         dagster_local_port=13000,
     )
 
     e2e.launch_and_poll_dagster_jobs(local_cfg)
 
-    assert timeouts == [e2e.DAGSTER_JOB_TIMEOUT_SECONDS] * len(e2e.PRODUCT_JOBS)
+    assert timeouts == [e2e.DAGSTER_JOB_TIMEOUT_SECONDS] * len(INVENTORY.job_names)
     assert received_location_names == ["openlakeforge-dagster"]
+
+
+EXPECTED_GLUE_SCHEMAS = INVENTORY.silver_namespace_names | INVENTORY.gold_namespace_names
 
 
 def test_glue_database_names_requires_expected_schema_and_database_names() -> None:
     contracts = {
         "catalog": {
-            "catalog_schema_names": sorted(e2e.EXPECTED_GLUE_SCHEMAS),
-            "glue_database_names": sorted(e2e.EXPECTED_GLUE_SCHEMAS),
+            "catalog_schema_names": sorted(EXPECTED_GLUE_SCHEMAS),
+            "glue_database_names": sorted(EXPECTED_GLUE_SCHEMAS),
         }
     }
 
-    assert e2e.glue_database_names(contracts) == e2e.EXPECTED_GLUE_SCHEMAS
+    assert e2e.glue_database_names(contracts, EXPECTED_GLUE_SCHEMAS) == EXPECTED_GLUE_SCHEMAS
 
 
 def test_glue_database_names_reports_missing_database() -> None:
     contracts = {
         "catalog": {
-            "catalog_schema_names": sorted(e2e.EXPECTED_GLUE_SCHEMAS),
+            "catalog_schema_names": sorted(EXPECTED_GLUE_SCHEMAS),
             "glue_database_names": [],
         }
     }
 
     with pytest.raises(e2e.E2EError, match="missing Glue database names"):
-        e2e.glue_database_names(contracts)
+        e2e.glue_database_names(contracts, EXPECTED_GLUE_SCHEMAS)
 
 
 def test_aws_provider_contract_smoke_check(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -943,8 +1007,8 @@ def test_aws_storage_and_glue_smoke_check_uses_bucket_and_databases(
     provider_contracts = {
         "artifact_bucket": {"bucket_name": "openlakeforge-ops"},
         "catalog": {
-            "catalog_schema_names": sorted(e2e.EXPECTED_GLUE_SCHEMAS),
-            "glue_database_names": sorted(e2e.EXPECTED_GLUE_SCHEMAS),
+            "catalog_schema_names": sorted(EXPECTED_GLUE_SCHEMAS),
+            "glue_database_names": sorted(EXPECTED_GLUE_SCHEMAS),
         },
     }
     commands: list[list[str]] = []
@@ -956,7 +1020,7 @@ def test_aws_storage_and_glue_smoke_check_uses_bucket_and_databases(
 
     assert ["aws", "s3api", "head-bucket", "--bucket", "openlakeforge-ops"] in commands
     glue_commands = [command for command in commands if command[:3] == ["aws", "glue", "get-database"]]
-    assert len(glue_commands) == len(e2e.EXPECTED_GLUE_SCHEMAS)
+    assert len(glue_commands) == len(EXPECTED_GLUE_SCHEMAS)
     assert all(command[4] == "eu-central-1" for command in glue_commands)
 
 
@@ -982,6 +1046,7 @@ def test_check_ops_artifacts_uses_configured_bucket_for_local(monkeypatch: pytes
         repo_root=tmp_path,
         foundation_terraform_dir=tmp_path / "foundation",
         contract_terraform_dir=tmp_path / "contract",
+        inventory=INVENTORY,
         seaweedfs_local_port=19000,
     )
 
@@ -1006,7 +1071,7 @@ def test_check_ops_artifacts_uses_configured_bucket_for_local(monkeypatch: pytes
     monkeypatch.setattr(
         e2e,
         "assert_ops_artifacts",
-        lambda _client, bucket, namespace: artifact_checks.append((bucket, namespace)),
+        lambda _client, bucket, namespace, _inventory: artifact_checks.append((bucket, namespace)),
     )
 
     e2e.check_ops_artifacts(local_cfg)
@@ -1064,3 +1129,55 @@ def test_run_retry_transient_kubectl_does_not_retry_query_errors(
     with pytest.raises(e2e.E2EError, match="TABLE_NOT_FOUND"):
         e2e._run_retry_transient_kubectl(["kubectl", "exec"], attempts=3)
     assert attempts == 1
+
+
+def test_two_product_fixture_repo_drives_exactly_its_own_jobs_dashboards_and_marts(tmp_path: Path) -> None:
+    """A descriptor change alone must move e2e's discovered work, per issue #39."""
+    _write_two_product_fixture(tmp_path)
+    inventory = load_domain_inventory(tmp_path)
+    fixture_cfg = e2e.E2EConfig(
+        env="local",
+        suite="full",
+        namespace="lakehouse",
+        kube_context="kind-openlakeforge-local",
+        repo_root=tmp_path,
+        foundation_terraform_dir=tmp_path / "foundation",
+        contract_terraform_dir=tmp_path / "contract",
+        inventory=inventory,
+    )
+
+    assert fixture_cfg.inventory.job_names == ("widgets_alpha_pipeline", "widgets_beta_pipeline")
+    assert fixture_cfg.inventory.expected_dashboards == {
+        "widgets-alpha": "Widgets Alpha",
+        "widgets-beta": "Widgets Beta",
+    }
+    assert fixture_cfg.inventory.gold_mart_names == (
+        "widgets_alpha_gold.mart_alpha_summary",
+        "widgets_beta_gold.mart_beta_summary",
+    )
+
+    # The e2e assertion helpers must accept exactly this fixture's expectations
+    # with no reference to the real repository's seed products.
+    e2e.assert_superset_dashboards(
+        [
+            {"slug": "widgets-alpha", "dashboard_title": "Widgets Alpha"},
+            {"slug": "widgets-beta", "dashboard_title": "Widgets Beta"},
+        ],
+        fixture_cfg.inventory.expected_dashboards,
+    )
+    bad, warned = e2e.classify_pod_health(
+        {
+            "items": [
+                {
+                    "metadata": {
+                        "name": "widgets-alpha-run-pod",
+                        "ownerReferences": [{"kind": "Job", "name": "widgets_alpha_pipeline-run"}],
+                    },
+                    "status": {"phase": "Failed"},
+                }
+            ]
+        },
+        suite_jobs=fixture_cfg.inventory.job_names,
+    )
+    assert warned == []
+    assert bad == ["widgets-alpha-run-pod: Failed"]

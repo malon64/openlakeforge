@@ -23,64 +23,15 @@ import requests
 from botocore.config import Config
 
 from olf import contracts, k8s, log
+from olf.inventory import DomainInventory, inventory_for
 
 Environment = Literal["local", "azure", "aws"]
 Suite = Literal["full", "smoke"]
 
-PRODUCT_JOBS = (
-    "sales_order_revenue_pipeline",
-    "sales_customer_health_pipeline",
-    "supply_chain_inventory_reliability_pipeline",
-)
-
-GOLD_MARTS = (
-    "sales_order_revenue_gold.mart_order_revenue_by_day",
-    "sales_order_revenue_gold.mart_order_revenue_by_channel",
-    "sales_order_revenue_gold.mart_order_revenue_margin_by_product",
-    "sales_customer_health_gold.mart_customer_health_score",
-    "sales_customer_health_gold.mart_churn_risk_by_segment",
-    "sales_customer_health_gold.mart_support_sla_by_customer",
-    "supply_chain_inventory_reliability_gold.mart_inventory_position",
-    "supply_chain_inventory_reliability_gold.mart_supplier_delivery_reliability",
-    "supply_chain_inventory_reliability_gold.mart_stockout_risk",
-)
-
-EXPECTED_DASHBOARDS = {
-    "sales-order-revenue": "Sales Order Revenue",
-    "sales-customer-health": "Sales Customer Health",
-    "supply-chain-inventory-reliability": "Supply Chain Inventory Reliability",
-}
-
-EXPECTED_DOMAINS = ("sales", "supply_chain")
-EXPECTED_DATA_PRODUCTS = {
-    "sales_order_revenue": ("sales_order_revenue", "sales.sales_order_revenue"),
-    "sales_customer_health": ("sales_customer_health", "sales.sales_customer_health"),
-    "supply_chain_inventory_reliability": (
-        "supply_chain_inventory_reliability",
-        "supply_chain.supply_chain_inventory_reliability",
-    ),
-}
-
-EXPECTED_GLUE_SCHEMAS = {
-    "sales_order_revenue_silver",
-    "sales_order_revenue_gold",
-    "sales_customer_health_silver",
-    "sales_customer_health_gold",
-    "supply_chain_inventory_reliability_silver",
-    "supply_chain_inventory_reliability_gold",
-}
-
-MANIFEST_KEYS = (
-    "floe/manifests/sales/order_revenue/order_revenue.manifest.json",
-    "floe/manifests/sales/customer_health/customer_health.manifest.json",
-    "floe/manifests/supply_chain/inventory_reliability/inventory_reliability.manifest.json",
-)
-
-ARTIFACT_PREFIXES = (
-    "floe/reports/",
-    "run-artifacts/dbt/",
-    "logs/dagster/compute/",
-)
+# The one artifact prefix that is genuinely platform-level, not per-product:
+# Dagster's own compute-log archive path. Per-product prefixes (Floe reports,
+# dbt artifacts, Floe manifests) come from the domain inventory instead.
+ARTIFACT_PREFIXES = ("logs/dagster/compute/",)
 
 DAGSTER_JOB_TIMEOUT_SECONDS = 1800
 READINESS_ATTEMPTS = 60
@@ -113,7 +64,7 @@ class DagsterHTTPError(E2EError):
     """A non-transient Dagster HTTP response (normally a client error)."""
 
 
-def workload_health_class(item: Mapping[str, Any], suite_jobs: tuple[str, ...] = PRODUCT_JOBS) -> str:
+def workload_health_class(item: Mapping[str, Any], suite_jobs: tuple[str, ...]) -> str:
     """Classify a Kubernetes workload for E2E readiness policy.
 
     ReplicaSet/StatefulSet pods and OpenLakeForge bootstrap Jobs are required.
@@ -160,7 +111,7 @@ def _bounded_job_diagnostics(cfg: E2EConfig, payload: Mapping[str, Any]) -> str:
     """Collect only a small tail from failed independent Jobs."""
     diagnostics: list[str] = []
     for item in payload.get("items", []):
-        if workload_health_class(item) != "independent-job":
+        if workload_health_class(item, cfg.inventory.job_names) != "independent-job":
             continue
         status = item.get("status", {}).get("phase")
         if status not in {"Failed", "Unknown"}:
@@ -187,6 +138,7 @@ class E2EConfig:
     repo_root: Path
     foundation_terraform_dir: Path | None
     contract_terraform_dir: Path
+    inventory: DomainInventory
     aws_region: str | None = None
     dagster_local_port: int | None = None
     superset_local_port: int | None = None
@@ -229,6 +181,7 @@ def prepare_config(
 ) -> E2EConfig:
     root = (repo_root or Path(os.environ.get("OPENLAKEFORGE_REPO_ROOT", "."))).resolve()
     actual_suite = suite or default_suite(env)
+    inventory = inventory_for(root)
     if env == "local":
         cluster_name = os.environ.get("CLUSTER_NAME", "openlakeforge-local")
         return E2EConfig(
@@ -239,6 +192,7 @@ def prepare_config(
             repo_root=root,
             foundation_terraform_dir=root / "infra/terraform/foundations/local-kind",
             contract_terraform_dir=_contract_dir(root, "infra/terraform/environments/local"),
+            inventory=inventory,
             dagster_local_port=int(os.environ.get("DAGSTER_LOCAL_PORT", "13000")),
             superset_local_port=int(os.environ.get("SUPERSET_LOCAL_PORT", "18088")),
             openmetadata_local_port=int(os.environ.get("OPENMETADATA_LOCAL_PORT", "18585")),
@@ -254,6 +208,7 @@ def prepare_config(
             repo_root=root,
             foundation_terraform_dir=root / "infra/terraform/foundations/azure-aks",
             contract_terraform_dir=_contract_dir(root, "infra/terraform/environments/azure-poc"),
+            inventory=inventory,
             dagster_local_port=int(os.environ.get("DAGSTER_LOCAL_PORT", "13000")),
             superset_local_port=int(os.environ.get("SUPERSET_LOCAL_PORT", "18088")),
             openmetadata_local_port=int(os.environ.get("OPENMETADATA_LOCAL_PORT", "18585")),
@@ -269,6 +224,7 @@ def prepare_config(
             repo_root=root,
             foundation_terraform_dir=root / "infra/terraform/foundations/aws-eks",
             contract_terraform_dir=_contract_dir(root, "infra/terraform/environments/aws-poc"),
+            inventory=inventory,
             aws_region=os.environ.get("AWS_REGION"),
             dagster_local_port=int(os.environ.get("DAGSTER_LOCAL_PORT", "13000")),
             superset_local_port=int(os.environ.get("SUPERSET_LOCAL_PORT", "18088")),
@@ -390,7 +346,7 @@ def check_pods_ready(cfg: E2EConfig) -> None:
             last_error = exc
             time.sleep(5)
             continue
-        bad, warned = classify_pod_health(payload, suite_jobs=PRODUCT_JOBS)
+        bad, warned = classify_pod_health(payload, suite_jobs=cfg.inventory.job_names)
         for message in warned:
             log.warn(message)
         if warned:
@@ -407,9 +363,7 @@ def check_pods_ready(cfg: E2EConfig) -> None:
     raise E2EError("unhealthy required services:\n" + "\n".join(bad) + "\nDiagnostics:\n" + diagnostics)
 
 
-def classify_pod_health(
-    payload: Mapping[str, Any], *, suite_jobs: tuple[str, ...] = PRODUCT_JOBS
-) -> tuple[list[str], list[str]]:
+def classify_pod_health(payload: Mapping[str, Any], *, suite_jobs: tuple[str, ...]) -> tuple[list[str], list[str]]:
     """Return blocking service failures and bounded warning messages for Jobs."""
     bad: list[str] = []
     warned: list[str] = []
@@ -456,25 +410,27 @@ def check_trino_catalog(cfg: E2EConfig) -> None:
         raise E2EError("Trino did not expose the iceberg catalog.")
 
 
+def _schema_in_list(schema_names: frozenset[str]) -> str:
+    return ", ".join(f"'{name}'" for name in sorted(schema_names))
+
+
 def check_trino_tables_and_marts(cfg: E2EConfig) -> None:
     check_trino_catalog(cfg)
     log.step("Checking Silver and Gold table counts...")
     silver_count = trino_scalar(
         cfg,
         "SELECT count(*) FROM iceberg.information_schema.tables "
-        "WHERE table_schema IN ('sales_order_revenue_silver', 'sales_customer_health_silver', "
-        "'supply_chain_inventory_reliability_silver')",
+        f"WHERE table_schema IN ({_schema_in_list(cfg.inventory.silver_namespace_names)})",
     )
     gold_count = trino_scalar(
         cfg,
         "SELECT count(*) FROM iceberg.information_schema.tables "
-        "WHERE table_schema IN ('sales_order_revenue_gold', 'sales_customer_health_gold', "
-        "'supply_chain_inventory_reliability_gold')",
+        f"WHERE table_schema IN ({_schema_in_list(cfg.inventory.gold_namespace_names)})",
     )
-    assert_scalar_equals(silver_count, "15", "Silver table count")
-    assert_scalar_equals(gold_count, "9", "Gold mart count")
+    assert_scalar_equals(silver_count, str(cfg.inventory.silver_table_count), "Silver table count")
+    assert_scalar_equals(gold_count, str(cfg.inventory.gold_table_count), "Gold mart count")
 
-    for mart in GOLD_MARTS:
+    for mart in cfg.inventory.gold_mart_names:
         count = trino_scalar(cfg, f"SELECT count(*) FROM iceberg.{mart}")
         if int(count) <= 0:
             raise E2EError(f"expected iceberg.{mart} to contain rows, got {count}")
@@ -572,7 +528,7 @@ def launch_and_poll_dagster_jobs(cfg: E2EConfig) -> None:
         location_names = expected_repository_location_names(cfg)
         client = DagsterClient(f"{base_url}/graphql", expected_location_names=location_names)
         timeout_seconds = int(os.environ.get("DAGSTER_JOB_TIMEOUT_SECONDS", str(DAGSTER_JOB_TIMEOUT_SECONDS)))
-        for job in PRODUCT_JOBS:
+        for job in cfg.inventory.job_names:
             try:
                 run_id = client.launch(job)
             except E2EError as exc:
@@ -876,7 +832,7 @@ def check_superset_dashboards(cfg: E2EConfig) -> None:
         if not k8s.http_wait(f"{base_url}/health", attempts=90, delay=2):
             raise E2EError("Superset endpoint did not become reachable.")
         dashboards = SupersetClient(base_url).dashboards()
-    assert_superset_dashboards(dashboards, EXPECTED_DASHBOARDS)
+    assert_superset_dashboards(dashboards, cfg.inventory.expected_dashboards)
 
 
 class SupersetClient:
@@ -912,9 +868,7 @@ class SupersetClient:
         raise E2EError(f"Superset login failed: {last_error}")
 
 
-def assert_superset_dashboards(
-    dashboards: list[Mapping[str, Any]], expected: Mapping[str, str] = EXPECTED_DASHBOARDS
-) -> None:
+def assert_superset_dashboards(dashboards: list[Mapping[str, Any]], expected: Mapping[str, str]) -> None:
     by_slug = {dashboard.get("slug"): dashboard.get("dashboard_title") for dashboard in dashboards}
     titles = {dashboard.get("dashboard_title") for dashboard in dashboards}
     missing = [
@@ -939,18 +893,19 @@ def check_openmetadata_assets(cfg: E2EConfig) -> None:
         base_url = f"http://127.0.0.1:{cfg.openmetadata_local_port}"
         if not k8s.http_wait(f"{base_url}/api/v1/system/config/jwks", attempts=90, delay=2):
             raise E2EError("OpenMetadata endpoint did not become reachable.")
-        OpenMetadataE2EClient(base_url).assert_assets()
+        OpenMetadataE2EClient(base_url, cfg.inventory).assert_assets()
 
 
 class OpenMetadataE2EClient:
-    def __init__(self, base_url: str) -> None:
+    def __init__(self, base_url: str, inventory: DomainInventory) -> None:
         self.base_url = base_url.rstrip("/")
+        self.inventory = inventory
 
     def assert_assets(self) -> None:
         token = self._login()
-        for domain in EXPECTED_DOMAINS:
+        for domain in self.inventory.domain_names:
             self._request("GET", f"/api/v1/domains/name/{domain}", token)
-        for product, candidates in EXPECTED_DATA_PRODUCTS.items():
+        for product, candidates in self.inventory.openmetadata_data_products.items():
             if not self._first_existing_data_product(candidates, token):
                 raise E2EError(f"missing OpenMetadata data product {product}")
 
@@ -1003,7 +958,7 @@ def check_ops_artifacts(cfg: E2EConfig) -> None:
     bucket = provider_contracts["artifact_bucket"]["bucket_name"]
     if cfg.env == "aws":
         client = boto3.client("s3", region_name=aws_stack_region(cfg))
-        assert_ops_artifacts(client, bucket, cfg.namespace)
+        assert_ops_artifacts(client, bucket, cfg.namespace, cfg.inventory)
         return
 
     assert cfg.seaweedfs_local_port is not None
@@ -1038,7 +993,7 @@ def check_ops_artifacts(cfg: E2EConfig) -> None:
             config=Config(s3={"addressing_style": "path"}),
         )
         wait_for_bucket(client, bucket, endpoint)
-        assert_ops_artifacts(client, bucket, cfg.namespace)
+        assert_ops_artifacts(client, bucket, cfg.namespace, cfg.inventory)
 
 
 def trigger_log_archive_job(cfg: E2EConfig) -> None:
@@ -1067,10 +1022,15 @@ def trigger_log_archive_job(cfg: E2EConfig) -> None:
     )
 
 
-def assert_ops_artifacts(client: Any, bucket: str, namespace: str) -> None:
-    for key in MANIFEST_KEYS:
+def assert_ops_artifacts(client: Any, bucket: str, namespace: str, inventory: DomainInventory) -> None:
+    for key in inventory.manifest_keys:
         client.head_object(Bucket=bucket, Key=key)
-    for prefix in (*ARTIFACT_PREFIXES, f"logs/k8s/namespace={namespace}/"):
+    product_prefixes = tuple(
+        prefix
+        for product in inventory.products
+        for prefix in (product.artifact_prefixes.floe_report_prefix, product.artifact_prefixes.dbt_artifact_prefix)
+    )
+    for prefix in (*product_prefixes, *ARTIFACT_PREFIXES, f"logs/k8s/namespace={namespace}/"):
         require_s3_prefix(client, bucket, prefix)
 
 
@@ -1114,19 +1074,20 @@ def check_aws_storage_and_glue(cfg: E2EConfig) -> None:
     provider_contracts = load_provider_contracts_or_raise(cfg)
     bucket = provider_contracts["artifact_bucket"]["bucket_name"]
     region = aws_stack_region(cfg)
+    expected_schemas = cfg.inventory.silver_namespace_names | cfg.inventory.gold_namespace_names
     _run(["aws", "s3api", "head-bucket", "--bucket", bucket], capture=True)
-    for database in glue_database_names(provider_contracts):
+    for database in glue_database_names(provider_contracts, expected_schemas):
         _run(["aws", "glue", "get-database", "--region", region, "--name", database], capture=True)
 
 
-def glue_database_names(provider_contracts: Mapping[str, Any]) -> set[str]:
+def glue_database_names(provider_contracts: Mapping[str, Any], expected_schemas: frozenset[str]) -> set[str]:
     catalog = provider_contracts["catalog"]
     schema_names = set(catalog.get("catalog_schema_names") or [ns["name"] for ns in catalog["catalog_namespaces"]])
     database_names = set(catalog.get("glue_database_names") or [])
-    missing = EXPECTED_GLUE_SCHEMAS.difference(schema_names)
+    missing = expected_schemas.difference(schema_names)
     if missing:
         raise E2EError(f"catalog contract missing Glue schema names: {sorted(missing)}")
-    missing_databases = EXPECTED_GLUE_SCHEMAS.difference(database_names)
+    missing_databases = expected_schemas.difference(database_names)
     if missing_databases:
         raise E2EError(f"catalog contract missing Glue database names: {sorted(missing_databases)}")
     return database_names

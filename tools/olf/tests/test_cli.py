@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 import olf
@@ -59,3 +60,22 @@ data_products:
 
     assert result.exit_code == 0
     assert json.loads(result.output)["inventory"]
+
+
+def test_superset_export_reports_defaults_come_from_the_default_product(monkeypatch: pytest.MonkeyPatch) -> None:
+    from olf import cli
+    from olf import inventory as inventory_module
+
+    default_product = inventory_module.inventory_for(cli._repo_root()).default_product
+    calls: list[dict] = []
+    monkeypatch.setattr(
+        "olf.superset.export_report",
+        lambda *args, **kwargs: calls.append(kwargs),
+    )
+
+    result = runner.invoke(app, ["superset", "export-reports"])
+
+    assert result.exit_code == 0
+    assert calls[0]["report_source_dir"] == default_product.report_source_dir
+    assert calls[0]["bundle_name"] == default_product.superset_export_bundle_name
+    assert calls[0]["dashboard_title"] == default_product.display_name

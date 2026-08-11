@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from olf.descriptors import DomainDescriptorError
-from olf.inventory import external_result, load_domain_inventory
+from olf.inventory import external_result, inventory_for, load_domain_inventory
 
 ROOT = Path(__file__).parents[3]
 
@@ -92,6 +92,45 @@ def test_seed_inventory_derives_every_product_expectation() -> None:
     assert inventory.products[0].artifact_prefixes.manifest_key == (
         "floe/manifests/sales/order_revenue/order_revenue.manifest.json"
     )
+    assert inventory.domain_names == ("sales", "supply_chain")
+    assert inventory.silver_table_count == 15
+    assert inventory.gold_table_count == 9
+    assert inventory.gold_mart_names == (
+        "sales_order_revenue_gold.mart_order_revenue_by_day",
+        "sales_order_revenue_gold.mart_order_revenue_by_channel",
+        "sales_order_revenue_gold.mart_order_revenue_margin_by_product",
+        "sales_customer_health_gold.mart_customer_health_score",
+        "sales_customer_health_gold.mart_churn_risk_by_segment",
+        "sales_customer_health_gold.mart_support_sla_by_customer",
+        "supply_chain_inventory_reliability_gold.mart_inventory_position",
+        "supply_chain_inventory_reliability_gold.mart_supplier_delivery_reliability",
+        "supply_chain_inventory_reliability_gold.mart_stockout_risk",
+    )
+    assert inventory.manifest_keys == (
+        "floe/manifests/sales/order_revenue/order_revenue.manifest.json",
+        "floe/manifests/sales/customer_health/customer_health.manifest.json",
+        "floe/manifests/supply_chain/inventory_reliability/inventory_reliability.manifest.json",
+    )
+    assert inventory.openmetadata_data_products == {
+        "sales_order_revenue": ("sales_order_revenue", "sales.sales_order_revenue"),
+        "sales_customer_health": ("sales_customer_health", "sales.sales_customer_health"),
+        "supply_chain_inventory_reliability": (
+            "supply_chain_inventory_reliability",
+            "supply_chain.supply_chain_inventory_reliability",
+        ),
+    }
+    assert inventory.silver_namespace_names == frozenset(
+        {"sales_order_revenue_silver", "sales_customer_health_silver", "supply_chain_inventory_reliability_silver"}
+    )
+    assert inventory.gold_namespace_names == frozenset(
+        {"sales_order_revenue_gold", "sales_customer_health_gold", "supply_chain_inventory_reliability_gold"}
+    )
+    assert inventory.products[0].superset_export_bundle_name == "sales_order_revenue_superset_assets_export.zip"
+
+
+def test_inventory_for_caches_by_resolved_repo_root() -> None:
+    assert inventory_for(ROOT) is inventory_for(ROOT)
+    assert inventory_for(ROOT) is inventory_for(str(ROOT))
 
 
 def test_inventory_resolves_provider_physical_names() -> None:
@@ -179,7 +218,8 @@ def test_renaming_descriptor_product_changes_discovered_work_without_shared_code
     descriptor = _descriptor("sales", product_id="revenue", asset_prefix="sales_revenue")
     _write_descriptor(tmp_path, "sales", descriptor)
 
-    product = load_domain_inventory(tmp_path).default_product
+    inventory = load_domain_inventory(tmp_path)
+    product = inventory.default_product
 
     assert product.job_name == "sales_revenue_pipeline"
     assert product.silver_namespace == "sales_revenue_silver"
@@ -187,6 +227,10 @@ def test_renaming_descriptor_product_changes_discovered_work_without_shared_code
     assert product.openmetadata_data_product_fqns == ("sales_revenue", "sales.sales_revenue")
     assert product.artifact_prefixes.manifest_key == "floe/manifests/sales/revenue/revenue.manifest.json"
     assert product.definitions_module == "domains.sales.pipelines.dagster.revenue"
+    assert inventory.job_names == ("sales_revenue_pipeline",)
+    assert inventory.gold_mart_names == ("sales_revenue_gold.mart_revenue",)
+    assert inventory.manifest_keys == ("floe/manifests/sales/revenue/revenue.manifest.json",)
+    assert inventory.silver_namespace_names == frozenset({"sales_revenue_silver"})
 
 
 def test_inventory_external_result_is_terraform_compatible() -> None:
