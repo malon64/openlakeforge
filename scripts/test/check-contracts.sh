@@ -179,14 +179,6 @@ for contracts_path, contracts_body in [(contracts_tf, text), (azure_contracts_tf
     expected_log_mode = "s3-object-archive" if contracts_path == aws_contracts_tf else "s3-compatible-object-archive"
     if expected_log_mode not in contracts_body:
         errors.append(f"{contracts_path}: missing ops artifact/observability field {expected_log_mode}")
-    for required_location in [
-        'name               = "sales-dagster"',
-        'definitions_module = "domains.sales.definitions"',
-        'name               = "supply-chain-dagster"',
-        'definitions_module = "domains.supply_chain.definitions"',
-    ]:
-        if required_location not in contracts_body:
-            errors.append(f"{contracts_path}: missing domain Dagster code location {required_location}")
     for required in [
         "catalog_namespace_model",
         "catalog_namespaces",

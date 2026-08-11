@@ -131,7 +131,7 @@ def port_forward(
 
 
 def discover_dagster_user_deployments(namespace: str) -> list[str]:
-    """Domain Dagster code locations are chart-generated; discover them."""
+    """Dagster code-location deployments are chart-generated; discover them."""
     raw = _kubectl(
         [
             "get",
@@ -143,9 +143,7 @@ def discover_dagster_user_deployments(namespace: str) -> list[str]:
         ],
         capture=True,
     )
-    return [
-        name for name in raw.splitlines() if name.startswith("dagster-user-deployments-") and name.endswith("-dagster")
-    ]
+    return [name for name in raw.splitlines() if name.startswith("dagster-user-deployments-")]
 
 
 # --- Pure image-patch builders (unit tested) -------------------------------

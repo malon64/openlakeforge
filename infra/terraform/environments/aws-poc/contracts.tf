@@ -158,12 +158,8 @@ locals {
     endpoint       = "http://dagster-dagster-webserver:80"
     code_locations = [
       {
-        name               = "sales-dagster"
-        definitions_module = "domains.sales.definitions"
-      },
-      {
-        name               = "supply-chain-dagster"
-        definitions_module = "domains.supply_chain.definitions"
+        name               = "openlakeforge-dagster"
+        definitions_module = "domains.definitions"
       },
     ]
     runner                    = "kubernetes-run-launcher"

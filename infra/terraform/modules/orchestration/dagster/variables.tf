@@ -57,19 +57,15 @@ variable "project_code_image_revision" {
 }
 
 variable "code_locations" {
-  description = "Dagster user-code deployments and Python modules exposing domain-scoped Definitions."
+  description = "Dagster user-code deployments and Python modules exposing Definitions. A merged location saves pods but a load failure affects every domain; split locations isolate load and restart failures at one pod per domain."
   type = list(object({
     name               = string
     definitions_module = string
   }))
   default = [
     {
-      name               = "sales-dagster"
-      definitions_module = "domains.sales.definitions"
-    },
-    {
-      name               = "supply-chain-dagster"
-      definitions_module = "domains.supply_chain.definitions"
+      name               = "openlakeforge-dagster"
+      definitions_module = "domains.definitions"
     },
   ]
 }

@@ -100,6 +100,7 @@ os.environ.setdefault("OPENLAKEFORGE_FLOE_REPORT_BASE_URI", "s3://openlakeforge-
 os.environ.setdefault("OPENLAKEFORGE_LOG_BASE_URI", "s3://openlakeforge-ops/logs")
 os.environ.setdefault("OPENLAKEFORGE_RUN_ARTIFACT_BASE_URI", "s3://openlakeforge-ops/run-artifacts")
 
+from domains.definitions import defs as merged_defs
 from domains.sales.definitions import defs as sales_defs
 from domains.sales.extract.dlt.customer_health import CUSTOMER_HEALTH_ENTITIES
 from domains.sales.extract.dlt.order_revenue import ORDER_REVENUE_ENTITIES
@@ -156,7 +157,7 @@ PRODUCTS = [
 if os.environ["OPENLAKEFORGE_FLOE_MANIFEST_ACCESS_MODE"].strip().lower() != "remote":
     raise SystemExit("project-code check must load Dagster definitions in remote Floe manifest mode")
 
-for module_name in ["domains.sales.definitions", "domains.supply_chain.definitions"]:
+for module_name in ["domains.definitions", "domains.sales.definitions", "domains.supply_chain.definitions"]:
     module_targets = loadable_targets_from_python_module(module_name, ".")
     if len(module_targets) != 1 or module_targets[0].attribute != "defs":
         raise SystemExit(f"{module_name} should expose exactly one defs target")
@@ -173,6 +174,12 @@ asset_key_list = [
     for key in asset_def.keys
 ]
 asset_keys = set(asset_key_list)
+merged_asset_keys = {
+    tuple(key.path)
+    for asset_def in merged_defs.assets
+    if hasattr(asset_def, "keys")
+    for key in asset_def.keys
+}
 source_asset_keys = {
     tuple(asset.key.path)
     for definitions in domain_defs.values()
@@ -226,7 +233,7 @@ for product in PRODUCTS:
     if {entity.name for entity in manifest.entities} != set(product["entities"]):
         raise SystemExit(f"{prefix} Floe manifest entities do not match product entities")
 
-    job = domain_defs[product["domain"]].resolve_job_def(product["job"])
+    job = merged_defs.resolve_job_def(product["job"])
     if job.name != product["job"]:
         raise SystemExit(f"missing Dagster job {product['job']}")
     if job.run_config["execution"]["config"]["multiprocess"]["max_concurrent"] != 1:
@@ -350,6 +357,8 @@ if any(key[0].startswith("sales") for key in supply_chain_asset_keys):
 
 if len(asset_key_list) != len(asset_keys):
     raise SystemExit("duplicate Dagster asset keys found")
+if merged_asset_keys != asset_keys:
+    raise SystemExit("merged Dagster definitions do not match all domain asset keys")
 
-print("Domain product Dagster definitions loaded.")
+print("Merged and domain product Dagster definitions loaded.")
 PY
