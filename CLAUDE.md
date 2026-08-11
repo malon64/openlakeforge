@@ -11,8 +11,8 @@ stale copy is worse than none.
 ## Quick reference
 
 ```bash
-make release-check    # every static gate, also enforced on each pull request
 make local-up         # bring up the local kind stack
+make local-down       # bring down the local stack 
 make local-e2e        # full runtime verification
 ```
 

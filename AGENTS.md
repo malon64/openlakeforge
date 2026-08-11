@@ -55,8 +55,7 @@ These are load-bearing. Breaking one means the change is wrong even if it works.
    contracts in `contracts.tf`, never directly with a provider. Adding a
    capability means extending the contract, then writing an adapter.
 2. **Descriptors stay provider-neutral.** `domains/<domain>/domain.yaml` must not
-   name Polaris, Glue, S3, or SeaweedFS. Physical names are derived from the
-   environment's provider contract. Validate against
+   name Polaris, Glue, S3, or SeaweedFS. However some path are absolute and can mention vendor filesystem
    `docs/schema/domain.schema.json`.
 3. **Two-phase deploy** (ADR 0008). Phase 1 is the static platform
    (`make <env>-platform-up`); Phase 2 is dynamic artifacts
