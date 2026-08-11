@@ -161,7 +161,7 @@ resource "kubernetes_role_v1" "bootstrap" {
 
   rule {
     api_groups = [""]
-    resources  = ["secrets"]
+    resources  = ["configmaps", "secrets"]
     verbs      = ["create", "delete", "get", "patch", "update"]
   }
 }
@@ -331,24 +331,42 @@ resource "kubernetes_job_v1" "bootstrap" {
               secret_name="$2"
               client_id_key="$3"
               client_secret_key="$4"
+              pending_name="$secret_name-bootstrap-pending"
 
               request GET "/principals/$principal_name" "200 404"
               if [ "$POLARIS_RESPONSE_CODE" = "200" ]; then
                 if kubectl get secret "$secret_name" -n "$NAMESPACE" >/dev/null 2>&1; then
+                  kubectl delete configmap "$pending_name" -n "$NAMESPACE" --ignore-not-found || true
                   return
                 fi
 
-                echo "Polaris principal '$principal_name' exists but credential Secret '$secret_name' is missing." >&2
-                echo "Restore the Secret before rerunning the bootstrap job to avoid rotating active clients." >&2
-                exit 1
-              fi
+                if ! kubectl get configmap "$pending_name" -n "$NAMESPACE" >/dev/null 2>&1; then
+                  echo "Polaris principal '$principal_name' exists but credential Secret '$secret_name' is missing." >&2
+                  echo "Restore the Secret before rerunning the bootstrap job to avoid rotating active clients." >&2
+                  exit 1
+                fi
 
-              # The relational metastore is empty during the in-memory-to-JDBC
-              # migration, while the old in-memory service Secrets remain. They
-              # cannot authenticate to an absent principal, so replace them when
-              # creating that principal for the first time.
-              kubectl delete secret "$secret_name" -n "$NAMESPACE" --ignore-not-found
-              request POST "/principals" "201" "{\"name\": \"$principal_name\", \"type\": \"SERVICE\"}"
+                # A pending marker is written before the first create call. It
+                # identifies the otherwise unrecoverable window where Polaris
+                # created a principal but Kubernetes did not persist its one-time
+                # credentials. Rotate only that known-incomplete principal.
+                request POST "/principals/$principal_name/rotate" "200"
+              else
+                if ! kubectl get configmap "$pending_name" -n "$NAMESPACE" >/dev/null 2>&1; then
+                  kubectl create configmap "$pending_name" \
+                    -n "$NAMESPACE" \
+                    --from-literal="principal=$principal_name"
+                fi
+
+                # The relational metastore is empty during the in-memory-to-JDBC
+                # migration, while the old in-memory service Secrets remain. They
+                # cannot authenticate to an absent principal, so replace them when
+                # creating that principal for the first time.
+                request POST "/principals" "201 409" "{\"name\": \"$principal_name\", \"type\": \"SERVICE\"}"
+                if [ "$POLARIS_RESPONSE_CODE" = "409" ]; then
+                  request POST "/principals/$principal_name/rotate" "200"
+                fi
+              fi
               client_id="$(sed -n 's/.*"clientId":"\([^"]*\)".*/\1/p' /tmp/polaris-body | head -n 1)"
               client_secret="$(sed -n 's/.*"clientSecret":"\([^"]*\)".*/\1/p' /tmp/polaris-body | head -n 1)"
 
@@ -363,6 +381,7 @@ resource "kubernetes_job_v1" "bootstrap" {
                 -n "$NAMESPACE" \
                 --from-literal="$client_id_key=$client_id" \
                 --from-literal="$client_secret_key=$client_secret"
+              kubectl delete configmap "$pending_name" -n "$NAMESPACE" --ignore-not-found || true
             }
 
             grant_catalog_access() {
