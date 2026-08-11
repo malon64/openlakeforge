@@ -1,4 +1,4 @@
-apiVersion: openlakeforge.io/v1alpha1
+apiVersion: openlakeforge.io/v1alpha2
 kind: Domain
 name: sales
 displayName: Sales

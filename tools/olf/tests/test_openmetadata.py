@@ -328,7 +328,7 @@ def test_deploy_seeds_medallion_buckets_and_bronze_source_hierarchy(
 ) -> None:
     (tmp_path / "sales").mkdir()
     (tmp_path / "sales" / "domain.yaml").write_text(
-        """apiVersion: openlakeforge.io/v1alpha1
+        """apiVersion: openlakeforge.io/v1alpha2
 kind: Domain
 name: sales
 displayName: Sales

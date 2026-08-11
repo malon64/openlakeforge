@@ -7,7 +7,7 @@ product has side-by-side assets under domain capability folders: raw examples,
 dlt loaders, Floe contracts, dbt projects, Dagster modules, Superset reports,
 tests, and documentation.
 
-`domains/<domain>/domain.yaml` is a versioned (`openlakeforge.io/v1alpha1`,
+`domains/<domain>/domain.yaml` is a versioned (`openlakeforge.io/v1alpha2`,
 `kind: Domain`) single source for domain, data-product,
 Bronze, Silver, Gold, and OpenMetadata table metadata.
 

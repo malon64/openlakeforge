@@ -27,7 +27,7 @@ def _product(**overrides: object) -> dict[str, object]:
 
 def _descriptor(product: dict[str, object]) -> dict[str, object]:
     return {
-        "apiVersion": "openlakeforge.io/v1alpha1",
+        "apiVersion": "openlakeforge.io/v1alpha2",
         "kind": "Domain",
         "name": "sales",
         "displayName": "Sales",
@@ -40,13 +40,24 @@ def _descriptor(product: dict[str, object]) -> dict[str, object]:
 @pytest.mark.parametrize("path", sorted((ROOT / "domains").glob("*/domain.yaml")))
 def test_seed_domain_descriptors_are_versioned_and_provider_neutral(path: Path) -> None:
     descriptor = load_domain_descriptor(path)
-    assert descriptor["apiVersion"] == "openlakeforge.io/v1alpha1"
+    assert descriptor["apiVersion"] == "openlakeforge.io/v1alpha2"
     assert descriptor["kind"] == "Domain"
 
 
 def test_domain_descriptor_rejects_unsupported_version() -> None:
     with pytest.raises(DomainDescriptorError, match="unsupported apiVersion"):
         validate_domain_descriptor({"apiVersion": "openlakeforge.io/v2", "kind": "Domain"})
+
+
+def test_v1alpha1_preserves_its_optional_inventory_fields() -> None:
+    descriptor = _descriptor(_product())
+    descriptor["apiVersion"] = "openlakeforge.io/v1alpha1"
+    product = descriptor["data_products"][0]
+    assert isinstance(product, dict)
+    for field in ("asset_prefix", "bronze", "silver_tables", "gold_tables"):
+        product.pop(field)
+
+    validate_domain_descriptor(descriptor)
 
 
 def test_domain_descriptor_rejects_physical_catalog_identity() -> None:

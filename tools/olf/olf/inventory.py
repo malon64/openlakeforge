@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from olf.descriptors import DomainDescriptorError, load_domain_descriptor
+from olf.descriptors import DOMAIN_API_VERSION, DomainDescriptorError, load_domain_descriptor
 
 _IDENTIFIER_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
 
@@ -338,11 +338,17 @@ def _validate_inventory_identities(domains: tuple[Domain, ...]) -> None:
     seen_domains: set[str] = set()
     seen_product_names: set[str] = set()
     seen_asset_prefixes: set[str] = set()
+    seen_product_ids: set[tuple[str, str]] = set()
     for domain in domains:
         if domain.name in seen_domains:
             raise DomainDescriptorError(f"{domain.descriptor_path}: duplicate domain name {domain.name!r}")
         seen_domains.add(domain.name)
         for product in domain.products:
+            identity = (domain.name, product.id)
+            if identity in seen_product_ids:
+                raise DomainDescriptorError(
+                    f"{domain.descriptor_path}: product {product.id!r}: duplicate id within domain {domain.name!r}"
+                )
             if product.name in seen_product_names:
                 raise DomainDescriptorError(
                     f"{domain.descriptor_path}: product {product.id!r}: duplicate name {product.name!r}"
@@ -353,6 +359,7 @@ def _validate_inventory_identities(domains: tuple[Domain, ...]) -> None:
                 )
             seen_product_names.add(product.name)
             seen_asset_prefixes.add(product.asset_prefix)
+            seen_product_ids.add(identity)
 
 
 def load_domain_inventory(path: str | Path) -> DomainInventory:
@@ -366,6 +373,16 @@ def load_domain_inventory(path: str | Path) -> DomainInventory:
     for descriptor_path in descriptor_paths:
         document = load_domain_descriptor(descriptor_path)
         domain_name = document["name"]
+        if document["apiVersion"] != DOMAIN_API_VERSION:
+            raise DomainDescriptorError(
+                f"{descriptor_path}: apiVersion {document['apiVersion']!r} must migrate to {DOMAIN_API_VERSION!r}; "
+                "see docs/migrations/domain-v1alpha1-to-v1alpha2.md"
+            )
+        if domain_name != descriptor_path.parent.name:
+            raise DomainDescriptorError(
+                f"{descriptor_path}: name {domain_name!r} must match descriptor directory "
+                f"{descriptor_path.parent.name!r}"
+            )
         raw_products = document["data_products"]
         products = tuple(
             _product(descriptor_path, domain_name, product, index)

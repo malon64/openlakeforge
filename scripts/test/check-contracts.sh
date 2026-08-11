@@ -37,7 +37,7 @@ aws_main_text = aws_main_tf.read_text()
 
 for descriptor_path in sorted(Path("domains").glob("*/domain.yaml")):
     descriptor_text = descriptor_path.read_text()
-    if "apiVersion: openlakeforge.io/v1alpha1" not in descriptor_text or "kind: Domain" not in descriptor_text:
+    if "apiVersion: openlakeforge.io/v1alpha2" not in descriptor_text or "kind: Domain" not in descriptor_text:
         errors.append(f"{descriptor_path}: unsupported or missing domain descriptor version")
     if "polaris.lakehouse_dev" in descriptor_text or "fqn:" in descriptor_text:
         errors.append(f"{descriptor_path}: physical catalog identities must come from provider contracts")

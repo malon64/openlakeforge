@@ -14,7 +14,7 @@ ROOT = Path(__file__).parents[3]
 def _descriptor(domain: str, product_id: str = "orders", asset_prefix: str | None = None) -> str:
     prefix = asset_prefix or f"{domain}_{product_id}"
     return f"""\
-apiVersion: openlakeforge.io/v1alpha1
+apiVersion: openlakeforge.io/v1alpha2
 kind: Domain
 name: {domain}
 displayName: {domain.title()}
@@ -133,6 +133,45 @@ def test_inventory_rejects_duplicate_asset_prefixes(tmp_path: Path) -> None:
     _write_descriptor(tmp_path, "supply_chain", duplicate)
 
     with pytest.raises(DomainDescriptorError, match=r"duplicate asset_prefix 'shared_product'"):
+        load_domain_inventory(tmp_path)
+
+
+def test_inventory_rejects_duplicate_product_ids_within_a_domain(tmp_path: Path) -> None:
+    duplicate = _descriptor("sales") + """\
+  - id: orders
+    name: sales_orders_copy
+    displayName: Orders copy
+    description: Orders copy product.
+    status: planned
+    asset_prefix: sales_orders_copy
+    bronze:
+      - name: source_copy
+        path: s3://lakehouse-bronze/sales/orders/source_copy
+    silver_tables:
+      tables:
+        - name: source_copy
+    gold_tables:
+      tables:
+        - name: mart_orders_copy
+"""
+    _write_descriptor(tmp_path, "sales", duplicate)
+
+    with pytest.raises(DomainDescriptorError, match=r"duplicate id within domain 'sales'"):
+        load_domain_inventory(tmp_path)
+
+
+def test_inventory_requires_descriptor_name_to_match_its_directory(tmp_path: Path) -> None:
+    _write_descriptor(tmp_path, "retail", _descriptor("sales"))
+
+    with pytest.raises(DomainDescriptorError, match=r"name 'sales' must match descriptor directory 'retail'"):
+        load_domain_inventory(tmp_path)
+
+
+def test_inventory_requires_v1alpha2_with_migration_guidance(tmp_path: Path) -> None:
+    legacy = _descriptor("sales").replace("openlakeforge.io/v1alpha2", "openlakeforge.io/v1alpha1")
+    _write_descriptor(tmp_path, "sales", legacy)
+
+    with pytest.raises(DomainDescriptorError, match=r"domain-v1alpha1-to-v1alpha2"):
         load_domain_inventory(tmp_path)
 
 

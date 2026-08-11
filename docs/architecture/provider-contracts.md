@@ -67,7 +67,7 @@ Product-owned runtime assets use logical aliases. Local and Azure resolve
 AWS resolves them to S3 buckets. Local and Azure resolve `iceberg_catalog` to
 Polaris; AWS resolves it to Glue.
 
-Domain descriptors use `apiVersion: openlakeforge.io/v1alpha1` and
+Domain descriptors use `apiVersion: openlakeforge.io/v1alpha2` and
 `kind: Domain`; the machine-readable schema is
 [`docs/schema/domain.schema.json`](../schema/domain.schema.json). Descriptors
 contain logical product and table names only. Provider contracts derive the
@@ -76,12 +76,13 @@ does not require editing business metadata.
 
 ### Compatibility and migration
 
-The `v1alpha1` descriptor and provider contract versions are strict. Migrate a
-legacy descriptor by adding the version envelope, removing
-`silver_tables.schema`, `gold_tables.schema`, and physical asset FQNs, then
-validating against the schema before deployment. A future incompatible shape
-must publish a new API/version and migration guide; deployments fail closed
-when either version is unknown.
+The `v1alpha1` descriptor and provider contract versions are strict. The
+descriptor inventory introduced `v1alpha2`, which makes the product identity,
+Bronze, Silver, and Gold declarations required. Follow the
+[`v1alpha1` to `v1alpha2` migration guide](../migrations/domain-v1alpha1-to-v1alpha2.md)
+before deploying inventory consumers. A future incompatible shape must publish
+a new API/version and migration guide; deployments fail closed when either
+version is unknown.
 
 ## Catalog Contract
 

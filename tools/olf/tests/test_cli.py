@@ -30,7 +30,7 @@ def test_inventory_terraform_external_command_reads_json_query(tmp_path: Path) -
     descriptor = tmp_path / "domains" / "sales" / "domain.yaml"
     descriptor.parent.mkdir(parents=True)
     descriptor.write_text(
-        """apiVersion: openlakeforge.io/v1alpha1
+        """apiVersion: openlakeforge.io/v1alpha2
 kind: Domain
 name: sales
 displayName: Sales
