@@ -125,6 +125,29 @@ def _default_catalog_namespace_json(env: _Env, repo_root: Path) -> tuple[str, st
     return catalog_namespaces_json, silver_namespaces_json, gold_namespaces_json
 
 
+def _merge_missing_schema_fqns(env: _Env, name: str, derived: Mapping[str, str]) -> None:
+    """Fill in schema FQNs for products missing from the resolved contract.
+
+    Schema FQNs are plain derived strings (catalog + namespace name), not
+    physical resources — unlike catalog namespace creation, there is no
+    reason Phase 2 needs a fresh Phase 1 apply to know one for a product
+    added after the platform was last applied. A Terraform-resolved contract
+    only knows the products that existed at that apply, so merge in whatever
+    the current inventory adds beyond it instead of requiring the whole map
+    to be empty before deriving from the inventory at all.
+    """
+    raw = env.get(name)
+    try:
+        current = json.loads(raw) if raw else {}
+    except json.JSONDecodeError:
+        current = {}
+    if not isinstance(current, dict):
+        current = {}
+    merged = {**derived, **current}
+    if merged != current:
+        env.set(name, json.dumps(merged, separators=(",", ":")))
+
+
 def _apply_default_contract_env(env: _Env, base: Mapping[str, str], repo_root: Path) -> None:
     env.default("OPENLAKEFORGE_STORAGE_LOGICAL_NAME", "lakehouse_storage")
     env.default("OPENLAKEFORGE_STORAGE_PROVIDER", "local")
@@ -415,14 +438,12 @@ def build_contract_env(
         gold_bucket=env.get("OPENLAKEFORGE_STORAGE_GOLD_BUCKET"),
         manifest_base_uri=env.get("OPENLAKEFORGE_FLOE_MANIFEST_BASE_URI"),
     )
-    default_silver_fqns = json.dumps(schema_fqn_physical.silver_schema_fqns, separators=(",", ":"))
-    default_gold_fqns = json.dumps(schema_fqn_physical.gold_schema_fqns, separators=(",", ":"))
     if env.get("OPENLAKEFORGE_CATALOG_DATABASE_FQN") == "":
         env.set("OPENLAKEFORGE_CATALOG_DATABASE_FQN", database_fqn)
-    if env.get("OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON") == "":
-        env.set("OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON", default_silver_fqns)
-    if env.get("OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON") == "":
-        env.set("OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON", default_gold_fqns)
+    _merge_missing_schema_fqns(
+        env, "OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON", schema_fqn_physical.silver_schema_fqns
+    )
+    _merge_missing_schema_fqns(env, "OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON", schema_fqn_physical.gold_schema_fqns)
     if not om_catalog_service_user_set:
         env.set("OPENMETADATA_CATALOG_SERVICE", catalog_om_service_name)
     if env.get("OPENLAKEFORGE_STORAGE_IMPLEMENTATION") == "storage.aws_s3":

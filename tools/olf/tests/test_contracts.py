@@ -97,13 +97,20 @@ def test_aws_contracts_blank_local_only_fields_and_derive_glue_fqns() -> None:
     assert exports["OPENLAKEFORGE_CATALOG_GLUE_REST_URI"] == "https://glue.eu-west-1.amazonaws.com/iceberg"
     assert exports["OPENLAKEFORGE_CATALOG_GLUE_REST_WAREHOUSE"] == "123456789012"
     assert exports["OPENLAKEFORGE_CATALOG_GLUE_WAREHOUSE_PREFIX"] == "warehouse/iceberg"
-    # OpenMetadata mappings follow the Glue provider
+    # OpenMetadata mappings follow the Glue provider. The fixture contract
+    # only knows sales_order_revenue (as if it were applied before the other
+    # two products existed) — the inventory fills in the rest so Phase 2
+    # alone can still onboard them, without needing a fresh Phase 1 apply.
     assert exports["OPENLAKEFORGE_CATALOG_DATABASE_FQN"] == "aws_glue.lakehouse_dev"
     assert json.loads(exports["OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON"]) == {
-        "sales_order_revenue": "aws_glue.lakehouse_dev.sales_order_revenue_silver"
+        "sales_order_revenue": "aws_glue.lakehouse_dev.sales_order_revenue_silver",
+        "sales_customer_health": "aws_glue.lakehouse_dev.sales_customer_health_silver",
+        "supply_chain_inventory_reliability": "aws_glue.lakehouse_dev.supply_chain_inventory_reliability_silver",
     }
     assert json.loads(exports["OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON"]) == {
-        "sales_order_revenue": "aws_glue.lakehouse_dev.sales_order_revenue_gold"
+        "sales_order_revenue": "aws_glue.lakehouse_dev.sales_order_revenue_gold",
+        "sales_customer_health": "aws_glue.lakehouse_dev.sales_customer_health_gold",
+        "supply_chain_inventory_reliability": "aws_glue.lakehouse_dev.supply_chain_inventory_reliability_gold",
     }
     assert exports["OPENMETADATA_CATALOG_SERVICE"] == "aws_glue"
     assert exports["OPENLAKEFORGE_STORAGE_OM_SERVICE"] == "aws_s3"
@@ -113,6 +120,39 @@ def test_aws_contracts_blank_local_only_fields_and_derive_glue_fqns() -> None:
     # us-east-1 default from the pre-contract pass.
     assert exports["AWS_REGION"] == "eu-west-1"
     assert exports["AWS_DEFAULT_REGION"] == "eu-west-1"
+
+
+def test_schema_fqns_merge_missing_products_but_keep_explicit_overrides_for_known_ones() -> None:
+    """A Terraform contract only knows the products that existed at its last apply.
+
+    Phase 2 must still be able to onboard a product added since then without
+    a fresh platform apply (issue #89) — but an already-resolved value for a
+    product Terraform does know about must not be silently replaced.
+    """
+    contracts = {
+        "schema_version": "1.0.0",
+        "catalog": {
+            "catalog_type": "glue",
+            "catalog_provider": "aws-glue",
+            "catalog_name": "lakehouse_dev",
+            "silver_schema_fqns": {"sales_order_revenue": "aws_glue.custom_override.sales_order_revenue_silver"},
+            "gold_schema_fqns": {"sales_order_revenue": "aws_glue.custom_override.sales_order_revenue_gold"},
+        },
+    }
+
+    exports, _ = build_contract_env({}, contracts, repo_root=REPO_ROOT)
+
+    silver = json.loads(exports["OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON"])
+    gold = json.loads(exports["OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON"])
+    # The known product's explicit value is preserved untouched, even though
+    # it differs from what deriving it fresh would produce.
+    assert silver["sales_order_revenue"] == "aws_glue.custom_override.sales_order_revenue_silver"
+    assert gold["sales_order_revenue"] == "aws_glue.custom_override.sales_order_revenue_gold"
+    # Products the contract never mentioned are filled in from the inventory.
+    assert silver["sales_customer_health"] == "aws_glue.lakehouse_dev.sales_customer_health_silver"
+    assert silver["supply_chain_inventory_reliability"] == (
+        "aws_glue.lakehouse_dev.supply_chain_inventory_reliability_silver"
+    )
 
 
 def test_caller_exported_aws_region_is_preserved() -> None:
