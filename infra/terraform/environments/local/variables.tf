@@ -105,3 +105,13 @@ variable "trino_chart_package_path" {
   type        = string
   default     = null
 }
+
+variable "dagster_code_location_granularity" {
+  description = "'single' merges every domain into one Dagster code location (ADR 0019 default); 'per-domain' gives each domain its own code location and gRPC pod."
+  type        = string
+  default     = "single"
+  validation {
+    condition     = contains(["single", "per-domain"], var.dagster_code_location_granularity)
+    error_message = "dagster_code_location_granularity must be 'single' or 'per-domain'."
+  }
+}

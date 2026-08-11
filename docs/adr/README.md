@@ -74,3 +74,8 @@ boundary. AWS continues to use Glue.
 `0021-domain-descriptor-v1alpha2-inventory.md` introduces the strict
 inventory-required descriptor shape as `v1alpha2`, preserving the former
 `v1alpha1` envelope for migration validation.
+
+`0022-terraform-reads-domain-inventory-via-external-provider.md` records the
+decision to have every Terraform environment root read product identities
+from the typed `olf.inventory.DomainInventory` model through a
+`hashicorp/external` data source, rather than restating them as HCL literals.

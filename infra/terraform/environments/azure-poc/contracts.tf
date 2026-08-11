@@ -160,10 +160,15 @@ locals {
     service_name   = "dagster-dagster-webserver"
     http_port      = 80
     endpoint       = "http://dagster-dagster-webserver:80"
-    code_locations = [
+    code_locations = var.dagster_code_location_granularity == "per-domain" ? [
+      for domain in local.inventory.domains : {
+        name               = domain.code_location_name
+        definitions_module = domain.definitions_module
+      }
+      ] : [
       {
         name               = "openlakeforge-dagster"
-        definitions_module = "domains.definitions"
+        definitions_module = local.inventory.aggregate_definitions_module
       },
     ]
     runner                    = "kubernetes-run-launcher"

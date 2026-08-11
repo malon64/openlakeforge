@@ -43,6 +43,7 @@ The exact version `.terraform.lock.hcl` pins for each root -- what a consumer of
 | --- | --- | --- | --- | --- | --- |
 | hashicorp/aws | 5.100.0 |  |  | 5.100.0 |  |
 | hashicorp/azurerm |  |  |  |  | 4.77.0 |
+| hashicorp/external | 2.4.0 | 2.4.0 | 2.4.0 |  |  |
 | hashicorp/helm | 3.2.0 | 3.2.0 | 3.1.1 |  |  |
 | hashicorp/kubernetes | 2.38.0 | 2.38.0 | 2.38.0 |  |  |
 | hashicorp/random | 3.9.0 | 3.9.0 | 3.9.0 |  | 3.9.0 |
