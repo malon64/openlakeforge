@@ -65,29 +65,3 @@ import_namespace_if_missing_in_state() {
   echo "==> Importing existing namespace '${namespace}' into Terraform state..."
   terraform -chdir="${terraform_dir}" import "$@" "${resource_addr}" "${namespace}" >/dev/null
 }
-
-# Preflight the Polaris service-principal credentials. When Polaris restarted
-# with in-memory persistence, previously minted client credentials are stale;
-# force a new bootstrap generation so Terraform re-runs the bootstrap job.
-# Sets POLARIS_BOOTSTRAP_GENERATION in the caller's environment. The OAuth token
-# check itself lives in `olf polaris check-credentials`; this reacts to its exit
-# code (3 == stale). Callers must have sourced scripts/lib/python.sh (olf_run).
-prepare_polaris_bootstrap_generation() {
-  local status
-
-  if olf_run polaris check-credentials; then
-    return 0
-  else
-    status=$?
-  fi
-
-  if [[ "${status}" -eq 3 ]]; then
-    POLARIS_BOOTSTRAP_GENERATION="rebootstrap-$(date -u +%Y%m%d%H%M%S)"
-    cleanup_jobs_by_prefix "polaris-bootstrap-"
-    cleanup_jobs_by_prefix "openmetadata-bootstrap-"
-    cleanup_failed_jobs_by_prefix "openmetadata-polaris-refresh-"
-    return 0
-  fi
-
-  return "${status}"
-}

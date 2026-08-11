@@ -90,6 +90,8 @@ LAUNCH_RETRY_ATTEMPTS = 4
 LAUNCH_RETRY_DELAY_SECONDS = 3
 KUBECTL_READ_RETRY_ATTEMPTS = 4
 KUBECTL_READ_RETRY_DELAY_SECONDS = 2
+POLARIS_POD_SELECTOR = "app.kubernetes.io/name=polaris,app.kubernetes.io/instance=polaris"
+POLARIS_RESTART_TIMEOUT_SECONDS = 300
 TRANSIENT_KUBECTL_ERROR_MARKERS = (
     "tls handshake timeout",
     "i/o timeout",
@@ -369,6 +371,8 @@ def run_smoke(cfg: E2EConfig) -> None:
 def run_full(cfg: E2EConfig) -> None:
     launch_and_poll_dagster_jobs(cfg)
     check_trino_tables_and_marts(cfg)
+    if cfg.env == "local":
+        check_polaris_restart_recovery(cfg)
     check_superset_dashboards(cfg)
     check_openmetadata_assets(cfg)
     check_ops_artifacts(cfg)
@@ -474,6 +478,43 @@ def check_trino_tables_and_marts(cfg: E2EConfig) -> None:
         count = trino_scalar(cfg, f"SELECT count(*) FROM iceberg.{mart}")
         if int(count) <= 0:
             raise E2EError(f"expected iceberg.{mart} to contain rows, got {count}")
+
+
+def check_polaris_restart_recovery(cfg: E2EConfig) -> None:
+    """Verify that Polaris keeps table identity after its pod is recreated."""
+    log.step("Checking Polaris restart recovery...")
+    pod_name = kubectl(
+        cfg,
+        [
+            "get",
+            "pods",
+            "-n",
+            cfg.namespace,
+            "-l",
+            POLARIS_POD_SELECTOR,
+            "-o",
+            "jsonpath={.items[0].metadata.name}",
+        ],
+        capture=True,
+    ).strip()
+    if not pod_name:
+        raise E2EError("could not find the Polaris pod to restart.")
+
+    kubectl(cfg, ["delete", "pod", pod_name, "-n", cfg.namespace])
+    kubectl(
+        cfg,
+        [
+            "wait",
+            "--for=condition=Ready",
+            "pod",
+            "-n",
+            cfg.namespace,
+            "-l",
+            POLARIS_POD_SELECTOR,
+            f"--timeout={POLARIS_RESTART_TIMEOUT_SECONDS}s",
+        ],
+    )
+    check_trino_tables_and_marts(cfg)
 
 
 def trino_scalar(cfg: E2EConfig, sql: str) -> str:

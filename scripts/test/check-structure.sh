@@ -144,7 +144,6 @@ required_paths=(
   "tools/olf/olf/s3.py"
   "tools/olf/olf/superset.py"
   "tools/olf/olf/openmetadata.py"
-  "tools/olf/olf/polaris.py"
   "scripts/artifacts/floe-manifest.sh"
   "scripts/artifacts/dbt-parse.sh"
   "scripts/artifacts/olf.sh"
