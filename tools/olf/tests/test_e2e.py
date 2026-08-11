@@ -17,7 +17,7 @@ def _write_two_product_fixture(root: Path) -> None:
     path.parent.mkdir(parents=True)
     path.write_text(
         """\
-apiVersion: openlakeforge.io/v1alpha1
+apiVersion: openlakeforge.io/v1alpha2
 kind: Domain
 name: widgets
 displayName: Widgets
