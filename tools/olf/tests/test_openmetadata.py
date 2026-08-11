@@ -152,6 +152,60 @@ data_products:
     assert cfg.catalog_gold_schema_fqns == {"override_widgets": "polaris.lakehouse_dev.override_widgets_gold"}
 
 
+def test_config_from_environment_accepts_a_standalone_metadata_file_override(tmp_path: Path) -> None:
+    """A single-file override's parent directory name must not have to match the domain.
+
+    Mirrors a mounted or temporary path like /metadata/domain.yaml, where the
+    parent directory carries no significance — only the file's own `name:`
+    field identifies the domain.
+    """
+    metadata_dir = tmp_path / "metadata"
+    metadata_dir.mkdir()
+    descriptor_path = metadata_dir / "domain.yaml"
+    descriptor_path.write_text(
+        """apiVersion: openlakeforge.io/v1alpha2
+kind: Domain
+name: sales
+displayName: Sales
+description: Standalone sales descriptor.
+status: active
+data_products:
+  - id: orders
+    name: sales_orders
+    displayName: Sales Orders
+    description: Orders.
+    status: active
+    asset_prefix: sales_orders
+    bronze:
+      - name: source
+        path: s3://lakehouse-bronze/sales/orders/source
+    silver_tables:
+      tables:
+        - name: source
+    gold_tables:
+      tables:
+        - name: mart_orders
+"""
+    )
+
+    cfg = om.OpenMetadataConfig.from_environment(
+        {},
+        base_url="http://x",
+        admin_email="a",
+        admin_password="p",
+        metadata_root=str(tmp_path / "does-not-exist"),
+        metadata_source_dir=str(descriptor_path),
+        allow_missing_assets=False,
+        catalog_service="polaris",
+        catalog_database="lakehouse_dev",
+        cleanup_legacy_default_database=False,
+    )
+
+    assert cfg.catalog_silver_schema_fqns == {"sales_orders": "polaris.lakehouse_dev.sales_orders_silver"}
+    deployer = om.OpenMetadataDeployer(cfg, om.OpenMetadataClient(cfg.base_url))
+    assert deployer.domain_files() == [descriptor_path]
+
+
 def test_config_from_environment_preserves_explicit_empty_schema_contract() -> None:
     cfg = om.OpenMetadataConfig.from_environment(
         {

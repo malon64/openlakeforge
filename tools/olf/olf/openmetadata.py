@@ -114,29 +114,34 @@ def _parse_json_env(name: str, raw: str) -> dict:
     return value
 
 
-def resolve_metadata_descriptor_paths(metadata_root: Path, metadata_source_dir: str) -> tuple[list[Path], Path]:
+def resolve_metadata_descriptor_paths(
+    metadata_root: Path, metadata_source_dir: str
+) -> tuple[list[Path], Path, bool]:
     """Resolve the descriptors an OpenMetadata deploy will actually read.
 
     ``metadata_source_dir`` may name a single ``domain.yaml`` file, a single
     domain's directory, or a multi-domain root — the same three shapes
     :meth:`OpenMetadataDeployer.domain_files` accepts. Returns
-    ``(descriptor_paths, source_label)`` so callers computing the schema-FQN
-    defaults use exactly the descriptors that will be deployed, not
-    ``metadata_root`` unconditionally.
+    ``(descriptor_paths, source_label, require_directory_match)`` so callers
+    computing the schema-FQN defaults use exactly the descriptors that will
+    be deployed, not ``metadata_root`` unconditionally. The single-file and
+    single-domain-directory shapes name an arbitrary parent directory (for
+    example a mounted ``/metadata/domain.yaml``), so ``require_directory_match``
+    is ``False`` for those.
     """
     if metadata_source_dir:
         path = Path(metadata_source_dir)
         if not path.exists():
             raise OpenMetadataError(f"OpenMetadata metadata source does not exist: {path}")
         if path.is_file():
-            return [path], path
+            return [path], path, False
         if (path / "domain.yaml").is_file():
-            return [path / "domain.yaml"], path
-        return sorted(path.glob("*/domain.yaml")), path
+            return [path / "domain.yaml"], path, False
+        return sorted(path.glob("*/domain.yaml")), path, True
 
     if not metadata_root.exists():
         raise OpenMetadataError(f"OpenMetadata metadata root does not exist: {metadata_root}")
-    return sorted(p for p in metadata_root.glob("*/domain.yaml") if p.is_file()), metadata_root
+    return sorted(p for p in metadata_root.glob("*/domain.yaml") if p.is_file()), metadata_root, True
 
 
 def _default_schema_fqns(
@@ -150,8 +155,12 @@ def _default_schema_fqns(
     deploy, so an OPENMETADATA_METADATA_SOURCE_DIR override that names a
     different product set still gets matching defaults.
     """
-    descriptor_paths, source_label = resolve_metadata_descriptor_paths(Path(metadata_root), metadata_source_dir)
-    inventory = load_domain_inventory_from_descriptors(descriptor_paths, source_label=source_label)
+    descriptor_paths, source_label, require_directory_match = resolve_metadata_descriptor_paths(
+        Path(metadata_root), metadata_source_dir
+    )
+    inventory = load_domain_inventory_from_descriptors(
+        descriptor_paths, source_label=source_label, require_directory_match=require_directory_match
+    )
     physical = inventory.resolve_physical_names(
         catalog_database_fqn=catalog_database_fqn,
         silver_bucket="",
@@ -441,7 +450,7 @@ class OpenMetadataDeployer:
     # --- source discovery -------------------------------------------------
 
     def domain_files(self):
-        descriptor_paths, _source_label = resolve_metadata_descriptor_paths(
+        descriptor_paths, _source_label, _require_directory_match = resolve_metadata_descriptor_paths(
             self.config.metadata_root, self.config.metadata_source_dir
         )
         return descriptor_paths

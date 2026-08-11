@@ -154,6 +154,22 @@ def test_load_domain_inventory_from_descriptors_rejects_an_empty_set() -> None:
         load_domain_inventory_from_descriptors([], source_label="nowhere")
 
 
+def test_load_domain_inventory_from_descriptors_allows_a_mismatched_directory_when_not_required(
+    tmp_path: Path,
+) -> None:
+    """A standalone override's parent directory name is not the domain's identity."""
+    arbitrary_dir = tmp_path / "not-the-domain-name"
+    arbitrary_dir.mkdir()
+    path = arbitrary_dir / "domain.yaml"
+    path.write_text(_descriptor("sales"), encoding="utf-8")
+
+    with pytest.raises(DomainDescriptorError, match="must match descriptor directory"):
+        load_domain_inventory_from_descriptors([path], source_label=path)
+
+    inventory = load_domain_inventory_from_descriptors([path], source_label=path, require_directory_match=False)
+    assert inventory.domains[0].name == "sales"
+
+
 def test_inventory_resolves_provider_physical_names() -> None:
     inventory = load_domain_inventory(ROOT)
     names = inventory.resolve_physical_names(

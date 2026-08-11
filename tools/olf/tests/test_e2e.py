@@ -1131,6 +1131,12 @@ def test_run_retry_transient_kubectl_does_not_retry_query_errors(
     assert attempts == 1
 
 
+def _write_dashboard_fixture(repo_root: Path, report_source_dir: str, file_name: str, *, slug: str, title: str) -> None:
+    dashboards_dir = repo_root / report_source_dir / "dashboards"
+    dashboards_dir.mkdir(parents=True, exist_ok=True)
+    (dashboards_dir / file_name).write_text(f"dashboard_title: {title}\nslug: {slug}\n", encoding="utf-8")
+
+
 def test_two_product_fixture_repo_drives_exactly_its_own_jobs_dashboards_and_marts(tmp_path: Path) -> None:
     """A descriptor change alone must move e2e's discovered work, per issue #39."""
     _write_two_product_fixture(tmp_path)
@@ -1147,23 +1153,43 @@ def test_two_product_fixture_repo_drives_exactly_its_own_jobs_dashboards_and_mar
     )
 
     assert fixture_cfg.inventory.job_names == ("widgets_alpha_pipeline", "widgets_beta_pipeline")
-    assert fixture_cfg.inventory.expected_dashboards == {
-        "widgets-alpha": "Widgets Alpha",
-        "widgets-beta": "Widgets Beta",
-    }
     assert fixture_cfg.inventory.gold_mart_names == (
         "widgets_alpha_gold.mart_alpha_summary",
         "widgets_beta_gold.mart_beta_summary",
     )
 
-    # The e2e assertion helpers must accept exactly this fixture's expectations
-    # with no reference to the real repository's seed products.
+    # Dashboard identity comes from the exported Superset YAML, not an
+    # asset_prefix/displayName convention — a title/slug that doesn't match
+    # that convention, and a product with two dashboards, must both work.
+    _write_dashboard_fixture(
+        tmp_path,
+        inventory.default_product.report_source_dir,
+        "Overview_1.yaml",
+        slug="widgets-alpha-overview",
+        title="Widgets Alpha Overview Board",
+    )
+    beta_product = next(product for product in inventory.products if product.id == "beta")
+    _write_dashboard_fixture(
+        tmp_path, beta_product.report_source_dir, "Beta_Main_1.yaml", slug="widgets-beta-main", title="Widgets Beta"
+    )
+    _write_dashboard_fixture(
+        tmp_path, beta_product.report_source_dir, "Beta_Detail_1.yaml", slug="widgets-beta-detail", title="Beta Detail"
+    )
+
+    expected = e2e.discovered_dashboards(fixture_cfg)
+
+    assert expected == {
+        "widgets-alpha-overview": "Widgets Alpha Overview Board",
+        "widgets-beta-main": "Widgets Beta",
+        "widgets-beta-detail": "Beta Detail",
+    }
     e2e.assert_superset_dashboards(
         [
-            {"slug": "widgets-alpha", "dashboard_title": "Widgets Alpha"},
-            {"slug": "widgets-beta", "dashboard_title": "Widgets Beta"},
+            {"slug": "widgets-alpha-overview", "dashboard_title": "Widgets Alpha Overview Board"},
+            {"slug": "widgets-beta-main", "dashboard_title": "Widgets Beta"},
+            {"slug": "widgets-beta-detail", "dashboard_title": "Beta Detail"},
         ],
-        fixture_cfg.inventory.expected_dashboards,
+        expected,
     )
     bad, warned = e2e.classify_pod_health(
         {

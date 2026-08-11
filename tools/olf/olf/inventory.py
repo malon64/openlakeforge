@@ -404,7 +404,7 @@ def _validate_inventory_identities(domains: tuple[Domain, ...]) -> None:
 
 
 def load_domain_inventory_from_descriptors(
-    descriptor_paths: Sequence[str | Path], *, source_label: str | Path
+    descriptor_paths: Sequence[str | Path], *, source_label: str | Path, require_directory_match: bool = True
 ) -> DomainInventory:
     """Load and validate an explicit set of ``domain.yaml`` descriptor paths.
 
@@ -413,6 +413,12 @@ def load_domain_inventory_from_descriptors(
     override naming a single file or domain directory, which does not fit the
     ``<root>/*/domain.yaml`` layout) build the same validated model this way,
     so the inventory always reflects the descriptors actually in use.
+
+    ``require_directory_match`` enforces that each descriptor's ``name``
+    matches its parent directory — meaningful for the standard
+    ``<root>/<domain>/domain.yaml`` layout, but not for a standalone override
+    naming an arbitrary file or directory (for example ``/metadata/domain.yaml``),
+    where the parent directory name carries no significance.
     """
     paths = sorted(Path(descriptor_path) for descriptor_path in descriptor_paths)
     if not paths:
@@ -427,7 +433,7 @@ def load_domain_inventory_from_descriptors(
                 f"{descriptor_path}: apiVersion {document['apiVersion']!r} must migrate to {DOMAIN_API_VERSION!r}; "
                 "see docs/migrations/domain-v1alpha1-to-v1alpha2.md"
             )
-        if domain_name != descriptor_path.parent.name:
+        if require_directory_match and domain_name != descriptor_path.parent.name:
             raise DomainDescriptorError(
                 f"{descriptor_path}: name {domain_name!r} must match descriptor directory "
                 f"{descriptor_path.parent.name!r}"

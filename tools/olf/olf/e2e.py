@@ -20,6 +20,7 @@ from typing import Any, Literal
 
 import boto3
 import requests
+import yaml
 from botocore.config import Config
 
 from olf import contracts, k8s, log
@@ -832,7 +833,31 @@ def check_superset_dashboards(cfg: E2EConfig) -> None:
         if not k8s.http_wait(f"{base_url}/health", attempts=90, delay=2):
             raise E2EError("Superset endpoint did not become reachable.")
         dashboards = SupersetClient(base_url).dashboards()
-    assert_superset_dashboards(dashboards, cfg.inventory.expected_dashboards)
+    assert_superset_dashboards(dashboards, discovered_dashboards(cfg))
+
+
+def discovered_dashboards(cfg: E2EConfig) -> dict[str, str]:
+    """Read the slug/title of every dashboard each product actually exports.
+
+    A product's descriptor cannot say what its dashboard is titled or slugged
+    as, or how many it exports — that identity lives only in the
+    source-controlled Superset export YAML under
+    ``<report_source_dir>/dashboards/*.yaml``, which is what actually gets
+    imported. Reading it here (rather than inventing slug/title from
+    asset_prefix/displayName) is what lets a product export a differently
+    named or multiple dashboards without failing this check.
+    """
+    expected: dict[str, str] = {}
+    for product in cfg.inventory.products:
+        dashboards_dir = cfg.repo_root / product.report_source_dir / "dashboards"
+        for dashboard_file in sorted(dashboards_dir.glob("*.yaml")):
+            document = yaml.safe_load(dashboard_file.read_text())
+            slug = document.get("slug") if isinstance(document, Mapping) else None
+            title = document.get("dashboard_title") if isinstance(document, Mapping) else None
+            if not slug or not title:
+                raise E2EError(f"{dashboard_file}: missing slug or dashboard_title")
+            expected[slug] = title
+    return expected
 
 
 class SupersetClient:
