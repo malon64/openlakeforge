@@ -190,6 +190,7 @@ module "dagster" {
   catalog_contract               = local.catalog_contract
   governance_contract            = local.governance_contract
   postgresql_contract            = local.metadata_database_contract
+  code_locations                 = local.orchestration_contract.code_locations
   floe_manifest_base_uri         = local.artifact_bucket_contract.base_uri
   floe_manifest_access_mode      = local.artifact_bucket_contract.access_mode
   artifact_bucket_name           = local.artifact_bucket_contract.bucket_name

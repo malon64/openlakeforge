@@ -159,8 +159,9 @@ The orchestration module owns:
 
 - the Dagster Helm release
 - shared PostgreSQL credentials for Dagster metadata
-- the `sales-dagster` code location loading `domains.sales.definitions`
-- the `supply-chain-dagster` code location loading `domains.supply_chain.definitions`
+- the `openlakeforge-dagster` code location loading `domains.definitions`
+- one user-code pod by default; a multi-entry `code_locations` configuration
+  remains available when domains need isolated code-location loading and restarts
 - the Kubernetes run launcher
 - the local project-code image reference `ghcr.io/openlakeforge/project-code:local`
 - the product Floe manifest base URI `s3://openlakeforge-ops/floe/manifests`

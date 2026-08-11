@@ -372,7 +372,7 @@ def test_openmetadata_data_product_candidates_try_short_and_domain_names() -> No
     ]
 
 
-def test_dagster_repository_discovery_finds_pipeline_location() -> None:
+def test_dagster_repository_discovery_finds_all_pipeline_locations_in_merged_location() -> None:
     client = e2e.DagsterClient(
         "http://dagster/graphql",
         request_json=lambda _query, _variables=None: {
@@ -381,13 +381,17 @@ def test_dagster_repository_discovery_finds_pipeline_location() -> None:
                     "__typename": "Workspace",
                     "locationEntries": [
                         {
-                            "name": "sales-dagster",
+                            "name": "openlakeforge-dagster",
                             "locationOrLoadError": {
                                 "__typename": "RepositoryLocation",
                                 "repositories": [
                                     {
                                         "name": "__repository__",
-                                        "pipelines": [{"name": "sales_order_revenue_pipeline"}],
+                                        "pipelines": [
+                                            {"name": "sales_order_revenue_pipeline"},
+                                            {"name": "sales_customer_health_pipeline"},
+                                            {"name": "supply_chain_inventory_reliability_pipeline"},
+                                        ],
                                     }
                                 ],
                             },
@@ -398,7 +402,12 @@ def test_dagster_repository_discovery_finds_pipeline_location() -> None:
         },
     )
 
-    assert client.discover_repository("sales_order_revenue_pipeline") == ("sales-dagster", "__repository__")
+    assert client.discover_repository("sales_order_revenue_pipeline") == ("openlakeforge-dagster", "__repository__")
+    assert client.discover_repository("sales_customer_health_pipeline") == ("openlakeforge-dagster", "__repository__")
+    assert client.discover_repository("supply_chain_inventory_reliability_pipeline") == (
+        "openlakeforge-dagster",
+        "__repository__",
+    )
 
 
 def test_dagster_repository_discovery_finds_job_location() -> None:
@@ -410,7 +419,7 @@ def test_dagster_repository_discovery_finds_job_location() -> None:
                     "__typename": "Workspace",
                     "locationEntries": [
                         {
-                            "name": "sales-dagster",
+                            "name": "openlakeforge-dagster",
                             "locationOrLoadError": {
                                 "__typename": "RepositoryLocation",
                                 "repositories": [
@@ -427,7 +436,7 @@ def test_dagster_repository_discovery_finds_job_location() -> None:
         },
     )
 
-    assert client.discover_repository("sales_order_revenue_pipeline") == ("sales-dagster", "__repository__")
+    assert client.discover_repository("sales_order_revenue_pipeline") == ("openlakeforge-dagster", "__repository__")
 
 
 def test_dagster_repository_discovery_raises_on_workspace_error() -> None:
@@ -449,7 +458,7 @@ def test_dagster_repository_discovery_reports_load_errors() -> None:
                     "__typename": "Workspace",
                     "locationEntries": [
                         {
-                            "name": "sales-dagster",
+                            "name": "openlakeforge-dagster",
                             "locationOrLoadError": {
                                 "__typename": "PythonError",
                                 "message": "user code unreachable",
@@ -477,7 +486,7 @@ def test_dagster_launch_uses_discovered_repository() -> None:
                         "__typename": "Workspace",
                         "locationEntries": [
                             {
-                                "name": "sales-dagster",
+                                "name": "openlakeforge-dagster",
                                 "locationOrLoadError": {
                                     "__typename": "RepositoryLocation",
                                     "repositories": [
@@ -499,7 +508,7 @@ def test_dagster_launch_uses_discovered_repository() -> None:
     assert client.launch("sales_order_revenue_pipeline") == "run-1"
     selector = calls[-1]["variables"]["executionParams"]["selector"]
     assert selector == {
-        "repositoryLocationName": "sales-dagster",
+        "repositoryLocationName": "openlakeforge-dagster",
         "repositoryName": "__repository__",
         "pipelineName": "sales_order_revenue_pipeline",
     }
@@ -513,7 +522,7 @@ def test_dagster_wait_for_repository_retries_until_job_is_available() -> None:
                     "__typename": "Workspace",
                     "locationEntries": [
                         {
-                            "name": "sales-dagster",
+                            "name": "openlakeforge-dagster",
                             "locationOrLoadError": {
                                 "__typename": "PythonError",
                                 "message": "user code unreachable",
@@ -527,7 +536,7 @@ def test_dagster_wait_for_repository_retries_until_job_is_available() -> None:
             "data": {
                 "reloadRepositoryLocation": {
                     "__typename": "WorkspaceLocationEntry",
-                    "name": "sales-dagster",
+                    "name": "openlakeforge-dagster",
                 }
             }
         },
@@ -537,7 +546,7 @@ def test_dagster_wait_for_repository_retries_until_job_is_available() -> None:
                     "__typename": "Workspace",
                     "locationEntries": [
                         {
-                            "name": "sales-dagster",
+                            "name": "openlakeforge-dagster",
                             "locationOrLoadError": {
                                 "__typename": "RepositoryLocation",
                                 "repositories": [
@@ -557,19 +566,123 @@ def test_dagster_wait_for_repository_retries_until_job_is_available() -> None:
     def request_json(_query: str, _variables: dict[str, Any] | None = None) -> dict[str, Any]:
         return responses.pop(0)
 
-    client = e2e.DagsterClient("http://dagster/graphql", request_json=request_json)
+    client = e2e.DagsterClient(
+        "http://dagster/graphql",
+        expected_location_names=["openlakeforge-dagster"],
+        request_json=request_json,
+    )
 
     assert client.wait_for_repository("sales_order_revenue_pipeline", timeout_seconds=1, delay=0) == (
-        "sales-dagster",
+        "openlakeforge-dagster",
         "__repository__",
     )
 
 
-def test_expected_repository_location_name_uses_domain_prefix() -> None:
-    assert e2e.expected_repository_location_name("sales_order_revenue_pipeline") == "sales-dagster"
-    assert (
-        e2e.expected_repository_location_name("supply_chain_inventory_reliability_pipeline") == "supply-chain-dagster"
+def test_expected_repository_location_names_reads_terraform_configuration(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(
+        e2e,
+        "terraform_output_json",
+        lambda _dir, name: ["openlakeforge-dagster"] if name == "dagster_code_location_names" else None,
     )
+
+    assert e2e.expected_repository_location_names(cfg(tmp_path)) == ["openlakeforge-dagster"]
+
+
+def test_expected_repository_location_names_accepts_split_configuration(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    location_names = ["domain-a", "domain-b"]
+    monkeypatch.setattr(e2e, "terraform_output_json", lambda _dir, _name: location_names)
+
+    assert e2e.expected_repository_location_names(cfg(tmp_path)) == location_names
+
+
+@pytest.mark.parametrize(
+    "location_names",
+    [[], ["openlakeforge-dagster", 1], ["location-a", "location-a"], "openlakeforge-dagster"],
+)
+def test_expected_repository_location_names_rejects_invalid_terraform_output(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, location_names: object
+) -> None:
+    monkeypatch.setattr(e2e, "terraform_output_json", lambda _dir, _name: location_names)
+
+    with pytest.raises(e2e.E2EError, match="non-empty list"):
+        e2e.expected_repository_location_names(cfg(tmp_path))
+
+
+def test_terraform_output_json_reads_location_list(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    commands: list[list[str]] = []
+    monkeypatch.setattr(
+        e2e,
+        "_run",
+        lambda args, *, capture=False: commands.append(args) or '["openlakeforge-dagster"]',
+    )
+
+    assert e2e.terraform_output_json(tmp_path / "contract", "dagster_code_location_names") == [
+        "openlakeforge-dagster"
+    ]
+    assert commands == [
+        [
+            "terraform",
+            f"-chdir={tmp_path / 'contract'}",
+            "output",
+            "-json",
+            "dagster_code_location_names",
+        ]
+    ]
+
+
+def test_terraform_output_json_rejects_invalid_json(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(e2e, "_run", lambda *_args, **_kwargs: "not-json")
+
+    with pytest.raises(e2e.E2EError, match="not valid JSON"):
+        e2e.terraform_output_json(tmp_path / "contract", "dagster_code_location_names")
+
+
+def test_expected_user_code_pods_filters_to_configured_locations(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(
+        e2e,
+        "kubectl",
+        lambda *_args, **_kwargs: '''
+        {"items": [
+          {"metadata": {"name": "dagster-user-deployments-openlakeforge-dagster-abc"}},
+          {"metadata": {"name": "dagster-user-deployments-sales-dagster-def"}},
+          {"metadata": {"name": "dagster-user-deployments-supply-chain-dagster-ghi"}},
+          {"metadata": {"name": "unrelated"}}
+        ]}
+        ''',
+    )
+
+    assert e2e.expected_user_code_pods(cfg(tmp_path), ["openlakeforge-dagster"]) == [
+        "dagster-user-deployments-openlakeforge-dagster-abc"
+    ]
+    assert e2e.expected_user_code_pods(cfg(tmp_path), ["sales-dagster", "supply-chain-dagster"]) == [
+        "dagster-user-deployments-sales-dagster-def",
+        "dagster-user-deployments-supply-chain-dagster-ghi",
+    ]
+
+
+def test_dagster_client_reloads_every_configured_location() -> None:
+    reloaded: list[str] = []
+
+    def request_json(_query: str, variables: dict[str, Any] | None = None) -> dict[str, Any]:
+        assert variables is not None
+        reloaded.append(variables["repositoryLocationName"])
+        return {"data": {"reloadRepositoryLocation": {"__typename": "WorkspaceLocationEntry"}}}
+
+    client = e2e.DagsterClient(
+        "http://dagster/graphql",
+        expected_location_names=["sales-dagster", "supply-chain-dagster"],
+        request_json=request_json,
+    )
+
+    client.try_reload_repository_locations()
+
+    assert reloaded == ["sales-dagster", "supply-chain-dagster"]
 
 
 def test_dagster_poll_reports_failure() -> None:
@@ -617,7 +730,7 @@ def test_dagster_launch_retries_transient_failure_and_keeps_launch_tag(monkeypat
                         "__typename": "Workspace",
                         "locationEntries": [
                             {
-                                "name": "sales-dagster",
+                                "name": "openlakeforge-dagster",
                                 "locationOrLoadError": {
                                     "__typename": "RepositoryLocation",
                                     "repositories": [
@@ -666,10 +779,11 @@ def test_launch_and_poll_dagster_jobs_defaults_to_previous_shell_timeout(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     timeouts: list[int] = []
+    received_location_names: list[str] = []
 
     class Client:
-        def __init__(self, _url: str) -> None:
-            pass
+        def __init__(self, _url: str, *, expected_location_names: list[str]) -> None:
+            received_location_names.extend(expected_location_names)
 
         def launch(self, _job: str) -> str:
             return "run-1"
@@ -679,6 +793,7 @@ def test_launch_and_poll_dagster_jobs_defaults_to_previous_shell_timeout(
 
     monkeypatch.delenv("DAGSTER_JOB_TIMEOUT_SECONDS", raising=False)
     monkeypatch.setattr(e2e, "DagsterClient", Client)
+    monkeypatch.setattr(e2e, "expected_repository_location_names", lambda _cfg: ["openlakeforge-dagster"])
     monkeypatch.setattr(e2e.k8s, "http_wait", lambda *_args, **_kwargs: True)
     monkeypatch.setattr(
         e2e.k8s,
@@ -700,6 +815,7 @@ def test_launch_and_poll_dagster_jobs_defaults_to_previous_shell_timeout(
     e2e.launch_and_poll_dagster_jobs(local_cfg)
 
     assert timeouts == [e2e.DAGSTER_JOB_TIMEOUT_SECONDS] * len(e2e.PRODUCT_JOBS)
+    assert received_location_names == ["openlakeforge-dagster"]
 
 
 def test_glue_database_names_requires_expected_schema_and_database_names() -> None:

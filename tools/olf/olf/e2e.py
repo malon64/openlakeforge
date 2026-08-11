@@ -13,7 +13,7 @@ import shutil
 import subprocess
 import time
 import uuid
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
@@ -528,7 +528,8 @@ def launch_and_poll_dagster_jobs(cfg: E2EConfig) -> None:
         base_url = f"http://127.0.0.1:{cfg.dagster_local_port}"
         if not k8s.http_wait(f"{base_url}/server_info", attempts=90, delay=2):
             raise E2EError("Dagster endpoint did not become reachable.")
-        client = DagsterClient(f"{base_url}/graphql")
+        location_names = expected_repository_location_names(cfg)
+        client = DagsterClient(f"{base_url}/graphql", expected_location_names=location_names)
         timeout_seconds = int(os.environ.get("DAGSTER_JOB_TIMEOUT_SECONDS", str(DAGSTER_JOB_TIMEOUT_SECONDS)))
         for job in PRODUCT_JOBS:
             try:
@@ -536,15 +537,16 @@ def launch_and_poll_dagster_jobs(cfg: E2EConfig) -> None:
             except E2EError as exc:
                 diagnostics = _bounded_pod_diagnostics(
                     cfg,
-                    ["dagster-dagster-webserver", *expected_user_code_pods(cfg)],
+                    ["dagster-dagster-webserver", *expected_user_code_pods(cfg, location_names)],
                 )
                 raise E2EError(f"{exc}\nDagster diagnostics:\n{diagnostics}") from exc
             log.info(f"{job}: launched ({run_id})")
             client.poll(job, run_id, timeout_seconds=timeout_seconds)
 
 
-def expected_user_code_pods(cfg: E2EConfig) -> list[str]:
-    """Discover user-code deployments for bounded failure diagnostics."""
+def expected_user_code_pods(cfg: E2EConfig, location_names: Sequence[str]) -> list[str]:
+    """Discover configured user-code deployments for bounded failure diagnostics."""
+    deployment_prefixes = tuple(f"dagster-user-deployments-{name}-" for name in location_names)
     try:
         raw = kubectl(cfg, ["get", "pods", "-n", cfg.namespace, "-o", "json"], capture=True)
         payload = json.loads(raw)
@@ -553,8 +555,21 @@ def expected_user_code_pods(cfg: E2EConfig) -> list[str]:
     return [
         str(item.get("metadata", {}).get("name"))
         for item in payload.get("items", [])
-        if "dagster-user-deployments" in str(item.get("metadata", {}).get("name", ""))
+        if str(item.get("metadata", {}).get("name", "")).startswith(deployment_prefixes)
     ][:5]
+
+
+def expected_repository_location_names(cfg: E2EConfig) -> list[str]:
+    """Read Dagster locations from the deployed environment contract."""
+    location_names = terraform_output_json(cfg.contract_terraform_dir, "dagster_code_location_names")
+    if (
+        not isinstance(location_names, list)
+        or not location_names
+        or any(not isinstance(location_name, str) or not location_name for location_name in location_names)
+        or len(set(location_names)) != len(location_names)
+    ):
+        raise E2EError("Terraform output dagster_code_location_names must be a non-empty list of unique names.")
+    return location_names
 
 
 class DagsterClient:
@@ -562,9 +577,11 @@ class DagsterClient:
         self,
         graphql_url: str,
         *,
+        expected_location_names: Sequence[str] = (),
         request_json: Callable[[str, Mapping[str, Any] | None], Mapping[str, Any]] | None = None,
     ) -> None:
         self.graphql_url = graphql_url
+        self.expected_location_names = tuple(expected_location_names)
         self._request_json = request_json or self._requests_graphql
 
     def launch(self, job_name: str) -> str:
@@ -650,7 +667,7 @@ class DagsterClient:
                 return self.discover_repository(job_name)
             except E2EError as exc:
                 last_error = exc
-                self.try_reload_repository_location(expected_repository_location_name(job_name))
+                self.try_reload_repository_locations()
                 time.sleep(delay)
         detail = f": {last_error}" if last_error else ""
         raise E2EError(
@@ -677,6 +694,10 @@ class DagsterClient:
             )
         except E2EError:
             return
+
+    def try_reload_repository_locations(self) -> None:
+        for location_name in self.expected_location_names:
+            self.try_reload_repository_location(location_name)
 
     def poll(
         self,
@@ -815,12 +836,6 @@ def check_superset_dashboards(cfg: E2EConfig) -> None:
             raise E2EError("Superset endpoint did not become reachable.")
         dashboards = SupersetClient(base_url).dashboards()
     assert_superset_dashboards(dashboards, EXPECTED_DASHBOARDS)
-
-
-def expected_repository_location_name(job_name: str) -> str:
-    if job_name.startswith("supply_chain_"):
-        return "supply-chain-dagster"
-    return "sales-dagster"
 
 
 class SupersetClient:
@@ -1097,6 +1112,16 @@ def terraform_output(terraform_dir: Path | None, name: str) -> str:
     if terraform_dir is None:
         raise E2EError(f"cannot read Terraform output {name}: no Terraform directory configured.")
     return _run(["terraform", f"-chdir={terraform_dir}", "output", "-raw", name], capture=True).strip()
+
+
+def terraform_output_json(terraform_dir: Path | None, name: str) -> Any:
+    if terraform_dir is None:
+        raise E2EError(f"cannot read Terraform output {name}: no Terraform directory configured.")
+    raw = _run(["terraform", f"-chdir={terraform_dir}", "output", "-json", name], capture=True)
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise E2EError(f"Terraform output {name} was not valid JSON.") from exc
 
 
 def kubectl(

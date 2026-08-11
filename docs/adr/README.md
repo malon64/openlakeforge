@@ -62,3 +62,7 @@ orchestration) and a uv-managed Python package `tools/olf` (cross-environment
 API, file, and contract logic), and redefines `make <env>-up` as a full
 foundation+platform+artifacts wrapper. It amends the wrapper semantics of ADR 0008
 without changing the two-phase boundary.
+
+`0019-merged-dagster-code-location-default.md` supersedes ADR 0014's
+per-domain Dagster code-location decision: the default is one merged location,
+while a per-domain split remains an explicit configuration choice.

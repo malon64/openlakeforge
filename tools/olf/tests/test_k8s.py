@@ -218,10 +218,10 @@ def test_discover_dagster_user_deployments_filters_chart_generated_names(
         "_kubectl",
         lambda args, **kwargs: "\n".join(
             [
-                "dagster-user-deployments-sales-dagster",
-                "dagster-user-deployments-supply-chain-dagster",
+                "dagster-user-deployments-openlakeforge-dagster",
                 "dagster-webserver",
-                "dagster-user-deployments-sales",
+                "dagster-user-deployments-domain-a",
+                "dagster-user-deployments-domain-b",
                 "custom-dagster",
             ]
         ),
@@ -230,8 +230,9 @@ def test_discover_dagster_user_deployments_filters_chart_generated_names(
     deployments = k8s.discover_dagster_user_deployments("lakehouse")
 
     assert deployments == [
-        "dagster-user-deployments-sales-dagster",
-        "dagster-user-deployments-supply-chain-dagster",
+        "dagster-user-deployments-openlakeforge-dagster",
+        "dagster-user-deployments-domain-a",
+        "dagster-user-deployments-domain-b",
     ]
 
 
@@ -259,7 +260,7 @@ def test_set_project_code_image_updates_all_dagster_surfaces(monkeypatch: pytest
     monkeypatch.setattr(
         k8s,
         "discover_dagster_user_deployments",
-        lambda namespace: ["dagster-user-deployments-sales-dagster"],
+        lambda namespace: ["dagster-user-deployments-domain-a", "dagster-user-deployments-domain-b"],
     )
     rollout_waits = []
     monkeypatch.setattr(
@@ -276,7 +277,8 @@ def test_set_project_code_image_updates_all_dagster_surfaces(monkeypatch: pytest
         ("dagster-dagster-daemon", "repo/project-code:new", "lakehouse"),
         ("dagster-webserver", "repo/project-code:new", "lakehouse"),
         ("dagster-daemon", "repo/project-code:new", "lakehouse"),
-        ("dagster-user-deployments-sales-dagster", "repo/project-code:new", "lakehouse"),
+        ("dagster-user-deployments-domain-a", "repo/project-code:new", "lakehouse"),
+        ("dagster-user-deployments-domain-b", "repo/project-code:new", "lakehouse"),
     ]
     assert len({restarted_at for *_, restarted_at in deployment_images}) == 1
     assert cronjob_images == [("openlakeforge-k8s-log-archive", "repo/project-code:new", "lakehouse")]
