@@ -100,71 +100,67 @@ os.environ.setdefault("OPENLAKEFORGE_FLOE_REPORT_BASE_URI", "s3://openlakeforge-
 os.environ.setdefault("OPENLAKEFORGE_LOG_BASE_URI", "s3://openlakeforge-ops/logs")
 os.environ.setdefault("OPENLAKEFORGE_RUN_ARTIFACT_BASE_URI", "s3://openlakeforge-ops/run-artifacts")
 
-from domains.definitions import defs as merged_defs
-from domains.sales.definitions import defs as sales_defs
-from domains.sales.extract.dlt.customer_health import CUSTOMER_HEALTH_ENTITIES
-from domains.sales.extract.dlt.order_revenue import ORDER_REVENUE_ENTITIES
-from domains.supply_chain.definitions import defs as supply_chain_defs
-from domains.supply_chain.extract.dlt.inventory_reliability import (
-    INVENTORY_RELIABILITY_ENTITIES,
-)
-import libs.product_dagster as product_dagster_lib
+from importlib import import_module
 
-PRODUCTS = [
-    {
-        "domain": "sales",
-        "product": "order_revenue",
-        "prefix": "sales_order_revenue",
-        "job": "sales_order_revenue_pipeline",
-        "manifest": Path("domains/sales/contracts/floe/manifests/order_revenue.manifest.json"),
-        "entities": ORDER_REVENUE_ENTITIES,
-        "gold": {
-            "mart_order_revenue_by_day",
-            "mart_order_revenue_by_channel",
-            "mart_order_revenue_margin_by_product",
-        },
-    },
-    {
-        "domain": "sales",
-        "product": "customer_health",
-        "prefix": "sales_customer_health",
-        "job": "sales_customer_health_pipeline",
-        "manifest": Path("domains/sales/contracts/floe/manifests/customer_health.manifest.json"),
-        "entities": CUSTOMER_HEALTH_ENTITIES,
-        "gold": {
-            "mart_customer_health_score",
-            "mart_churn_risk_by_segment",
-            "mart_support_sla_by_customer",
-        },
-    },
-    {
-        "domain": "supply_chain",
-        "product": "inventory_reliability",
-        "prefix": "supply_chain_inventory_reliability",
-        "job": "supply_chain_inventory_reliability_pipeline",
-        "manifest": Path(
-            "domains/supply_chain/contracts/floe/manifests/inventory_reliability.manifest.json"
-        ),
-        "entities": INVENTORY_RELIABILITY_ENTITIES,
-        "gold": {
-            "mart_inventory_position",
-            "mart_supplier_delivery_reliability",
-            "mart_stockout_risk",
-        },
-    },
-]
+from domains.definitions import defs as merged_defs
+import libs.product_dagster as product_dagster_lib
+from libs.domain_inventory import load_all_products
+
+
+def _dlt_entities(descriptor_product) -> tuple[str, ...]:
+    """Read the *_ENTITIES tuple the product's dlt loader declares.
+
+    This is a code fact, not descriptor data, so it stays a plain module
+    lookup by naming convention rather than something domain.yaml carries.
+    """
+    module = import_module(f"domains.{descriptor_product.domain_name}.extract.dlt.{descriptor_product.id}")
+    const_name = f"{descriptor_product.id.upper()}_ENTITIES"
+    entities = getattr(module, const_name, None)
+    if entities is None:
+        raise SystemExit(f"{module.__name__} does not define {const_name}")
+    return tuple(entities)
+
+
+PRODUCTS = []
+for _descriptor_product in load_all_products("domains"):
+    _entities = _dlt_entities(_descriptor_product)
+    if set(_descriptor_product.bronze_names) != set(_entities):
+        raise SystemExit(
+            f"{_descriptor_product.domain_name}/domain.yaml: product {_descriptor_product.id!r} bronze names "
+            f"{sorted(_descriptor_product.bronze_names)} do not match dlt entities {sorted(_entities)}"
+        )
+    PRODUCTS.append(
+        {
+            "domain": _descriptor_product.domain_name,
+            "product": _descriptor_product.id,
+            "prefix": _descriptor_product.asset_prefix,
+            "job": _descriptor_product.job_name,
+            "manifest": Path(
+                f"domains/{_descriptor_product.domain_name}/contracts/floe/manifests/"
+                f"{_descriptor_product.id}.manifest.json"
+            ),
+            "entities": _entities,
+            "gold": set(_descriptor_product.gold_names),
+        }
+    )
 
 if os.environ["OPENLAKEFORGE_FLOE_MANIFEST_ACCESS_MODE"].strip().lower() != "remote":
     raise SystemExit("project-code check must load Dagster definitions in remote Floe manifest mode")
 
-for module_name in ["domains.definitions", "domains.sales.definitions", "domains.supply_chain.definitions"]:
+discovered_domains = sorted({product["domain"] for product in PRODUCTS})
+domain_product_prefixes = {
+    domain_name: {product["prefix"] for product in PRODUCTS if product["domain"] == domain_name}
+    for domain_name in discovered_domains
+}
+
+domain_definitions_modules = [f"domains.{domain_name}.definitions" for domain_name in discovered_domains]
+for module_name in ["domains.definitions", *domain_definitions_modules]:
     module_targets = loadable_targets_from_python_module(module_name, ".")
     if len(module_targets) != 1 or module_targets[0].attribute != "defs":
         raise SystemExit(f"{module_name} should expose exactly one defs target")
 
 domain_defs = {
-    "sales": sales_defs,
-    "supply_chain": supply_chain_defs,
+    domain_name: import_module(f"domains.{domain_name}.definitions").defs for domain_name in discovered_domains
 }
 asset_key_list = [
     tuple(key.path)
@@ -186,17 +182,14 @@ source_asset_keys = {
     for asset in definitions.assets
     if not hasattr(asset, "keys")
 }
-sales_asset_keys = {
-    tuple(key.path)
-    for asset_def in sales_defs.assets
-    if hasattr(asset_def, "keys")
-    for key in asset_def.keys
-}
-supply_chain_asset_keys = {
-    tuple(key.path)
-    for asset_def in supply_chain_defs.assets
-    if hasattr(asset_def, "keys")
-    for key in asset_def.keys
+domain_asset_keys = {
+    domain_name: {
+        tuple(key.path)
+        for asset_def in definitions.assets
+        if hasattr(asset_def, "keys")
+        for key in asset_def.keys
+    }
+    for domain_name, definitions in domain_defs.items()
 }
 
 for product in PRODUCTS:
@@ -346,14 +339,18 @@ finally:
         else:
             os.environ[key] = value
 
-if not any(key[0] == "sales_order_revenue" for key in sales_asset_keys):
-    raise SystemExit("sales domain definitions did not load sales_order_revenue assets")
-if any(key[0].startswith("supply_chain") for key in sales_asset_keys):
-    raise SystemExit("sales domain definitions must not load supply_chain assets")
-if not any(key[0] == "supply_chain_inventory_reliability" for key in supply_chain_asset_keys):
-    raise SystemExit("supply_chain domain definitions did not load inventory_reliability assets")
-if any(key[0].startswith("sales") for key in supply_chain_asset_keys):
-    raise SystemExit("supply_chain domain definitions must not load sales assets")
+for domain_name, own_asset_keys in domain_asset_keys.items():
+    own_prefixes = domain_product_prefixes[domain_name]
+    foreign_prefixes = {
+        prefix
+        for other_domain, prefixes in domain_product_prefixes.items()
+        if other_domain != domain_name
+        for prefix in prefixes
+    }
+    if not any(key[0] in own_prefixes for key in own_asset_keys):
+        raise SystemExit(f"{domain_name} domain definitions did not load its own product assets")
+    if any(key[0] in foreign_prefixes for key in own_asset_keys):
+        raise SystemExit(f"{domain_name} domain definitions must not load other domains' assets")
 
 if len(asset_key_list) != len(asset_keys):
     raise SystemExit("duplicate Dagster asset keys found")

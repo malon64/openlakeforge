@@ -13,6 +13,12 @@ _olf_contracts_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 _olf_repo_root="$(cd "${_olf_contracts_dir}/../.." && pwd)"
 OLF_PROJECT_DIR="${OLF_PROJECT_DIR:-${_olf_repo_root}/tools/olf}"
 
+# `olf contracts env` reads domains/*/domain.yaml relative to
+# OPENLAKEFORGE_REPO_ROOT. Export it so callers that source this file before
+# cd-ing into the repo root (e.g. scripts/artifacts/floe-manifest.sh) still
+# resolve descriptors correctly regardless of the caller's CWD.
+export OPENLAKEFORGE_REPO_ROOT="${OPENLAKEFORGE_REPO_ROOT:-${_olf_repo_root}}"
+
 # The contract resolver runs as a subprocess, so a shell-local (non-exported)
 # NAMESPACE would be invisible to it. Export it when the caller set one.
 if [[ -n "${NAMESPACE:-}" ]]; then

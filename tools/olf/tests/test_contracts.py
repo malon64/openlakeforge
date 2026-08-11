@@ -6,6 +6,7 @@ import pytest
 from olf.contracts import build_contract_env, render_shell_exports
 
 FIXTURES = Path(__file__).parent / "fixtures"
+REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 def load_fixture(name: str) -> dict:
@@ -13,7 +14,7 @@ def load_fixture(name: str) -> dict:
 
 
 def test_defaults_without_contracts_match_local_profile() -> None:
-    exports, unsets = build_contract_env({}, None)
+    exports, unsets = build_contract_env({}, None, repo_root=REPO_ROOT)
     assert exports["OPENLAKEFORGE_STORAGE_IMPLEMENTATION"] == "storage.s3_compatible.seaweedfs"
     assert exports["OPENLAKEFORGE_STORAGE_ENDPOINT"] == "http://seaweedfs-s3:8333"
     assert exports["OPENLAKEFORGE_CATALOG_PROVIDER"] == "polaris"
@@ -52,11 +53,11 @@ def test_unsupported_provider_contract_version_is_rejected() -> None:
     contracts = load_fixture("local-provider-contracts.json")
     contracts["schema_version"] = "9.0.0"
     with pytest.raises(ProviderContractError, match="unsupported"):
-        build_contract_env({}, contracts)
+        build_contract_env({}, contracts, repo_root=REPO_ROOT)
 
 
 def test_local_contracts_apply_seaweedfs_values() -> None:
-    exports, unsets = build_contract_env({}, load_fixture("local-provider-contracts.json"))
+    exports, unsets = build_contract_env({}, load_fixture("local-provider-contracts.json"), repo_root=REPO_ROOT)
     assert exports["OPENLAKEFORGE_STORAGE_PROVIDER"] == "local"
     assert exports["OPENLAKEFORGE_STORAGE_S3_SERVICE_PORT"] == "8333"
     assert exports["OPENLAKEFORGE_STORAGE_PATH_STYLE_ACCESS"] == "true"
@@ -77,7 +78,7 @@ def test_local_contracts_apply_seaweedfs_values() -> None:
 
 
 def test_aws_contracts_blank_local_only_fields_and_derive_glue_fqns() -> None:
-    exports, unsets = build_contract_env({}, load_fixture("aws-provider-contracts.json"))
+    exports, unsets = build_contract_env({}, load_fixture("aws-provider-contracts.json"), repo_root=REPO_ROOT)
     # storage.aws_s3 blanks S3-compatible endpoint plumbing
     assert exports["OPENLAKEFORGE_STORAGE_ENDPOINT"] == ""
     assert exports["OPENLAKEFORGE_STORAGE_CREDENTIALS_SECRET_NAME"] == ""
@@ -116,7 +117,7 @@ def test_aws_contracts_blank_local_only_fields_and_derive_glue_fqns() -> None:
 
 def test_caller_exported_aws_region_is_preserved() -> None:
     exports, _ = build_contract_env(
-        {"AWS_REGION": "us-west-2"}, load_fixture("aws-provider-contracts.json")
+        {"AWS_REGION": "us-west-2"}, load_fixture("aws-provider-contracts.json"), repo_root=REPO_ROOT
     )
     assert exports["AWS_REGION"] == "us-west-2"
 
@@ -128,7 +129,7 @@ def test_caller_environment_wins_for_user_settable_variables() -> None:
         "OPENLAKEFORGE_STORAGE_OM_SERVICE": "custom_storage",
         "OPENLAKEFORGE_STORAGE_DISPLAY_NAME": "Custom S3",
     }
-    exports, _ = build_contract_env(base, load_fixture("aws-provider-contracts.json"))
+    exports, _ = build_contract_env(base, load_fixture("aws-provider-contracts.json"), repo_root=REPO_ROOT)
     assert "OPENLAKEFORGE_QUERY_SQLALCHEMY_URI" not in exports
     assert "OPENMETADATA_CATALOG_SERVICE" not in exports
     assert "OPENLAKEFORGE_STORAGE_OM_SERVICE" not in exports
@@ -137,18 +138,18 @@ def test_caller_environment_wins_for_user_settable_variables() -> None:
 
 def test_contract_values_override_inherited_environment() -> None:
     base = {"OPENLAKEFORGE_STORAGE_BRONZE_BUCKET": "stale-bucket"}
-    exports, _ = build_contract_env(base, load_fixture("aws-provider-contracts.json"))
+    exports, _ = build_contract_env(base, load_fixture("aws-provider-contracts.json"), repo_root=REPO_ROOT)
     assert exports["OPENLAKEFORGE_STORAGE_BRONZE_BUCKET"] == "openlakeforge-poc-bronze"
 
 
 def test_namespace_env_feeds_kube_namespace_default() -> None:
-    exports, _ = build_contract_env({"NAMESPACE": "custom-ns"}, None)
+    exports, _ = build_contract_env({"NAMESPACE": "custom-ns"}, None, repo_root=REPO_ROOT)
     assert exports["OPENLAKEFORGE_KUBE_NAMESPACE"] == "custom-ns"
 
 
 @pytest.mark.parametrize("fixture", ["local-provider-contracts.json", "aws-provider-contracts.json"])
 def test_render_shell_exports_are_evaluable_lines(fixture: str) -> None:
-    exports, unsets = build_contract_env({}, load_fixture(fixture))
+    exports, unsets = build_contract_env({}, load_fixture(fixture), repo_root=REPO_ROOT)
     output = render_shell_exports(exports, unsets)
     for line in output.splitlines():
         assert line.startswith("export ") or line.startswith("unset ")

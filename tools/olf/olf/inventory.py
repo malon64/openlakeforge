@@ -5,8 +5,9 @@ from __future__ import annotations
 import json
 import re
 import sys
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from functools import cache
 from pathlib import Path
 from typing import Any
 
@@ -87,6 +88,14 @@ class Product:
             floe_report_prefix=f"floe/reports/{self.domain_name}/{self.id}/",
             dbt_artifact_prefix=f"run-artifacts/dbt/{self.domain_name}/{self.id}/",
         )
+
+    @property
+    def superset_export_bundle_name(self) -> str:
+        return f"{self.name}_superset_assets_export.zip"
+
+    @property
+    def gold_mart_names(self) -> tuple[str, ...]:
+        return tuple(f"{self.gold_namespace}.{table.name}" for table in self.gold_tables)
 
 
 @dataclass(frozen=True)
@@ -191,6 +200,38 @@ class DomainInventory:
     @property
     def artifact_prefixes(self) -> tuple[ArtifactPrefixes, ...]:
         return tuple(product.artifact_prefixes for product in self.products)
+
+    @property
+    def domain_names(self) -> tuple[str, ...]:
+        return tuple(domain.name for domain in self.domains)
+
+    @property
+    def silver_table_count(self) -> int:
+        return sum(len(product.silver_tables) for product in self.products)
+
+    @property
+    def gold_table_count(self) -> int:
+        return sum(len(product.gold_tables) for product in self.products)
+
+    @property
+    def gold_mart_names(self) -> tuple[str, ...]:
+        return tuple(mart for product in self.products for mart in product.gold_mart_names)
+
+    @property
+    def manifest_keys(self) -> tuple[str, ...]:
+        return tuple(product.artifact_prefixes.manifest_key for product in self.products)
+
+    @property
+    def openmetadata_data_products(self) -> dict[str, tuple[str, str]]:
+        return {product.name: product.openmetadata_data_product_fqns for product in self.products}
+
+    @property
+    def silver_namespace_names(self) -> frozenset[str]:
+        return frozenset(product.silver_namespace for product in self.products)
+
+    @property
+    def gold_namespace_names(self) -> frozenset[str]:
+        return frozenset(product.gold_namespace for product in self.products)
 
     def resolve_physical_names(
         self,
@@ -362,15 +403,29 @@ def _validate_inventory_identities(domains: tuple[Domain, ...]) -> None:
             seen_product_ids.add(identity)
 
 
-def load_domain_inventory(path: str | Path) -> DomainInventory:
-    """Load and validate every ``domains/*/domain.yaml`` under ``path``."""
-    domains_root = _domains_root(Path(path))
-    descriptor_paths = sorted(descriptor for descriptor in domains_root.glob("*/domain.yaml") if descriptor.is_file())
-    if not descriptor_paths:
-        raise DomainDescriptorError(f"{domains_root}: no domain descriptors found at */domain.yaml")
+def load_domain_inventory_from_descriptors(
+    descriptor_paths: Sequence[str | Path], *, source_label: str | Path, require_directory_match: bool = True
+) -> DomainInventory:
+    """Load and validate an explicit set of ``domain.yaml`` descriptor paths.
+
+    Lower-level than :func:`load_domain_inventory`: callers that resolve their
+    own descriptor set (for example an ``OPENMETADATA_METADATA_SOURCE_DIR``
+    override naming a single file or domain directory, which does not fit the
+    ``<root>/*/domain.yaml`` layout) build the same validated model this way,
+    so the inventory always reflects the descriptors actually in use.
+
+    ``require_directory_match`` enforces that each descriptor's ``name``
+    matches its parent directory — meaningful for the standard
+    ``<root>/<domain>/domain.yaml`` layout, but not for a standalone override
+    naming an arbitrary file or directory (for example ``/metadata/domain.yaml``),
+    where the parent directory name carries no significance.
+    """
+    paths = sorted(Path(descriptor_path) for descriptor_path in descriptor_paths)
+    if not paths:
+        raise DomainDescriptorError(f"{source_label}: no domain descriptors found")
 
     domains: list[Domain] = []
-    for descriptor_path in descriptor_paths:
+    for descriptor_path in paths:
         document = load_domain_descriptor(descriptor_path)
         domain_name = document["name"]
         if document["apiVersion"] != DOMAIN_API_VERSION:
@@ -378,7 +433,7 @@ def load_domain_inventory(path: str | Path) -> DomainInventory:
                 f"{descriptor_path}: apiVersion {document['apiVersion']!r} must migrate to {DOMAIN_API_VERSION!r}; "
                 "see docs/migrations/domain-v1alpha1-to-v1alpha2.md"
             )
-        if domain_name != descriptor_path.parent.name:
+        if require_directory_match and domain_name != descriptor_path.parent.name:
             raise DomainDescriptorError(
                 f"{descriptor_path}: name {domain_name!r} must match descriptor directory "
                 f"{descriptor_path.parent.name!r}"
@@ -398,10 +453,33 @@ def load_domain_inventory(path: str | Path) -> DomainInventory:
             )
         )
 
-    inventory = DomainInventory(domains_root=domains_root, domains=tuple(domains))
+    inventory = DomainInventory(domains_root=Path(source_label), domains=tuple(domains))
     _validate_inventory_identities(inventory.domains)
     _ = inventory.default_product
     return inventory
+
+
+def load_domain_inventory(path: str | Path) -> DomainInventory:
+    """Load and validate every ``domains/*/domain.yaml`` under ``path``."""
+    domains_root = _domains_root(Path(path))
+    descriptor_paths = sorted(descriptor for descriptor in domains_root.glob("*/domain.yaml") if descriptor.is_file())
+    if not descriptor_paths:
+        raise DomainDescriptorError(f"{domains_root}: no domain descriptors found at */domain.yaml")
+    return load_domain_inventory_from_descriptors(descriptor_paths, source_label=domains_root)
+
+
+@cache
+def _cached_domain_inventory(resolved_path: str) -> DomainInventory:
+    return load_domain_inventory(resolved_path)
+
+
+def inventory_for(repo_root: str | Path) -> DomainInventory:
+    """Load and cache the domain inventory for a repository root.
+
+    Every consumer within one process (e2e, contracts, the CLI) resolves the
+    same descriptors, so this avoids re-parsing and re-validating YAML per call.
+    """
+    return _cached_domain_inventory(str(Path(repo_root).resolve()))
 
 
 def external_result(repo_root: str | Path) -> dict[str, str]:

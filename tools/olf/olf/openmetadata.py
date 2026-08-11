@@ -19,12 +19,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from olf.descriptors import load_domain_descriptor
-
-_SEED_PRODUCT_KEYS = (
-    "sales_order_revenue",
-    "sales_customer_health",
-    "supply_chain_inventory_reliability",
-)
+from olf.inventory import load_domain_inventory_from_descriptors
 
 
 class OpenMetadataError(RuntimeError):
@@ -89,12 +84,12 @@ class OpenMetadataConfig:
             catalog_silver_schema_fqns=(
                 _parse_json_env("OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON", silver_schema_fqns_raw)
                 if silver_schema_fqns_raw
-                else _default_schema_fqns(catalog_database_fqn, "silver")
+                else _default_schema_fqns(metadata_root, metadata_source_dir, catalog_database_fqn, "silver")
             ),
             catalog_gold_schema_fqns=(
                 _parse_json_env("OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON", gold_schema_fqns_raw)
                 if gold_schema_fqns_raw
-                else _default_schema_fqns(catalog_database_fqn, "gold")
+                else _default_schema_fqns(metadata_root, metadata_source_dir, catalog_database_fqn, "gold")
             ),
             storage_service=environ.get("OPENLAKEFORGE_STORAGE_OM_SERVICE", "seaweedfs"),
             storage_display_name=environ.get("OPENLAKEFORGE_STORAGE_DISPLAY_NAME", "SeaweedFS S3"),
@@ -119,9 +114,60 @@ def _parse_json_env(name: str, raw: str) -> dict:
     return value
 
 
-def _default_schema_fqns(catalog_database_fqn: str, layer: str) -> dict[str, str]:
-    """Return the seed-product contract used by direct local CLI execution."""
-    return {product: f"{catalog_database_fqn}.{product}_{layer}" for product in _SEED_PRODUCT_KEYS}
+def resolve_metadata_descriptor_paths(
+    metadata_root: Path, metadata_source_dir: str
+) -> tuple[list[Path], Path, bool]:
+    """Resolve the descriptors an OpenMetadata deploy will actually read.
+
+    ``metadata_source_dir`` may name a single ``domain.yaml`` file, a single
+    domain's directory, or a multi-domain root — the same three shapes
+    :meth:`OpenMetadataDeployer.domain_files` accepts. Returns
+    ``(descriptor_paths, source_label, require_directory_match)`` so callers
+    computing the schema-FQN defaults use exactly the descriptors that will
+    be deployed, not ``metadata_root`` unconditionally. The single-file and
+    single-domain-directory shapes name an arbitrary parent directory (for
+    example a mounted ``/metadata/domain.yaml``), so ``require_directory_match``
+    is ``False`` for those.
+    """
+    if metadata_source_dir:
+        path = Path(metadata_source_dir)
+        if not path.exists():
+            raise OpenMetadataError(f"OpenMetadata metadata source does not exist: {path}")
+        if path.is_file():
+            return [path], path, False
+        if (path / "domain.yaml").is_file():
+            return [path / "domain.yaml"], path, False
+        return sorted(path.glob("*/domain.yaml")), path, True
+
+    if not metadata_root.exists():
+        raise OpenMetadataError(f"OpenMetadata metadata root does not exist: {metadata_root}")
+    return sorted(p for p in metadata_root.glob("*/domain.yaml") if p.is_file()), metadata_root, True
+
+
+def _default_schema_fqns(
+    metadata_root: str, metadata_source_dir: str, catalog_database_fqn: str, layer: str
+) -> dict[str, str]:
+    """Derive the default schema FQN contract from the domain inventory.
+
+    Used for direct local CLI execution, where the contract environment has
+    not resolved OPENLAKEFORGE_CATALOG_{SILVER,GOLD}_SCHEMA_FQNS_JSON. Reads
+    the same descriptors resolve_metadata_descriptor_paths() will actually
+    deploy, so an OPENMETADATA_METADATA_SOURCE_DIR override that names a
+    different product set still gets matching defaults.
+    """
+    descriptor_paths, source_label, require_directory_match = resolve_metadata_descriptor_paths(
+        Path(metadata_root), metadata_source_dir
+    )
+    inventory = load_domain_inventory_from_descriptors(
+        descriptor_paths, source_label=source_label, require_directory_match=require_directory_match
+    )
+    physical = inventory.resolve_physical_names(
+        catalog_database_fqn=catalog_database_fqn,
+        silver_bucket="",
+        gold_bucket="",
+        manifest_base_uri="",
+    )
+    return physical.silver_schema_fqns if layer == "silver" else physical.gold_schema_fqns
 
 
 @dataclass
@@ -404,19 +450,10 @@ class OpenMetadataDeployer:
     # --- source discovery -------------------------------------------------
 
     def domain_files(self):
-        if self.config.metadata_source_dir:
-            path = Path(self.config.metadata_source_dir)
-            if not path.exists():
-                raise OpenMetadataError(f"OpenMetadata metadata source does not exist: {path}")
-            if path.is_file():
-                return [path]
-            if (path / "domain.yaml").is_file():
-                return [path / "domain.yaml"]
-            return sorted(path.glob("*/domain.yaml"))
-
-        if not self.config.metadata_root.exists():
-            raise OpenMetadataError(f"OpenMetadata metadata root does not exist: {self.config.metadata_root}")
-        return sorted(path for path in self.config.metadata_root.glob("*/domain.yaml") if path.is_file())
+        descriptor_paths, _source_label, _require_directory_match = resolve_metadata_descriptor_paths(
+            self.config.metadata_root, self.config.metadata_source_dir
+        )
+        return descriptor_paths
 
     # --- REST operations --------------------------------------------------
 
