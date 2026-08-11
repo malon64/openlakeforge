@@ -28,12 +28,15 @@ The Polaris Helm release uses `relational-jdbc` and references those Secret
 keys. The Polaris module receives this dependency through the metadata-database
 contract, so PostgreSQL bootstrap completes before Polaris starts.
 
-The bootstrap Job is repeatable. Existing catalogs, namespaces, principals,
-roles, and credential Secrets are retained. A pre-create ConfigMap marker makes
-the narrow principal-create/Secret-write failure window retryable: a retry
-rotates credentials only when that marker proves the principal was created by
-an incomplete bootstrap attempt. A principal with no credential Secret and no
-marker remains a hard failure so an active client is never silently rotated.
+The bootstrap Job is repeatable. Existing relational-metastore catalogs,
+namespaces, principals, roles, and credential Secrets are retained. Migration
+from the former in-memory metastore is deliberately destructive: obsolete
+client Secrets are removed and fresh Polaris credentials are created. A
+pre-create ConfigMap marker makes the narrow principal-create/Secret-write
+failure window retryable: a retry rotates credentials only when that marker
+proves the principal was created by an incomplete bootstrap attempt. A
+principal with no credential Secret and no marker remains a hard failure so an
+active relational-metastore client is never silently rotated.
 
 ## Consequences
 
