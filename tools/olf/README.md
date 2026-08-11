@@ -12,6 +12,7 @@ parsing. See [ADR 0017](../../docs/adr/0017-shared-python-deploy-tooling.md).
 | Command | Purpose |
 | --- | --- |
 | `olf contracts env [--terraform-dir D]` | Resolve the provider-contract runtime environment to `export`/`unset` lines (sourced by `scripts/contracts/load-runtime-env.sh`). |
+| `olf inventory terraform-external` | Render the typed, provider-neutral domain inventory for Terraform's external data source. |
 | `olf floe render-profile` | Render the Floe EnvironmentProfile YAML for the active contract env. |
 | `olf artifacts upload-manifests --via port-forward\|direct` | Publish product Floe manifests to the ops bucket (in-cluster S3 or cloud S3). |
 | `olf revision compute\|publish\|verify --runtime-root D` | Compute, publish, or verify an immutable Floe runtime-artifact revision. Publication writes `floe/revisions/sha256/<digest>/...` and does not activate that revision. |

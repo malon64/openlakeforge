@@ -70,3 +70,7 @@ while a per-domain split remains an explicit configuration choice.
 `0020-polaris-relational-metastore.md` records the local and Azure Polaris
 relational-metastore dependency, bootstrap recovery behavior, and rollback
 boundary. AWS continues to use Glue.
+
+`0021-domain-descriptor-v1alpha2-inventory.md` introduces the strict
+inventory-required descriptor shape as `v1alpha2`, preserving the former
+`v1alpha1` envelope for migration validation.
