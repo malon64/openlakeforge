@@ -160,6 +160,31 @@ def test_aws_explicit_smoke_suite_skips_full_checks(monkeypatch: pytest.MonkeyPa
     assert calls == ["smoke"]
 
 
+@pytest.mark.parametrize(
+    ("env", "expected"),
+    [
+        ("local", ["jobs", "tables", "recovery", "superset", "openmetadata", "artifacts"]),
+        ("azure", ["jobs", "tables", "superset", "openmetadata", "artifacts"]),
+        ("aws", ["jobs", "tables", "superset", "openmetadata", "artifacts"]),
+    ],
+)
+def test_run_full_only_restarts_polaris_for_local(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, env: e2e.Environment, expected: list[str]
+) -> None:
+    calls: list[str] = []
+
+    monkeypatch.setattr(e2e, "launch_and_poll_dagster_jobs", lambda _cfg: calls.append("jobs"))
+    monkeypatch.setattr(e2e, "check_trino_tables_and_marts", lambda _cfg: calls.append("tables"))
+    monkeypatch.setattr(e2e, "check_polaris_restart_recovery", lambda _cfg: calls.append("recovery"))
+    monkeypatch.setattr(e2e, "check_superset_dashboards", lambda _cfg: calls.append("superset"))
+    monkeypatch.setattr(e2e, "check_openmetadata_assets", lambda _cfg: calls.append("openmetadata"))
+    monkeypatch.setattr(e2e, "check_ops_artifacts", lambda _cfg: calls.append("artifacts"))
+
+    e2e.run_full(cfg(tmp_path, env=env))
+
+    assert calls == expected
+
+
 def test_prepare_kube_context_refreshes_existing_aws_context(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     commands: list[list[str]] = []
     kubeconfig = tmp_path / "aws.yaml"
@@ -318,6 +343,65 @@ def test_trino_scalar_requests_transient_kubectl_retries(monkeypatch: pytest.Mon
     assert e2e.trino_scalar(cfg(tmp_path), "SELECT count(*) FROM iceberg.test.table") == "6"
     assert calls[0]["capture"] is True
     assert calls[0]["retry_transient"] is True
+
+
+def test_check_polaris_restart_recovery_waits_then_rechecks_trino(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    commands: list[list[str]] = []
+    checks: list[str] = []
+
+    def kubectl(
+        _cfg: e2e.E2EConfig,
+        args: list[str],
+        *,
+        capture: bool = False,
+        retry_transient: bool = False,
+    ) -> str:
+        commands.append(args)
+        assert not retry_transient
+        if args[0] == "get":
+            assert capture
+            return "polaris-6b8d7d9f5c-abcde"
+        assert not capture
+        return ""
+
+    monkeypatch.setattr(e2e, "kubectl", kubectl)
+    monkeypatch.setattr(e2e, "check_trino_tables_and_marts", lambda _cfg: checks.append("trino"))
+
+    e2e.check_polaris_restart_recovery(cfg(tmp_path))
+
+    assert commands == [
+        [
+            "get",
+            "pods",
+            "-n",
+            "lakehouse",
+            "-l",
+            "app.kubernetes.io/name=polaris,app.kubernetes.io/instance=polaris",
+            "-o",
+            "jsonpath={.items[0].metadata.name}",
+        ],
+        ["delete", "pod", "polaris-6b8d7d9f5c-abcde", "-n", "lakehouse"],
+        [
+            "wait",
+            "--for=condition=Ready",
+            "pod",
+            "-n",
+            "lakehouse",
+            "-l",
+            "app.kubernetes.io/name=polaris,app.kubernetes.io/instance=polaris",
+            "--timeout=300s",
+        ],
+    ]
+    assert checks == ["trino"]
+
+
+def test_check_polaris_restart_recovery_requires_a_pod(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(e2e, "kubectl", lambda *_args, **_kwargs: "")
+
+    with pytest.raises(e2e.E2EError, match="could not find the Polaris pod"):
+        e2e.check_polaris_restart_recovery(cfg(tmp_path))
 
 
 def test_assert_scalar_equals_reports_mismatch() -> None:

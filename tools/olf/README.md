@@ -19,7 +19,6 @@ parsing. See [ADR 0017](../../docs/adr/0017-shared-python-deploy-tooling.md).
 | `olf superset deploy-reports` / `export-reports` | Build/import or export Superset report bundles. |
 | `olf openmetadata deploy-metadata` | Seed OpenMetadata domains, data products, and medallion containers over REST. |
 | `olf k8s set-project-code-image --image X` | Point every Dagster surface at a pushed project-code image, trigger one coordinated restart, and wait for its rollout. |
-| `olf polaris check-credentials` | Preflight Polaris service-principal credentials (exit 3 = stale). |
 | `olf e2e run --env local\|azure\|aws [--suite full\|smoke]` | Run shared end-to-end validation. All environments default to `full`; use `--suite smoke` for preflight-only checks. |
 
 ## Development

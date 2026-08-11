@@ -66,3 +66,7 @@ without changing the two-phase boundary.
 `0019-merged-dagster-code-location-default.md` supersedes ADR 0014's
 per-domain Dagster code-location decision: the default is one merged location,
 while a per-domain split remains an explicit configuration choice.
+
+`0020-polaris-relational-metastore.md` records the local and Azure Polaris
+relational-metastore dependency, bootstrap recovery behavior, and rollback
+boundary. AWS continues to use Glue.

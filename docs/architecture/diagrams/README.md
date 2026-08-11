@@ -70,11 +70,10 @@ platform apply (Phase ②). **Scheduled**: the two CronJobs on the cluster clock
 the contracts.*
 
 Superset queries Trino; Trino resolves tables through Polaris and reads data over s3a;
-Polaris tracks catalog state in-memory — a plain pod restart loses it, and only a
-platform-up re-run (which bumps `polaris_bootstrap_generation`) recreates it via the
-bootstrap Job — and
-points at the Iceberg warehouse files in SeaweedFS; Dagster, OpenMetadata, and Superset share one
-PostgreSQL. The per-run pair does the data work: the run pod lands raw data in
+Polaris persists catalog state in PostgreSQL through JDBC, so a plain pod restart
+preserves catalog and table identity. Polaris points at the Iceberg warehouse files in
+SeaweedFS; Dagster, OpenMetadata, Superset, and Polaris share one PostgreSQL service.
+The per-run pair does the data work: the run pod lands raw data in
 object storage with **dlt**, launches the **Floe** runner (which authenticates to
 Polaris and reads/writes SeaweedFS), then calls **Trino** through dbt-trino to build
 Gold. Both Floe and dbt-trino also push OpenLineage events straight to OpenMetadata's

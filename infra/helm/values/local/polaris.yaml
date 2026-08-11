@@ -6,10 +6,11 @@ image:
 
 replicaCount: 1
 
-# In-memory metastore is intentionally ephemeral for local development.
+# Polaris stores catalog state in the shared in-cluster PostgreSQL service.
+# Terraform supplies the relational JDBC Secret reference from the database contract.
 polaris:
   persistence:
-    type: in-memory
+    type: relational-jdbc
 
 service:
   type: ClusterIP

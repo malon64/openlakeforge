@@ -16,9 +16,6 @@ export HELM_CACHE_SCOPE="${HELM_CACHE_SCOPE:-${DEPLOYMENT_SCOPE}}"
 PROJECT_CODE_IMAGE_PULL_POLICY="${PROJECT_CODE_IMAGE_PULL_POLICY:-Always}"
 PROJECT_CODE_IMAGE_REVISION="${PROJECT_CODE_IMAGE_REVISION:-manual}"
 SUPERSET_IMAGE_PULL_POLICY="${SUPERSET_IMAGE_PULL_POLICY:-Always}"
-POLARIS_BOOTSTRAP_GENERATION="${POLARIS_BOOTSTRAP_GENERATION:-manual}"
-POLARIS_PREFLIGHT_LOG="${POLARIS_PREFLIGHT_LOG:-/tmp/openlakeforge-azure-polaris-port-forward.log}"
-POLARIS_PREFLIGHT_BODY="${POLARIS_PREFLIGHT_BODY:-/tmp/openlakeforge-azure-polaris-token-check-body}"
 TRINO_CHART_REPOSITORY="${TRINO_CHART_REPOSITORY:-https://trinodb.github.io/charts}"
 TRINO_CHART_VERSION="${TRINO_CHART_VERSION:-1.42.2}"
 DAGSTER_CHART_REPOSITORY="${DAGSTER_CHART_REPOSITORY:-https://dagster-io.github.io/helm}"
@@ -104,7 +101,6 @@ terraform_apply_once() {
     -var="superset_image_repository=${SUPERSET_IMAGE_REPOSITORY}" \
     -var="superset_image_tag=${SUPERSET_IMAGE_TAG}" \
     -var="superset_image_pull_policy=${SUPERSET_IMAGE_PULL_POLICY}" \
-    -var="polaris_bootstrap_generation=${POLARIS_BOOTSTRAP_GENERATION}" \
     -var="trino_chart_package_path=${TRINO_CHART_PACKAGE_PATH}" \
     -var="dagster_chart_package_path=${DAGSTER_CHART_PACKAGE_PATH}"
 }
@@ -119,7 +115,6 @@ prepare_cached_chart "Trino" trino "${TRINO_CHART_REPOSITORY}" trino/trino \
   "${TRINO_CHART_VERSION}" "${TRINO_CHART_PACKAGE_PATH}"
 prepare_cached_dagster_chart_no_schema dagster "${DAGSTER_CHART_REPOSITORY}" \
   "${DAGSTER_CHART_VERSION}" "${DAGSTER_CHART_PACKAGE_PATH}"
-prepare_polaris_bootstrap_generation
 
 echo "==> Initializing Terraform Azure POC platform..."
 terraform -chdir="${TERRAFORM_DIR}" init
@@ -135,7 +130,6 @@ terraform_import_namespace_args=(
   -var="superset_image_repository=${SUPERSET_IMAGE_REPOSITORY}"
   -var="superset_image_tag=${SUPERSET_IMAGE_TAG}"
   -var="superset_image_pull_policy=${SUPERSET_IMAGE_PULL_POLICY}"
-  -var="polaris_bootstrap_generation=${POLARIS_BOOTSTRAP_GENERATION}"
   -var="trino_chart_package_path=${TRINO_CHART_PACKAGE_PATH}"
   -var="dagster_chart_package_path=${DAGSTER_CHART_PACKAGE_PATH}"
 )

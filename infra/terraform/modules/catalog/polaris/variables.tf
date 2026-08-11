@@ -84,6 +84,13 @@ variable "storage_contract" {
   })
 }
 
+variable "postgresql_contract" {
+  description = "Metadata PostgreSQL contract providing the Polaris relational JDBC Secret reference."
+  type = object({
+    polaris_credentials_secret_name = string
+  })
+}
+
 variable "catalog_namespaces" {
   description = "Polaris namespaces to bootstrap, each with its namespace-level storage location."
   type = list(object({
@@ -139,12 +146,6 @@ variable "om_credentials_secret_name" {
   description = "Kubernetes Secret written by the bootstrap job with OpenMetadata OAuth credentials."
   type        = string
   default     = "polaris-om-creds"
-}
-
-variable "bootstrap_generation" {
-  description = "External generation value recorded on the Polaris bootstrap job when wrappers recreate it after in-memory Polaris state loses service principals."
-  type        = string
-  default     = "manual"
 }
 
 variable "bootstrap_revision" {
