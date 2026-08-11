@@ -171,16 +171,28 @@ This script requires `git`, `gh`, `cosign`, `uv`, `docker` (only for
 anyone: it only reads public release assets and verifies public Sigstore
 signatures.
 
-## What ran where
+## Release evidence
 
-- `make release-check`, `make check-components`, `ruff check tools/olf`, and
-  `pytest tools/olf/tests` were run locally as part of this change; see the
-  PR description for results.
-- The `release.yml` workflow itself — including a real `workflow_dispatch`
-  dry run — was **not** executed as part of authoring this change, because
-  this environment cannot trigger GitHub Actions runs. `scripts/release/
-  verify-install.sh` was written and syntax-checked, but not run end-to-end
-  against a published release, because no tag has been published yet. The
-  maintainer should trigger `workflow_dispatch` with `dry_run: true` after
-  merging, inspect the uploaded artifact, and only then cut the real
-  `v0.1.0-alpha.1` tag.
+`v0.1.0-alpha.1` has been published. This section records what actually ran, so
+the pipeline described above is documented as exercised rather than intended.
+
+| Item | Evidence |
+| --- | --- |
+| Release workflow | Run `31401253176`, `event=push`, `ref=v0.1.0-alpha.1`, concluded `success` on 2026-08-10 |
+| Published release | `v0.1.0-alpha.1`, not a draft, marked pre-release, published 2026-08-10 |
+| Release assets | `CHANGELOG.md`, `checksums.txt`, `checksums.txt.bundle`, `compatibility-matrix.md`, `component-catalog.yaml`, `component-manifest.json`, `project-code.spdx.json`, `superset.spdx.json` |
+| Static gates | `make release-check` runs as a job on every pull request. `main` is unprotected, so it is not merge-blocking yet (#37) |
+
+Because the tag-triggered run is the one that builds, pushes, signs, and attests
+the images, a failure in that stage would have failed the run; the successful
+conclusion above is the evidence for image publication and signing. To confirm
+independently, run the consumer verification commands in the section above, or
+`scripts/release/verify-install.sh v0.1.0-alpha.1 --pull-images`.
+
+Verification that is still outstanding, and should be recorded here when it
+runs:
+
+- An end-to-end execution of `scripts/release/verify-install.sh` against the
+  published tag by someone other than the release author.
+- A `workflow_dispatch` dry run ahead of the next tag, to exercise the dry-run
+  path itself.

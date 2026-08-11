@@ -2,7 +2,7 @@
 
 Status: Active
 
-Last updated: 2026-08-10
+Last updated: 2026-08-11
 
 Roadmap board: [OpenLakeForge Industrialization Roadmap](https://github.com/users/malon64/projects/3)
 
@@ -10,17 +10,49 @@ This document defines the route from the current proof of concept to a
 supportable OpenLakeForge distribution. GitHub milestones and issues are the
 execution view and must be reconciled with this document after each release.
 
-The `v0.1.0-alpha.1` closeout is intentionally narrow: it validates the local
-kind profile and the three existing seed products. Its release gates are an
+The `v0.1.0-alpha.1` closeout was intentionally narrow: it validates the local
+kind profile and the three existing seed products. Its release gates were an
 immutable Floe artifact-revision contract, a clean local full end-to-end run,
 and a signed, independently verifiable release bundle. Generic product
 discovery, a product scaffold, a fourth product, and scheduled local
-conformance are deferred to `v0.2-alpha`.
+conformance were deferred to `v0.2-alpha`, which is now scoped as the
+small-team adoption release described in Milestone 2.
+
+## Who This Is For
+
+OpenLakeForge targets small data teams that want a complete, self-hosted,
+open-source lakehouse they can run anywhere. Teams large enough to fund a
+platform engineering function will generally buy a managed platform instead;
+that is not the audience being optimised for here.
+
+That audience constrains the product in ways a generic "enterprise
+distribution" framing does not:
+
+- Runtime footprint is a feature. A team without a platform engineer cannot
+  absorb a stack that needs one.
+- Onboarding a data product must be a scaffold, not a platform-code edit.
+- Time from clean checkout to a queryable Gold table is the metric that decides
+  whether an evaluator continues.
+- Recoverability matters more than scale. Restarts happen on small clusters;
+  losing catalog state is unrecoverable in practice for these teams.
+
+The governance, identity, and multi-environment security work in the later
+milestones stays in scope — it is what makes the distribution supportable — but
+it follows adoption rather than preceding it.
 
 ## Product Boundary
 
-The first supported `v1.0` product is a self-hosted enterprise distribution for
-one organization and one environment per deployment.
+The supported `v1.0` product is a self-hosted distribution for one organization
+and one environment per deployment, shipped in two footprints from a single
+codebase:
+
+| Footprint | Contents | Intended use |
+| --- | --- | --- |
+| Slim | Ingestion, validation, table format, catalog, query, orchestration | Fastest path to a first Gold table; the small-team default |
+| Full | Slim plus governance (OpenMetadata) and reporting (Superset) | Teams that need a catalog and dashboards |
+
+Both footprints are introduced in Milestone 2 (#78). Before that, the local
+profile deploys the full component set.
 
 - Local kind is the `v0.1.0-alpha.1` validated developer profile.
 - AWS is an experimental POC until the secure beta reference profile.
@@ -35,10 +67,34 @@ foundation/platform/artifact separation, and shared typed deployment tooling.
 The cloud paths are not alpha release evidence until their own compatibility and
 recovery gates pass.
 
-## Why the Existing Roadmap Needs Rebalancing
+## Rebalance History
 
-The current roadmap is a useful component backlog, but it does not yet express
-an industrialization sequence. The main changes proposed here are:
+### Second rebalance — adoption before hardening (2026-08-11)
+
+`v0.1.0-alpha.1` shipped a signed, reproducible release with SBOMs, provenance,
+an immutable component catalog, and a compatibility matrix. That work stands.
+What it also made clear is that release trust was ahead of basic adoptability:
+
+- A published release is not installable. Running OpenLakeForge still requires
+  cloning the repository.
+- Adding a data product requires editing shared platform code in several places
+  across two languages.
+- The local stack runs 16 pods and asks for 6 CPU / 12Gi, most of it governance
+  and reporting an evaluating team does not need on day one.
+- The local catalog does not survive a pod restart.
+- No CI job deploys the platform, so a green pull request says nothing about
+  whether the platform still deploys.
+
+`v0.2-alpha` is therefore refocused from conformance follow-on work to
+small-team adoption, and the security, operability, and governance milestones
+shift one release later. Nothing is removed from them; the ordering changes.
+Issues carry `priority: P0/P1/P2` labels expressing the intended sequence within
+a milestone.
+
+### First rebalance — industrialization sequence (2026-07-16)
+
+The roadmap at that point was a useful component backlog, but it did not express
+an industrialization sequence. The changes made then were:
 
 - Put security, recovery, reproducibility, and release engineering before
   production exposure rather than in a final hardening phase.
@@ -59,8 +115,8 @@ an industrialization sequence. The main changes proposed here are:
 
 ## Roadmap Restructuring
 
-The existing issues should be reorganized as follows when this proposal is
-accepted:
+Recorded from the 2026-07-16 rebalance; retained as the rationale for the
+current milestone shape.
 
 - Keep [#17](https://github.com/malon64/openlakeforge/issues/17) and
   [#19](https://github.com/malon64/openlakeforge/issues/19) as early trust work.
@@ -88,28 +144,40 @@ accepted:
 - Defer [#8](https://github.com/malon64/openlakeforge/issues/8) and full Azure
   managed-service parity until the AWS reference profile is stable.
 
-## Milestone 0 — Rebaseline and Govern
+## Milestone 0 — Rebaseline and Govern (partially delivered)
 
 Goal: make repository state, roadmap state, and release intent agree.
 
+Delivered:
+
 - Publish lifecycle definitions for alpha, beta, release candidate, stable,
   deprecated, and unsupported versions.
-- Define contribution, security reporting, support, ownership, and review
-  policies.
-- Enforce branch protection, required CI and review, vulnerability alerts, and
-  dependency update automation.
 - Add release, priority, risk, effort, owner, and blocking-dependency fields to
   the roadmap.
 - Replace component phases with the release milestones in this document.
 - Split umbrella issues and give each item measurable acceptance criteria.
 - Reconcile issue and roadmap status after every merged pull request.
 
-Exit gate: every roadmap item belongs to a named release, has independently
-testable acceptance criteria, and accurately reflects the repository.
+Outstanding — this milestone stays open until these land:
 
-## Milestone 1 — Reproducible Product and Release Trust (`v0.1-alpha`)
+- Define contribution, security reporting, support, ownership, and review
+  policies. No `CONTRIBUTING`, `SECURITY`, `SUPPORT`, `GOVERNANCE`, or
+  `CODEOWNERS` file exists in the repository; `.github/` contains only
+  `workflows/`. Tracked in #37.
+- Enforce branch protection, required CI and review, and dependency update
+  automation. `main` is currently unprotected and there is no `dependabot.yml`.
+  Vulnerability alerts are enabled.
+
+Exit gate: every roadmap item belongs to a named release, has independently
+testable acceptance criteria, and accurately reflects the repository; and the
+policy, review, and dependency-automation controls above are in place.
+
+## Milestone 1 — Reproducible Product and Release Trust (`v0.1-alpha`, delivered)
 
 Goal: create a reproducible, versioned alpha that proves the product contract.
+
+Delivered as `v0.1.0-alpha.1`. Two items were deferred to Milestone 2 and are
+marked below.
 
 - Complete #19 by hashing all generated Floe artifacts, stamping the
   project-code image and uploaded manifest set, and rejecting mismatched
@@ -124,6 +192,8 @@ Goal: create a reproducible, versioned alpha that proves the product contract.
   physical names from provider contracts.
 - Keep the three current seed products as the alpha product boundary. Do not
   claim self-service product onboarding or generic discovery in this release.
+  Descriptor-driven discovery (#39) and the golden-path scaffold (#40) are
+  deferred to Milestone 2.
 - Establish a version catalog covering OpenLakeForge, charts, Terraform
   providers, Python dependencies, runner images, and base images.
 - Lock project-code dependencies; pin container bases and GitHub Actions by
@@ -135,18 +205,52 @@ Goal: create a reproducible, versioned alpha that proves the product contract.
 Exit gate: a tagged alpha installs from a clean checkout, reproduces the same
 artifact digests, and passes the full local result for the three seed products.
 
-## Follow-on Alpha — Extensibility and Continuous Conformance (`v0.2-alpha`)
+## Milestone 2 — Small-Team Adoption (`v0.2-alpha`)
 
-Goal: prove product extensibility and automate the validated local path after
-the initial release boundary is stable.
+Goal: make the platform something a small team can install, understand, extend
+with its own data, and trust not to break — before adding production surface
+area to secure.
 
-- Complete descriptor-driven discovery across Terraform, runtime tooling, and
-  end-to-end assertions (#39).
-- Add the supported scaffold and fourth-product conformance proof (#40).
-- Run a fresh local full end-to-end deployment on main or nightly with retained
-  diagnostics (#60).
+Ordering within the milestone follows the `priority` labels on each issue.
 
-## Milestone 2 — Secure AWS Reference Profile (`v0.5-beta`)
+**P0 — blocking.**
+
+- Build one typed domain inventory from validated descriptors and remove every
+  seed-product allowlist from shared platform code (#39).
+- Collapse Dagster code locations to one by default and make the per-domain
+  split configuration. Per-domain locations currently cost a pod each without
+  providing independent deployability, because all locations share one image
+  tag (#76).
+- Persist the Polaris catalog so a pod restart does not lose table identity and
+  require a full platform re-apply (#79).
+
+**P1 — core release payload.**
+
+- Make OpenMetadata and Superset optional and ship a slim local profile at no
+  more than 9 steady-state pods, with e2e assertions skipped rather than failed
+  when a layer is absent (#78).
+- Add a golden-path scaffold that generates a runnable data product from
+  documented inputs, and prove a fourth product onboards with no shared-code
+  change (#40).
+- Add a kind smoke gate on every pull request: one product pipeline through to a
+  queryable Gold table, within an enforced time budget (#81).
+
+**P2 — completes the release.**
+
+- Add the fresh local full end-to-end gate on a main or nightly cadence, with
+  assertions discovered from the domain inventory (#60).
+- Publish an installable release artifact so a consumer can deploy a tagged
+  release into an existing cluster without cloning the repository (#80).
+- Document what Floe contributes — contract-based validation, reject handling,
+  and Silver materialization — relative to assembling dbt tests, Soda, or raw
+  dlt. Floe remains the default ingestion and validation layer (#82).
+
+Exit gate: a small team installs a published release into a cluster without
+cloning the repository, scaffolds a data product, and reaches a queryable Gold
+table; the slim profile fits the documented footprint; every pull request is
+gated on a real deployment; and a Polaris restart is non-destructive.
+
+## Milestone 3 — Secure AWS Reference Profile (`v0.5-beta`)
 
 Goal: establish a secure, recoverable AWS deployment suitable for controlled
 beta use.
@@ -176,7 +280,7 @@ Exit gate: a fresh AWS deployment passes full end-to-end validation without
 default credentials, public worker/database endpoints, or port-forwarding,
 then passes secret-rotation and backup/restore drills.
 
-## Milestone 3 — Operability and Lifecycle (`v0.9-rc`)
+## Milestone 4 — Operability and Lifecycle (`v0.9-rc`)
 
 Goal: prove the release can be operated, upgraded, recovered, and supported.
 
@@ -202,7 +306,7 @@ Goal: prove the release can be operated, upgraded, recovered, and supported.
 Exit gate: the release candidate meets its reference objectives and survives
 upgrade, rollback, recovery, and failure drills.
 
-## Milestone 4 — Governed Stable Distribution (`v1.0`)
+## Milestone 5 — Governed Stable Distribution (`v1.0`)
 
 Goal: ship a documented, governed distribution with a stable product contract.
 
@@ -229,8 +333,10 @@ private networking, ingress/TLS, and restore validation.
 
 ## Supported Interfaces and Versioning
 
-- Make targets remain the supported operator interface. The `olf` CLI remains
-  the tested cross-environment implementation layer.
+- Make targets remain the supported interface for developing and operating from
+  a checkout. The `olf` CLI remains the tested cross-environment implementation
+  layer, and from Milestone 2 also carries the product-scaffolding and consumer
+  install paths (#40, #80) that do not assume a repository clone.
 - Add explicit preflight, conformance, backup, restore, and release-check
   targets as those capabilities are delivered.
 - Add `schema_version` to `provider_contracts`. Minor releases may add compatible
@@ -244,10 +350,10 @@ private networking, ingress/TLS, and restore validation.
 
 | Cadence | Required verification |
 | --- | --- |
-| Pull request | Existing static/unit checks, contract-schema validation, image build, SBOM, vulnerability/IaC/secret scans, and kind smoke |
-| Main/nightly | Fresh local full end-to-end run from `v0.2-alpha` onward; `v0.1.0-alpha.1` records one clean local release run instead |
+| Pull request | Existing static/unit checks, contract-schema validation, image build, SBOM, vulnerability/IaC/secret scans, and — from `v0.2-alpha` — a kind smoke on the slim profile (#81) |
+| Main/nightly | Fresh local full end-to-end run on the full profile from `v0.2-alpha` onward (#60); `v0.1.0-alpha.1` records one clean local release run instead |
 | Scheduled AWS | Ephemeral deployment, all product pipelines, restore drill, and teardown after the secure beta profile is introduced |
-| Release | `v0.1.0-alpha.1`: digest-mismatch negative test, clean local install, full three-product result, and release-bundle verification. Later releases add lifecycle, recovery, and onboarding gates cumulatively. |
+| Release | `v0.1.0-alpha.1`: digest-mismatch negative test, clean local install, full three-product result, and release-bundle verification. `v0.2-alpha` adds consumer install from a published release (#80) and fourth-product onboarding (#40). Later releases add lifecycle and recovery gates cumulatively. |
 
 Release gates are cumulative. A feature can be deferred, but an unmet security,
 recovery, reproducibility, or lifecycle gate cannot be waived merely to meet a

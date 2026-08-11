@@ -54,18 +54,26 @@ The current alpha seed set contains two Sales data products, `order_revenue` and
 The first AWS query path still uses Trino. Athena is documented as a future
 adapter because it changes query pricing, Superset wiring, and e2e validation.
 
-When tagged, `v0.1.0-alpha.1` will validate only the local kind profile and
-these three seed products. AWS and Azure are experimental POCs: they are not
-covered by the alpha compatibility, recovery, or support boundary.
+`v0.1.0-alpha.1` validates only the local kind profile and these three seed
+products. AWS and Azure are experimental POCs: they are not covered by the
+alpha compatibility, recovery, or support boundary.
 
 To deploy the AWS or Azure POC into your own account — credentials, the
 per-account `sandbox.tfvars`, and the `make` targets — see
 [docs/setup/cloud-poc-setup.md](docs/setup/cloud-poc-setup.md).
 
+## Contributing
+
+[AGENTS.md](AGENTS.md) is the working guide for changing OpenLakeForge, for
+contributors and coding agents alike: orientation reading order, repository map,
+architectural rules, coding standards, and the gates every change must pass.
+`CLAUDE.md` points at the same file.
+
 ## Repository Structure
 
 ```text
 openlakeforge/
+├── AGENTS.md           # contributor and coding-agent guide
 ├── docs/
 ├── infra/
 ├── images/project-code/
@@ -122,7 +130,11 @@ The active path from the current POC to a supportable distribution is defined
 in the [OpenLakeForge Industrialization Roadmap](docs/industrialization-roadmap.md).
 The GitHub project is the execution view. The current alpha closeout is limited
 to immutable artifact revisions, one clean local full end-to-end result, and a
-verifiable release bundle; generic product scaffolding follows in `v0.2-alpha`.
+verifiable release bundle.
+
+`v0.2-alpha` focuses on small-team adoption: a slim runtime profile, product
+onboarding through a scaffold rather than platform-code edits, an installable
+release artifact, and a deployment gate on every pull request.
 
 The iterations below record the POC delivery history:
 
@@ -151,8 +163,8 @@ check. [docs/release/compatibility-matrix.md](docs/release/compatibility-matrix.
 tracks the supported Kubernetes/Terraform/Helm/cloud-service combinations,
 and [CHANGELOG.md](CHANGELOG.md) records migration notes per release.
 
-`make release-check` runs the release-readiness gate locally (also enforced
-on every PR); `make release-bundle` builds a local release bundle for
+`make release-check` runs the release-readiness gate locally and also runs on
+every pull request; `make release-bundle` builds a local release bundle for
 inspection without publishing anything.
 
 ## Local Development
