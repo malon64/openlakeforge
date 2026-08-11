@@ -90,7 +90,7 @@ LAUNCH_RETRY_ATTEMPTS = 4
 LAUNCH_RETRY_DELAY_SECONDS = 3
 KUBECTL_READ_RETRY_ATTEMPTS = 4
 KUBECTL_READ_RETRY_DELAY_SECONDS = 2
-POLARIS_POD_SELECTOR = "app.kubernetes.io/name=polaris"
+POLARIS_POD_SELECTOR = "app.kubernetes.io/name=polaris,app.kubernetes.io/instance=polaris"
 POLARIS_RESTART_TIMEOUT_SECONDS = 300
 TRANSIENT_KUBECTL_ERROR_MARKERS = (
     "tls handshake timeout",

@@ -378,7 +378,7 @@ def test_check_polaris_restart_recovery_waits_then_rechecks_trino(
             "-n",
             "lakehouse",
             "-l",
-            "app.kubernetes.io/name=polaris",
+            "app.kubernetes.io/name=polaris,app.kubernetes.io/instance=polaris",
             "-o",
             "jsonpath={.items[0].metadata.name}",
         ],
@@ -390,7 +390,7 @@ def test_check_polaris_restart_recovery_waits_then_rechecks_trino(
             "-n",
             "lakehouse",
             "-l",
-            "app.kubernetes.io/name=polaris",
+            "app.kubernetes.io/name=polaris,app.kubernetes.io/instance=polaris",
             "--timeout=300s",
         ],
     ]
