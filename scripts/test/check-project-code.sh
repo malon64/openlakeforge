@@ -100,59 +100,51 @@ os.environ.setdefault("OPENLAKEFORGE_FLOE_REPORT_BASE_URI", "s3://openlakeforge-
 os.environ.setdefault("OPENLAKEFORGE_LOG_BASE_URI", "s3://openlakeforge-ops/logs")
 os.environ.setdefault("OPENLAKEFORGE_RUN_ARTIFACT_BASE_URI", "s3://openlakeforge-ops/run-artifacts")
 
+from importlib import import_module
+
 from domains.definitions import defs as merged_defs
 from domains.sales.definitions import defs as sales_defs
-from domains.sales.extract.dlt.customer_health import CUSTOMER_HEALTH_ENTITIES
-from domains.sales.extract.dlt.order_revenue import ORDER_REVENUE_ENTITIES
 from domains.supply_chain.definitions import defs as supply_chain_defs
-from domains.supply_chain.extract.dlt.inventory_reliability import (
-    INVENTORY_RELIABILITY_ENTITIES,
-)
 import libs.product_dagster as product_dagster_lib
+from libs.domain_inventory import load_all_products
 
-PRODUCTS = [
-    {
-        "domain": "sales",
-        "product": "order_revenue",
-        "prefix": "sales_order_revenue",
-        "job": "sales_order_revenue_pipeline",
-        "manifest": Path("domains/sales/contracts/floe/manifests/order_revenue.manifest.json"),
-        "entities": ORDER_REVENUE_ENTITIES,
-        "gold": {
-            "mart_order_revenue_by_day",
-            "mart_order_revenue_by_channel",
-            "mart_order_revenue_margin_by_product",
-        },
-    },
-    {
-        "domain": "sales",
-        "product": "customer_health",
-        "prefix": "sales_customer_health",
-        "job": "sales_customer_health_pipeline",
-        "manifest": Path("domains/sales/contracts/floe/manifests/customer_health.manifest.json"),
-        "entities": CUSTOMER_HEALTH_ENTITIES,
-        "gold": {
-            "mart_customer_health_score",
-            "mart_churn_risk_by_segment",
-            "mart_support_sla_by_customer",
-        },
-    },
-    {
-        "domain": "supply_chain",
-        "product": "inventory_reliability",
-        "prefix": "supply_chain_inventory_reliability",
-        "job": "supply_chain_inventory_reliability_pipeline",
-        "manifest": Path(
-            "domains/supply_chain/contracts/floe/manifests/inventory_reliability.manifest.json"
-        ),
-        "entities": INVENTORY_RELIABILITY_ENTITIES,
-        "gold": {
-            "mart_inventory_position",
-            "mart_supplier_delivery_reliability",
-            "mart_stockout_risk",
-        },
-    },
-]
+
+def _dlt_entities(descriptor_product) -> tuple[str, ...]:
+    """Read the *_ENTITIES tuple the product's dlt loader declares.
+
+    This is a code fact, not descriptor data, so it stays a plain module
+    lookup by naming convention rather than something domain.yaml carries.
+    """
+    module = import_module(f"domains.{descriptor_product.domain_name}.extract.dlt.{descriptor_product.id}")
+    const_name = f"{descriptor_product.id.upper()}_ENTITIES"
+    entities = getattr(module, const_name, None)
+    if entities is None:
+        raise SystemExit(f"{module.__name__} does not define {const_name}")
+    return tuple(entities)
+
+
+PRODUCTS = []
+for _descriptor_product in load_all_products("domains"):
+    _entities = _dlt_entities(_descriptor_product)
+    if set(_descriptor_product.bronze_names) != set(_entities):
+        raise SystemExit(
+            f"{_descriptor_product.domain_name}/domain.yaml: product {_descriptor_product.id!r} bronze names "
+            f"{sorted(_descriptor_product.bronze_names)} do not match dlt entities {sorted(_entities)}"
+        )
+    PRODUCTS.append(
+        {
+            "domain": _descriptor_product.domain_name,
+            "product": _descriptor_product.id,
+            "prefix": _descriptor_product.asset_prefix,
+            "job": _descriptor_product.job_name,
+            "manifest": Path(
+                f"domains/{_descriptor_product.domain_name}/contracts/floe/manifests/"
+                f"{_descriptor_product.id}.manifest.json"
+            ),
+            "entities": _entities,
+            "gold": set(_descriptor_product.gold_names),
+        }
+    )
 
 if os.environ["OPENLAKEFORGE_FLOE_MANIFEST_ACCESS_MODE"].strip().lower() != "remote":
     raise SystemExit("project-code check must load Dagster definitions in remote Floe manifest mode")

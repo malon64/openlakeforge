@@ -76,6 +76,7 @@ required_paths=(
   "libs/dbt/profiles/azure.yml"
   "libs/dbt/profiles/aws.yml"
   "libs/dbt/render_profiles.py"
+  "libs/domain_inventory.py"
   "libs/floe/profiles/local-k8s.yml"
   "libs/floe/profiles/aws-eks.yml"
   "libs/product_dagster.py"
