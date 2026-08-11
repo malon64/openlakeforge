@@ -60,6 +60,14 @@ def test_seed_inventory_derives_every_product_expectation() -> None:
         "sales_customer_health_pipeline",
         "supply_chain_inventory_reliability_pipeline",
     ]
+    assert inventory.catalog_namespaces == (
+        "sales_order_revenue_silver",
+        "sales_order_revenue_gold",
+        "sales_customer_health_silver",
+        "sales_customer_health_gold",
+        "supply_chain_inventory_reliability_silver",
+        "supply_chain_inventory_reliability_gold",
+    )
     assert [table.name for table in inventory.products[0].silver_tables] == [
         "orders",
         "order_lines",
