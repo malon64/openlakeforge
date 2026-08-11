@@ -163,6 +163,18 @@ class DomainInventory:
         return tuple(product for domain in self.domains for product in domain.products)
 
     @property
+    def job_names(self) -> tuple[str, ...]:
+        return tuple(product.job_name for product in self.products)
+
+    @property
+    def catalog_namespaces(self) -> tuple[str, ...]:
+        return tuple(
+            namespace
+            for product in self.products
+            for namespace in (product.silver_namespace, product.gold_namespace)
+        )
+
+    @property
     def default_product(self) -> Product:
         if not self.products:
             raise DomainDescriptorError(f"{self.domains_root}: no data products were discovered")
