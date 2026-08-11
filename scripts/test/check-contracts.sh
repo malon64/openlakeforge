@@ -193,6 +193,20 @@ for contracts_path, contracts_body in [(contracts_tf, text), (azure_contracts_tf
     if re.search(r'\b(silver_namespace|gold_namespace)\s*=\s*"(silver|gold)"', contracts_body):
         errors.append(f"{contracts_path}: catalog contract must not expose shared silver/gold namespace fields")
 
+expected_product_namespaces = {
+    "sales_order_revenue": {
+        "silver": "sales_order_revenue_silver",
+        "gold": "sales_order_revenue_gold",
+    },
+    "sales_customer_health": {
+        "silver": "sales_customer_health_silver",
+        "gold": "sales_customer_health_gold",
+    },
+    "supply_chain_inventory_reliability": {
+        "silver": "supply_chain_inventory_reliability_silver",
+        "gold": "supply_chain_inventory_reliability_gold",
+    },
+}
 for main_path, main_body in [(local_main_tf, local_main_text), (azure_main_tf, azure_main_text), (aws_main_tf, aws_main_text)]:
     if 'catalog_namespace_model = "product-layer"' not in main_body:
         errors.append(f"{main_path}: catalog namespace model must be product-layer")
@@ -203,15 +217,10 @@ for main_path, main_body in [(local_main_tf, local_main_text), (azure_main_tf, a
         errors.append(f"{main_path}: Polaris module must receive product catalog namespaces")
     if "catalog_schema_names" not in main_body or "[for namespace in local.catalog_namespaces : namespace.name]" not in main_body:
         errors.append(f"{main_path}: OpenMetadata module must seed all product catalog namespaces")
-    # Product namespaces are read from the domain inventory at plan/apply time
-    # (see ADR 0022) rather than restated as literals here. There is no cheap
-    # way to assert that behaviorally without either grepping source text
-    # (which a same-behavior refactor can fail, or an unused expression can
-    # spuriously satisfy — see AGENTS.md's "no source-text assertions" rule)
-    # or running a real `terraform plan` against a deployed foundation state,
-    # which this gate does not have. tools/olf/tests/test_inventory.py covers
-    # the Python model these locals consume; make <env>-e2e is the
-    # authoritative behavioral check that the wiring itself resolves.
+    for namespace_pair in expected_product_namespaces.values():
+        for namespace in namespace_pair.values():
+            if namespace not in main_body:
+                errors.append(f"{main_path}: missing product catalog namespace {namespace}")
     if "ops_bucket_name" not in main_body or "floe/manifests" not in main_body:
         errors.append(f"{main_path}: must use the ops artifact bucket and floe/manifests prefix")
     if "var.code_bucket_name" in main_body:

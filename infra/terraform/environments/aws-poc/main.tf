@@ -6,10 +6,6 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 5.0"
     }
-    external = {
-      source  = "hashicorp/external"
-      version = "~> 2.3"
-    }
     helm = {
       source  = "hashicorp/helm"
       version = "~> 3.1"
@@ -22,19 +18,6 @@ terraform {
       source  = "hashicorp/random"
       version = "~> 3.7"
     }
-  }
-}
-
-# Typed, provider-neutral product inventory derived from every
-# domains/*/domain.yaml (see ADR 0022 and tools/olf/olf/inventory.py). This is
-# the single source for product identities; nothing below restates them.
-data "external" "domain_inventory" {
-  program = [
-    "uv", "run", "--project", "${path.root}/../../../../tools/olf",
-    "--locked", "olf", "inventory", "terraform-external",
-  ]
-  query = {
-    repo_root = abspath("${path.root}/../../../..")
   }
 }
 
@@ -71,15 +54,24 @@ locals {
   floe_report_base_uri        = "${local.artifact_base_uri}/floe/reports"
   log_base_uri                = "${local.artifact_base_uri}/logs"
   run_artifact_base_uri       = "${local.artifact_base_uri}/run-artifacts"
-  inventory                   = jsondecode(data.external.domain_inventory.result.inventory)
   product_floe_manifest_uris = {
-    for product in local.inventory.products : product.asset_prefix => "${local.artifact_base_uri}/${product.manifest_key}"
+    sales_order_revenue                = "${local.floe_manifest_base_uri}/sales/order_revenue/order_revenue.manifest.json"
+    sales_customer_health              = "${local.floe_manifest_base_uri}/sales/customer_health/customer_health.manifest.json"
+    supply_chain_inventory_reliability = "${local.floe_manifest_base_uri}/supply_chain/inventory_reliability/inventory_reliability.manifest.json"
   }
   catalog_namespace_model = "product-layer"
   catalog_product_namespaces = {
-    for product in local.inventory.products : product.asset_prefix => {
-      silver = product.silver_namespace
-      gold   = product.gold_namespace
+    sales_order_revenue = {
+      silver = "sales_order_revenue_silver"
+      gold   = "sales_order_revenue_gold"
+    }
+    sales_customer_health = {
+      silver = "sales_customer_health_silver"
+      gold   = "sales_customer_health_gold"
+    }
+    supply_chain_inventory_reliability = {
+      silver = "supply_chain_inventory_reliability_silver"
+      gold   = "supply_chain_inventory_reliability_gold"
     }
   }
   catalog_silver_namespaces = {

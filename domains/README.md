@@ -16,10 +16,11 @@ derived from the environment provider contract. Validate descriptors against
 `docs/schema/domain.schema.json` before deployment.
 
 `tools/olf/olf/inventory.py` loads and validates every `domain.yaml` into a
-typed `DomainInventory` — the single source every consumer (Terraform, `olf`
-CLI, e2e validation, OpenMetadata seeding, and the Dagster runtime via
-`libs/domain_inventory.py`) reads product identities from. Adding, renaming,
-or removing a product in a descriptor changes what all of those discover with
-no shared-code edit. See ADR 0022.
+typed `DomainInventory` — the single source the `olf` CLI, e2e validation,
+OpenMetadata seeding, and the Dagster runtime (via `libs/domain_inventory.py`)
+read product identities from. Adding, renaming, or removing a product in a
+descriptor changes what all of those discover with no shared-code edit.
+Static platform (Phase 1) Terraform stays product-agnostic; see the
+two-phase deploy boundary in AGENTS.md.
 
 The current seed domains are `sales` and `supply_chain`.
