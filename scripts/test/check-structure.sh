@@ -138,6 +138,7 @@ required_paths=(
   "tools/olf/uv.lock"
   "tools/olf/olf/cli.py"
   "tools/olf/olf/contracts.py"
+  "tools/olf/olf/inventory.py"
   "tools/olf/olf/floe.py"
   "tools/olf/olf/k8s.py"
   "tools/olf/olf/e2e.py"

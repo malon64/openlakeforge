@@ -1,7 +1,7 @@
 """The olf CLI: entrypoint for OpenLakeForge deployment tooling.
 
 Subcommand groups are registered here as they are implemented:
-contracts, floe, artifacts, revision, superset, openmetadata, polaris, k8s, e2e, release.
+contracts, inventory, floe, artifacts, revision, superset, openmetadata, polaris, k8s, e2e, release.
 """
 
 from __future__ import annotations
@@ -19,6 +19,7 @@ import olf
 from olf import config
 from olf import contracts as contracts_module
 from olf import floe as floe_module
+from olf import inventory as inventory_module
 
 app = typer.Typer(
     name="olf",
@@ -28,6 +29,7 @@ app = typer.Typer(
 )
 
 contracts_app = typer.Typer(help="Provider-contract runtime environment helpers.")
+inventory_app = typer.Typer(help="Typed domain inventory helpers.")
 floe_app = typer.Typer(help="Floe profile and manifest helpers.")
 artifacts_app = typer.Typer(help="Object-storage artifact helpers.")
 revision_app = typer.Typer(help="Immutable Floe runtime-artifact revision helpers.")
@@ -38,6 +40,7 @@ polaris_app = typer.Typer(help="Polaris catalog credential helpers.")
 e2e_app = typer.Typer(help="End-to-end environment validation.")
 release_app = typer.Typer(help="Release manifest, checksums, compatibility matrix, and readiness gate.")
 app.add_typer(contracts_app, name="contracts")
+app.add_typer(inventory_app, name="inventory")
 app.add_typer(floe_app, name="floe")
 app.add_typer(artifacts_app, name="artifacts")
 app.add_typer(revision_app, name="revision")
@@ -82,6 +85,12 @@ def contracts_env(
     output = contracts_module.render_shell_exports(exports, unsets)
     if output:
         typer.echo(output)
+
+
+@inventory_app.command("terraform-external")
+def inventory_terraform_external() -> None:
+    """Render a Terraform external-provider inventory result on stdout."""
+    inventory_module.main()
 
 
 @floe_app.command("render-profile")

@@ -340,10 +340,17 @@ data_products:
     displayName: Sales Order Revenue
     description: Revenue from orders.
     status: active
+    asset_prefix: sales_order_revenue
     bronze:
       - name: raw_orders
         path: s3://lakehouse-bronze/sales/order_revenue/orders
         description: Raw sales orders.
+    silver_tables:
+      tables:
+        - name: raw_orders
+    gold_tables:
+      tables:
+        - name: mart_order_revenue
 """
     )
     cfg = om.OpenMetadataConfig.from_environment(
@@ -364,7 +371,16 @@ data_products:
     monkeypatch.setattr(deployer, "wait_for_openmetadata", lambda: None)
     monkeypatch.setattr(deployer, "login", lambda: None)
     monkeypatch.setattr(deployer, "ensure_storage_service", lambda: None)
-    monkeypatch.setattr(deployer.client, "request", lambda *args, **kwargs: {})
+
+    def request(method: str, path: str, **_kwargs):
+        if method == "GET" and path.startswith("/api/v1/tables/name/"):
+            return {
+                "id": "table-id",
+                "fullyQualifiedName": "polaris.lakehouse_dev.sales_order_revenue_silver.raw_orders",
+            }
+        return {}
+
+    monkeypatch.setattr(deployer.client, "request", request)
     monkeypatch.setattr(
         deployer,
         "resolve_domain_ref",

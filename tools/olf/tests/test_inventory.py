@@ -1,0 +1,169 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+from olf.descriptors import DomainDescriptorError
+from olf.inventory import external_result, load_domain_inventory
+
+ROOT = Path(__file__).parents[3]
+
+
+def _descriptor(domain: str, product_id: str = "orders", asset_prefix: str | None = None) -> str:
+    prefix = asset_prefix or f"{domain}_{product_id}"
+    return f"""\
+apiVersion: openlakeforge.io/v1alpha1
+kind: Domain
+name: {domain}
+displayName: {domain.title()}
+description: {domain} descriptor.
+status: planned
+data_products:
+  - id: {product_id}
+    name: {prefix}
+    displayName: {product_id.replace('_', ' ').title()}
+    description: {product_id} product.
+    status: planned
+    asset_prefix: {prefix}
+    bronze:
+      - name: source
+        path: s3://lakehouse-bronze/{domain}/{product_id}/source
+    silver_tables:
+      tables:
+        - name: source
+    gold_tables:
+      tables:
+        - name: mart_{product_id}
+"""
+
+
+def _write_descriptor(root: Path, domain: str, content: str) -> Path:
+    path = root / "domains" / domain / "domain.yaml"
+    path.parent.mkdir(parents=True)
+    path.write_text(content, encoding="utf-8")
+    return path
+
+
+def test_seed_inventory_derives_every_product_expectation() -> None:
+    inventory = load_domain_inventory(ROOT)
+
+    assert [domain.name for domain in inventory.domains] == ["sales", "supply_chain"]
+    assert [product.asset_prefix for product in inventory.products] == [
+        "sales_order_revenue",
+        "sales_customer_health",
+        "supply_chain_inventory_reliability",
+    ]
+    assert [product.job_name for product in inventory.products] == [
+        "sales_order_revenue_pipeline",
+        "sales_customer_health_pipeline",
+        "supply_chain_inventory_reliability_pipeline",
+    ]
+    assert [table.name for table in inventory.products[0].silver_tables] == [
+        "orders",
+        "order_lines",
+        "products",
+        "channels",
+        "promotions",
+    ]
+    assert [table.name for table in inventory.products[0].gold_tables] == [
+        "mart_order_revenue_by_day",
+        "mart_order_revenue_by_channel",
+        "mart_order_revenue_margin_by_product",
+    ]
+    assert inventory.expected_dashboards == {
+        "sales-order-revenue": "Sales Order Revenue",
+        "sales-customer-health": "Sales Customer Health",
+        "supply-chain-inventory-reliability": "Supply Chain Inventory Reliability",
+    }
+    assert inventory.products[0].openmetadata_data_product_fqns == (
+        "sales_order_revenue",
+        "sales.sales_order_revenue",
+    )
+    assert inventory.products[0].artifact_prefixes.manifest_key == (
+        "floe/manifests/sales/order_revenue/order_revenue.manifest.json"
+    )
+
+
+def test_inventory_resolves_provider_physical_names() -> None:
+    inventory = load_domain_inventory(ROOT)
+    names = inventory.resolve_physical_names(
+        catalog_database_fqn="aws_glue.lakehouse_dev",
+        silver_bucket="openlakeforge-poc-silver",
+        gold_bucket="openlakeforge-poc-gold",
+        manifest_base_uri="s3://openlakeforge-poc-ops/floe/manifests",
+    )
+
+    assert names.catalog_namespaces[0].name == "sales_order_revenue_silver"
+    assert names.catalog_namespaces[0].location == "s3://openlakeforge-poc-silver/sales_order_revenue_silver/"
+    assert names.silver_schema_fqns["sales_order_revenue"] == "aws_glue.lakehouse_dev.sales_order_revenue_silver"
+    assert names.gold_schema_fqns["supply_chain_inventory_reliability"] == (
+        "aws_glue.lakehouse_dev.supply_chain_inventory_reliability_gold"
+    )
+    assert names.products[0].manifest_uri == (
+        "s3://openlakeforge-poc-ops/floe/manifests/sales/order_revenue/order_revenue.manifest.json"
+    )
+
+
+def test_inventory_reports_descriptor_product_and_missing_field(tmp_path: Path) -> None:
+    path = _write_descriptor(tmp_path, "sales", _descriptor("sales").replace("    asset_prefix: sales_orders\n", ""))
+
+    with pytest.raises(
+        DomainDescriptorError,
+        match=r"sales/domain.yaml: product 'orders': missing required field 'asset_prefix'",
+    ):
+        load_domain_inventory(tmp_path)
+
+    assert path.is_file()
+
+
+def test_inventory_rejects_duplicate_asset_prefixes(tmp_path: Path) -> None:
+    _write_descriptor(tmp_path, "sales", _descriptor("sales", asset_prefix="shared_product"))
+    duplicate = _descriptor("supply_chain", asset_prefix="shared_product")
+    duplicate = duplicate.replace("name: shared_product", "name: supply_chain_orders", 1)
+    _write_descriptor(tmp_path, "supply_chain", duplicate)
+
+    with pytest.raises(DomainDescriptorError, match=r"duplicate asset_prefix 'shared_product'"):
+        load_domain_inventory(tmp_path)
+
+
+def test_renaming_descriptor_product_changes_discovered_work_without_shared_code(tmp_path: Path) -> None:
+    descriptor = _descriptor("sales", product_id="revenue", asset_prefix="sales_revenue")
+    _write_descriptor(tmp_path, "sales", descriptor)
+
+    product = load_domain_inventory(tmp_path).default_product
+
+    assert product.job_name == "sales_revenue_pipeline"
+    assert product.silver_namespace == "sales_revenue_silver"
+    assert product.dashboard.slug == "sales-revenue"
+    assert product.openmetadata_data_product_fqns == ("sales_revenue", "sales.sales_revenue")
+    assert product.artifact_prefixes.manifest_key == "floe/manifests/sales/revenue/revenue.manifest.json"
+    assert product.definitions_module == "domains.sales.pipelines.dagster.revenue"
+
+
+def test_inventory_external_result_is_terraform_compatible() -> None:
+    result = external_result(ROOT)
+    payload = json.loads(result["inventory"])
+
+    assert payload["aggregate_definitions_module"] == "domains.definitions"
+    assert payload["domains"] == [
+        {
+            "code_location_name": "sales-dagster",
+            "definitions_module": "domains.sales.definitions",
+            "name": "sales",
+        },
+        {
+            "code_location_name": "supply-chain-dagster",
+            "definitions_module": "domains.supply_chain.definitions",
+            "name": "supply_chain",
+        },
+    ]
+    assert payload["products"][0] == {
+        "asset_prefix": "sales_order_revenue",
+        "domain_name": "sales",
+        "gold_namespace": "sales_order_revenue_gold",
+        "id": "order_revenue",
+        "manifest_key": "floe/manifests/sales/order_revenue/order_revenue.manifest.json",
+        "silver_namespace": "sales_order_revenue_silver",
+    }

@@ -11,6 +11,7 @@ import yaml
 
 DOMAIN_API_VERSION = "openlakeforge.io/v1alpha1"
 DOMAIN_KIND = "Domain"
+_PRODUCT_IDENTIFIER_PATTERN = r"[a-z][a-z0-9_]*"
 
 
 class DomainDescriptorError(ValueError):
@@ -40,20 +41,33 @@ def validate_domain_descriptor(document: Mapping[str, Any], *, source: str = "do
     for index, product in enumerate(document["data_products"]):
         if not isinstance(product, Mapping):
             raise DomainDescriptorError(f"{source}: data_products[{index}] must be an object")
-        for field in ("id", "name", "displayName", "description", "status"):
+        product_label = product.get("id") or product.get("name") or f"data_products[{index}]"
+        for field in (
+            "id",
+            "name",
+            "displayName",
+            "description",
+            "status",
+            "asset_prefix",
+            "bronze",
+            "silver_tables",
+            "gold_tables",
+        ):
             if field not in product:
-                raise DomainDescriptorError(f"{source}: data_products[{index}] missing {field!r}")
+                raise DomainDescriptorError(f"{source}: product {product_label!r}: missing required field {field!r}")
         for field in ("id", "name", "displayName", "status"):
             if not isinstance(product[field], str) or not product[field]:
-                raise DomainDescriptorError(
-                    f"{source}: data_products[{index}].{field} must be a non-empty string"
-                )
+                raise DomainDescriptorError(f"{source}: product {product_label!r}: {field} must be a non-empty string")
+        if not re.fullmatch(_PRODUCT_IDENTIFIER_PATTERN, product["id"]):
+            raise DomainDescriptorError(f"{source}: product {product_label!r}: id must match '^[a-z][a-z0-9_]*$'")
         if not isinstance(product["description"], str):
-            raise DomainDescriptorError(f"{source}: data_products[{index}].description must be a string")
-        if "asset_prefix" in product and (
-            not isinstance(product["asset_prefix"], str) or not product["asset_prefix"]
+            raise DomainDescriptorError(f"{source}: product {product_label!r}: description must be a string")
+        if not isinstance(product["asset_prefix"], str) or not re.fullmatch(
+            _PRODUCT_IDENTIFIER_PATTERN, product["asset_prefix"]
         ):
-            raise DomainDescriptorError(f"{source}: data_products[{index}].asset_prefix must be a non-empty string")
+            raise DomainDescriptorError(
+                f"{source}: product {product_label!r}: asset_prefix must match '^[a-z][a-z0-9_]*$'"
+            )
         if "domain" in product and (not isinstance(product["domain"], str) or not product["domain"]):
             raise DomainDescriptorError(f"{source}: data_products[{index}].domain must be a non-empty string")
         if "domains" in product and (
@@ -64,52 +78,53 @@ def validate_domain_descriptor(document: Mapping[str, Any], *, source: str = "do
             raise DomainDescriptorError(
                 f"{source}: data_products[{index}].domains must be a non-empty array of strings"
             )
-        if "bronze" in product:
-            bronze_entries = product["bronze"]
-            if not isinstance(bronze_entries, list):
-                raise DomainDescriptorError(f"{source}: data_products[{index}].bronze must be an array")
-            for bronze_index, bronze_entry in enumerate(bronze_entries):
-                if not isinstance(bronze_entry, Mapping):
+        bronze_entries = product["bronze"]
+        if not isinstance(bronze_entries, list) or not bronze_entries:
+            raise DomainDescriptorError(f"{source}: product {product_label!r}: bronze must be a non-empty array")
+        for bronze_index, bronze_entry in enumerate(bronze_entries):
+            if not isinstance(bronze_entry, Mapping):
+                raise DomainDescriptorError(
+                    f"{source}: product {product_label!r}: bronze[{bronze_index}] must be an object"
+                )
+            for field in ("name", "path"):
+                if not isinstance(bronze_entry.get(field), str) or not bronze_entry[field]:
                     raise DomainDescriptorError(
-                        f"{source}: data_products[{index}].bronze[{bronze_index}] must be an object"
+                        f"{source}: product {product_label!r}: bronze[{bronze_index}].{field} "
+                        "must be a non-empty string"
                     )
-                for field in ("name", "path"):
-                    if not isinstance(bronze_entry.get(field), str) or not bronze_entry[field]:
-                        raise DomainDescriptorError(
-                            f"{source}: data_products[{index}].bronze[{bronze_index}].{field} "
-                            "must be a non-empty string"
-                        )
-                if "description" in bronze_entry and not isinstance(bronze_entry["description"], str):
-                    raise DomainDescriptorError(
-                        f"{source}: data_products[{index}].bronze[{bronze_index}].description must be a string"
-                    )
+            if "description" in bronze_entry and not isinstance(bronze_entry["description"], str):
+                raise DomainDescriptorError(
+                    f"{source}: product {product_label!r}: bronze[{bronze_index}].description must be a string"
+                )
         for group in ("silver_tables", "gold_tables"):
-            if group not in product:
-                continue
             spec = product[group]
             if not isinstance(spec, Mapping):
-                raise DomainDescriptorError(f"{source}: data_products[{index}].{group} must be an object")
+                raise DomainDescriptorError(f"{source}: product {product_label!r}: {group} must be an object")
             tables = spec.get("tables")
-            if not isinstance(tables, list):
-                raise DomainDescriptorError(f"{source}: data_products[{index}].{group}.tables must be an array")
+            if not isinstance(tables, list) or not tables:
+                raise DomainDescriptorError(
+                    f"{source}: product {product_label!r}: {group}.tables must be a non-empty array"
+                )
             for table_index, table in enumerate(tables):
                 if not isinstance(table, Mapping) or not isinstance(table.get("name"), str) or not table["name"]:
                     raise DomainDescriptorError(
-                        f"{source}: data_products[{index}].{group}.tables[{table_index}] "
+                        f"{source}: product {product_label!r}: {group}.tables[{table_index}] "
                         "must have a non-empty string name"
                     )
                 if "fqn" in table or "fullyQualifiedName" in table:
                     raise DomainDescriptorError(
-                        f"{source}: data_products[{index}].{group}.tables[{table_index}] "
+                        f"{source}: product {product_label!r}: {group}.tables[{table_index}] "
                         "must not contain physical FQNs"
                     )
                 if "description" in table and not isinstance(table["description"], str):
                     raise DomainDescriptorError(
-                        f"{source}: data_products[{index}].{group}.tables[{table_index}].description "
+                        f"{source}: product {product_label!r}: {group}.tables[{table_index}].description "
                         "must be a string"
                     )
             if "schema" in spec:
-                raise DomainDescriptorError(f"{source}: {group}.schema must be derived from provider contracts")
+                raise DomainDescriptorError(
+                    f"{source}: product {product_label!r}: {group}.schema must be derived from provider contracts"
+                )
         if "assets" in product and not isinstance(product["assets"], list):
             raise DomainDescriptorError(f"{source}: data_products[{index}].assets must be an array")
         for asset_index, asset in enumerate(product.get("assets") or []):
