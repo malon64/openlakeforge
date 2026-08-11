@@ -6,7 +6,12 @@ from pathlib import Path
 import pytest
 
 from olf.descriptors import DomainDescriptorError
-from olf.inventory import external_result, inventory_for, load_domain_inventory
+from olf.inventory import (
+    external_result,
+    inventory_for,
+    load_domain_inventory,
+    load_domain_inventory_from_descriptors,
+)
 
 ROOT = Path(__file__).parents[3]
 
@@ -131,6 +136,22 @@ def test_seed_inventory_derives_every_product_expectation() -> None:
 def test_inventory_for_caches_by_resolved_repo_root() -> None:
     assert inventory_for(ROOT) is inventory_for(ROOT)
     assert inventory_for(ROOT) is inventory_for(str(ROOT))
+
+
+def test_load_domain_inventory_from_descriptors_matches_the_directory_loader(tmp_path: Path) -> None:
+    """An explicit-paths load must produce the same inventory a directory glob would."""
+    path = _write_descriptor(tmp_path, "sales", _descriptor("sales"))
+
+    by_directory = load_domain_inventory(tmp_path)
+    by_paths = load_domain_inventory_from_descriptors([path], source_label=path)
+
+    assert by_paths.products[0].asset_prefix == by_directory.products[0].asset_prefix
+    assert by_paths.products[0].job_name == by_directory.products[0].job_name
+
+
+def test_load_domain_inventory_from_descriptors_rejects_an_empty_set() -> None:
+    with pytest.raises(DomainDescriptorError, match="no domain descriptors found"):
+        load_domain_inventory_from_descriptors([], source_label="nowhere")
 
 
 def test_inventory_resolves_provider_physical_names() -> None:

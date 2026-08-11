@@ -101,6 +101,57 @@ def test_config_from_environment_defaults_seed_schema_fqns_for_direct_cli() -> N
     )
 
 
+def test_config_from_environment_derives_defaults_from_metadata_source_dir_override(tmp_path: Path) -> None:
+    """metadata_source_dir must drive the FQN defaults, matching what domain_files() actually deploys.
+
+    metadata_root here does not even exist, so the defaults could only have
+    come from the override.
+    """
+    source_dir = tmp_path / "override"
+    source_dir.mkdir()
+    (source_dir / "domain.yaml").write_text(
+        """apiVersion: openlakeforge.io/v1alpha2
+kind: Domain
+name: override
+displayName: Override
+description: Override-only domain.
+status: active
+data_products:
+  - id: widgets
+    name: override_widgets
+    displayName: Override Widgets
+    description: Widgets.
+    status: active
+    asset_prefix: override_widgets
+    bronze:
+      - name: source
+        path: s3://lakehouse-bronze/override/widgets/source
+    silver_tables:
+      tables:
+        - name: source
+    gold_tables:
+      tables:
+        - name: mart_widgets
+"""
+    )
+
+    cfg = om.OpenMetadataConfig.from_environment(
+        {},
+        base_url="http://x",
+        admin_email="a",
+        admin_password="p",
+        metadata_root=str(tmp_path / "does-not-exist"),
+        metadata_source_dir=str(source_dir),
+        allow_missing_assets=False,
+        catalog_service="polaris",
+        catalog_database="lakehouse_dev",
+        cleanup_legacy_default_database=False,
+    )
+
+    assert cfg.catalog_silver_schema_fqns == {"override_widgets": "polaris.lakehouse_dev.override_widgets_silver"}
+    assert cfg.catalog_gold_schema_fqns == {"override_widgets": "polaris.lakehouse_dev.override_widgets_gold"}
+
+
 def test_config_from_environment_preserves_explicit_empty_schema_contract() -> None:
     cfg = om.OpenMetadataConfig.from_environment(
         {

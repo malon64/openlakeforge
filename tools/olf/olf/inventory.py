@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 import sys
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
@@ -403,15 +403,23 @@ def _validate_inventory_identities(domains: tuple[Domain, ...]) -> None:
             seen_product_ids.add(identity)
 
 
-def load_domain_inventory(path: str | Path) -> DomainInventory:
-    """Load and validate every ``domains/*/domain.yaml`` under ``path``."""
-    domains_root = _domains_root(Path(path))
-    descriptor_paths = sorted(descriptor for descriptor in domains_root.glob("*/domain.yaml") if descriptor.is_file())
-    if not descriptor_paths:
-        raise DomainDescriptorError(f"{domains_root}: no domain descriptors found at */domain.yaml")
+def load_domain_inventory_from_descriptors(
+    descriptor_paths: Sequence[str | Path], *, source_label: str | Path
+) -> DomainInventory:
+    """Load and validate an explicit set of ``domain.yaml`` descriptor paths.
+
+    Lower-level than :func:`load_domain_inventory`: callers that resolve their
+    own descriptor set (for example an ``OPENMETADATA_METADATA_SOURCE_DIR``
+    override naming a single file or domain directory, which does not fit the
+    ``<root>/*/domain.yaml`` layout) build the same validated model this way,
+    so the inventory always reflects the descriptors actually in use.
+    """
+    paths = sorted(Path(descriptor_path) for descriptor_path in descriptor_paths)
+    if not paths:
+        raise DomainDescriptorError(f"{source_label}: no domain descriptors found")
 
     domains: list[Domain] = []
-    for descriptor_path in descriptor_paths:
+    for descriptor_path in paths:
         document = load_domain_descriptor(descriptor_path)
         domain_name = document["name"]
         if document["apiVersion"] != DOMAIN_API_VERSION:
@@ -439,10 +447,19 @@ def load_domain_inventory(path: str | Path) -> DomainInventory:
             )
         )
 
-    inventory = DomainInventory(domains_root=domains_root, domains=tuple(domains))
+    inventory = DomainInventory(domains_root=Path(source_label), domains=tuple(domains))
     _validate_inventory_identities(inventory.domains)
     _ = inventory.default_product
     return inventory
+
+
+def load_domain_inventory(path: str | Path) -> DomainInventory:
+    """Load and validate every ``domains/*/domain.yaml`` under ``path``."""
+    domains_root = _domains_root(Path(path))
+    descriptor_paths = sorted(descriptor for descriptor in domains_root.glob("*/domain.yaml") if descriptor.is_file())
+    if not descriptor_paths:
+        raise DomainDescriptorError(f"{domains_root}: no domain descriptors found at */domain.yaml")
+    return load_domain_inventory_from_descriptors(descriptor_paths, source_label=domains_root)
 
 
 @cache

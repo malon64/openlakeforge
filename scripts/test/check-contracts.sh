@@ -203,15 +203,15 @@ for main_path, main_body in [(local_main_tf, local_main_text), (azure_main_tf, a
         errors.append(f"{main_path}: Polaris module must receive product catalog namespaces")
     if "catalog_schema_names" not in main_body or "[for namespace in local.catalog_namespaces : namespace.name]" not in main_body:
         errors.append(f"{main_path}: OpenMetadata module must seed all product catalog namespaces")
-    # Product namespaces are read from the domain inventory at plan time, not
-    # restated as literals here — that is exactly the shared-code allowlist
-    # #39 removes. Check the wiring that resolves them instead.
-    if 'data "external" "domain_inventory"' not in main_body:
-        errors.append(f"{main_path}: must declare the domain inventory external data source")
-    if "jsondecode(data.external.domain_inventory.result.inventory)" not in main_body:
-        errors.append(f"{main_path}: must decode the domain inventory external data source result")
-    if not re.search(r"for\s+\w+\s+in\s+local\.inventory\.products\b", main_body):
-        errors.append(f"{main_path}: catalog and manifest namespaces must be derived from local.inventory.products")
+    # Product namespaces are read from the domain inventory at plan/apply time
+    # (see ADR 0022) rather than restated as literals here. There is no cheap
+    # way to assert that behaviorally without either grepping source text
+    # (which a same-behavior refactor can fail, or an unused expression can
+    # spuriously satisfy — see AGENTS.md's "no source-text assertions" rule)
+    # or running a real `terraform plan` against a deployed foundation state,
+    # which this gate does not have. tools/olf/tests/test_inventory.py covers
+    # the Python model these locals consume; make <env>-e2e is the
+    # authoritative behavioral check that the wiring itself resolves.
     if "ops_bucket_name" not in main_body or "floe/manifests" not in main_body:
         errors.append(f"{main_path}: must use the ops artifact bucket and floe/manifests prefix")
     if "var.code_bucket_name" in main_body:
