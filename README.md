@@ -317,13 +317,9 @@ If a Kubernetes pod cannot pull an image because of TLS or network issues, rerun
 make local-prefetch
 ```
 
-If Polaris restarts while using local in-memory persistence, clients can hold
-stale OAuth credentials. `make local-up` now checks Trino and refreshes it when
-that happens, but for manual recovery you can restart Trino directly:
-
-```sh
-kubectl --context kind-openlakeforge-local -n lakehouse rollout restart deployment/trino-coordinator
-```
+Polaris persists catalog state in the shared in-cluster PostgreSQL service. A
+Polaris pod restart preserves catalogs, namespaces, and table identity; Trino
+does not need a restart or Terraform re-apply to recover.
 
 To remove the local platform while keeping the kind foundation:
 

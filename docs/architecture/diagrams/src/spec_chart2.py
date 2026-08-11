@@ -45,13 +45,13 @@ c.icon(447, 525, "deploy", "coordinator", size=48, label2="workers: 0")
 
 c.box(592, 470, 250, 170, "Polaris", color="platform", fill="#FFFFFF")
 svc_tag(592, 470, 250, "polaris:8181")
-c.icon(668, 525, "deploy", "catalog", size=48, label2="in-memory")
+c.icon(668, 525, "deploy", "catalog", size=48, label2="relational JDBC")
 c.icon(782, 525, "secret", "creds ×4", size=48, label2="no dbt principal")
 
 c.box(862, 470, 280, 170, "PostgreSQL", color="platform", fill="#FFFFFF")
 svc_tag(862, 470, 280, "postgresql:5432")
 c.icon(1000, 525, "sts", "shared metadata db", size=48,
-       label2="dagster · om · superset")
+       label2="metadata + catalog")
 
 # ---------- Row C ----------
 c.box(52, 710, 700, 230, "SeaweedFS — object storage", color="platform", fill="#FFFFFF")
@@ -72,6 +72,7 @@ c.edge([(302, 542), (322, 542)], color="control")
 c.label(312, 528, "sql", size=10.5, mono=True, anchor="middle", color=C["control"])
 c.edge([(572, 542), (592, 542)], color="control")
 c.label(582, 528, "iceberg rest", size=10.5, mono=True, anchor="middle", color=C["control"])
+c.edge([(842, 625), (862, 625)], color="platform", label="JDBC", label_dy=-7)
 
 c.edge([(447, 640), (447, 710)], color="control", label="s3a")
 c.edge([(692, 640), (692, 710)], color="control", dashed=True, label="warehouse loc")

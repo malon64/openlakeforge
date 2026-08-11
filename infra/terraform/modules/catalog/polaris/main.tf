@@ -34,7 +34,6 @@ locals {
   catalog_namespaces_hash = sha256(jsonencode(local.catalog_namespaces))
   bootstrap_annotations = {
     "openlakeforge.io/polaris-release-revision" = tostring(helm_release.polaris.metadata.revision)
-    "openlakeforge.io/bootstrap-generation"     = var.bootstrap_generation
     "openlakeforge.io/bootstrap-revision"       = var.bootstrap_revision
     "openlakeforge.io/catalog-namespaces-hash"  = local.catalog_namespaces_hash
   }
@@ -74,6 +73,19 @@ resource "helm_release" "polaris" {
   values = [
     file(var.base_values_file),
     yamlencode({
+      polaris = {
+        persistence = {
+          type = "relational-jdbc"
+          relationalJdbc = {
+            secret = {
+              name     = var.postgresql_contract.polaris_credentials_secret_name
+              username = "username"
+              password = "password"
+              jdbcUrl  = "jdbcUrl"
+            }
+          }
+        }
+      }
       extraEnv = [
         {
           name = "POLARIS_BOOTSTRAP_CREDENTIALS"
@@ -225,6 +237,8 @@ resource "kubernetes_job_v1" "bootstrap" {
                   -H "Content-Type: application/json")"
               fi
 
+              POLARIS_RESPONSE_CODE="$code"
+
               case " $expected_codes " in
                 *" $code "*) return 0 ;;
               esac
@@ -252,6 +266,8 @@ resource "kubernetes_job_v1" "bootstrap" {
                   -H "Authorization: Bearer $POLARIS_TOKEN" \
                   -H "Content-Type: application/json")"
               fi
+
+              POLARIS_RESPONSE_CODE="$code"
 
               case " $expected_codes " in
                 *" $code "*) return 0 ;;
@@ -316,7 +332,22 @@ resource "kubernetes_job_v1" "bootstrap" {
               client_id_key="$3"
               client_secret_key="$4"
 
-              request DELETE "/principals/$principal_name" "204 404"
+              request GET "/principals/$principal_name" "200 404"
+              if [ "$POLARIS_RESPONSE_CODE" = "200" ]; then
+                if kubectl get secret "$secret_name" -n "$NAMESPACE" >/dev/null 2>&1; then
+                  return
+                fi
+
+                echo "Polaris principal '$principal_name' exists but credential Secret '$secret_name' is missing." >&2
+                echo "Restore the Secret before rerunning the bootstrap job to avoid rotating active clients." >&2
+                exit 1
+              fi
+
+              # The relational metastore is empty during the in-memory-to-JDBC
+              # migration, while the old in-memory service Secrets remain. They
+              # cannot authenticate to an absent principal, so replace them when
+              # creating that principal for the first time.
+              kubectl delete secret "$secret_name" -n "$NAMESPACE" --ignore-not-found
               request POST "/principals" "201" "{\"name\": \"$principal_name\", \"type\": \"SERVICE\"}"
               client_id="$(sed -n 's/.*"clientId":"\([^"]*\)".*/\1/p' /tmp/polaris-body | head -n 1)"
               client_secret="$(sed -n 's/.*"clientSecret":"\([^"]*\)".*/\1/p' /tmp/polaris-body | head -n 1)"

@@ -74,3 +74,21 @@ variable "superset_credentials_secret_name" {
   type        = string
   default     = "postgresql-superset-creds"
 }
+
+variable "polaris_db_name" {
+  description = "PostgreSQL database name for the Polaris catalog metastore."
+  type        = string
+  default     = "polaris"
+}
+
+variable "polaris_db_user" {
+  description = "PostgreSQL user for the Polaris catalog metastore."
+  type        = string
+  default     = "polaris"
+}
+
+variable "polaris_credentials_secret_name" {
+  description = "Kubernetes Secret holding Polaris relational JDBC connection properties."
+  type        = string
+  default     = "postgresql-polaris-creds"
+}

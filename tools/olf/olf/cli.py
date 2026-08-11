@@ -1,7 +1,7 @@
 """The olf CLI: entrypoint for OpenLakeForge deployment tooling.
 
 Subcommand groups are registered here as they are implemented:
-contracts, floe, artifacts, revision, superset, openmetadata, polaris, k8s, e2e, release.
+contracts, floe, artifacts, revision, superset, openmetadata, k8s, e2e, release.
 """
 
 from __future__ import annotations
@@ -34,7 +34,6 @@ revision_app = typer.Typer(help="Immutable Floe runtime-artifact revision helper
 superset_app = typer.Typer(help="Superset report deploy/export helpers.")
 openmetadata_app = typer.Typer(help="OpenMetadata governance metadata helpers.")
 k8s_app = typer.Typer(help="Kubernetes image bookkeeping helpers.")
-polaris_app = typer.Typer(help="Polaris catalog credential helpers.")
 e2e_app = typer.Typer(help="End-to-end environment validation.")
 release_app = typer.Typer(help="Release manifest, checksums, compatibility matrix, and readiness gate.")
 app.add_typer(contracts_app, name="contracts")
@@ -44,7 +43,6 @@ app.add_typer(revision_app, name="revision")
 app.add_typer(superset_app, name="superset")
 app.add_typer(openmetadata_app, name="openmetadata")
 app.add_typer(k8s_app, name="k8s")
-app.add_typer(polaris_app, name="polaris")
 app.add_typer(e2e_app, name="e2e")
 app.add_typer(release_app, name="release")
 
@@ -341,50 +339,6 @@ def k8s_set_project_code_image(
     from olf import k8s
 
     k8s.set_project_code_image(image, config.namespace(), rollout_timeout=timeout)
-
-
-@polaris_app.command("check-credentials")
-def polaris_check_credentials(
-    service: str = typer.Option("polaris", "--service"),
-    secret: str = typer.Option("polaris-om-creds", "--secret"),
-    client_id_key: str = typer.Option("POLARIS_OM_CLIENT_ID", "--client-id-key"),
-    client_secret_key: str = typer.Option("POLARIS_OM_CLIENT_SECRET", "--client-secret-key"),
-    scope: str = typer.Option("PRINCIPAL_ROLE:ALL", "--scope"),
-    remote_port: int = typer.Option(8181, "--remote-port"),
-) -> None:
-    """Preflight Polaris service-principal credentials through a port-forward.
-
-    Exit codes: 0 = valid (or unreachable/unknown, left unchanged),
-    3 = stale (HTTP 401) so the caller should force a Polaris rebootstrap.
-    """
-    from olf import k8s, log, polaris
-
-    namespace = config.namespace()
-    if not k8s.resource_exists("service", service, namespace) or not k8s.resource_exists(
-        "secret", secret, namespace
-    ):
-        return
-
-    client_id = k8s.secret_value(secret, client_id_key, namespace)
-    client_secret = k8s.secret_value(secret, client_secret_key, namespace)
-
-    log_prefix = config.env(
-        "OPENLAKEFORGE_PORT_FORWARD_LOG_PREFIX", "/tmp/openlakeforge"
-    )
-    log_path = f"{log_prefix}-polaris-port-forward.log"
-    with k8s.port_forward(service, remote_port, namespace, log_path=log_path) as local_port:
-        base = f"http://127.0.0.1:{local_port}"
-        k8s.http_wait(f"{base}/q/health", attempts=30, delay=1.0)
-        status = polaris.request_token_status(
-            f"{base}/api/catalog/v1/oauth/tokens", client_id, client_secret, scope
-        )
-
-    if status == 200:
-        return
-    if status == 401:
-        log.warn("Polaris service-principal credentials are stale; forcing Polaris bootstrap.")
-        raise typer.Exit(code=polaris.STALE_EXIT_CODE)
-    log.warn(f"Polaris credential preflight returned HTTP {status}; leaving bootstrap generation unchanged.")
 
 
 @e2e_app.command("run")

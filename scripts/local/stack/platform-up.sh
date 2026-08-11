@@ -21,7 +21,6 @@ PROJECT_CODE_IMAGE_REVISION="${PROJECT_CODE_IMAGE_REVISION:-manual}"
 SUPERSET_IMAGE_REPOSITORY="${SUPERSET_IMAGE_REPOSITORY:-ghcr.io/openlakeforge/superset}"
 SUPERSET_IMAGE_TAG="${SUPERSET_IMAGE_TAG:-local}"
 SUPERSET_IMAGE_PULL_POLICY="${SUPERSET_IMAGE_PULL_POLICY:-Never}"
-POLARIS_BOOTSTRAP_GENERATION="${POLARIS_BOOTSTRAP_GENERATION:-manual}"
 TRINO_CHART_REPOSITORY="${TRINO_CHART_REPOSITORY:-https://trinodb.github.io/charts}"
 TRINO_CHART_VERSION="${TRINO_CHART_VERSION:-1.42.2}"
 
@@ -91,7 +90,6 @@ terraform_apply_once() {
     -var="superset_image_repository=${SUPERSET_IMAGE_REPOSITORY}" \
     -var="superset_image_tag=${SUPERSET_IMAGE_TAG}" \
     -var="superset_image_pull_policy=${SUPERSET_IMAGE_PULL_POLICY}" \
-    -var="polaris_bootstrap_generation=${POLARIS_BOOTSTRAP_GENERATION}" \
     -var="trino_chart_package_path=${TRINO_CHART_PACKAGE_PATH}"
 }
 
@@ -121,59 +119,6 @@ reset_drifted_local_platform_if_needed() {
   terraform -chdir="${TERRAFORM_DIR}" init
 }
 
-refresh_trino_if_catalog_credentials_are_stale() {
-  local deployment="trino-coordinator"
-  local check_output
-  local bootstrap_generation_before
-
-  if ! kubectl --context "${KUBE_CONTEXT}" get deployment "${deployment}" -n "${NAMESPACE}" >/dev/null 2>&1; then
-    return 0
-  fi
-
-  echo "==> Checking Trino Iceberg catalog credentials..."
-  if check_output="$(kubectl --context "${KUBE_CONTEXT}" exec "deployment/${deployment}" -n "${NAMESPACE}" -- \
-    trino --server http://localhost:8080 --execute "SHOW SCHEMAS FROM iceberg" 2>&1)"; then
-    return 0
-  fi
-
-  case "${check_output}" in
-    *unauthorized_client*|*"Cannot obtain metadata"*|*"ICEBERG_CATALOG_ERROR"*)
-      echo "WARN: Trino has stale Polaris catalog credentials; restarting ${deployment}..." >&2
-      ;;
-    *)
-      echo "${check_output}" >&2
-      echo "ERROR: Trino Iceberg catalog credential check failed." >&2
-      return 1
-      ;;
-  esac
-
-  kubectl --context "${KUBE_CONTEXT}" rollout restart "deployment/${deployment}" -n "${NAMESPACE}"
-  kubectl --context "${KUBE_CONTEXT}" rollout status "deployment/${deployment}" -n "${NAMESPACE}" --timeout=300s
-
-  if run_with_retry "Trino Iceberg catalog credential check" \
-    kubectl --context "${KUBE_CONTEXT}" exec "deployment/${deployment}" -n "${NAMESPACE}" -- \
-      trino --server http://localhost:8080 --execute "SHOW SCHEMAS FROM iceberg"; then
-    return 0
-  fi
-
-  bootstrap_generation_before="${POLARIS_BOOTSTRAP_GENERATION}"
-  prepare_polaris_bootstrap_generation
-  if [[ "${POLARIS_BOOTSTRAP_GENERATION}" == "${bootstrap_generation_before}" ]]; then
-    echo "ERROR: Trino still cannot obtain Iceberg metadata after restart, and Polaris rebootstrap was not triggered." >&2
-    return 1
-  fi
-
-  echo "WARN: Trino still has stale Polaris credentials; reapplying local platform with Polaris rebootstrap..." >&2
-  run_with_retry "Terraform apply" terraform_apply_once
-
-  kubectl --context "${KUBE_CONTEXT}" rollout restart "deployment/${deployment}" -n "${NAMESPACE}"
-  kubectl --context "${KUBE_CONTEXT}" rollout status "deployment/${deployment}" -n "${NAMESPACE}" --timeout=300s
-
-  run_with_retry "Trino Iceberg catalog credential check after Polaris rebootstrap" \
-    kubectl --context "${KUBE_CONTEXT}" exec "deployment/${deployment}" -n "${NAMESPACE}" -- \
-      trino --server http://localhost:8080 --execute "SHOW SCHEMAS FROM iceberg"
-}
-
 echo "==> Checking static platform prerequisites..."
 check_prereqs terraform kubectl helm uv base64
 check_cluster
@@ -183,7 +128,6 @@ prepare_local_superset_image
 prepare_helm_cache_dirs
 prepare_cached_chart "Trino" trino "${TRINO_CHART_REPOSITORY}" trino/trino \
   "${TRINO_CHART_VERSION}" "${TRINO_CHART_PACKAGE_PATH}"
-prepare_polaris_bootstrap_generation
 
 echo "==> Initializing Terraform..."
 terraform -chdir="${TERRAFORM_DIR}" init
@@ -200,7 +144,6 @@ terraform_import_namespace_args=(
   -var="superset_image_repository=${SUPERSET_IMAGE_REPOSITORY}"
   -var="superset_image_tag=${SUPERSET_IMAGE_TAG}"
   -var="superset_image_pull_policy=${SUPERSET_IMAGE_PULL_POLICY}"
-  -var="polaris_bootstrap_generation=${POLARIS_BOOTSTRAP_GENERATION}"
   -var="trino_chart_package_path=${TRINO_CHART_PACKAGE_PATH}"
 )
 import_namespace_if_missing_in_state \
@@ -211,6 +154,5 @@ import_namespace_if_missing_in_state \
 
 echo "==> Applying Terraform local platform..."
 run_with_retry "Terraform apply" terraform_apply_once
-refresh_trino_if_catalog_credentials_are_stale
 
 echo "Static OpenLakeForge local platform is applied."

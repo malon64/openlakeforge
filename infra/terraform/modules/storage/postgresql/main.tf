@@ -63,6 +63,9 @@ locals {
 
     create_or_update_role "$SUPERSET_DB_USER" "$SUPERSET_DB_PASSWORD"
     create_database_if_missing "$SUPERSET_DB_NAME" "$SUPERSET_DB_USER"
+
+    create_or_update_role "$POLARIS_DB_USER" "$POLARIS_DB_PASSWORD"
+    create_database_if_missing "$POLARIS_DB_NAME" "$POLARIS_DB_USER"
   SCRIPT
 
   bootstrap_hash = substr(sha256(jsonencode({
@@ -73,6 +76,8 @@ locals {
     openmetadata_db_user = var.openmetadata_db_user
     superset_db_name     = var.superset_db_name
     superset_db_user     = var.superset_db_user
+    polaris_db_name      = var.polaris_db_name
+    polaris_db_user      = var.polaris_db_user
   })), 0, 12)
 }
 
@@ -92,6 +97,11 @@ resource "random_password" "openmetadata" {
 }
 
 resource "random_password" "superset" {
+  length  = 32
+  special = false
+}
+
+resource "random_password" "polaris" {
   length  = 32
   special = false
 }
@@ -142,6 +152,22 @@ resource "kubernetes_secret_v1" "superset_credentials" {
   data = {
     "postgresql-password" = random_password.superset.result
   }
+  type = "Opaque"
+}
+
+resource "kubernetes_secret_v1" "polaris_credentials" {
+  metadata {
+    name      = var.polaris_credentials_secret_name
+    namespace = var.namespace
+    labels    = local.labels
+  }
+
+  data = {
+    username = var.polaris_db_user
+    password = random_password.polaris.result
+    jdbcUrl  = "jdbc:postgresql://${local.host}:${local.port}/${var.polaris_db_name}"
+  }
+
   type = "Opaque"
 }
 
@@ -256,6 +282,23 @@ resource "kubernetes_stateful_set_v1" "postgresql" {
           env {
             name  = "SUPERSET_DB_NAME"
             value = var.superset_db_name
+          }
+          env {
+            name  = "POLARIS_DB_USER"
+            value = var.polaris_db_user
+          }
+          env {
+            name = "POLARIS_DB_PASSWORD"
+            value_from {
+              secret_key_ref {
+                name = kubernetes_secret_v1.polaris_credentials.metadata[0].name
+                key  = "password"
+              }
+            }
+          }
+          env {
+            name  = "POLARIS_DB_NAME"
+            value = var.polaris_db_name
           }
 
           volume_mount {
@@ -442,6 +485,23 @@ resource "kubernetes_job_v1" "bootstrap" {
           env {
             name  = "SUPERSET_DB_NAME"
             value = var.superset_db_name
+          }
+          env {
+            name  = "POLARIS_DB_USER"
+            value = var.polaris_db_user
+          }
+          env {
+            name = "POLARIS_DB_PASSWORD"
+            value_from {
+              secret_key_ref {
+                name = kubernetes_secret_v1.polaris_credentials.metadata[0].name
+                key  = "password"
+              }
+            }
+          }
+          env {
+            name  = "POLARIS_DB_NAME"
+            value = var.polaris_db_name
           }
 
           volume_mount {

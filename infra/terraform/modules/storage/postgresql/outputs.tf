@@ -15,6 +15,8 @@ output "contract" {
     superset_db_name                 = var.superset_db_name
     superset_db_user                 = var.superset_db_user
     superset_credentials_secret_name = var.superset_credentials_secret_name
+
+    polaris_credentials_secret_name = var.polaris_credentials_secret_name
   }
 
   depends_on = [

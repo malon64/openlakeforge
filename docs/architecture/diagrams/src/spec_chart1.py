@@ -37,10 +37,10 @@ c.icon(140, ROW2 + IY1, "deploy", "server", label2=":8585")
 c.icon(316, ROW2 + IY1, "sts", "opensearch", label2="single node")
 
 c.box(422, ROW2, 168, 180, "PostgreSQL — 1", color="platform", fill="#FFFFFF")
-c.icon(506, ROW2 + IY1, "sts", "shared db", label2="dagster · om · superset")
+c.icon(506, ROW2 + IY1, "sts", "shared db", label2="metadata + catalog")
 
 c.box(606, ROW2, 168, 180, "Polaris — 1", color="platform", fill="#FFFFFF")
-c.icon(690, ROW2 + IY1, "deploy", "catalog", label2=":8181 · in-memory")
+c.icon(690, ROW2 + IY1, "deploy", "catalog", label2=":8181 · JDBC")
 
 c.box(790, ROW2, 168, 180, "Trino — 1", color="platform", fill="#FFFFFF")
 c.icon(874, ROW2 + IY1, "deploy", "coordinator", label2="workers: 0 · 2G heap")
