@@ -3,6 +3,8 @@ set -euo pipefail
 
 required_paths=(
   "README.md"
+  "AGENTS.md"
+  "CLAUDE.md"
   "Makefile"
   ".gitignore"
   ".github/workflows/checks.yml"

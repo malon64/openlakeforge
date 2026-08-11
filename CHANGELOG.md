@@ -12,7 +12,7 @@ immutable-semver` in `release/component-catalog.yaml`) and are never
 force-updated. See [docs/release/releasing.md](docs/release/releasing.md)
 for how a release is cut and verified.
 
-## [0.1.0-alpha.1] - Unreleased
+## [0.1.0-alpha.1] - 2026-08-10
 
 The first publishable OpenLakeForge alpha: a signed, SBOM'd, provenance-
 attested release bundle built from the seed multi-product POC (Sales
