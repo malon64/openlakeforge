@@ -34,7 +34,7 @@ The current alpha seed set contains two Sales data products, `order_revenue` and
 | Layer | Choice | v1 Role |
 | --- | --- | --- |
 | Extraction | dlt | Default ingestion framework |
-| Technical contracts | Floe | Bronze-to-Silver validation and Silver materialization |
+| Technical contracts | [Floe](docs/architecture/floe-validation.md) | Bronze-to-Silver validation and Silver materialization |
 | Transformation | dbt-trino | Silver-to-Gold business models |
 | Table format | Apache Iceberg | Open table format |
 | Catalog | Apache Polaris / AWS Glue | Polaris for local/Azure POC, Glue for AWS POC |

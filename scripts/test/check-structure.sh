@@ -10,6 +10,7 @@ required_paths=(
   ".github/workflows/checks.yml"
   "docs/architecture/README.md"
   "docs/architecture/overview.md"
+  "docs/architecture/floe-validation.md"
   "docs/architecture/azure-aks-poc.md"
   "docs/architecture/aws-eks-poc.md"
   "docs/architecture/provider-contracts.md"
