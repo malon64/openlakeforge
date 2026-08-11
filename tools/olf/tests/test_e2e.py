@@ -1191,6 +1191,33 @@ def test_two_product_fixture_repo_drives_exactly_its_own_jobs_dashboards_and_mar
         ],
         expected,
     )
+
+
+def test_discovered_dashboards_rejects_a_product_with_no_dashboard_export(tmp_path: Path) -> None:
+    """A missing dashboard export must fail loudly, not pass by contributing nothing."""
+    _write_two_product_fixture(tmp_path)
+    inventory = load_domain_inventory(tmp_path)
+    fixture_cfg = e2e.E2EConfig(
+        env="local",
+        suite="full",
+        namespace="lakehouse",
+        kube_context="kind-openlakeforge-local",
+        repo_root=tmp_path,
+        foundation_terraform_dir=tmp_path / "foundation",
+        contract_terraform_dir=tmp_path / "contract",
+        inventory=inventory,
+    )
+    # Only the default (first) product exports a dashboard; the second has none.
+    _write_dashboard_fixture(
+        tmp_path,
+        inventory.default_product.report_source_dir,
+        "Overview_1.yaml",
+        slug="widgets-alpha-overview",
+        title="Widgets Alpha Overview Board",
+    )
+
+    with pytest.raises(e2e.E2EError, match="exports no Superset dashboards"):
+        e2e.discovered_dashboards(fixture_cfg)
     bad, warned = e2e.classify_pod_health(
         {
             "items": [

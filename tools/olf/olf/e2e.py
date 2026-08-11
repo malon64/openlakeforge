@@ -850,7 +850,10 @@ def discovered_dashboards(cfg: E2EConfig) -> dict[str, str]:
     expected: dict[str, str] = {}
     for product in cfg.inventory.products:
         dashboards_dir = cfg.repo_root / product.report_source_dir / "dashboards"
-        for dashboard_file in sorted(dashboards_dir.glob("*.yaml")):
+        dashboard_files = sorted(dashboards_dir.glob("*.yaml"))
+        if not dashboard_files:
+            raise E2EError(f"{dashboards_dir}: product {product.asset_prefix!r} exports no Superset dashboards")
+        for dashboard_file in dashboard_files:
             document = yaml.safe_load(dashboard_file.read_text())
             slug = document.get("slug") if isinstance(document, Mapping) else None
             title = document.get("dashboard_title") if isinstance(document, Mapping) else None
