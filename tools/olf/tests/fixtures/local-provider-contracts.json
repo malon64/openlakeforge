@@ -1,5 +1,5 @@
 {
-  "schema_version": "1.0.0",
+  "schema_version": "2.0.0",
   "storage": {
     "logical_name": "lakehouse_storage",
     "provider": "local",
@@ -32,21 +32,12 @@
     "oauth_scope": "PRINCIPAL_ROLE:ALL",
     "warehouse": "lakehouse_dev",
     "catalog_namespace_model": "product-layer",
-    "catalog_namespaces": [
-      {
-        "name": "sales_order_revenue_silver",
-        "location": "s3://lakehouse-silver/sales_order_revenue_silver/"
-      }
-    ],
-    "silver_namespaces": {
-      "sales_order_revenue": "sales_order_revenue_silver"
-    },
-    "gold_namespaces": {
-      "sales_order_revenue": "sales_order_revenue_gold"
-    },
     "floe_credentials_secret_name": "polaris-floe-creds",
     "floe_client_id_key": "POLARIS_FLOE_CLIENT_ID",
-    "floe_client_secret_key": "POLARIS_FLOE_CLIENT_SECRET"
+    "floe_client_secret_key": "POLARIS_FLOE_CLIENT_SECRET",
+    "deployer_credentials_secret_name": "polaris-deployer-creds",
+    "deployer_client_id_key": "POLARIS_DEPLOYER_CLIENT_ID",
+    "deployer_client_secret_key": "POLARIS_DEPLOYER_CLIENT_SECRET"
   },
   "artifact_bucket": {
     "bucket_name": "openlakeforge-ops",

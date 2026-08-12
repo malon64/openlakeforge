@@ -91,15 +91,6 @@ variable "postgresql_contract" {
   })
 }
 
-variable "catalog_namespaces" {
-  description = "Polaris namespaces to bootstrap, each with its namespace-level storage location."
-  type = list(object({
-    name     = string
-    location = string
-  }))
-  default = []
-}
-
 variable "bootstrap_secret_name" {
   description = "Kubernetes Secret containing Polaris root bootstrap credentials."
   type        = string
@@ -146,6 +137,30 @@ variable "om_credentials_secret_name" {
   description = "Kubernetes Secret written by the bootstrap job with OpenMetadata OAuth credentials."
   type        = string
   default     = "polaris-om-creds"
+}
+
+variable "deployer_principal_name" {
+  description = "Polaris service principal used by `olf catalog sync-namespaces` in Phase 2."
+  type        = string
+  default     = "deployer"
+}
+
+variable "deployer_principal_role" {
+  description = "Polaris principal role granted to the Phase 2 deployer principal."
+  type        = string
+  default     = "namespace-admin"
+}
+
+variable "deployer_catalog_role" {
+  description = "Polaris catalog role granted to the deployer principal role."
+  type        = string
+  default     = "catalog-namespace-admin"
+}
+
+variable "deployer_credentials_secret_name" {
+  description = "Kubernetes Secret written by the bootstrap job with deployer OAuth credentials."
+  type        = string
+  default     = "polaris-deployer-creds"
 }
 
 variable "bootstrap_revision" {

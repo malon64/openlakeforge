@@ -75,10 +75,6 @@ locals {
     trino_catalog_name         = "iceberg"
     default_warehouse_location = "s3://${local.storage_contract.silver_bucket_name}"
     catalog_namespace_model    = local.catalog_namespace_model
-    catalog_namespaces         = local.catalog_namespaces
-    catalog_schema_names       = [for namespace in local.catalog_namespaces : namespace.name]
-    silver_namespaces          = local.catalog_silver_namespaces
-    gold_namespaces            = local.catalog_gold_namespaces
     auth_mode                  = "aws-sigv4-pod-identity"
     secret_delivery_mode       = "none"
     ssl_mode                   = "required"
@@ -97,12 +93,9 @@ locals {
     dbt_support                = ["glue"]
     openmetadata_support       = ["glue"]
     catalog_database_fqn       = "aws_glue.${var.catalog_name}"
-    silver_schema_fqns = {
-      for product, namespace in local.catalog_silver_namespaces : product => "aws_glue.${var.catalog_name}.${namespace}"
-    }
-    gold_schema_fqns = {
-      for product, namespace in local.catalog_gold_namespaces : product => "aws_glue.${var.catalog_name}.${namespace}"
-    }
+    # Per-product namespaces and schema FQNs are deliberately absent: Phase 2
+    # reconciles them from the descriptors (ADR 0022), and olf/contracts.py
+    # derives both from the same inventory when the contract omits them.
   })
 
   governance_contract = merge(var.enable_governance ? module.openmetadata[0].contract : {}, {
@@ -289,7 +282,7 @@ locals {
   }
 
   provider_contracts = {
-    schema_version      = "1.0.0"
+    schema_version      = "2.0.0"
     foundation          = local.foundation_contract
     kubernetes_platform = local.kubernetes_platform_contract
     cluster             = local.kubernetes_platform_contract

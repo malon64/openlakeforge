@@ -28,7 +28,7 @@ from typing import Any
 
 from olf.inventory import inventory_for
 
-PROVIDER_CONTRACT_SCHEMA_VERSION = "1.0.0"
+PROVIDER_CONTRACT_SCHEMA_VERSION = "2.0.0"
 
 
 class ProviderContractError(ValueError):
@@ -173,6 +173,9 @@ def _apply_default_contract_env(env: _Env, base: Mapping[str, str], repo_root: P
     env.default("OPENLAKEFORGE_CATALOG_FLOE_CREDENTIALS_SECRET_NAME", "polaris-floe-creds")
     env.default("OPENLAKEFORGE_CATALOG_FLOE_CLIENT_ID_KEY", "POLARIS_FLOE_CLIENT_ID")
     env.default("OPENLAKEFORGE_CATALOG_FLOE_CLIENT_SECRET_KEY", "POLARIS_FLOE_CLIENT_SECRET")
+    env.default("OPENLAKEFORGE_CATALOG_DEPLOYER_CREDENTIALS_SECRET_NAME", "polaris-deployer-creds")
+    env.default("OPENLAKEFORGE_CATALOG_DEPLOYER_CLIENT_ID_KEY", "POLARIS_DEPLOYER_CLIENT_ID")
+    env.default("OPENLAKEFORGE_CATALOG_DEPLOYER_CLIENT_SECRET_KEY", "POLARIS_DEPLOYER_CLIENT_SECRET")
 
     env.default(
         "OPENLAKEFORGE_OPS_BUCKET_NAME",
@@ -323,6 +326,12 @@ def _apply_provider_contracts(env: _Env, contracts: dict[str, Any]) -> None:
     )
     emit("OPENLAKEFORGE_CATALOG_FLOE_CLIENT_ID_KEY", catalog.get("floe_client_id_key"))
     emit("OPENLAKEFORGE_CATALOG_FLOE_CLIENT_SECRET_KEY", catalog.get("floe_client_secret_key"))
+    emit(
+        "OPENLAKEFORGE_CATALOG_DEPLOYER_CREDENTIALS_SECRET_NAME",
+        catalog.get("deployer_credentials_secret_name"),
+    )
+    emit("OPENLAKEFORGE_CATALOG_DEPLOYER_CLIENT_ID_KEY", catalog.get("deployer_client_id_key"))
+    emit("OPENLAKEFORGE_CATALOG_DEPLOYER_CLIENT_SECRET_KEY", catalog.get("deployer_client_secret_key"))
 
     ops_bucket = artifact_bucket.get("bucket_name") or artifact_bucket.get("ops_bucket_name")
     emit("OPENLAKEFORGE_OPS_BUCKET_NAME", ops_bucket)

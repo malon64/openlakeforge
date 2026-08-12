@@ -1,15 +1,19 @@
 locals {
-  rest_uri              = "https://glue.${var.region}.amazonaws.com/iceberg"
-  catalog_namespace_map = { for namespace in var.catalog_namespaces : namespace.name => namespace }
-  catalog_schema_names  = keys(local.catalog_namespace_map)
+  rest_uri = "https://glue.${var.region}.amazonaws.com/iceberg"
 }
 
-resource "aws_glue_catalog_database" "namespace" {
-  for_each = local.catalog_namespace_map
+# Database lifecycle moved to Phase 2 (ADR 0022): `olf catalog sync-namespaces`
+# reconciles Glue databases from domains/*/domain.yaml during artifacts-deploy,
+# the same way it already reconciles Polaris namespaces. This root no longer
+# creates or destroys databases -- it only stands up the catalog service.
+#
+# `removed` forgets the resource from state without deleting the underlying
+# Glue databases, so an existing deployment's tables survive the upgrade. This
+# block can be dropped once every environment has applied past this change.
+removed {
+  from = aws_glue_catalog_database.namespace
 
-  name         = each.value.name
-  catalog_id   = var.account_id
-  location_uri = each.value.location
-
-  description = "OpenLakeForge ${var.catalog_name} ${each.value.name} Iceberg namespace"
+  lifecycle {
+    destroy = false
+  }
 }

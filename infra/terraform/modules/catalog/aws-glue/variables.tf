@@ -14,14 +14,6 @@ variable "catalog_name" {
   default     = "lakehouse_dev"
 }
 
-variable "catalog_namespaces" {
-  description = "Product/layer Glue databases exposed as Iceberg schemas."
-  type = list(object({
-    name     = string
-    location = string
-  }))
-}
-
 variable "trino_catalog_name" {
   description = "Trino catalog name."
   type        = string

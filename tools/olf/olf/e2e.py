@@ -1148,27 +1148,21 @@ def check_aws_provider_contracts(cfg: E2EConfig) -> None:
 
 
 def check_aws_storage_and_glue(cfg: E2EConfig) -> None:
+    """Assert the S3 artifact bucket and every expected Glue database exist.
+
+    Glue database lifecycle moved to Phase 2 (ADR 0022), so the provider
+    contract no longer publishes a namespace/database list to check against --
+    `olf catalog sync-namespaces` is what is under test here, and the only
+    source of truth for "did it work" is AWS itself.
+    """
     log.step("Checking S3 artifact bucket and Glue catalog databases...")
     provider_contracts = load_provider_contracts_or_raise(cfg)
     bucket = provider_contracts["artifact_bucket"]["bucket_name"]
     region = aws_stack_region(cfg)
     expected_schemas = cfg.inventory.silver_namespace_names | cfg.inventory.gold_namespace_names
     _run(["aws", "s3api", "head-bucket", "--bucket", bucket], capture=True)
-    for database in glue_database_names(provider_contracts, expected_schemas):
+    for database in sorted(expected_schemas):
         _run(["aws", "glue", "get-database", "--region", region, "--name", database], capture=True)
-
-
-def glue_database_names(provider_contracts: Mapping[str, Any], expected_schemas: frozenset[str]) -> set[str]:
-    catalog = provider_contracts["catalog"]
-    schema_names = set(catalog.get("catalog_schema_names") or [ns["name"] for ns in catalog["catalog_namespaces"]])
-    database_names = set(catalog.get("glue_database_names") or [])
-    missing = expected_schemas.difference(schema_names)
-    if missing:
-        raise E2EError(f"catalog contract missing Glue schema names: {sorted(missing)}")
-    missing_databases = expected_schemas.difference(database_names)
-    if missing_databases:
-        raise E2EError(f"catalog contract missing Glue database names: {sorted(missing_databases)}")
-    return database_names
 
 
 def load_provider_contracts_or_raise(cfg: E2EConfig) -> Mapping[str, Any]:

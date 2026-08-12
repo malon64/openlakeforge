@@ -8,7 +8,7 @@ distribution:
   development_tags: mutable
 components:
   terraform:
-    required_version: ">= 1.6.0"
+    required_version: ">= 1.7.0"
     providers:
       hashicorp/aws: 5.100.0
       hashicorp/azurerm: 4.77.0

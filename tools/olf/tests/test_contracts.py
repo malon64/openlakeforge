@@ -71,10 +71,46 @@ def test_local_contracts_apply_seaweedfs_values() -> None:
             "polaris.lakehouse_dev.supply_chain_inventory_reliability_silver"
         ),
     }
-    assert json.loads(exports["OPENLAKEFORGE_CATALOG_SILVER_NAMESPACES_JSON"]) == {
-        "sales_order_revenue": "sales_order_revenue_silver"
-    }
     assert unsets == []
+
+
+def test_polaris_contract_without_namespaces_falls_back_to_the_descriptors() -> None:
+    """Phase 1 no longer resolves Polaris namespaces, so every product must
+    still get one from the inventory -- not just the products a stale apply
+    happened to know about."""
+    contracts = load_fixture("local-provider-contracts.json")
+    assert "catalog_namespaces" not in contracts["catalog"]
+    assert "silver_namespaces" not in contracts["catalog"]
+
+    exports, _ = build_contract_env({}, contracts, repo_root=REPO_ROOT)
+
+    assert json.loads(exports["OPENLAKEFORGE_CATALOG_SILVER_NAMESPACES_JSON"]) == {
+        "sales_order_revenue": "sales_order_revenue_silver",
+        "sales_customer_health": "sales_customer_health_silver",
+        "supply_chain_inventory_reliability": "supply_chain_inventory_reliability_silver",
+    }
+    assert json.loads(exports["OPENLAKEFORGE_CATALOG_GOLD_NAMESPACES_JSON"]) == {
+        "sales_order_revenue": "sales_order_revenue_gold",
+        "sales_customer_health": "sales_customer_health_gold",
+        "supply_chain_inventory_reliability": "supply_chain_inventory_reliability_gold",
+    }
+    namespaces = json.loads(exports["OPENLAKEFORGE_CATALOG_NAMESPACES_JSON"])
+    assert {entry["name"] for entry in namespaces} == {
+        "sales_order_revenue_silver",
+        "sales_order_revenue_gold",
+        "sales_customer_health_silver",
+        "sales_customer_health_gold",
+        "supply_chain_inventory_reliability_silver",
+        "supply_chain_inventory_reliability_gold",
+    }
+
+
+def test_polaris_contract_publishes_the_phase_two_deployer_credentials() -> None:
+    exports, _ = build_contract_env({}, load_fixture("local-provider-contracts.json"), repo_root=REPO_ROOT)
+
+    assert exports["OPENLAKEFORGE_CATALOG_DEPLOYER_CREDENTIALS_SECRET_NAME"] == "polaris-deployer-creds"
+    assert exports["OPENLAKEFORGE_CATALOG_DEPLOYER_CLIENT_ID_KEY"] == "POLARIS_DEPLOYER_CLIENT_ID"
+    assert exports["OPENLAKEFORGE_CATALOG_DEPLOYER_CLIENT_SECRET_KEY"] == "POLARIS_DEPLOYER_CLIENT_SECRET"
 
 
 def test_disabled_governance_and_analytics_unset_their_runtime_dependencies() -> None:
@@ -133,6 +169,29 @@ def test_aws_contracts_blank_local_only_fields_and_derive_glue_fqns() -> None:
     # us-east-1 default from the pre-contract pass.
     assert exports["AWS_REGION"] == "eu-west-1"
     assert exports["AWS_DEFAULT_REGION"] == "eu-west-1"
+
+
+def test_aws_glue_contract_without_schema_fqns_falls_back_to_the_descriptors() -> None:
+    """Glue database lifecycle also moved to Phase 2 (ADR 0022): when a Glue
+    contract carries no schema-FQN map at all -- not the partial single-product
+    map the fixture normally carries -- the same descriptor-driven fallback
+    that serves Polaris must serve Glue, using the aws_glue.<catalog> prefix."""
+    contracts = load_fixture("aws-provider-contracts.json")
+    del contracts["catalog"]["silver_schema_fqns"]
+    del contracts["catalog"]["gold_schema_fqns"]
+
+    exports, _ = build_contract_env({}, contracts, repo_root=REPO_ROOT)
+
+    assert json.loads(exports["OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON"]) == {
+        "sales_order_revenue": "aws_glue.lakehouse_dev.sales_order_revenue_silver",
+        "sales_customer_health": "aws_glue.lakehouse_dev.sales_customer_health_silver",
+        "supply_chain_inventory_reliability": "aws_glue.lakehouse_dev.supply_chain_inventory_reliability_silver",
+    }
+    assert json.loads(exports["OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON"]) == {
+        "sales_order_revenue": "aws_glue.lakehouse_dev.sales_order_revenue_gold",
+        "sales_customer_health": "aws_glue.lakehouse_dev.sales_customer_health_gold",
+        "supply_chain_inventory_reliability": "aws_glue.lakehouse_dev.supply_chain_inventory_reliability_gold",
+    }
 
 
 def test_caller_exported_aws_region_is_preserved() -> None:
