@@ -20,6 +20,8 @@ TFVARS_ARGS=()
 [[ -f "${TFVARS_FILE}" ]] && TFVARS_ARGS+=(-var-file="${TFVARS_FILE}")
 PROJECT_CODE_IMAGE_PULL_POLICY="${PROJECT_CODE_IMAGE_PULL_POLICY:-Always}"
 PROJECT_CODE_IMAGE_REVISION="${PROJECT_CODE_IMAGE_REVISION:-manual}"
+ENABLE_GOVERNANCE="${ENABLE_GOVERNANCE:-true}"
+ENABLE_ANALYTICS="${ENABLE_ANALYTICS:-true}"
 SUPERSET_IMAGE_PULL_POLICY="${SUPERSET_IMAGE_PULL_POLICY:-Always}"
 TRINO_CHART_REPOSITORY="${TRINO_CHART_REPOSITORY:-https://trinodb.github.io/charts}"
 TRINO_CHART_VERSION="${TRINO_CHART_VERSION:-1.42.2}"
@@ -35,6 +37,8 @@ source "${REPO_ROOT}/scripts/lib/common.sh"
 source "${REPO_ROOT}/scripts/lib/helm.sh"
 # shellcheck source=scripts/lib/kube.sh
 source "${REPO_ROOT}/scripts/lib/kube.sh"
+# shellcheck source=scripts/lib/python.sh
+source "${REPO_ROOT}/scripts/lib/python.sh"
 
 TRINO_CHART_PACKAGE_PATH="${TRINO_CHART_PACKAGE_PATH:-${HELM_CHART_CACHE_DIR}/trino-${TRINO_CHART_VERSION}.tgz}"
 DAGSTER_CHART_PACKAGE_PATH="${DAGSTER_CHART_PACKAGE_PATH:-${HELM_CHART_CACHE_DIR}/dagster-${DAGSTER_CHART_VERSION}-no-schema.tgz}"
@@ -94,6 +98,8 @@ terraform_apply_once() {
     -var="project_code_image_tag=${PROJECT_CODE_IMAGE_TAG}" \
     -var="project_code_image_pull_policy=${PROJECT_CODE_IMAGE_PULL_POLICY}" \
     -var="project_code_image_revision=${PROJECT_CODE_IMAGE_REVISION}" \
+    -var="enable_governance=${ENABLE_GOVERNANCE}" \
+    -var="enable_analytics=${ENABLE_ANALYTICS}" \
     -var="superset_image_repository=${SUPERSET_IMAGE_REPOSITORY}" \
     -var="superset_image_tag=${SUPERSET_IMAGE_TAG}" \
     -var="superset_image_pull_policy=${SUPERSET_IMAGE_PULL_POLICY}" \
@@ -102,10 +108,14 @@ terraform_apply_once() {
 }
 
 echo "==> Checking AWS platform prerequisites..."
-check_prereqs aws docker helm kubectl terraform
+check_prereqs aws docker helm kubectl terraform uv
 prepare_eks_context
 prepare_image_variables
-prepare_superset_image
+if OPENLAKEFORGE_ANALYTICS_ENABLED="${ENABLE_ANALYTICS}" olf_run layers enabled --layer analytics; then
+  prepare_superset_image
+else
+  echo "==> Skipping Superset image build: analytics layer is disabled."
+fi
 prepare_helm_cache_dirs
 prepare_cached_chart "Trino" trino "${TRINO_CHART_REPOSITORY}" trino/trino \
   "${TRINO_CHART_VERSION}" "${TRINO_CHART_PACKAGE_PATH}"
@@ -125,6 +135,8 @@ terraform_import_namespace_args=(
   -var="project_code_image_tag=${PROJECT_CODE_IMAGE_TAG}"
   -var="project_code_image_pull_policy=${PROJECT_CODE_IMAGE_PULL_POLICY}"
   -var="project_code_image_revision=${PROJECT_CODE_IMAGE_REVISION}"
+  -var="enable_governance=${ENABLE_GOVERNANCE}"
+  -var="enable_analytics=${ENABLE_ANALYTICS}"
   -var="superset_image_repository=${SUPERSET_IMAGE_REPOSITORY}"
   -var="superset_image_tag=${SUPERSET_IMAGE_TAG}"
   -var="superset_image_pull_policy=${SUPERSET_IMAGE_PULL_POLICY}"

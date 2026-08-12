@@ -21,6 +21,7 @@ from olf import config
 from olf import contracts as contracts_module
 from olf import floe as floe_module
 from olf import inventory as inventory_module
+from olf import layers as layers_module
 
 app = typer.Typer(
     name="olf",
@@ -34,6 +35,7 @@ inventory_app = typer.Typer(help="Typed domain inventory helpers.")
 catalog_app = typer.Typer(help="Iceberg catalog namespace reconciliation.")
 floe_app = typer.Typer(help="Floe profile and manifest helpers.")
 artifacts_app = typer.Typer(help="Object-storage artifact helpers.")
+layers_app = typer.Typer(help="Optional platform-layer capability helpers.")
 revision_app = typer.Typer(help="Immutable Floe runtime-artifact revision helpers.")
 superset_app = typer.Typer(help="Superset report deploy/export helpers.")
 openmetadata_app = typer.Typer(help="OpenMetadata governance metadata helpers.")
@@ -45,6 +47,7 @@ app.add_typer(inventory_app, name="inventory")
 app.add_typer(catalog_app, name="catalog")
 app.add_typer(floe_app, name="floe")
 app.add_typer(artifacts_app, name="artifacts")
+app.add_typer(layers_app, name="layers")
 app.add_typer(revision_app, name="revision")
 app.add_typer(superset_app, name="superset")
 app.add_typer(openmetadata_app, name="openmetadata")
@@ -212,6 +215,30 @@ def catalog_sync_namespaces(
 def floe_render_profile() -> None:
     """Render the Floe EnvironmentProfile YAML for the active contract env."""
     typer.echo(floe_module.render_profile(os.environ), nl=False)
+
+
+@layers_app.command("enabled")
+def layers_enabled(
+    layer: str = typer.Option(..., "--layer", help="Optional layer: analytics or governance."),
+) -> None:
+    """Exit successfully only when an optional platform layer is enabled."""
+    try:
+        is_enabled = layers_module.enabled(os.environ, layer)
+    except ValueError as exc:
+        raise typer.Exit(code=_fail(str(exc))) from exc
+    if not is_enabled:
+        raise typer.Exit(code=1)
+
+
+@artifacts_app.command("deploy-optional-layers")
+def artifacts_deploy_optional_layers() -> None:
+    """Deploy artifacts for enabled optional platform layers."""
+    layers_module.deploy_enabled_artifacts(
+        os.environ,
+        deploy_reports=deploy_superset_reports,
+        deploy_metadata=deploy_openmetadata_metadata,
+        report=lambda message: typer.echo(f"==> {message}"),
+    )
 
 
 @artifacts_app.command("upload-manifests")
@@ -383,6 +410,11 @@ def _artifact_storage_client(via: str, bucket: str) -> Iterator[Any]:
 @superset_app.command("deploy-reports")
 def superset_deploy_reports() -> None:
     """Build and import source-controlled Superset report bundles."""
+    deploy_superset_reports()
+
+
+def deploy_superset_reports() -> None:
+    """Build and import source-controlled Superset report bundles."""
     from olf import superset
 
     superset.deploy_reports(
@@ -435,6 +467,11 @@ def superset_export_reports() -> None:
 
 @openmetadata_app.command("deploy-metadata")
 def openmetadata_deploy_metadata() -> None:
+    """Seed OpenMetadata domains, data products, and medallion containers."""
+    deploy_openmetadata_metadata()
+
+
+def deploy_openmetadata_metadata() -> None:
     """Seed OpenMetadata domains, data products, and medallion containers."""
     from olf import k8s
     from olf import openmetadata as om

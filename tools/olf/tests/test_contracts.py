@@ -113,6 +113,26 @@ def test_polaris_contract_publishes_the_phase_two_deployer_credentials() -> None
     assert exports["OPENLAKEFORGE_CATALOG_DEPLOYER_CLIENT_SECRET_KEY"] == "POLARIS_DEPLOYER_CLIENT_SECRET"
 
 
+def test_disabled_governance_and_analytics_unset_their_runtime_dependencies() -> None:
+    contracts = load_fixture("local-provider-contracts.json")
+    contracts["governance"] = {"enabled": False}
+    contracts["reporting"] = {"enabled": False}
+
+    exports, unsets = build_contract_env({}, contracts, repo_root=REPO_ROOT)
+
+    assert exports["OPENLAKEFORGE_GOVERNANCE_ENABLED"] == "false"
+    assert exports["OPENLAKEFORGE_ANALYTICS_ENABLED"] == "false"
+    for name in (
+        "OPENLINEAGE_URL",
+        "OPENLINEAGE_ENDPOINT",
+        "OPENLINEAGE_NAMESPACE",
+        "OPENLAKEFORGE_GOVERNANCE_INGESTION_BOT_SECRET_NAME",
+        "OPENLAKEFORGE_GOVERNANCE_INGESTION_BOT_JWT_KEY",
+    ):
+        assert name not in exports
+        assert name in unsets
+
+
 def test_aws_contracts_blank_local_only_fields_and_derive_glue_fqns() -> None:
     exports, unsets = build_contract_env({}, load_fixture("aws-provider-contracts.json"), repo_root=REPO_ROOT)
     # storage.aws_s3 blanks S3-compatible endpoint plumbing

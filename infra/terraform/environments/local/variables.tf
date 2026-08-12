@@ -82,6 +82,18 @@ variable "project_code_image_revision" {
   default     = "manual"
 }
 
+variable "enable_governance" {
+  description = "Whether to deploy the OpenMetadata governance layer and its supporting credentials."
+  type        = bool
+  default     = true
+}
+
+variable "enable_analytics" {
+  description = "Whether to deploy the Superset analytics layer and its supporting credentials."
+  type        = bool
+  default     = true
+}
+
 variable "superset_image_repository" {
   description = "Superset image repository used by the local Superset Helm release."
   type        = string

@@ -238,10 +238,42 @@ def test_run_full_only_restarts_polaris_for_local(
     monkeypatch.setattr(e2e, "check_superset_dashboards", lambda _cfg: calls.append("superset"))
     monkeypatch.setattr(e2e, "check_openmetadata_assets", lambda _cfg: calls.append("openmetadata"))
     monkeypatch.setattr(e2e, "check_ops_artifacts", lambda _cfg: calls.append("artifacts"))
+    monkeypatch.setattr(e2e, "configured_layers", lambda _cfg: {"governance": True, "analytics": True})
 
     e2e.run_full(cfg(tmp_path, env=env))
 
     assert calls == expected
+
+
+def test_run_full_skips_disabled_layer_assertions_and_reports_them(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    calls: list[str] = []
+    messages: list[str] = []
+
+    monkeypatch.setattr(e2e, "launch_and_poll_dagster_jobs", lambda _cfg: calls.append("jobs"))
+    monkeypatch.setattr(e2e, "check_trino_tables_and_marts", lambda _cfg: calls.append("tables"))
+    monkeypatch.setattr(e2e, "check_polaris_restart_recovery", lambda _cfg: calls.append("recovery"))
+    monkeypatch.setattr(e2e, "check_superset_dashboards", lambda _cfg: calls.append("superset"))
+    monkeypatch.setattr(e2e, "check_openmetadata_assets", lambda _cfg: calls.append("openmetadata"))
+    monkeypatch.setattr(e2e, "check_ops_artifacts", lambda _cfg: calls.append("artifacts"))
+    monkeypatch.setattr(e2e, "configured_layers", lambda _cfg: {"governance": False, "analytics": False})
+    monkeypatch.setattr(e2e.log, "info", messages.append)
+
+    e2e.run_full(cfg(tmp_path))
+
+    assert calls == ["jobs", "tables", "recovery", "artifacts"]
+    assert "Skipped e2e assertions: Superset dashboards, OpenMetadata governance assets" in messages
+
+
+def test_configured_layers_reads_contract_flags(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(
+        e2e,
+        "load_provider_contracts_or_raise",
+        lambda _cfg: {"governance": {"enabled": False}, "reporting": {"enabled": False}},
+    )
+
+    assert e2e.configured_layers(cfg(tmp_path)) == {"governance": False, "analytics": False}
 
 
 def test_prepare_kube_context_refreshes_existing_aws_context(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

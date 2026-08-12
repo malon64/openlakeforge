@@ -98,25 +98,27 @@ locals {
     # derives both from the same inventory when the contract omits them.
   })
 
-  governance_contract = merge(module.openmetadata.contract, {
+  governance_contract = merge(var.enable_governance ? module.openmetadata[0].contract : {}, {
+    enabled        = var.enable_governance
     provider       = local.aws_provider_name
     implementation = "governance.openmetadata_on_eks"
     adapter        = "governance.openmetadata_on_eks"
     logical_name   = "governance_catalog"
     auth_mode      = "local-development"
-    endpoint       = "http://${module.openmetadata.contract.service_name}:${module.openmetadata.contract.http_port}"
+    endpoint       = var.enable_governance ? "http://${module.openmetadata[0].contract.service_name}:${module.openmetadata[0].contract.http_port}" : null
     ingress_mode   = "cluster-internal"
     local_only     = false
     poc_only       = true
   })
 
-  reporting_contract = merge(module.superset.contract, {
+  reporting_contract = merge(var.enable_analytics ? module.superset[0].contract : {}, {
+    enabled        = var.enable_analytics
     provider       = local.aws_provider_name
     implementation = "reporting.superset_on_eks"
     adapter        = "reporting.superset_on_eks"
     logical_name   = "bi_reporting"
     auth_mode      = "local-development"
-    endpoint       = "http://${module.superset.contract.service_name}:${module.superset.contract.http_port}"
+    endpoint       = var.enable_analytics ? "http://${module.superset[0].contract.service_name}:${module.superset[0].contract.http_port}" : null
     ingress_mode   = "cluster-internal"
     local_only     = false
     poc_only       = true

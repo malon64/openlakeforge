@@ -8,13 +8,13 @@ output "contract" {
     dagster_db_user                 = var.dagster_db_user
     dagster_credentials_secret_name = var.dagster_credentials_secret_name
 
-    openmetadata_db_name                 = var.openmetadata_db_name
-    openmetadata_db_user                 = var.openmetadata_db_user
-    openmetadata_credentials_secret_name = var.openmetadata_credentials_secret_name
+    openmetadata_db_name                 = var.enable_openmetadata ? var.openmetadata_db_name : null
+    openmetadata_db_user                 = var.enable_openmetadata ? var.openmetadata_db_user : null
+    openmetadata_credentials_secret_name = var.enable_openmetadata ? var.openmetadata_credentials_secret_name : null
 
-    superset_db_name                 = var.superset_db_name
-    superset_db_user                 = var.superset_db_user
-    superset_credentials_secret_name = var.superset_credentials_secret_name
+    superset_db_name                 = var.enable_superset ? var.superset_db_name : null
+    superset_db_user                 = var.enable_superset ? var.superset_db_user : null
+    superset_credentials_secret_name = var.enable_superset ? var.superset_credentials_secret_name : null
 
     polaris_credentials_secret_name = var.polaris_credentials_secret_name
   }

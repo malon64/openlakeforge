@@ -199,12 +199,13 @@ variable "postgresql_ssl_mode" {
 }
 
 variable "governance_contract" {
-  description = "OpenMetadata governance contract passed from the governance module."
+  description = "Optional OpenMetadata governance contract passed from the environment contract."
   type = object({
+    enabled                   = optional(bool, true)
     service_name              = optional(string)
     http_port                 = optional(number)
-    ingestion_bot_secret_name = string
-    ingestion_bot_jwt_key     = string
+    ingestion_bot_secret_name = optional(string)
+    ingestion_bot_jwt_key     = optional(string)
     provider                  = optional(string)
     implementation            = optional(string)
     auth_mode                 = optional(string)

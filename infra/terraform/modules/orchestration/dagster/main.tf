@@ -1,9 +1,10 @@
 locals {
-  catalog_type     = coalesce(try(var.catalog_contract.catalog_type, null), "rest")
-  catalog_provider = coalesce(try(var.catalog_contract.catalog_provider, null), "polaris")
-  catalog_name     = coalesce(try(var.catalog_contract.catalog_name, null), try(var.catalog_contract.warehouse, null), "lakehouse_dev")
-  runtime_profile  = coalesce(try(var.catalog_contract.runtime_profile, null), "polaris-rest")
-  dbt_profile_env  = local.catalog_type == "glue" && local.catalog_provider == "aws-glue" ? "aws" : (try(var.storage_contract.provider, null) == "azure" ? "azure" : "local")
+  catalog_type       = coalesce(try(var.catalog_contract.catalog_type, null), "rest")
+  catalog_provider   = coalesce(try(var.catalog_contract.catalog_provider, null), "polaris")
+  catalog_name       = coalesce(try(var.catalog_contract.catalog_name, null), try(var.catalog_contract.warehouse, null), "lakehouse_dev")
+  runtime_profile    = coalesce(try(var.catalog_contract.runtime_profile, null), "polaris-rest")
+  dbt_profile_env    = local.catalog_type == "glue" && local.catalog_provider == "aws-glue" ? "aws" : (try(var.storage_contract.provider, null) == "azure" ? "azure" : "local")
+  governance_enabled = try(var.governance_contract.enabled, true)
 
   storage_env = concat(
     [
@@ -195,7 +196,7 @@ locals {
     },
   ] : []
 
-  dbt_env = [
+  dbt_env = concat([
     {
       name  = "OPENLAKEFORGE_DBT_PROFILE_ENV"
       value = local.dbt_profile_env
@@ -213,6 +214,11 @@ locals {
       value = "openlakeforge-dbt"
     },
     {
+      name  = "OPENLAKEFORGE_POSTGRES_SSL_MODE"
+      value = var.postgresql_ssl_mode
+    },
+    ], local.governance_enabled ? [
+    {
       name  = "OPENLINEAGE_URL"
       value = "http://openmetadata:${try(var.governance_contract.http_port, 8585)}"
     },
@@ -224,13 +230,9 @@ locals {
       name  = "OPENLINEAGE_NAMESPACE"
       value = "dagster"
     },
-    {
-      name  = "OPENLAKEFORGE_POSTGRES_SSL_MODE"
-      value = var.postgresql_ssl_mode
-    },
-  ]
+  ] : [])
 
-  dbt_secret_env = [
+  dbt_secret_env = local.governance_enabled ? [
     {
       name = "OPENLINEAGE_API_KEY"
       valueFrom = {
@@ -240,7 +242,7 @@ locals {
         }
       }
     },
-  ]
+  ] : []
 
   runtime_env = concat(local.storage_env, local.artifact_env, local.generic_catalog_env, local.glue_catalog_env, local.polaris_catalog_env, local.dbt_env, local.dbt_secret_env)
 
@@ -299,7 +301,7 @@ locals {
         name = var.catalog_contract.floe_credentials_secret_name
       },
     ],
-    var.governance_contract.ingestion_bot_secret_name == null ? [] : [
+    !local.governance_enabled || try(var.governance_contract.ingestion_bot_secret_name, null) == null ? [] : [
       {
         name = var.governance_contract.ingestion_bot_secret_name
       },

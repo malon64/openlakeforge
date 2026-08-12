@@ -7,6 +7,7 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 TERRAFORM_DIR="${REPO_ROOT}/infra/terraform/environments/local"
 FOUNDATION_TERRAFORM_DIR="${REPO_ROOT}/infra/terraform/foundations/local-kind"
 FOUNDATION_STATE_PATH="${FOUNDATION_STATE_PATH:-${FOUNDATION_TERRAFORM_DIR}/terraform.tfstate}"
+LOCAL_TFVARS_FILE="${LOCAL_TFVARS_FILE:-}"
 NAMESPACE="${NAMESPACE:-lakehouse}"
 export NAMESPACE
 CLUSTER_NAME="${CLUSTER_NAME:-openlakeforge-local}"
@@ -18,6 +19,8 @@ PROJECT_CODE_IMAGE_REPOSITORY="${PROJECT_CODE_IMAGE_REPOSITORY:-ghcr.io/openlake
 PROJECT_CODE_IMAGE_TAG="${PROJECT_CODE_IMAGE_TAG:-local}"
 PROJECT_CODE_IMAGE_PULL_POLICY="${PROJECT_CODE_IMAGE_PULL_POLICY:-Never}"
 PROJECT_CODE_IMAGE_REVISION="${PROJECT_CODE_IMAGE_REVISION:-manual}"
+ENABLE_GOVERNANCE="${ENABLE_GOVERNANCE:-true}"
+ENABLE_ANALYTICS="${ENABLE_ANALYTICS:-true}"
 SUPERSET_IMAGE_REPOSITORY="${SUPERSET_IMAGE_REPOSITORY:-ghcr.io/openlakeforge/superset}"
 SUPERSET_IMAGE_TAG="${SUPERSET_IMAGE_TAG:-local}"
 SUPERSET_IMAGE_PULL_POLICY="${SUPERSET_IMAGE_PULL_POLICY:-Never}"
@@ -38,6 +41,13 @@ source "${REPO_ROOT}/scripts/lib/kube.sh"
 source "${REPO_ROOT}/scripts/lib/python.sh"
 
 TRINO_CHART_PACKAGE_PATH="${TRINO_CHART_PACKAGE_PATH:-${HELM_CHART_CACHE_DIR}/trino-${TRINO_CHART_VERSION}.tgz}"
+TFVARS_ARGS=()
+if [[ -n "${LOCAL_TFVARS_FILE}" ]]; then
+  if [[ "${LOCAL_TFVARS_FILE}" != /* ]]; then
+    LOCAL_TFVARS_FILE="${REPO_ROOT}/${LOCAL_TFVARS_FILE}"
+  fi
+  TFVARS_ARGS+=("-var-file=${LOCAL_TFVARS_FILE}")
+fi
 
 check_cluster() {
   if [[ ! -f "${FOUNDATION_STATE_PATH}" ]]; then
@@ -79,6 +89,7 @@ terraform_apply_once() {
   cleanup_failed_jobs_by_prefix "polaris-bootstrap-"
 
   terraform -chdir="${TERRAFORM_DIR}" apply -auto-approve \
+    ${TFVARS_ARGS[@]+"${TFVARS_ARGS[@]}"} \
     -var="namespace=${NAMESPACE}" \
     -var="kube_context=${KUBE_CONTEXT}" \
     -var="kubeconfig_path=${KUBECONFIG_PATH}" \
@@ -87,6 +98,8 @@ terraform_apply_once() {
     -var="project_code_image_tag=${PROJECT_CODE_IMAGE_TAG}" \
     -var="project_code_image_pull_policy=${PROJECT_CODE_IMAGE_PULL_POLICY}" \
     -var="project_code_image_revision=${PROJECT_CODE_IMAGE_REVISION}" \
+    -var="enable_governance=${ENABLE_GOVERNANCE}" \
+    -var="enable_analytics=${ENABLE_ANALYTICS}" \
     -var="superset_image_repository=${SUPERSET_IMAGE_REPOSITORY}" \
     -var="superset_image_tag=${SUPERSET_IMAGE_TAG}" \
     -var="superset_image_pull_policy=${SUPERSET_IMAGE_PULL_POLICY}" \
@@ -124,7 +137,11 @@ check_prereqs terraform kubectl helm uv base64
 check_cluster
 require_kube_context
 
-prepare_local_superset_image
+if OPENLAKEFORGE_ANALYTICS_ENABLED="${ENABLE_ANALYTICS}" olf_run layers enabled --layer analytics; then
+  prepare_local_superset_image
+else
+  echo "==> Skipping Superset image build: analytics layer is disabled."
+fi
 prepare_helm_cache_dirs
 prepare_cached_chart "Trino" trino "${TRINO_CHART_REPOSITORY}" trino/trino \
   "${TRINO_CHART_VERSION}" "${TRINO_CHART_PACKAGE_PATH}"
@@ -133,6 +150,7 @@ echo "==> Initializing Terraform..."
 terraform -chdir="${TERRAFORM_DIR}" init
 reset_drifted_local_platform_if_needed
 terraform_import_namespace_args=(
+  ${TFVARS_ARGS[@]+"${TFVARS_ARGS[@]}"}
   -var="namespace=${NAMESPACE}"
   -var="kube_context=${KUBE_CONTEXT}"
   -var="kubeconfig_path=${KUBECONFIG_PATH}"
@@ -141,6 +159,8 @@ terraform_import_namespace_args=(
   -var="project_code_image_tag=${PROJECT_CODE_IMAGE_TAG}"
   -var="project_code_image_pull_policy=${PROJECT_CODE_IMAGE_PULL_POLICY}"
   -var="project_code_image_revision=${PROJECT_CODE_IMAGE_REVISION}"
+  -var="enable_governance=${ENABLE_GOVERNANCE}"
+  -var="enable_analytics=${ENABLE_ANALYTICS}"
   -var="superset_image_repository=${SUPERSET_IMAGE_REPOSITORY}"
   -var="superset_image_tag=${SUPERSET_IMAGE_TAG}"
   -var="superset_image_pull_policy=${SUPERSET_IMAGE_PULL_POLICY}"

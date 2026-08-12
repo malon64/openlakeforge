@@ -133,6 +133,8 @@ module "rds_postgresql" {
   subnet_ids          = local.foundation_contract.subnet_ids
   allowed_cidr_blocks = [local.foundation_contract.vpc_cidr_block]
   instance_class      = var.rds_instance_class
+  enable_openmetadata = var.enable_governance
+  enable_superset     = var.enable_analytics
 
   depends_on = [
     kubernetes_namespace_v1.lakehouse,
@@ -255,6 +257,7 @@ module "trino" {
 
 module "openmetadata" {
   source = "../../modules/governance/openmetadata"
+  count  = var.enable_governance ? 1 : 0
 
   namespace           = kubernetes_namespace_v1.lakehouse.metadata[0].name
   base_values_file    = "${path.root}/../../../helm/values/local/openmetadata.yaml"
@@ -280,6 +283,7 @@ module "openmetadata" {
 
 module "superset" {
   source = "../../modules/analytics/superset"
+  count  = var.enable_analytics ? 1 : 0
 
   namespace           = kubernetes_namespace_v1.lakehouse.metadata[0].name
   base_values_file    = "${path.root}/../../../helm/values/local/superset.yaml"
@@ -292,6 +296,16 @@ module "superset" {
     module.rds_postgresql,
     module.trino,
   ]
+}
+
+moved {
+  from = module.openmetadata
+  to   = module.openmetadata[0]
+}
+
+moved {
+  from = module.superset
+  to   = module.superset[0]
 }
 
 module "dagster" {
