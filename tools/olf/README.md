@@ -13,7 +13,7 @@ parsing. See [ADR 0017](../../docs/adr/0017-shared-python-deploy-tooling.md).
 | --- | --- |
 | `olf contracts env [--terraform-dir D]` | Resolve the provider-contract runtime environment to `export`/`unset` lines (sourced by `scripts/contracts/load-runtime-env.sh`). Namespace and schema-FQN defaults are derived from the domain inventory. |
 | `olf inventory terraform-external` | Render the typed, provider-neutral domain inventory for Terraform's external data source. |
-| `olf catalog sync-namespaces [--dry-run] [--prune]` | Reconcile Polaris namespaces with the domain descriptors (ADR 0022). Runs first in `artifacts-deploy`, before any table is written. Creates and relocates by default; `--prune` also drops namespaces no descriptor declares. No-ops when the catalog provider is Glue. |
+| `olf catalog sync-namespaces [--dry-run] [--prune]` | Reconcile catalog namespaces (Polaris) or databases (Glue) with the domain descriptors (ADR 0022). Runs first in `artifacts-deploy`, before any table is written. Creates and relocates by default; `--prune` also drops namespaces/databases no descriptor declares, guarded so a non-empty one is refused rather than dropped. No-ops for any other catalog provider. |
 | `olf floe render-profile` | Render the Floe EnvironmentProfile YAML for the active contract env. |
 | `olf artifacts upload-manifests --via port-forward\|direct` | Publish product Floe manifests to the ops bucket (in-cluster S3 or cloud S3). |
 | `olf revision compute\|publish\|verify --runtime-root D` | Compute, publish, or verify an immutable Floe runtime-artifact revision. Publication writes `floe/revisions/sha256/<digest>/...` and does not activate that revision. |

@@ -20,7 +20,7 @@ Generated from `release/component-catalog.yaml`. Every version below is the exac
 
 | Component | Required version |
 | --- | --- |
-| Terraform | >= 1.6.0 |
+| Terraform | >= 1.7.0 |
 
 ## Terraform providers
 

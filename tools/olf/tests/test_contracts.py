@@ -151,6 +151,29 @@ def test_aws_contracts_blank_local_only_fields_and_derive_glue_fqns() -> None:
     assert exports["AWS_DEFAULT_REGION"] == "eu-west-1"
 
 
+def test_aws_glue_contract_without_schema_fqns_falls_back_to_the_descriptors() -> None:
+    """Glue database lifecycle also moved to Phase 2 (ADR 0022): when a Glue
+    contract carries no schema-FQN map at all -- not the partial single-product
+    map the fixture normally carries -- the same descriptor-driven fallback
+    that serves Polaris must serve Glue, using the aws_glue.<catalog> prefix."""
+    contracts = load_fixture("aws-provider-contracts.json")
+    del contracts["catalog"]["silver_schema_fqns"]
+    del contracts["catalog"]["gold_schema_fqns"]
+
+    exports, _ = build_contract_env({}, contracts, repo_root=REPO_ROOT)
+
+    assert json.loads(exports["OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON"]) == {
+        "sales_order_revenue": "aws_glue.lakehouse_dev.sales_order_revenue_silver",
+        "sales_customer_health": "aws_glue.lakehouse_dev.sales_customer_health_silver",
+        "supply_chain_inventory_reliability": "aws_glue.lakehouse_dev.supply_chain_inventory_reliability_silver",
+    }
+    assert json.loads(exports["OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON"]) == {
+        "sales_order_revenue": "aws_glue.lakehouse_dev.sales_order_revenue_gold",
+        "sales_customer_health": "aws_glue.lakehouse_dev.sales_customer_health_gold",
+        "supply_chain_inventory_reliability": "aws_glue.lakehouse_dev.supply_chain_inventory_reliability_gold",
+    }
+
+
 def test_caller_exported_aws_region_is_preserved() -> None:
     exports, _ = build_contract_env(
         {"AWS_REGION": "us-west-2"}, load_fixture("aws-provider-contracts.json"), repo_root=REPO_ROOT

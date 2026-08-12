@@ -127,3 +127,64 @@ data_products:
 
     assert result.exit_code == 0
     assert calls[0]["dashboard_title"] == "The Actual Live Dashboard Title"
+
+
+def test_catalog_sync_namespaces_dispatches_to_glue_for_aws_glue_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from olf import cli
+
+    calls: list[dict] = []
+    monkeypatch.setenv("OPENLAKEFORGE_CATALOG_PROVIDER", "aws-glue")
+    monkeypatch.setattr(
+        cli,
+        "_sync_glue_namespaces",
+        lambda *, desired, dry_run, prune: calls.append(
+            {"backend": "glue", "dry_run": dry_run, "prune": prune}
+        ),
+    )
+    monkeypatch.setattr(
+        cli, "_sync_polaris_namespaces", lambda **kwargs: calls.append({"backend": "polaris"})
+    )
+
+    result = runner.invoke(app, ["catalog", "sync-namespaces", "--dry-run"])
+
+    assert result.exit_code == 0
+    assert calls == [{"backend": "glue", "dry_run": True, "prune": False}]
+
+
+def test_catalog_sync_namespaces_dispatches_to_polaris_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    from olf import cli
+
+    calls: list[dict] = []
+    monkeypatch.delenv("OPENLAKEFORGE_CATALOG_PROVIDER", raising=False)
+    monkeypatch.setattr(
+        cli,
+        "_sync_polaris_namespaces",
+        lambda *, desired, dry_run, prune: calls.append(
+            {"backend": "polaris", "dry_run": dry_run, "prune": prune}
+        ),
+    )
+    monkeypatch.setattr(
+        cli, "_sync_glue_namespaces", lambda **kwargs: calls.append({"backend": "glue"})
+    )
+
+    result = runner.invoke(app, ["catalog", "sync-namespaces", "--prune"])
+
+    assert result.exit_code == 0
+    assert calls == [{"backend": "polaris", "dry_run": False, "prune": True}]
+
+
+def test_catalog_sync_namespaces_no_ops_for_an_unknown_provider(monkeypatch: pytest.MonkeyPatch) -> None:
+    from olf import cli
+
+    calls: list[str] = []
+    monkeypatch.setenv("OPENLAKEFORGE_CATALOG_PROVIDER", "snowflake")
+    monkeypatch.setattr(cli, "_sync_polaris_namespaces", lambda **kwargs: calls.append("polaris"))
+    monkeypatch.setattr(cli, "_sync_glue_namespaces", lambda **kwargs: calls.append("glue"))
+
+    result = runner.invoke(app, ["catalog", "sync-namespaces"])
+
+    assert result.exit_code == 0
+    assert calls == []
+    assert "snowflake" in result.output

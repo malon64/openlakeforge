@@ -179,31 +179,19 @@ for contracts_path, contracts_body in [(contracts_tf, text), (azure_contracts_tf
     expected_log_mode = "s3-object-archive" if contracts_path == aws_contracts_tf else "s3-compatible-object-archive"
     if expected_log_mode not in contracts_body:
         errors.append(f"{contracts_path}: missing ops artifact/observability field {expected_log_mode}")
-    # Glue databases stay declarative in Phase 1, so the AWS catalog contract
-    # still carries the resolved namespace maps. Polaris reconciles namespaces
-    # in Phase 2 (ADR 0022), so its roots must publish neither -- olf derives
-    # them from the descriptors, and an empty map here would shadow that.
-    if contracts_path == aws_contracts_tf:
-        required_catalog_fields = [
-            "catalog_namespace_model",
-            "catalog_namespaces",
-            "catalog_schema_names",
-            "silver_namespaces",
-            "gold_namespaces",
-            "silver_schema_fqns",
-            "gold_schema_fqns",
-        ]
-        forbidden_catalog_fields: list[str] = []
-    else:
-        required_catalog_fields = ["catalog_namespace_model", "catalog_database_fqn"]
-        forbidden_catalog_fields = [
-            "catalog_namespaces",
-            "catalog_schema_names",
-            "silver_namespaces",
-            "gold_namespaces",
-            "silver_schema_fqns",
-            "gold_schema_fqns",
-        ]
+    # Every provider reconciles namespace/database lifecycle in Phase 2 now
+    # (ADR 0022), so no root's catalog contract may publish a per-product
+    # namespace map -- olf derives them from the descriptors, and an empty map
+    # here would shadow that fallback.
+    required_catalog_fields = ["catalog_namespace_model", "catalog_database_fqn"]
+    forbidden_catalog_fields = [
+        "catalog_namespaces",
+        "catalog_schema_names",
+        "silver_namespaces",
+        "gold_namespaces",
+        "silver_schema_fqns",
+        "gold_schema_fqns",
+    ]
     for required in required_catalog_fields:
         if required not in contracts_body:
             errors.append(f"{contracts_path}: catalog contract must expose {required}")
@@ -211,7 +199,7 @@ for contracts_path, contracts_body in [(contracts_tf, text), (azure_contracts_tf
         if re.search(rf"^\s*{forbidden}\s*=", contracts_body, re.MULTILINE):
             errors.append(
                 f"{contracts_path}: catalog contract must not set {forbidden}; "
-                "Phase 2 reconciles Polaris namespaces from the descriptors"
+                "Phase 2 reconciles catalog namespaces from the descriptors"
             )
     if re.search(r'\b(silver_namespace|gold_namespace)\s*=\s*"(silver|gold)"', contracts_body):
         errors.append(f"{contracts_path}: catalog contract must not expose shared silver/gold namespace fields")
@@ -233,26 +221,16 @@ expected_product_namespaces = {
 for main_path, main_body in [(local_main_tf, local_main_text), (azure_main_tf, azure_main_text), (aws_main_tf, aws_main_text)]:
     if 'catalog_namespace_model = "product-layer"' not in main_body:
         errors.append(f"{main_path}: catalog namespace model must be product-layer")
-    if main_path == aws_main_tf:
-        if not re.search(r'\bcatalog_namespaces\s*=\s*local\.catalog_namespaces\b', main_body):
-            errors.append(f"{main_path}: Glue module must receive product catalog namespaces")
-        if "[for namespace in local.catalog_namespaces : namespace.name]" not in main_body:
-            errors.append(f"{main_path}: OpenMetadata module must seed all product catalog namespaces")
-        for namespace_pair in expected_product_namespaces.values():
-            for namespace in namespace_pair.values():
-                if namespace not in main_body:
-                    errors.append(f"{main_path}: missing product catalog namespace {namespace}")
-    else:
-        # Polaris roots must carry no product identity at all: Phase 1 stands up
-        # the catalog service, Phase 2 reconciles what lives inside it.
-        if re.search(r'\bcatalog_namespaces\s*=', main_body):
-            errors.append(f"{main_path}: Polaris module must not receive a namespace list")
-        if not re.search(r'\bcatalog_schema_names\s*=\s*\[\]', main_body):
-            errors.append(f"{main_path}: OpenMetadata module must be seeded with no schemas in Phase 1")
-        for namespace_pair in expected_product_namespaces.values():
-            for namespace in namespace_pair.values():
-                if namespace in main_body:
-                    errors.append(f"{main_path}: must not hardcode product catalog namespace {namespace}")
+    # No root carries product identity: Phase 1 stands up the catalog service
+    # (Polaris or Glue), Phase 2 reconciles what lives inside it (ADR 0022).
+    if re.search(r'\bcatalog_namespaces\s*=', main_body):
+        errors.append(f"{main_path}: catalog module must not receive a namespace list")
+    if not re.search(r'\bcatalog_schema_names\s*=\s*\[\]', main_body):
+        errors.append(f"{main_path}: OpenMetadata module must be seeded with no schemas in Phase 1")
+    for namespace_pair in expected_product_namespaces.values():
+        for namespace in namespace_pair.values():
+            if namespace in main_body:
+                errors.append(f"{main_path}: must not hardcode product catalog namespace {namespace}")
     if "ops_bucket_name" not in main_body or "floe/manifests" not in main_body:
         errors.append(f"{main_path}: must use the ops artifact bucket and floe/manifests prefix")
     if "var.code_bucket_name" in main_body:
@@ -262,30 +240,33 @@ aws_glue_main_tf = Path("infra/terraform/modules/catalog/aws-glue/main.tf")
 aws_glue_outputs_tf = Path("infra/terraform/modules/catalog/aws-glue/outputs.tf")
 aws_glue_main_text = aws_glue_main_tf.read_text()
 aws_glue_outputs_text = aws_glue_outputs_tf.read_text()
-if 'resource "aws_glue_catalog_database" "namespace"' not in aws_glue_main_text:
-    errors.append(f"{aws_glue_main_tf}: must create product-layer Glue databases")
-if 'resource "aws_glue_catalog_database" "catalog"' in aws_glue_main_text:
-    errors.append(f"{aws_glue_main_tf}: must not create the logical catalog alias as a Glue database")
-if not re.search(r'resource\s+"aws_glue_catalog_database"\s+"namespace"[^{]*\{[^}]*for_each\s*=', aws_glue_main_text, re.DOTALL):
-    errors.append(f"{aws_glue_main_tf}: product-layer Glue databases must use for_each over catalog namespaces")
+# Database lifecycle moved to Phase 2 (ADR 0022): the module must no longer
+# create or own any aws_glue_catalog_database resource, and a `removed` block
+# must hand existing databases over without Terraform destroying them.
+if 'resource "aws_glue_catalog_database"' in aws_glue_main_text:
+    errors.append(f"{aws_glue_main_tf}: must not create Glue databases; olf catalog sync-namespaces owns them")
+if not re.search(
+    r'removed\s*\{[^}]*from\s*=\s*aws_glue_catalog_database\.namespace[^}]*\}', aws_glue_main_text, re.DOTALL
+):
+    errors.append(f"{aws_glue_main_tf}: missing a removed block handing aws_glue_catalog_database.namespace to Phase 2")
+if not re.search(r'removed\s*\{[^}]*lifecycle\s*\{[^}]*destroy\s*=\s*false', aws_glue_main_text, re.DOTALL):
+    errors.append(f"{aws_glue_main_tf}: the removed block must set lifecycle.destroy = false")
+if "var.catalog_namespaces" in aws_glue_main_text:
+    errors.append(f"{aws_glue_main_tf}: must not reference var.catalog_namespaces")
 for required in [
-    "name         = each.value.name",
-    "location_uri = each.value.location",
-    "catalog_namespace_map = { for namespace in var.catalog_namespaces : namespace.name => namespace }",
-    "catalog_schema_names  = keys(local.catalog_namespace_map)",
+    r"glue_database\s*=\s*null",
+    r"glue_database_location\s*=\s*null",
 ]:
-    if required not in aws_glue_main_text:
-        errors.append(f"{aws_glue_main_tf}: missing shared catalog/schema field {required}")
-for required in [
-    "glue_database                = null",
-    "glue_database_location       = null",
-    "glue_database_names          = local.catalog_schema_names",
-    "glue_schema_names            = local.catalog_schema_names",
-    "catalog_schema_names         = local.catalog_schema_names",
-    "catalog_namespaces           = var.catalog_namespaces",
-]:
-    if required not in aws_glue_outputs_text:
+    if not re.search(rf"^\s*{required}", aws_glue_outputs_text, re.MULTILINE):
         errors.append(f"{aws_glue_outputs_tf}: missing shared catalog/schema output {required}")
+for forbidden in [
+    "glue_database_names",
+    "glue_schema_names",
+    "catalog_schema_names",
+    "catalog_namespaces",
+]:
+    if re.search(rf"^\s*{forbidden}\s*=", aws_glue_outputs_text, re.MULTILINE):
+        errors.append(f"{aws_glue_outputs_tf}: must not publish {forbidden}; Phase 2 reconciles it")
 
 local_variables_tf = Path("infra/terraform/environments/local/variables.tf").read_text()
 local_outputs_tf = Path("infra/terraform/environments/local/outputs.tf").read_text()

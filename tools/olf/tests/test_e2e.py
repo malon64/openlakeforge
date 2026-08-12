@@ -966,29 +966,6 @@ def test_launch_and_poll_dagster_jobs_defaults_to_previous_shell_timeout(
 EXPECTED_GLUE_SCHEMAS = INVENTORY.silver_namespace_names | INVENTORY.gold_namespace_names
 
 
-def test_glue_database_names_requires_expected_schema_and_database_names() -> None:
-    contracts = {
-        "catalog": {
-            "catalog_schema_names": sorted(EXPECTED_GLUE_SCHEMAS),
-            "glue_database_names": sorted(EXPECTED_GLUE_SCHEMAS),
-        }
-    }
-
-    assert e2e.glue_database_names(contracts, EXPECTED_GLUE_SCHEMAS) == EXPECTED_GLUE_SCHEMAS
-
-
-def test_glue_database_names_reports_missing_database() -> None:
-    contracts = {
-        "catalog": {
-            "catalog_schema_names": sorted(EXPECTED_GLUE_SCHEMAS),
-            "glue_database_names": [],
-        }
-    }
-
-    with pytest.raises(e2e.E2EError, match="missing Glue database names"):
-        e2e.glue_database_names(contracts, EXPECTED_GLUE_SCHEMAS)
-
-
 def test_aws_provider_contract_smoke_check(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     provider_contracts = {
         "storage": {"implementation": "storage.aws_s3"},
@@ -1004,13 +981,10 @@ def test_aws_provider_contract_smoke_check(monkeypatch: pytest.MonkeyPatch, tmp_
 def test_aws_storage_and_glue_smoke_check_uses_bucket_and_databases(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    provider_contracts = {
-        "artifact_bucket": {"bucket_name": "openlakeforge-ops"},
-        "catalog": {
-            "catalog_schema_names": sorted(EXPECTED_GLUE_SCHEMAS),
-            "glue_database_names": sorted(EXPECTED_GLUE_SCHEMAS),
-        },
-    }
+    """The contract no longer publishes a namespace/database list (ADR 0022) --
+    every expected database name comes straight from the inventory, and the
+    check asserts against AWS directly rather than against the contract."""
+    provider_contracts = {"artifact_bucket": {"bucket_name": "openlakeforge-ops"}}
     commands: list[list[str]] = []
     monkeypatch.setattr(e2e, "load_provider_contracts_or_raise", lambda _cfg: provider_contracts)
     monkeypatch.setattr(e2e, "terraform_output", lambda _dir, name: "eu-central-1" if name == "aws_region" else "")

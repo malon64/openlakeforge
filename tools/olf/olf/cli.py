@@ -94,31 +94,35 @@ def inventory_terraform_external() -> None:
     inventory_module.main()
 
 
-@catalog_app.command("sync-namespaces")
-def catalog_sync_namespaces(
-    dry_run: bool = typer.Option(False, "--dry-run", help="Print the plan without changing the catalog."),
-    prune: bool = typer.Option(
-        False,
-        "--prune",
-        help="Also drop namespaces no descriptor declares. Destructive; namespaces holding tables are refused.",
-    ),
+def _reconcile_and_report(
+    label: str,
+    client: Any,
+    existing: dict[str, str],
+    desired: tuple,
+    *,
+    dry_run: bool,
+    prune: bool,
 ) -> None:
-    """Reconcile Polaris namespaces with the domain descriptors.
+    from olf import catalog as catalog_module
 
-    Phase 2 owns namespace lifecycle (ADR 0022), so this runs before any table
-    is written. AWS Glue databases are still managed by Terraform and are left
-    alone here.
-    """
+    plan = catalog_module.plan_namespace_sync(existing, desired, prune=prune)
+    typer.echo(catalog_module.render_plan(plan, prune=prune))
+    if dry_run:
+        typer.echo("Dry run: the catalog was not changed.")
+        return
+    if plan.is_empty:
+        typer.echo(f"{label} namespaces already match the descriptors.")
+        return
+    catalog_module.apply_namespace_sync(client, plan)
+    typer.echo(
+        f"Synced {label} namespaces: {len(plan.create)} created, "
+        f"{len(plan.update)} relocated, {len(plan.delete)} dropped."
+    )
+
+
+def _sync_polaris_namespaces(*, desired: tuple, dry_run: bool, prune: bool) -> None:
     from olf import k8s
     from olf import polaris as polaris_module
-
-    provider = config.env("OPENLAKEFORGE_CATALOG_PROVIDER", "polaris")
-    if provider != "polaris":
-        typer.echo(
-            f"Catalog provider is {provider!r}; namespace reconciliation is Polaris-only. "
-            "Glue databases stay under Terraform management."
-        )
-        return
 
     rest_uri = config.env("OPENLAKEFORGE_CATALOG_REST_URI", "http://polaris:8181/api/catalog")
     parsed = urlparse(rest_uri)
@@ -134,13 +138,6 @@ def catalog_sync_namespaces(
         "OPENLAKEFORGE_CATALOG_DEPLOYER_CLIENT_SECRET_KEY", "POLARIS_DEPLOYER_CLIENT_SECRET"
     )
 
-    desired = polaris_module.desired_namespaces(
-        _repo_root(),
-        silver_bucket=config.env("OPENLAKEFORGE_STORAGE_SILVER_BUCKET", "lakehouse-silver"),
-        gold_bucket=config.env("OPENLAKEFORGE_STORAGE_GOLD_BUCKET", "lakehouse-gold"),
-    )
-
-    log_step(f"Reconciling {len(desired)} Polaris namespace(s) from the domain descriptors...")
     log_prefix = config.env("OPENLAKEFORGE_PORT_FORWARD_LOG_PREFIX", "/tmp/openlakeforge")
     with k8s.port_forward(
         service, remote_port, namespace, log_path=f"{log_prefix}-polaris-port-forward.log"
@@ -156,21 +153,59 @@ def catalog_sync_namespaces(
         )
         try:
             client.login()
-            plan = polaris_module.plan_namespace_sync(client.list_namespaces(), desired, prune=prune)
-            typer.echo(polaris_module.render_plan(plan, prune=prune))
-            if dry_run:
-                typer.echo("Dry run: the catalog was not changed.")
-                return
-            if plan.is_empty:
-                typer.echo("Polaris namespaces already match the descriptors.")
-                return
-            polaris_module.apply_namespace_sync(client, plan)
-            typer.echo(
-                f"Synced Polaris namespaces: {len(plan.create)} created, "
-                f"{len(plan.update)} relocated, {len(plan.delete)} dropped."
+            _reconcile_and_report(
+                "Polaris", client, client.list_namespaces(), desired, dry_run=dry_run, prune=prune
             )
         except polaris_module.PolarisError as exc:
             raise typer.Exit(code=_fail(str(exc))) from exc
+
+
+def _sync_glue_namespaces(*, desired: tuple, dry_run: bool, prune: bool) -> None:
+    from olf import glue as glue_module
+
+    client = glue_module.GlueClient(
+        glue_module.GlueConfig(
+            catalog_id=config.env("OPENLAKEFORGE_CATALOG_GLUE_CATALOG_ID"),
+            region=config.env("OPENLAKEFORGE_CATALOG_GLUE_REGION"),
+        )
+    )
+    try:
+        _reconcile_and_report("Glue", client, client.list_namespaces(), desired, dry_run=dry_run, prune=prune)
+    except glue_module.GlueError as exc:
+        raise typer.Exit(code=_fail(str(exc))) from exc
+
+
+@catalog_app.command("sync-namespaces")
+def catalog_sync_namespaces(
+    dry_run: bool = typer.Option(False, "--dry-run", help="Print the plan without changing the catalog."),
+    prune: bool = typer.Option(
+        False,
+        "--prune",
+        help="Also drop namespaces no descriptor declares. Destructive; namespaces holding tables are refused.",
+    ),
+) -> None:
+    """Reconcile catalog namespaces (Polaris) or databases (Glue) with the domain descriptors.
+
+    Phase 2 owns namespace lifecycle (ADR 0022), so this runs before any table
+    is written.
+    """
+    from olf import catalog as catalog_module
+
+    provider = config.env("OPENLAKEFORGE_CATALOG_PROVIDER", "polaris")
+    desired = catalog_module.desired_namespaces(
+        _repo_root(),
+        silver_bucket=config.env("OPENLAKEFORGE_STORAGE_SILVER_BUCKET", "lakehouse-silver"),
+        gold_bucket=config.env("OPENLAKEFORGE_STORAGE_GOLD_BUCKET", "lakehouse-gold"),
+    )
+
+    if provider == "polaris":
+        log_step(f"Reconciling {len(desired)} Polaris namespace(s) from the domain descriptors...")
+        _sync_polaris_namespaces(desired=desired, dry_run=dry_run, prune=prune)
+    elif provider == "aws-glue":
+        log_step(f"Reconciling {len(desired)} Glue database(s) from the domain descriptors...")
+        _sync_glue_namespaces(desired=desired, dry_run=dry_run, prune=prune)
+    else:
+        typer.echo(f"Catalog provider {provider!r} has no namespace reconciliation backend; nothing to do.")
 
 
 @floe_app.command("render-profile")
