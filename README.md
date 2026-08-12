@@ -286,11 +286,11 @@ The slim profile is defined by
 [`infra/terraform/environments/local/slim.tfvars`](infra/terraform/environments/local/slim.tfvars).
 It sets `enable_governance = false` and `enable_analytics = false`; both
 variables default to `true` in every environment, so `make local-up` is
-unchanged. It also disables the otherwise idle Dagster background daemon. The
-profile has no schedules or sensors, and its E2E suite launches product runs
-directly through Dagster. Its wrapper skips Superset image prefetch/build and
-its dynamic Superset/OpenMetadata artifact imports while preserving the
-foundation, platform, and artifact phases.
+unchanged. Dagster's background daemon remains enabled so its queued run
+coordinator can launch the product runs submitted by the E2E suite. Its wrapper
+skips Superset image prefetch/build and its dynamic Superset/OpenMetadata
+artifact imports while preserving the foundation, platform, and artifact
+phases.
 
 Validate the slim profile with:
 
