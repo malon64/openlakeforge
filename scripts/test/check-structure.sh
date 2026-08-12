@@ -127,6 +127,7 @@ required_paths=(
   "scripts/test/check-infra.sh"
   "scripts/test/check-project-code.sh"
   "scripts/test/check-dbt.sh"
+  "scripts/ci/kind-diagnostics.sh"
   "scripts/local/stack/platform-up.sh"
   "scripts/local/stack/deploy-artifacts.sh"
   "scripts/local/stack/teardown.sh"

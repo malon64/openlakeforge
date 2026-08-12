@@ -219,6 +219,39 @@ def test_aws_explicit_smoke_suite_skips_full_checks(monkeypatch: pytest.MonkeyPa
     assert calls == ["smoke"]
 
 
+def test_local_smoke_runs_only_the_descriptor_default_product(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    calls: list[object] = []
+    local_cfg = cfg(tmp_path, suite="smoke")
+
+    monkeypatch.setattr(e2e, "check_trino_catalog", lambda _cfg: calls.append("catalog"))
+    monkeypatch.setattr(
+        e2e,
+        "launch_and_poll_dagster_jobs",
+        lambda _cfg, *, products=None: calls.append(tuple(product.id for product in products or ())),
+    )
+    monkeypatch.setattr(
+        e2e,
+        "check_trino_product_tables_and_marts",
+        lambda _cfg, product: calls.append(("tables", product.id)),
+    )
+
+    e2e.run_smoke(local_cfg)
+
+    assert calls == ["catalog", (INVENTORY.default_product.id,), ("tables", INVENTORY.default_product.id)]
+
+
+def test_smoke_product_table_check_fails_for_an_empty_gold_mart(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    product = INVENTORY.default_product
+    values = iter((str(len(product.silver_tables)), str(len(product.gold_tables)), "0"))
+    monkeypatch.setattr(e2e, "check_trino_catalog", lambda _cfg: None)
+    monkeypatch.setattr(e2e, "trino_scalar", lambda _cfg, _sql: next(values))
+
+    with pytest.raises(e2e.E2EError, match="expected iceberg"):
+        e2e.check_trino_product_tables_and_marts(cfg(tmp_path, suite="smoke"), product)
+
+
 @pytest.mark.parametrize(
     ("env", "expected"),
     [

@@ -287,6 +287,12 @@ generate_manifest() {
   fi
 
   mkdir -p "$(dirname "${manifest_path}")"
+  # The Floe image runs as its own non-root user.  Give that user access to
+  # the transient output directory when Docker bind-mounts the repository;
+  # otherwise generated manifests fail on hosted runners with EACCES.
+  if [[ "${USING_DOCKER}" == "true" ]]; then
+    chmod a+rwx "$(dirname "${manifest_path}")"
+  fi
   profile_path="$(profile_for_config "${domain}" "${product}")"
   generation_config_path="$(config_for_manifest "${config_path}" "${domain}" "${product}")"
 

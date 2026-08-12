@@ -138,3 +138,62 @@ jobs:
 
       - name: Validate release readiness (catches drift before a tag is cut)
         run: make release-check
+
+  kind-smoke:
+    name: Deploy slim kind smoke
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    # The smoke command has its own 45-minute deployment deadline. Reserve
+    # another 15 minutes for runner setup and failure diagnostics/uploads.
+    timeout-minutes: 60
+    env:
+      CLUSTER_NAME: openlakeforge-pr-${{ github.run_id }}
+      KUBE_CONTEXT: kind-openlakeforge-pr-${{ github.run_id }}
+      LOCAL_KUBECONFIG_PATH: ${{ github.workspace }}/.tmp/kubeconfigs/kind-smoke.yaml
+      KUBECONFIG: ${{ github.workspace }}/.tmp/kubeconfigs/kind-smoke.yaml
+      PROJECT_CODE_IMAGE_TAG: local
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd
+        with:
+          terraform_version: 1.8.5
+
+      - name: Setup Helm
+        uses: azure/setup-helm@bf6a7d304bc2fdb57e0331155b7ebf2c504acf0a
+        with:
+          version: v3.18.6
+
+      - name: Setup Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@e58605a9b6da7c637471fab8847a5e5a6b8df081
+
+      - name: Install kind
+        uses: helm/kind-action@a1b0e391336a6ee6713a0583f8c6240d70863de3
+        with:
+          install_only: true
+          version: v0.26.0
+          kubectl_version: v1.31.4
+
+      - name: Deploy and validate slim smoke (45 minute budget)
+        run: make local-slim-smoke
+
+      - name: Collect kind diagnostics
+        if: failure()
+        run: scripts/ci/kind-diagnostics.sh .tmp/kind-smoke-diagnostics
+
+      - name: Upload kind diagnostics
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: kind-smoke-diagnostics-${{ github.run_id }}
+          path: .tmp/kind-smoke-diagnostics
+          if-no-files-found: error
+          retention-days: 14
