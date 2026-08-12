@@ -37,6 +37,8 @@ source "${REPO_ROOT}/scripts/lib/common.sh"
 source "${REPO_ROOT}/scripts/lib/helm.sh"
 # shellcheck source=scripts/lib/kube.sh
 source "${REPO_ROOT}/scripts/lib/kube.sh"
+# shellcheck source=scripts/lib/python.sh
+source "${REPO_ROOT}/scripts/lib/python.sh"
 
 TRINO_CHART_PACKAGE_PATH="${TRINO_CHART_PACKAGE_PATH:-${HELM_CHART_CACHE_DIR}/trino-${TRINO_CHART_VERSION}.tgz}"
 DAGSTER_CHART_PACKAGE_PATH="${DAGSTER_CHART_PACKAGE_PATH:-${HELM_CHART_CACHE_DIR}/dagster-${DAGSTER_CHART_VERSION}-no-schema.tgz}"
@@ -106,7 +108,7 @@ terraform_apply_once() {
 }
 
 echo "==> Checking AWS platform prerequisites..."
-check_prereqs aws docker helm kubectl terraform
+check_prereqs aws docker helm kubectl terraform uv
 prepare_eks_context
 prepare_image_variables
 if OPENLAKEFORGE_ANALYTICS_ENABLED="${ENABLE_ANALYTICS}" olf_run layers enabled --layer analytics; then
