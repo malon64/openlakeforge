@@ -24,7 +24,7 @@ import yaml
 from botocore.config import Config
 
 from olf import contracts, k8s, log, superset
-from olf.inventory import DomainInventory, inventory_for
+from olf.inventory import DomainInventory, Product, inventory_for
 
 Environment = Literal["local", "azure", "aws"]
 Suite = Literal["full", "smoke"]
@@ -333,6 +333,11 @@ def run_smoke(cfg: E2EConfig) -> None:
         check_aws_provider_contracts(cfg)
         check_aws_storage_and_glue(cfg)
     check_trino_catalog(cfg)
+    if cfg.env == "local":
+        product = cfg.inventory.default_product
+        log.step(f"Running smoke path for descriptor-selected product {product.id}...")
+        launch_and_poll_dagster_jobs(cfg, products=(product,))
+        check_trino_product_tables_and_marts(cfg, product)
 
 
 def run_full(cfg: E2EConfig) -> None:
@@ -484,6 +489,28 @@ def check_trino_tables_and_marts(cfg: E2EConfig) -> None:
             raise E2EError(f"expected iceberg.{mart} to contain rows, got {count}")
 
 
+def check_trino_product_tables_and_marts(cfg: E2EConfig, product: Product) -> None:
+    """Verify the selected smoke product reached populated Silver and Gold tables."""
+    check_trino_catalog(cfg)
+    log.step(f"Checking Silver and Gold tables for {product.id}...")
+    silver_count = trino_scalar(
+        cfg,
+        "SELECT count(*) FROM iceberg.information_schema.tables "
+        f"WHERE table_schema = '{product.silver_namespace}'",
+    )
+    gold_count = trino_scalar(
+        cfg,
+        "SELECT count(*) FROM iceberg.information_schema.tables "
+        f"WHERE table_schema = '{product.gold_namespace}'",
+    )
+    assert_scalar_equals(silver_count, str(len(product.silver_tables)), f"{product.id} Silver table count")
+    assert_scalar_equals(gold_count, str(len(product.gold_tables)), f"{product.id} Gold mart count")
+    for mart in product.gold_mart_names:
+        count = trino_scalar(cfg, f"SELECT count(*) FROM iceberg.{mart}")
+        if int(count) <= 0:
+            raise E2EError(f"expected iceberg.{mart} to contain rows, got {count}")
+
+
 def check_polaris_restart_recovery(cfg: E2EConfig) -> None:
     """Verify that Polaris keeps table identity after its pod is recreated."""
     log.step("Checking Polaris restart recovery...")
@@ -558,7 +585,7 @@ def assert_scalar_equals(actual: str, expected: str, label: str) -> None:
         raise E2EError(f"expected {label} {expected}, got {actual}")
 
 
-def launch_and_poll_dagster_jobs(cfg: E2EConfig) -> None:
+def launch_and_poll_dagster_jobs(cfg: E2EConfig, *, products: Sequence[Product] | None = None) -> None:
     log.step("Launching and polling Dagster product jobs...")
     assert cfg.dagster_local_port is not None
     log_path = f"/tmp/openlakeforge-{cfg.env}-dagster-port-forward.log"
@@ -576,7 +603,8 @@ def launch_and_poll_dagster_jobs(cfg: E2EConfig) -> None:
         location_names = expected_repository_location_names(cfg)
         client = DagsterClient(f"{base_url}/graphql", expected_location_names=location_names)
         timeout_seconds = int(os.environ.get("DAGSTER_JOB_TIMEOUT_SECONDS", str(DAGSTER_JOB_TIMEOUT_SECONDS)))
-        for job in cfg.inventory.job_names:
+        for product in products or cfg.inventory.products:
+            job = product.job_name
             try:
                 run_id = client.launch(job)
             except E2EError as exc:

@@ -1,4 +1,4 @@
-.PHONY: help tree check-structure check-components check-contracts check-infra check-project-code check-dbt check-lockfiles release-check release-bundle floe-manifest floe-manifest-upload dbt-parse project-code-image project-code-load superset-image superset-load superset-reports-deploy superset-reports-export openmetadata-metadata-deploy local-foundation-up local-foundation-down local-platform-up local-platform-down local-artifacts-deploy local-up local-down local-status local-forward local-prefetch local-e2e local-slim-platform-up local-slim-artifacts-deploy local-slim-up local-slim-e2e local-slim-down azure-foundation-up azure-platform-up azure-platform-down azure-artifacts-deploy azure-up azure-forward azure-e2e azure-down azure-foundation-down aws-foundation-up aws-platform-up aws-platform-down aws-artifacts-deploy aws-up aws-forward aws-e2e aws-down aws-foundation-down
+.PHONY: help tree check-structure check-components check-contracts check-infra check-project-code check-dbt check-lockfiles release-check release-bundle floe-manifest floe-manifest-upload dbt-parse project-code-image project-code-load superset-image superset-load superset-reports-deploy superset-reports-export openmetadata-metadata-deploy local-foundation-up local-foundation-down local-platform-up local-platform-down local-artifacts-deploy local-up local-down local-status local-forward local-prefetch local-e2e local-slim-platform-up local-slim-artifacts-deploy local-slim-up local-slim-e2e local-slim-smoke local-slim-down azure-foundation-up azure-platform-up azure-platform-down azure-artifacts-deploy azure-up azure-forward azure-e2e azure-down azure-foundation-down aws-foundation-up aws-platform-up aws-platform-down aws-artifacts-deploy aws-up aws-forward aws-e2e aws-down aws-foundation-down
 
 NAMESPACE ?= lakehouse
 CLUSTER_NAME ?= openlakeforge-local
@@ -10,6 +10,8 @@ PROJECT_CODE_IMAGE_TAG ?= local
 PROJECT_CODE_IMAGE_PULL_POLICY ?= Never
 ENABLE_GOVERNANCE ?= true
 ENABLE_ANALYTICS ?= true
+E2E_SUITE ?= full
+SMOKE_TIMEOUT_SECONDS ?= 2700
 SUPERSET_IMAGE_REPOSITORY ?= ghcr.io/openlakeforge/superset
 SUPERSET_IMAGE_TAG ?= local
 SUPERSET_IMAGE_PULL_POLICY ?= Never
@@ -72,6 +74,7 @@ help:
 	@printf '%s\n' '  make local-up         Full wrapper: foundation, prefetch, platform, artifacts'
 	@printf '%s\n' '  make local-slim-up    Slim wrapper: full data path without OpenMetadata or Superset'
 	@printf '%s\n' '  make local-slim-e2e   Validate the slim profile (reports disabled assertions)'
+	@printf '%s\n' '  make local-slim-smoke Deploy the slim profile and validate one product within 45 minutes'
 	@printf '%s\n' '  make local-down       Full teardown wrapper: platform, foundation'
 	@printf '%s\n' '  make local-status     Show pod and service status in the configured namespace'
 	@printf '%s\n' '  make local-forward    Port-forward all services to localhost (Dagster :3000, Superset :8088, OpenMetadata :8585, Trino :8080, Polaris :8181, S3 :9000, SeaweedFS Filer :8888, Master :9333)'
@@ -190,7 +193,10 @@ local-slim-up:
 	@$(MAKE) local-slim-artifacts-deploy
 
 local-slim-e2e:
-	@$(MAKE) local-e2e ENABLE_GOVERNANCE=false ENABLE_ANALYTICS=false
+	@$(MAKE) local-e2e ENABLE_GOVERNANCE=false ENABLE_ANALYTICS=false E2E_SUITE=$(E2E_SUITE)
+
+local-slim-smoke:
+	@uv run --project tools/olf --locked olf smoke run --timeout-seconds $(SMOKE_TIMEOUT_SECONDS)
 
 local-slim-down:
 	@$(MAKE) local-down LOCAL_TFVARS_FILE=infra/terraform/environments/local/slim.tfvars
@@ -244,7 +250,7 @@ local-forward:
 	wait
 
 local-e2e:
-	@NAMESPACE=$(NAMESPACE) CLUSTER_NAME=$(CLUSTER_NAME) KUBE_CONTEXT=$(KUBE_CONTEXT) KUBECONFIG="$(LOCAL_KUBECONFIG_PATH)" OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR=infra/terraform/environments/local bash scripts/artifacts/olf.sh e2e run --env local
+	@NAMESPACE=$(NAMESPACE) CLUSTER_NAME=$(CLUSTER_NAME) KUBE_CONTEXT=$(KUBE_CONTEXT) KUBECONFIG="$(LOCAL_KUBECONFIG_PATH)" OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR=infra/terraform/environments/local bash scripts/artifacts/olf.sh e2e run --env local --suite $(E2E_SUITE)
 
 azure-foundation-up:
 	@AZURE_TFVARS_FILE="$(AZURE_TFVARS_FILE)" AZURE_CLUSTER_NAME=$(AZURE_CLUSTER_NAME) AZURE_NODE_COUNT=$(AZURE_NODE_COUNT) AZURE_ACR_NAME_PREFIX=$(AZURE_ACR_NAME_PREFIX) KUBECONFIG_PATH="$(AZURE_KUBECONFIG_PATH)" bash scripts/azure/foundation/up.sh

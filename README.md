@@ -302,6 +302,20 @@ It launches every product pipeline and checks Silver, Gold, Trino, and
 ops-bucket artifacts. It reports the Superset and OpenMetadata assertions as
 skipped. Tear it down with `make local-slim-down`.
 
+For the pull-request deployment gate, run the bounded smoke path locally:
+
+```sh
+make local-slim-smoke
+```
+
+It creates the slim kind foundation, applies the platform, deploys artifacts,
+then selects the first product from the validated domain inventory, runs its
+Dagster pipeline, and queries its populated Gold marts through Trino. The full
+path has a hard 45-minute budget (`SMOKE_TIMEOUT_SECONDS=2700`); on expiry it
+terminates the running Make process tree and fails loudly. GitHub Actions
+reserves a further five minutes to collect pod, event, workload, host-capacity,
+and container-log diagnostics when the command fails.
+
 Check the cluster at any point with:
 
 ```sh
