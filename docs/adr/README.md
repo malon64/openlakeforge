@@ -74,3 +74,8 @@ boundary. AWS continues to use Glue.
 `0021-domain-descriptor-v1alpha2-inventory.md` introduces the strict
 inventory-required descriptor shape as `v1alpha2`, preserving the former
 `v1alpha1` envelope for migration validation.
+
+`0022-phase-two-polaris-namespace-reconciliation.md` moves Polaris namespace
+create/update/delete out of the Phase 1 bootstrap Job into
+`olf catalog sync-namespaces`, so `platform-up` never reads domain code. AWS
+Glue databases stay declarative in Terraform.

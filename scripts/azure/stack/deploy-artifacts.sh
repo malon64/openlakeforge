@@ -65,6 +65,10 @@ prepare_image_variables
 # shellcheck source=/dev/null
 source "${REPO_ROOT}/scripts/contracts/load-runtime-env.sh"
 
+# Namespaces must exist before Floe writes the first Iceberg table into them.
+echo "==> Reconciling Polaris namespaces from the domain descriptors..."
+olf_run catalog sync-namespaces ${OPENLAKEFORGE_CATALOG_PRUNE_NAMESPACES:+--prune}
+
 echo "==> Generating product Floe manifests before baking the project-code image..."
 export FLOE_RUNTIME_ARTIFACT_DIR
 export FLOE_PERSIST_RUNTIME_ARTIFACTS="true"

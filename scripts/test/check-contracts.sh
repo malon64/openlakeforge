@@ -179,17 +179,40 @@ for contracts_path, contracts_body in [(contracts_tf, text), (azure_contracts_tf
     expected_log_mode = "s3-object-archive" if contracts_path == aws_contracts_tf else "s3-compatible-object-archive"
     if expected_log_mode not in contracts_body:
         errors.append(f"{contracts_path}: missing ops artifact/observability field {expected_log_mode}")
-    for required in [
-        "catalog_namespace_model",
-        "catalog_namespaces",
-        "catalog_schema_names",
-        "silver_namespaces",
-        "gold_namespaces",
-        "silver_schema_fqns",
-        "gold_schema_fqns",
-    ]:
+    # Glue databases stay declarative in Phase 1, so the AWS catalog contract
+    # still carries the resolved namespace maps. Polaris reconciles namespaces
+    # in Phase 2 (ADR 0022), so its roots must publish neither -- olf derives
+    # them from the descriptors, and an empty map here would shadow that.
+    if contracts_path == aws_contracts_tf:
+        required_catalog_fields = [
+            "catalog_namespace_model",
+            "catalog_namespaces",
+            "catalog_schema_names",
+            "silver_namespaces",
+            "gold_namespaces",
+            "silver_schema_fqns",
+            "gold_schema_fqns",
+        ]
+        forbidden_catalog_fields: list[str] = []
+    else:
+        required_catalog_fields = ["catalog_namespace_model", "catalog_database_fqn"]
+        forbidden_catalog_fields = [
+            "catalog_namespaces",
+            "catalog_schema_names",
+            "silver_namespaces",
+            "gold_namespaces",
+            "silver_schema_fqns",
+            "gold_schema_fqns",
+        ]
+    for required in required_catalog_fields:
         if required not in contracts_body:
             errors.append(f"{contracts_path}: catalog contract must expose {required}")
+    for forbidden in forbidden_catalog_fields:
+        if re.search(rf"^\s*{forbidden}\s*=", contracts_body, re.MULTILINE):
+            errors.append(
+                f"{contracts_path}: catalog contract must not set {forbidden}; "
+                "Phase 2 reconciles Polaris namespaces from the descriptors"
+            )
     if re.search(r'\b(silver_namespace|gold_namespace)\s*=\s*"(silver|gold)"', contracts_body):
         errors.append(f"{contracts_path}: catalog contract must not expose shared silver/gold namespace fields")
 
@@ -213,14 +236,23 @@ for main_path, main_body in [(local_main_tf, local_main_text), (azure_main_tf, a
     if main_path == aws_main_tf:
         if not re.search(r'\bcatalog_namespaces\s*=\s*local\.catalog_namespaces\b', main_body):
             errors.append(f"{main_path}: Glue module must receive product catalog namespaces")
-    elif not re.search(r'\bcatalog_namespaces\s*=\s*local\.catalog_namespaces\b', main_body):
-        errors.append(f"{main_path}: Polaris module must receive product catalog namespaces")
-    if "catalog_schema_names" not in main_body or "[for namespace in local.catalog_namespaces : namespace.name]" not in main_body:
-        errors.append(f"{main_path}: OpenMetadata module must seed all product catalog namespaces")
-    for namespace_pair in expected_product_namespaces.values():
-        for namespace in namespace_pair.values():
-            if namespace not in main_body:
-                errors.append(f"{main_path}: missing product catalog namespace {namespace}")
+        if "[for namespace in local.catalog_namespaces : namespace.name]" not in main_body:
+            errors.append(f"{main_path}: OpenMetadata module must seed all product catalog namespaces")
+        for namespace_pair in expected_product_namespaces.values():
+            for namespace in namespace_pair.values():
+                if namespace not in main_body:
+                    errors.append(f"{main_path}: missing product catalog namespace {namespace}")
+    else:
+        # Polaris roots must carry no product identity at all: Phase 1 stands up
+        # the catalog service, Phase 2 reconciles what lives inside it.
+        if re.search(r'\bcatalog_namespaces\s*=', main_body):
+            errors.append(f"{main_path}: Polaris module must not receive a namespace list")
+        if not re.search(r'\bcatalog_schema_names\s*=\s*\[\]', main_body):
+            errors.append(f"{main_path}: OpenMetadata module must be seeded with no schemas in Phase 1")
+        for namespace_pair in expected_product_namespaces.values():
+            for namespace in namespace_pair.values():
+                if namespace in main_body:
+                    errors.append(f"{main_path}: must not hardcode product catalog namespace {namespace}")
     if "ops_bucket_name" not in main_body or "floe/manifests" not in main_body:
         errors.append(f"{main_path}: must use the ops artifact bucket and floe/manifests prefix")
     if "var.code_bucket_name" in main_body:

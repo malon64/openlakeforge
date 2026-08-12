@@ -295,6 +295,7 @@ class OpenMetadataDeployer:
     def __init__(self, config: OpenMetadataConfig, client: OpenMetadataClient):
         self.config = config
         self.client = client
+        self._ensured_schema_fqns: set[str] = set()
 
     # --- product/table spec helpers ---------------------------------------
 
@@ -605,6 +606,29 @@ class OpenMetadataDeployer:
         self.client.request("PUT", "/api/v1/containers", payload=payload, ok_statuses=(200, 201))
         print(f"Upserted OpenMetadata container: {full_path}")
 
+    def ensure_database_schema(self, schema_fqn: str) -> None:
+        """Create the databaseSchema a table stub is about to reference.
+
+        Phase 1 used to pre-create these alongside the Polaris namespaces it
+        owned. Now that namespaces are reconciled in Phase 2 (ADR 0022), the
+        schema entity has to be created here instead -- OpenMetadata rejects a
+        table whose `databaseSchema` does not resolve, and the Polaris crawler
+        that would otherwise discover it has not run yet at seeding time.
+        """
+        database_fqn, _, name = schema_fqn.rpartition(".")
+        if not database_fqn or not name:
+            raise OpenMetadataError(f"Malformed schema FQN {schema_fqn!r}: expected '<service>.<database>.<schema>'")
+        if schema_fqn in self._ensured_schema_fqns:
+            return
+        self.client.request(
+            "PUT",
+            "/api/v1/databaseSchemas",
+            payload={"name": name, "database": database_fqn},
+            ok_statuses=(200, 201),
+        )
+        self._ensured_schema_fqns.add(schema_fqn)
+        print(f"Upserted OpenMetadata database schema: {schema_fqn}")
+
     def ensure_table_stub(self, schema_fqn, name, description) -> None:
         payload = {"name": name, "databaseSchema": schema_fqn, "columns": []}
         if description:
@@ -704,6 +728,7 @@ class OpenMetadataDeployer:
         for _, domain in domain_specs:
             for product in product_entries(domain):
                 for schema_fqn, table in self.product_table_specs(product):
+                    self.ensure_database_schema(schema_fqn)
                     self.ensure_table_stub(schema_fqn, table["name"], table.get("description", ""))
         self.cleanup_legacy_default_database()
 

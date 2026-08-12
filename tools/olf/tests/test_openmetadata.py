@@ -516,3 +516,139 @@ data_products:
         ),
     ]
     assert seeded_containers[-1][3] == "Raw sales orders."
+
+
+def _single_product_deployer(tmp_path: Path) -> om.OpenMetadataDeployer:
+    (tmp_path / "sales").mkdir()
+    (tmp_path / "sales" / "domain.yaml").write_text(
+        """apiVersion: openlakeforge.io/v1alpha2
+kind: Domain
+name: sales
+displayName: Sales
+description: Sales domain
+status: active
+data_products:
+  - id: sales_order_revenue
+    name: sales_order_revenue
+    displayName: Sales Order Revenue
+    description: Revenue from orders.
+    status: active
+    asset_prefix: sales_order_revenue
+    bronze:
+      - name: raw_orders
+        path: s3://lakehouse-bronze/sales/order_revenue/orders
+        description: Raw sales orders.
+    silver_tables:
+      tables:
+        - name: raw_orders
+        - name: raw_order_lines
+    gold_tables:
+      tables:
+        - name: mart_order_revenue
+"""
+    )
+    cfg = om.OpenMetadataConfig.from_environment(
+        {},
+        base_url="http://x",
+        admin_email="a",
+        admin_password="p",
+        metadata_root=str(tmp_path),
+        metadata_source_dir="",
+        allow_missing_assets=False,
+        catalog_service="polaris",
+        catalog_database="lakehouse_dev",
+        cleanup_legacy_default_database=False,
+    )
+    return om.OpenMetadataDeployer(cfg, om.OpenMetadataClient(cfg.base_url))
+
+
+def test_ensure_database_schema_creates_the_schema_a_table_will_reference(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Phase 1 stopped pre-creating databaseSchemas when Polaris namespace
+    lifecycle moved to Phase 2, so seeding has to create them itself."""
+    deployer = _single_product_deployer(tmp_path)
+    calls: list[tuple[str, dict]] = []
+
+    def request(method: str, path: str, *, payload=None, **_kwargs):
+        calls.append((path, payload or {}))
+        return {}
+
+    monkeypatch.setattr(deployer.client, "request", request)
+
+    deployer.ensure_database_schema("polaris.lakehouse_dev.sales_order_revenue_silver")
+
+    assert calls == [
+        (
+            "/api/v1/databaseSchemas",
+            {"name": "sales_order_revenue_silver", "database": "polaris.lakehouse_dev"},
+        )
+    ]
+
+
+def test_ensure_database_schema_is_created_once_per_schema(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    deployer = _single_product_deployer(tmp_path)
+    calls: list[str] = []
+
+    monkeypatch.setattr(
+        deployer.client, "request", lambda method, path, **_kwargs: calls.append(path) or {}
+    )
+
+    deployer.ensure_database_schema("polaris.lakehouse_dev.sales_order_revenue_silver")
+    deployer.ensure_database_schema("polaris.lakehouse_dev.sales_order_revenue_silver")
+
+    assert calls == ["/api/v1/databaseSchemas"]
+
+
+def test_ensure_database_schema_rejects_a_malformed_fqn(tmp_path: Path) -> None:
+    deployer = _single_product_deployer(tmp_path)
+
+    with pytest.raises(om.OpenMetadataError, match="Malformed schema FQN"):
+        deployer.ensure_database_schema("sales_order_revenue_silver")
+
+
+def test_deploy_creates_each_schema_before_seeding_its_tables(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    deployer = _single_product_deployer(tmp_path)
+    ordered: list[str] = []
+
+    monkeypatch.setattr(deployer, "wait_for_openmetadata", lambda: None)
+    monkeypatch.setattr(deployer, "login", lambda: None)
+    monkeypatch.setattr(deployer, "ensure_storage_service", lambda: None)
+    monkeypatch.setattr(deployer, "ensure_container", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        deployer,
+        "resolve_domain_ref",
+        lambda domain_name: {"id": "d", "name": domain_name, "fullyQualifiedName": domain_name},
+    )
+
+    def request(method: str, path: str, **_kwargs):
+        if method == "GET" and path.startswith("/api/v1/tables/name/"):
+            return {"id": "t", "fullyQualifiedName": "x"}
+        return {}
+
+    monkeypatch.setattr(deployer.client, "request", request)
+    monkeypatch.setattr(
+        deployer, "ensure_database_schema", lambda fqn: ordered.append(f"schema:{fqn}")
+    )
+    monkeypatch.setattr(
+        deployer,
+        "ensure_table_stub",
+        lambda schema_fqn, name, description: ordered.append(f"table:{schema_fqn}.{name}"),
+    )
+
+    deployer.deploy()
+
+    silver = "polaris.lakehouse_dev.sales_order_revenue_silver"
+    gold = "polaris.lakehouse_dev.sales_order_revenue_gold"
+    assert ordered == [
+        f"schema:{silver}",
+        f"table:{silver}.raw_orders",
+        f"schema:{silver}",
+        f"table:{silver}.raw_order_lines",
+        f"schema:{gold}",
+        f"table:{gold}.mart_order_revenue",
+    ]

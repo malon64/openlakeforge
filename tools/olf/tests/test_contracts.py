@@ -71,10 +71,46 @@ def test_local_contracts_apply_seaweedfs_values() -> None:
             "polaris.lakehouse_dev.supply_chain_inventory_reliability_silver"
         ),
     }
-    assert json.loads(exports["OPENLAKEFORGE_CATALOG_SILVER_NAMESPACES_JSON"]) == {
-        "sales_order_revenue": "sales_order_revenue_silver"
-    }
     assert unsets == []
+
+
+def test_polaris_contract_without_namespaces_falls_back_to_the_descriptors() -> None:
+    """Phase 1 no longer resolves Polaris namespaces, so every product must
+    still get one from the inventory -- not just the products a stale apply
+    happened to know about."""
+    contracts = load_fixture("local-provider-contracts.json")
+    assert "catalog_namespaces" not in contracts["catalog"]
+    assert "silver_namespaces" not in contracts["catalog"]
+
+    exports, _ = build_contract_env({}, contracts, repo_root=REPO_ROOT)
+
+    assert json.loads(exports["OPENLAKEFORGE_CATALOG_SILVER_NAMESPACES_JSON"]) == {
+        "sales_order_revenue": "sales_order_revenue_silver",
+        "sales_customer_health": "sales_customer_health_silver",
+        "supply_chain_inventory_reliability": "supply_chain_inventory_reliability_silver",
+    }
+    assert json.loads(exports["OPENLAKEFORGE_CATALOG_GOLD_NAMESPACES_JSON"]) == {
+        "sales_order_revenue": "sales_order_revenue_gold",
+        "sales_customer_health": "sales_customer_health_gold",
+        "supply_chain_inventory_reliability": "supply_chain_inventory_reliability_gold",
+    }
+    namespaces = json.loads(exports["OPENLAKEFORGE_CATALOG_NAMESPACES_JSON"])
+    assert {entry["name"] for entry in namespaces} == {
+        "sales_order_revenue_silver",
+        "sales_order_revenue_gold",
+        "sales_customer_health_silver",
+        "sales_customer_health_gold",
+        "supply_chain_inventory_reliability_silver",
+        "supply_chain_inventory_reliability_gold",
+    }
+
+
+def test_polaris_contract_publishes_the_phase_two_deployer_credentials() -> None:
+    exports, _ = build_contract_env({}, load_fixture("local-provider-contracts.json"), repo_root=REPO_ROOT)
+
+    assert exports["OPENLAKEFORGE_CATALOG_DEPLOYER_CREDENTIALS_SECRET_NAME"] == "polaris-deployer-creds"
+    assert exports["OPENLAKEFORGE_CATALOG_DEPLOYER_CLIENT_ID_KEY"] == "POLARIS_DEPLOYER_CLIENT_ID"
+    assert exports["OPENLAKEFORGE_CATALOG_DEPLOYER_CLIENT_SECRET_KEY"] == "POLARIS_DEPLOYER_CLIENT_SECRET"
 
 
 def test_aws_contracts_blank_local_only_fields_and_derive_glue_fqns() -> None:

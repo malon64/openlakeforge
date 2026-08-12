@@ -20,22 +20,9 @@ locals {
     ? var.storage_contract.gold_bucket_name
     : var.storage_contract.bucket_name
   )
-  default_catalog_namespaces = [
-    {
-      name     = "silver"
-      location = "s3://${local.silver_bucket_name}/silver/"
-    },
-    {
-      name     = "gold"
-      location = "s3://${local.gold_bucket_name}/gold/"
-    },
-  ]
-  catalog_namespaces      = length(var.catalog_namespaces) > 0 ? var.catalog_namespaces : local.default_catalog_namespaces
-  catalog_namespaces_hash = sha256(jsonencode(local.catalog_namespaces))
   bootstrap_annotations = {
     "openlakeforge.io/polaris-release-revision" = tostring(helm_release.polaris.metadata.revision)
     "openlakeforge.io/bootstrap-revision"       = var.bootstrap_revision
-    "openlakeforge.io/catalog-namespaces-hash"  = local.catalog_namespaces_hash
   }
 }
 
@@ -140,7 +127,6 @@ resource "terraform_data" "polaris_release_revision" {
 resource "terraform_data" "polaris_bootstrap_revision" {
   triggers_replace = [
     var.bootstrap_revision,
-    local.catalog_namespaces_hash,
   ]
 }
 
@@ -248,36 +234,6 @@ resource "kubernetes_job_v1" "bootstrap" {
               exit 1
             }
 
-            catalog_request() {
-              method="$1"
-              path="$2"
-              expected_codes="$3"
-              data="$${4:-}"
-
-              if [ -n "$data" ]; then
-                code="$(curl -sS -o /tmp/polaris-body -w '%%{http_code}' \
-                  -X "$method" "$polaris_url/api/catalog/v1$path" \
-                  -H "Authorization: Bearer $POLARIS_TOKEN" \
-                  -H "Content-Type: application/json" \
-                  -d "$data")"
-              else
-                code="$(curl -sS -o /tmp/polaris-body -w '%%{http_code}' \
-                  -X "$method" "$polaris_url/api/catalog/v1$path" \
-                  -H "Authorization: Bearer $POLARIS_TOKEN" \
-                  -H "Content-Type: application/json")"
-              fi
-
-              POLARIS_RESPONSE_CODE="$code"
-
-              case " $expected_codes " in
-                *" $code "*) return 0 ;;
-              esac
-
-              echo "Polaris catalog $method $path returned HTTP $code" >&2
-              cat /tmp/polaris-body >&2 || true
-              exit 1
-            }
-
             token_response=""
             attempt=1
             while [ "$attempt" -le 60 ]; do
@@ -315,16 +271,6 @@ resource "kubernetes_job_v1" "bootstrap" {
                 \"stsUnavailable\": true
               }
             }"
-
-            create_namespace() {
-              namespace_name="$1"
-              namespace_location="$2"
-              catalog_request POST "/${var.catalog_name}/namespaces" "200 409" "{\"namespace\": [\"$namespace_name\"], \"properties\": {\"location\": \"$namespace_location\"}}"
-            }
-
-%{for namespace in local.catalog_namespaces~}
-            create_namespace "${namespace.name}" "${namespace.location}"
-%{endfor~}
 
             create_principal_secret() {
               principal_name="$1"
@@ -407,6 +353,13 @@ resource "kubernetes_job_v1" "bootstrap" {
 
             create_principal_secret "${var.om_principal_name}" "${var.om_credentials_secret_name}" "POLARIS_OM_CLIENT_ID" "POLARIS_OM_CLIENT_SECRET"
             grant_catalog_access "${var.om_principal_name}" "${var.om_principal_role}" "${var.om_catalog_role}"
+
+            # Namespace lifecycle belongs to Phase 2 (ADR 0022). Phase 1 stops at
+            # handing `olf catalog sync-namespaces` a principal that can create
+            # and drop namespaces, so no platform apply ever needs to know which
+            # products exist.
+            create_principal_secret "${var.deployer_principal_name}" "${var.deployer_credentials_secret_name}" "POLARIS_DEPLOYER_CLIENT_ID" "POLARIS_DEPLOYER_CLIENT_SECRET"
+            grant_catalog_access "${var.deployer_principal_name}" "${var.deployer_principal_role}" "${var.deployer_catalog_role}"
           SCRIPT
           ]
 

@@ -11,6 +11,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import boto3
 import typer
@@ -30,6 +31,7 @@ app = typer.Typer(
 
 contracts_app = typer.Typer(help="Provider-contract runtime environment helpers.")
 inventory_app = typer.Typer(help="Typed domain inventory helpers.")
+catalog_app = typer.Typer(help="Iceberg catalog namespace reconciliation.")
 floe_app = typer.Typer(help="Floe profile and manifest helpers.")
 artifacts_app = typer.Typer(help="Object-storage artifact helpers.")
 revision_app = typer.Typer(help="Immutable Floe runtime-artifact revision helpers.")
@@ -40,6 +42,7 @@ e2e_app = typer.Typer(help="End-to-end environment validation.")
 release_app = typer.Typer(help="Release manifest, checksums, compatibility matrix, and readiness gate.")
 app.add_typer(contracts_app, name="contracts")
 app.add_typer(inventory_app, name="inventory")
+app.add_typer(catalog_app, name="catalog")
 app.add_typer(floe_app, name="floe")
 app.add_typer(artifacts_app, name="artifacts")
 app.add_typer(revision_app, name="revision")
@@ -89,6 +92,85 @@ def contracts_env(
 def inventory_terraform_external() -> None:
     """Render a Terraform external-provider inventory result on stdout."""
     inventory_module.main()
+
+
+@catalog_app.command("sync-namespaces")
+def catalog_sync_namespaces(
+    dry_run: bool = typer.Option(False, "--dry-run", help="Print the plan without changing the catalog."),
+    prune: bool = typer.Option(
+        False,
+        "--prune",
+        help="Also drop namespaces no descriptor declares. Destructive; namespaces holding tables are refused.",
+    ),
+) -> None:
+    """Reconcile Polaris namespaces with the domain descriptors.
+
+    Phase 2 owns namespace lifecycle (ADR 0022), so this runs before any table
+    is written. AWS Glue databases are still managed by Terraform and are left
+    alone here.
+    """
+    from olf import k8s
+    from olf import polaris as polaris_module
+
+    provider = config.env("OPENLAKEFORGE_CATALOG_PROVIDER", "polaris")
+    if provider != "polaris":
+        typer.echo(
+            f"Catalog provider is {provider!r}; namespace reconciliation is Polaris-only. "
+            "Glue databases stay under Terraform management."
+        )
+        return
+
+    rest_uri = config.env("OPENLAKEFORGE_CATALOG_REST_URI", "http://polaris:8181/api/catalog")
+    parsed = urlparse(rest_uri)
+    if not parsed.hostname:
+        raise typer.Exit(code=_fail(f"OPENLAKEFORGE_CATALOG_REST_URI {rest_uri!r} has no host to port-forward to."))
+    service = parsed.hostname
+    remote_port = parsed.port or 8181
+
+    namespace = config.namespace()
+    secret_name = config.env("OPENLAKEFORGE_CATALOG_DEPLOYER_CREDENTIALS_SECRET_NAME", "polaris-deployer-creds")
+    client_id_key = config.env("OPENLAKEFORGE_CATALOG_DEPLOYER_CLIENT_ID_KEY", "POLARIS_DEPLOYER_CLIENT_ID")
+    client_secret_key = config.env(
+        "OPENLAKEFORGE_CATALOG_DEPLOYER_CLIENT_SECRET_KEY", "POLARIS_DEPLOYER_CLIENT_SECRET"
+    )
+
+    desired = polaris_module.desired_namespaces(
+        _repo_root(),
+        silver_bucket=config.env("OPENLAKEFORGE_STORAGE_SILVER_BUCKET", "lakehouse-silver"),
+        gold_bucket=config.env("OPENLAKEFORGE_STORAGE_GOLD_BUCKET", "lakehouse-gold"),
+    )
+
+    log_step(f"Reconciling {len(desired)} Polaris namespace(s) from the domain descriptors...")
+    log_prefix = config.env("OPENLAKEFORGE_PORT_FORWARD_LOG_PREFIX", "/tmp/openlakeforge")
+    with k8s.port_forward(
+        service, remote_port, namespace, log_path=f"{log_prefix}-polaris-port-forward.log"
+    ) as local_port:
+        client = polaris_module.PolarisClient(
+            polaris_module.PolarisConfig(
+                base_url=f"http://127.0.0.1:{local_port}",
+                catalog_name=config.env("OPENLAKEFORGE_CATALOG_NAME", "lakehouse_dev"),
+                client_id=k8s.secret_value(secret_name, client_id_key, namespace),
+                client_secret=k8s.secret_value(secret_name, client_secret_key, namespace),
+                oauth_scope=config.env("OPENLAKEFORGE_CATALOG_OAUTH_SCOPE", "PRINCIPAL_ROLE:ALL"),
+            )
+        )
+        try:
+            client.login()
+            plan = polaris_module.plan_namespace_sync(client.list_namespaces(), desired, prune=prune)
+            typer.echo(polaris_module.render_plan(plan, prune=prune))
+            if dry_run:
+                typer.echo("Dry run: the catalog was not changed.")
+                return
+            if plan.is_empty:
+                typer.echo("Polaris namespaces already match the descriptors.")
+                return
+            polaris_module.apply_namespace_sync(client, plan)
+            typer.echo(
+                f"Synced Polaris namespaces: {len(plan.create)} created, "
+                f"{len(plan.update)} relocated, {len(plan.delete)} dropped."
+            )
+        except polaris_module.PolarisError as exc:
+            raise typer.Exit(code=_fail(str(exc))) from exc
 
 
 @floe_app.command("render-profile")

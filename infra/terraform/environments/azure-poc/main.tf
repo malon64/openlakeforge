@@ -46,40 +46,11 @@ locals {
     sales_customer_health              = "${local.floe_manifest_base_uri}/sales/customer_health/customer_health.manifest.json"
     supply_chain_inventory_reliability = "${local.floe_manifest_base_uri}/supply_chain/inventory_reliability/inventory_reliability.manifest.json"
   }
+  # Namespaces themselves are not declared here. `olf catalog sync-namespaces`
+  # reconciles them from domains/*/domain.yaml during artifacts-deploy (ADR
+  # 0022); this root only records which naming model those namespaces follow.
   catalog_namespace_model = "product-layer"
-  catalog_product_namespaces = {
-    sales_order_revenue = {
-      silver = "sales_order_revenue_silver"
-      gold   = "sales_order_revenue_gold"
-    }
-    sales_customer_health = {
-      silver = "sales_customer_health_silver"
-      gold   = "sales_customer_health_gold"
-    }
-    supply_chain_inventory_reliability = {
-      silver = "supply_chain_inventory_reliability_silver"
-      gold   = "supply_chain_inventory_reliability_gold"
-    }
-  }
-  catalog_silver_namespaces = {
-    for product, namespaces in local.catalog_product_namespaces : product => namespaces.silver
-  }
-  catalog_gold_namespaces = {
-    for product, namespaces in local.catalog_product_namespaces : product => namespaces.gold
-  }
-  catalog_namespaces = flatten([
-    for product, namespaces in local.catalog_product_namespaces : [
-      {
-        name     = namespaces.silver
-        location = "s3://${var.silver_bucket_name}/${namespaces.silver}/"
-      },
-      {
-        name     = namespaces.gold
-        location = "s3://${var.gold_bucket_name}/${namespaces.gold}/"
-      },
-    ]
-  ])
-  polaris_bootstrap_hash = filesha256("${path.root}/../../modules/catalog/polaris/main.tf")
+  polaris_bootstrap_hash  = filesha256("${path.root}/../../modules/catalog/polaris/main.tf")
 }
 
 resource "kubernetes_namespace_v1" "lakehouse" {
@@ -119,7 +90,6 @@ module "polaris" {
   catalog_role        = "catalog-admin"
   storage_contract    = local.storage_contract
   postgresql_contract = local.metadata_database_contract
-  catalog_namespaces  = local.catalog_namespaces
   bootstrap_revision  = local.polaris_bootstrap_hash
 
   depends_on = [
@@ -145,13 +115,16 @@ module "trino" {
 module "openmetadata" {
   source = "../../modules/governance/openmetadata"
 
-  namespace            = kubernetes_namespace_v1.lakehouse.metadata[0].name
-  base_values_file     = "${path.root}/../../../helm/values/local/openmetadata.yaml"
-  deps_values_file     = "${path.root}/../../../helm/values/local/openmetadata-deps.yaml"
-  catalog_contract     = local.catalog_contract
-  storage_contract     = local.storage_contract
-  postgresql_contract  = local.metadata_database_contract
-  catalog_schema_names = [for namespace in local.catalog_namespaces : namespace.name]
+  namespace           = kubernetes_namespace_v1.lakehouse.metadata[0].name
+  base_values_file    = "${path.root}/../../../helm/values/local/openmetadata.yaml"
+  deps_values_file    = "${path.root}/../../../helm/values/local/openmetadata-deps.yaml"
+  catalog_contract    = local.catalog_contract
+  storage_contract    = local.storage_contract
+  postgresql_contract = local.metadata_database_contract
+  # Empty by design: the database schemas mirror Polaris namespaces, which now
+  # come into existence in Phase 2. `olf openmetadata deploy-metadata` creates
+  # each databaseSchema entity right before it seeds that schema's tables.
+  catalog_schema_names = []
 
   depends_on = [
     module.polaris,
