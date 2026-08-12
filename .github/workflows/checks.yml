@@ -143,7 +143,9 @@ jobs:
     name: Deploy slim kind smoke
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-    timeout-minutes: 50
+    # The smoke command has its own 45-minute deployment deadline. Reserve
+    # another 15 minutes for runner setup and failure diagnostics/uploads.
+    timeout-minutes: 60
     env:
       CLUSTER_NAME: openlakeforge-pr-${{ github.run_id }}
       KUBE_CONTEXT: kind-openlakeforge-pr-${{ github.run_id }}

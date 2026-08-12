@@ -313,8 +313,8 @@ then selects the first product from the validated domain inventory, runs its
 Dagster pipeline, and queries its populated Gold marts through Trino. The full
 path has a hard 45-minute budget (`SMOKE_TIMEOUT_SECONDS=2700`); on expiry it
 terminates the running Make process tree and fails loudly. GitHub Actions
-reserves a further five minutes to collect pod, event, workload, host-capacity,
-and container-log diagnostics when the command fails.
+reserves a further 15 minutes for runner setup plus pod, event, workload,
+host-capacity, and container-log diagnostics when the command fails.
 
 Check the cluster at any point with:
 
