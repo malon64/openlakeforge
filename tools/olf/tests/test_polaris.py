@@ -5,6 +5,7 @@ import json
 import pytest
 
 from olf import polaris
+from olf.catalog import NamespaceState
 
 
 class FakeResponse:
@@ -38,4 +39,6 @@ def test_list_namespaces_skips_nested_namespaces(monkeypatch: pytest.MonkeyPatch
 
     monkeypatch.setattr(polaris.urllib.request, "urlopen", fake_urlopen)
 
-    assert client.list_namespaces() == {"sales_silver": "s3://silver/sales_silver/"}
+    assert client.list_namespaces() == {
+        "sales_silver": NamespaceState("s3://silver/sales_silver/", {"location": "s3://silver/sales_silver/"})
+    }

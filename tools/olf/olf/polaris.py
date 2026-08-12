@@ -16,6 +16,7 @@ import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
 
+from olf.catalog import CATALOG_KEY, MANAGED_BY_KEY, MANAGED_BY_VALUE, NamespaceState
 from olf.inventory import CatalogNamespace
 
 LOCATION_PROPERTY = "location"
@@ -124,21 +125,28 @@ class PolarisClient:
     def _namespace_path(self, name: str) -> str:
         return f"{self.config.catalog_path}/namespaces/{urllib.parse.quote(name, safe='')}"
 
-    def list_namespaces(self) -> dict[str, str]:
+    def list_namespaces(self) -> dict[str, NamespaceState]:
         """Return every top-level namespace mapped to its `location` property.
 
         Multi-level namespaces are not part of this model -- Glue has no nesting
         and Trino's Iceberg connector flattens to a single schema level -- so a
         nested namespace is a foreign object this command must not touch.
         """
-        response = self._request("GET", f"{self.config.catalog_path}/namespaces")
-        names = [levels[0] for levels in response.get("namespaces", []) if len(levels) == 1]
-        return {name: self.namespace_location(name) for name in names}
+        names: list[str] = []
+        page_token = ""
+        while True:
+            query = f"?pageToken={urllib.parse.quote(page_token, safe='')}" if page_token else ""
+            response = self._request("GET", f"{self.config.catalog_path}/namespaces{query}")
+            names.extend(levels[0] for levels in response.get("namespaces", []) if len(levels) == 1)
+            page_token = response.get("next-page-token") or response.get("nextPageToken") or ""
+            if not page_token:
+                break
+        return {name: self.namespace_state(name) for name in names}
 
-    def namespace_location(self, name: str) -> str:
+    def namespace_state(self, name: str) -> NamespaceState:
         response = self._request("GET", self._namespace_path(name))
         properties = response.get("properties") or {}
-        return properties.get(LOCATION_PROPERTY, "")
+        return NamespaceState(properties.get(LOCATION_PROPERTY, ""), properties)
 
     def create_namespace(self, namespace: CatalogNamespace) -> None:
         self._request(
@@ -146,7 +154,7 @@ class PolarisClient:
             f"{self.config.catalog_path}/namespaces",
             payload={
                 "namespace": [namespace.name],
-                "properties": {LOCATION_PROPERTY: namespace.location},
+                "properties": self._properties(namespace),
             },
             ok_statuses=(200, 409),
         )
@@ -155,21 +163,39 @@ class PolarisClient:
         self._request(
             "POST",
             f"{self._namespace_path(namespace.name)}/properties",
-            payload={"removals": [], "updates": {LOCATION_PROPERTY: namespace.location}},
+            payload={"removals": [], "updates": self._properties(namespace)},
             ok_statuses=(200,),
         )
 
-    def drop_namespace(self, name: str) -> None:
-        """Drop an empty namespace.
+    def _properties(self, namespace: CatalogNamespace) -> dict[str, str]:
+        return {
+            LOCATION_PROPERTY: namespace.location,
+            MANAGED_BY_KEY: MANAGED_BY_VALUE,
+            CATALOG_KEY: self.config.catalog_name,
+        }
 
-        Polaris answers 409 while the namespace still holds tables. That is the
-        backstop against a prune quietly taking data with it, so it is reported
-        rather than swallowed.
-        """
+    def adopt_namespace(self, namespace: CatalogNamespace) -> None:
+        self.update_namespace_location(namespace)
+
+    def drop_namespace(self, name: str) -> None:
+        """Remove catalog metadata only; Iceberg object-store files are retained."""
+        page_token = ""
+        tables: list[str] = []
+        while True:
+            query = f"?pageToken={urllib.parse.quote(page_token, safe='')}" if page_token else ""
+            response = self._request("GET", f"{self._namespace_path(name)}/tables{query}")
+            identifiers = response.get("identifiers", [])
+            tables.extend(table["name"] if isinstance(table, dict) else table[-1] for table in identifiers)
+            page_token = response.get("next-page-token") or response.get("nextPageToken") or ""
+            if not page_token:
+                break
+        for table in tables:
+            encoded_table = urllib.parse.quote(table, safe="")
+            table_path = f"{self._namespace_path(name)}/tables/{encoded_table}?purgeRequested=false"
+            self._request("DELETE", table_path, ok_statuses=(200, 204, 404))
         try:
             self._request("DELETE", self._namespace_path(name), ok_statuses=(200, 204, 404))
         except PolarisError as err:
             raise PolarisError(
-                f"Polaris refused to drop namespace {name!r}: {err}. "
-                "Drop or move its tables first, then rerun with --prune."
+                f"Polaris refused to remove metadata for namespace {name!r}: {err}."
             ) from err

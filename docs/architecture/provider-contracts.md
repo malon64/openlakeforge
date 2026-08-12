@@ -9,7 +9,7 @@ state, ingress/TLS, or production hardening services.
 
 ## Contract Source Of Truth
 
-Provider contract exports carry `schema_version: "1.0.0"`. Consumers reject
+Provider contract exports carry `schema_version: "2.0.0"`. Consumers reject
 unknown versions rather than guessing field meanings. This version is
 independent of deployment and component versions.
 

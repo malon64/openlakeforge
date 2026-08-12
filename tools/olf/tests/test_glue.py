@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import boto3
-import pytest
 from botocore.stub import Stubber
 
 from olf import glue
+from olf.catalog import CATALOG_KEY, MANAGED_BY_KEY, MANAGED_BY_VALUE, NamespaceState
 from olf.inventory import CatalogNamespace
 
 
@@ -39,8 +39,8 @@ def test_list_namespaces_paginates_and_maps_location_uri() -> None:
 
     with stubber:
         assert client.list_namespaces() == {
-            "sales_silver": "s3://silver/sales_silver/",
-            "sales_gold": "s3://gold/sales_gold/",
+            "sales_silver": NamespaceState("s3://silver/sales_silver/"),
+            "sales_gold": NamespaceState("s3://gold/sales_gold/"),
         }
 
 
@@ -53,7 +53,7 @@ def test_list_namespaces_defaults_missing_location_to_empty_string() -> None:
     )
 
     with stubber:
-        assert client.list_namespaces() == {"no_location": ""}
+        assert client.list_namespaces() == {"no_location": NamespaceState("")}
 
 
 def test_create_namespace_issues_the_expected_database_input() -> None:
@@ -68,6 +68,7 @@ def test_create_namespace_issues_the_expected_database_input() -> None:
                 "Name": "sales_silver",
                 "LocationUri": "s3://silver/sales_silver/",
                 "Description": "OpenLakeForge 123456789012 sales_silver Iceberg namespace",
+                "Parameters": {MANAGED_BY_KEY: MANAGED_BY_VALUE, CATALOG_KEY: "lakehouse_dev"},
             },
         },
     )
@@ -80,6 +81,7 @@ def test_create_namespace_issues_the_expected_database_input() -> None:
 
 def test_create_namespace_tolerates_already_existing() -> None:
     client, stubber = make_client()
+    client._databases["sales_silver"] = {}
     namespace = CatalogNamespace(name="sales_silver", location="s3://silver/sales_silver/")
     stubber.add_client_error("create_database", service_error_code="AlreadyExistsException")
 
@@ -89,6 +91,7 @@ def test_create_namespace_tolerates_already_existing() -> None:
 
 def test_update_namespace_location_issues_update_database() -> None:
     client, stubber = make_client()
+    client._databases["sales_silver"] = {}
     namespace = CatalogNamespace(name="sales_silver", location="s3://new-silver/sales_silver/")
     stubber.add_response(
         "update_database",
@@ -100,6 +103,7 @@ def test_update_namespace_location_issues_update_database() -> None:
                 "Name": "sales_silver",
                 "LocationUri": "s3://new-silver/sales_silver/",
                 "Description": "OpenLakeForge 123456789012 sales_silver Iceberg namespace",
+                "Parameters": {MANAGED_BY_KEY: MANAGED_BY_VALUE, CATALOG_KEY: "lakehouse_dev"},
             },
         },
     )
@@ -127,10 +131,7 @@ def test_drop_namespace_deletes_an_empty_database() -> None:
     stubber.assert_no_pending_responses()
 
 
-def test_drop_namespace_refuses_a_non_empty_database() -> None:
-    """Glue's DeleteDatabase cascades to every table inside rather than
-    refusing, unlike Polaris's 409-on-non-empty-namespace. This GetTables
-    guard is what reproduces that safety property for --prune."""
+def test_drop_namespace_removes_table_metadata_before_database() -> None:
     client, stubber = make_client()
     stubber.add_response(
         "get_tables",
@@ -138,7 +139,12 @@ def test_drop_namespace_refuses_a_non_empty_database() -> None:
         {"CatalogId": "123456789012", "DatabaseName": "sales_silver", "MaxResults": 1},
     )
 
-    with stubber, pytest.raises(glue.GlueError, match="still holds tables"):
+    stubber.add_response(
+        "delete_table", {}, {"CatalogId": "123456789012", "DatabaseName": "sales_silver", "Name": "orders"}
+    )
+    stubber.add_response("delete_database", {}, {"CatalogId": "123456789012", "Name": "sales_silver"})
+
+    with stubber:
         client.drop_namespace("sales_silver")
 
     stubber.assert_no_pending_responses()

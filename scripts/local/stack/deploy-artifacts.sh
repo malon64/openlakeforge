@@ -55,7 +55,7 @@ source "${REPO_ROOT}/scripts/contracts/load-runtime-env.sh"
 
 # Namespaces must exist before Floe writes the first Iceberg table into them.
 echo "==> Reconciling Polaris namespaces from the domain descriptors..."
-olf_run catalog sync-namespaces ${OPENLAKEFORGE_CATALOG_PRUNE_NAMESPACES:+--prune}
+olf_run catalog sync-namespaces
 
 echo "==> Generating local product Floe manifests for namespace '${NAMESPACE}'..."
 export FLOE_RUNTIME_ARTIFACT_DIR

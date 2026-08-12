@@ -47,8 +47,8 @@ for contracts_path, contracts_body in [
     (azure_contracts_tf, azure_text),
     (aws_contracts_tf, aws_text),
 ]:
-    if 'schema_version      = "1.0.0"' not in contracts_body:
-        errors.append(f"{contracts_path}: provider contracts must declare schema_version 1.0.0")
+    if 'schema_version      = "2.0.0"' not in contracts_body:
+        errors.append(f"{contracts_path}: provider contracts must declare schema_version 2.0.0")
 
 required_contracts = [
     "foundation_contract",

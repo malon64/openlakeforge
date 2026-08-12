@@ -196,7 +196,26 @@ def test_catalog_sync_namespaces_dispatches_to_polaris_by_default(monkeypatch: p
     assert calls == [{"backend": "polaris", "dry_run": False, "prune": True}]
 
 
-def test_catalog_sync_namespaces_no_ops_for_an_unknown_provider(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_catalog_sync_namespaces_treats_false_prune_environment_as_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from olf import cli
+
+    calls: list[dict] = []
+    monkeypatch.setenv("OPENLAKEFORGE_CATALOG_PRUNE_NAMESPACES", "false")
+    monkeypatch.setattr(
+        cli,
+        "_sync_polaris_namespaces",
+        lambda *, desired, dry_run, prune: calls.append({"dry_run": dry_run, "prune": prune}),
+    )
+
+    result = runner.invoke(app, ["catalog", "sync-namespaces"])
+
+    assert result.exit_code == 0
+    assert calls == [{"dry_run": False, "prune": False}]
+
+
+def test_catalog_sync_namespaces_rejects_an_unknown_provider(monkeypatch: pytest.MonkeyPatch) -> None:
     from olf import cli
 
     calls: list[str] = []
@@ -206,6 +225,6 @@ def test_catalog_sync_namespaces_no_ops_for_an_unknown_provider(monkeypatch: pyt
 
     result = runner.invoke(app, ["catalog", "sync-namespaces"])
 
-    assert result.exit_code == 0
+    assert result.exit_code == 1
     assert calls == []
     assert "snowflake" in result.output

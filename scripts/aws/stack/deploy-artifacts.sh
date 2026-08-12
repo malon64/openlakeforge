@@ -69,7 +69,7 @@ export FLOE_PERSIST_RUNTIME_ARTIFACTS="true"
 
 # Databases must exist before Floe writes the first Iceberg table into them.
 echo "==> Reconciling Glue databases from the domain descriptors..."
-olf_run catalog sync-namespaces ${OPENLAKEFORGE_CATALOG_PRUNE_NAMESPACES:+--prune}
+olf_run catalog sync-namespaces
 
 echo "==> Generating product Floe manifests before baking the project-code image..."
 NAMESPACE="${NAMESPACE}" bash "${REPO_ROOT}/scripts/artifacts/floe-manifest.sh"

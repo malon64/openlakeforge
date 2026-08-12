@@ -332,19 +332,20 @@ resource "kubernetes_job_v1" "bootstrap" {
               principal_name="$1"
               principal_role="$2"
               catalog_role="$3"
+              catalog_privilege="$4"
 
               request POST "/principal-roles" "201 409" "{\"principalRole\": {\"name\": \"$principal_role\"}}"
               request PUT "/principals/$principal_name/principal-roles" "201 409" "{\"principalRole\": {\"name\": \"$principal_role\"}}"
               request POST "/catalogs/${var.catalog_name}/catalog-roles" "201 409" "{\"catalogRole\": {\"name\": \"$catalog_role\"}}"
-              request PUT "/catalogs/${var.catalog_name}/catalog-roles/$catalog_role/grants" "201 409" '{"grant": {"type": "catalog", "privilege": "CATALOG_MANAGE_CONTENT"}}'
+              request PUT "/catalogs/${var.catalog_name}/catalog-roles/$catalog_role/grants" "201 409" "{\"grant\": {\"type\": \"catalog\", \"privilege\": \"$catalog_privilege\"}}"
               request PUT "/principal-roles/$principal_role/catalog-roles/${var.catalog_name}" "201 409" "{\"catalogRole\": {\"name\": \"$catalog_role\"}}"
             }
 
             create_principal_secret "${var.principal_name}" "${var.trino_credentials_secret_name}" "POLARIS_TRINO_CLIENT_ID" "POLARIS_TRINO_CLIENT_SECRET"
-            grant_catalog_access "${var.principal_name}" "${var.principal_role}" "${var.catalog_role}"
+            grant_catalog_access "${var.principal_name}" "${var.principal_role}" "${var.catalog_role}" "CATALOG_MANAGE_CONTENT"
 
             create_principal_secret "${var.floe_principal_name}" "${var.floe_credentials_secret_name}" "POLARIS_FLOE_CLIENT_ID" "POLARIS_FLOE_CLIENT_SECRET"
-            grant_catalog_access "${var.floe_principal_name}" "${var.floe_principal_role}" "${var.floe_catalog_role}"
+            grant_catalog_access "${var.floe_principal_name}" "${var.floe_principal_role}" "${var.floe_catalog_role}" "CATALOG_MANAGE_CONTENT"
 
             # dbt Gold now writes through Trino. Remove credentials created by
             # pre-migration deployments while keeping shared Floe roles intact.
@@ -352,14 +353,14 @@ resource "kubernetes_job_v1" "bootstrap" {
             kubectl delete secret "polaris-dbt-creds" -n "$NAMESPACE" --ignore-not-found
 
             create_principal_secret "${var.om_principal_name}" "${var.om_credentials_secret_name}" "POLARIS_OM_CLIENT_ID" "POLARIS_OM_CLIENT_SECRET"
-            grant_catalog_access "${var.om_principal_name}" "${var.om_principal_role}" "${var.om_catalog_role}"
+            grant_catalog_access "${var.om_principal_name}" "${var.om_principal_role}" "${var.om_catalog_role}" "CATALOG_MANAGE_CONTENT"
 
             # Namespace lifecycle belongs to Phase 2 (ADR 0022). Phase 1 stops at
             # handing `olf catalog sync-namespaces` a principal that can create
             # and drop namespaces, so no platform apply ever needs to know which
             # products exist.
             create_principal_secret "${var.deployer_principal_name}" "${var.deployer_credentials_secret_name}" "POLARIS_DEPLOYER_CLIENT_ID" "POLARIS_DEPLOYER_CLIENT_SECRET"
-            grant_catalog_access "${var.deployer_principal_name}" "${var.deployer_principal_role}" "${var.deployer_catalog_role}"
+            grant_catalog_access "${var.deployer_principal_name}" "${var.deployer_principal_role}" "${var.deployer_catalog_role}" "CATALOG_MANAGE_METADATA"
           SCRIPT
           ]
 

@@ -51,7 +51,8 @@ it — for both Polaris and Glue.
 `plan_namespace_sync` diffs the descriptor-derived desired state against
 whatever a backend reports it currently holds, and `apply_namespace_sync`
 executes the plan against any client that implements `create_namespace`,
-`update_namespace_location`, and `drop_namespace`. `olf/polaris.py` and
+`adopt_namespace`, `update_namespace_location`, and `drop_namespace`.
+`olf/polaris.py` and
 `olf/glue.py` are two implementations of that same three-method surface —
 neither the planner nor `olf catalog sync-namespaces` needs to know which
 catalog it is talking to. `olf catalog sync-namespaces` runs first in every
@@ -59,30 +60,34 @@ catalog it is talking to. `olf catalog sync-namespaces` runs first in every
 `OPENLAKEFORGE_CATALOG_PROVIDER`.
 
 **Polaris.** Its bootstrap Job gains a `deployer` principal — granted
-`CATALOG_MANAGE_CONTENT` through the same `create_principal_secret` and
+`CATALOG_MANAGE_METADATA` through the same `create_principal_secret` and
 `grant_catalog_access` helpers the Trino, Floe, and OpenMetadata principals
 already use — whose credentials land in a `polaris-deployer-creds` Secret. That
 principal is the only product-independent thing Phase 1 needs to hand forward.
 `PolarisClient` reaches Polaris through the same `kubectl port-forward`
 mechanism the revision, Superset, and OpenMetadata commands already use, and
 issues the same REST calls the bootstrap Job previously made with curl.
-Polaris answers 409 for a namespace that still holds tables, so `--prune`
-cannot silently discard data there — the error is surfaced rather than
-swallowed.
+Each namespace created or adopted by OpenLakeForge is marked with
+`openlakeforge.io/managed-by=openlakeforge`. A legacy unmarked namespace is
+adopted only when its descriptor-derived location exactly matches; a location
+conflict fails rather than taking over a foreign object. Prune considers only
+marked namespaces. It removes table and namespace metadata with
+`purgeRequested=false`, retaining object-store files for recovery.
 
 **AWS Glue.** `GlueClient` uses the same ambient AWS credentials that
 `terraform apply` already used to create these databases — `deploy-artifacts.sh`
 runs `olf` from the operator's shell, no new IAM grant is needed. Unlike
 Polaris, `DeleteDatabase` has no built-in refusal for a non-empty database, so
-`GlueClient.drop_namespace` calls `GetTables` itself first and raises before
-calling `DeleteDatabase` if the database still holds tables — reproducing
-Polaris's safety property rather than inheriting it for free.
+`GlueClient.drop_namespace` deletes Glue table metadata before deleting the
+database. It does not delete S3 objects, matching Polaris's metadata-only
+recovery model.
 
 Both catalog contracts stop publishing `catalog_namespaces`,
 `catalog_namespace_names`, `catalog_schema_names`, `silver_namespaces`,
 `gold_namespaces`, and the per-product schema FQN maps. They omit those keys
 rather than emitting empty ones, because `olf/contracts.py` falls back to the
-descriptor-derived values only when a key is absent. `olf openmetadata
+descriptor-derived values only when a key is absent. This is a breaking
+provider-contract shape change, so the schema version is `2.0.0`. `olf openmetadata
 deploy-metadata` creates each `databaseSchema` immediately before seeding that
 schema's tables, replacing the Phase 1 pre-creation for both providers.
 
@@ -132,8 +137,8 @@ namespace or database in place until someone runs `--prune`, which the deploy
 scripts pass only when `OPENLAKEFORGE_CATALOG_PRUNE_NAMESPACES` is set.
 
 `olf catalog sync-namespaces` needs cluster access for Polaris (port-forward)
-and AWS credentials for Glue. It exits successfully without doing anything for
-any other catalog provider.
+and AWS credentials for Glue. It fails explicitly for an unsupported catalog
+provider instead of silently skipping reconciliation.
 
 The Glue migration has not been exercised against a real AWS account from this
 change alone — `terraform plan` on `aws-poc` should be run and confirmed to

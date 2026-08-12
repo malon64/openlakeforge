@@ -100,7 +100,7 @@ def inventory_terraform_external() -> None:
 def _reconcile_and_report(
     label: str,
     client: Any,
-    existing: dict[str, str],
+    existing: dict,
     desired: tuple,
     *,
     dry_run: bool,
@@ -118,8 +118,8 @@ def _reconcile_and_report(
         return
     catalog_module.apply_namespace_sync(client, plan)
     typer.echo(
-        f"Synced {label} namespaces: {len(plan.create)} created, "
-        f"{len(plan.update)} relocated, {len(plan.delete)} dropped."
+        f"Synced {label} namespaces: {len(plan.create)} created, {len(plan.adopt)} adopted, "
+        f"{len(plan.update)} updated, {len(plan.delete)} metadata-removed."
     )
 
 
@@ -170,6 +170,7 @@ def _sync_glue_namespaces(*, desired: tuple, dry_run: bool, prune: bool) -> None
         glue_module.GlueConfig(
             catalog_id=config.env("OPENLAKEFORGE_CATALOG_GLUE_CATALOG_ID"),
             region=config.env("OPENLAKEFORGE_CATALOG_GLUE_REGION"),
+            catalog_name=config.env("OPENLAKEFORGE_CATALOG_NAME", "lakehouse_dev"),
         )
     )
     try:
@@ -181,10 +182,10 @@ def _sync_glue_namespaces(*, desired: tuple, dry_run: bool, prune: bool) -> None
 @catalog_app.command("sync-namespaces")
 def catalog_sync_namespaces(
     dry_run: bool = typer.Option(False, "--dry-run", help="Print the plan without changing the catalog."),
-    prune: bool = typer.Option(
-        False,
-        "--prune",
-        help="Also drop namespaces no descriptor declares. Destructive; namespaces holding tables are refused.",
+    prune: bool | None = typer.Option(
+        None,
+        "--prune/--no-prune",
+        help="Remove managed metadata for undeclared products; object-store files are retained.",
     ),
 ) -> None:
     """Reconcile catalog namespaces (Polaris) or databases (Glue) with the domain descriptors.
@@ -195,6 +196,8 @@ def catalog_sync_namespaces(
     from olf import catalog as catalog_module
 
     provider = config.env("OPENLAKEFORGE_CATALOG_PROVIDER", "polaris")
+    if prune is None:
+        prune = _truthy(config.env("OPENLAKEFORGE_CATALOG_PRUNE_NAMESPACES", "false"))
     desired = catalog_module.desired_namespaces(
         _repo_root(),
         silver_bucket=config.env("OPENLAKEFORGE_STORAGE_SILVER_BUCKET", "lakehouse-silver"),
@@ -208,7 +211,7 @@ def catalog_sync_namespaces(
         log_step(f"Reconciling {len(desired)} Glue database(s) from the domain descriptors...")
         _sync_glue_namespaces(desired=desired, dry_run=dry_run, prune=prune)
     else:
-        typer.echo(f"Catalog provider {provider!r} has no namespace reconciliation backend; nothing to do.")
+        raise typer.Exit(code=_fail(f"Catalog provider {provider!r} has no namespace reconciliation backend."))
 
 
 @floe_app.command("render-profile")

@@ -28,7 +28,7 @@ from typing import Any
 
 from olf.inventory import inventory_for
 
-PROVIDER_CONTRACT_SCHEMA_VERSION = "1.0.0"
+PROVIDER_CONTRACT_SCHEMA_VERSION = "2.0.0"
 
 
 class ProviderContractError(ValueError):
