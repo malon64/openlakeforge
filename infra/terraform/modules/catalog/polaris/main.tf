@@ -60,16 +60,14 @@ resource "helm_release" "polaris" {
   values = [
     file(var.base_values_file),
     yamlencode({
-      polaris = {
-        persistence = {
-          type = "relational-jdbc"
-          relationalJdbc = {
-            secret = {
-              name     = var.postgresql_contract.polaris_credentials_secret_name
-              username = "username"
-              password = "password"
-              jdbcUrl  = "jdbcUrl"
-            }
+      persistence = {
+        type = "relational-jdbc"
+        relationalJdbc = {
+          secret = {
+            name     = var.postgresql_contract.polaris_credentials_secret_name
+            username = "username"
+            password = "password"
+            jdbcUrl  = "jdbcUrl"
           }
         }
       }
