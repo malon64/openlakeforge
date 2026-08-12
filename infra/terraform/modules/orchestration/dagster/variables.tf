@@ -214,12 +214,6 @@ variable "governance_contract" {
   })
 }
 
-variable "enable_daemon" {
-  description = "Whether to run Dagster's background scheduler and run-queue daemon."
-  type        = bool
-  default     = true
-}
-
 variable "service_account_annotations" {
   description = "Optional annotations for Dagster service accounts, used by AWS workload identity integrations."
   type        = map(string)

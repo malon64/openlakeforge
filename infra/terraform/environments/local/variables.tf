@@ -94,12 +94,6 @@ variable "enable_analytics" {
   default     = true
 }
 
-variable "enable_dagster_daemon" {
-  description = "Whether to deploy Dagster's background scheduler and run-queue daemon."
-  type        = bool
-  default     = true
-}
-
 variable "superset_image_repository" {
   description = "Superset image repository used by the local Superset Helm release."
   type        = string

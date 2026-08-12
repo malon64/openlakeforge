@@ -364,7 +364,6 @@ resource "helm_release" "dagster" {
       }
 
       dagsterDaemon = {
-        enabled = var.enable_daemon
         image = {
           repository = var.project_code_image_repository
           tag        = var.project_code_image_tag
