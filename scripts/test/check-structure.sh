@@ -29,6 +29,7 @@ required_paths=(
   "infra/README.md"
   "infra/terraform/README.md"
   "infra/terraform/environments/local/contracts.tf"
+  "infra/terraform/environments/local/slim.tfvars"
   "infra/terraform/environments/azure-poc/main.tf"
   "infra/terraform/environments/azure-poc/variables.tf"
   "infra/terraform/environments/azure-poc/outputs.tf"

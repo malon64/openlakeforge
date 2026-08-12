@@ -80,12 +80,8 @@ PROJECT_CODE_IMAGE_TAG="${PROJECT_CODE_IMAGE_TAG}" \
 echo "==> Publishing product Floe runtime artifacts to the AWS S3 ops bucket..."
 olf_run artifacts upload-manifests --via direct --runtime-root "${FLOE_RUNTIME_ARTIFACT_DIR}"
 
-echo "==> Deploying product Superset report assets..."
-olf_run superset deploy-reports
-
-echo "==> Deploying OpenMetadata governance metadata..."
 OPENMETADATA_ALLOW_MISSING_ASSETS="${OPENMETADATA_ALLOW_MISSING_ASSETS:-true}" \
-  olf_run openmetadata deploy-metadata
+  olf_run artifacts deploy-optional-layers
 
 echo "==> Pointing Dagster at project-code image ${PROJECT_CODE_IMAGE}..."
 olf_run k8s set-project-code-image --image "${PROJECT_CODE_IMAGE}"

@@ -8,11 +8,19 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 TERRAFORM_DIR="${REPO_ROOT}/infra/terraform/environments/local"
 FOUNDATION_TERRAFORM_DIR="${REPO_ROOT}/infra/terraform/foundations/local-kind"
 FOUNDATION_STATE_PATH="${FOUNDATION_STATE_PATH:-${FOUNDATION_TERRAFORM_DIR}/terraform.tfstate}"
+LOCAL_TFVARS_FILE="${LOCAL_TFVARS_FILE:-}"
 NAMESPACE="${NAMESPACE:-lakehouse}"
 CLUSTER_NAME="${CLUSTER_NAME:-openlakeforge-local}"
 KUBE_CONTEXT="${KUBE_CONTEXT:-kind-${CLUSTER_NAME}}"
 KUBECONFIG_PATH="${KUBECONFIG_PATH:-${REPO_ROOT}/.tmp/kubeconfigs/local.yaml}"
 export KUBECONFIG="${KUBECONFIG_PATH}"
+TFVARS_ARGS=()
+if [[ -n "${LOCAL_TFVARS_FILE}" ]]; then
+  if [[ "${LOCAL_TFVARS_FILE}" != /* ]]; then
+    LOCAL_TFVARS_FILE="${REPO_ROOT}/${LOCAL_TFVARS_FILE}"
+  fi
+  TFVARS_ARGS+=("-var-file=${LOCAL_TFVARS_FILE}")
+fi
 
 check_prereqs() {
   local missing=0
@@ -47,6 +55,7 @@ echo "==> Destroying Terraform local stack..."
 terraform -chdir="${TERRAFORM_DIR}" init
 terraform -chdir="${TERRAFORM_DIR}" destroy \
   -auto-approve \
+  ${TFVARS_ARGS[@]+"${TFVARS_ARGS[@]}"} \
   -var="namespace=${NAMESPACE}" \
   -var="kube_context=${KUBE_CONTEXT}" \
   -var="kubeconfig_path=${KUBECONFIG_PATH}" \

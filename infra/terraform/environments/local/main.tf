@@ -91,7 +91,9 @@ resource "kubernetes_namespace_v1" "lakehouse" {
 module "postgresql" {
   source = "../../modules/storage/postgresql"
 
-  namespace = kubernetes_namespace_v1.lakehouse.metadata[0].name
+  namespace           = kubernetes_namespace_v1.lakehouse.metadata[0].name
+  enable_openmetadata = var.enable_governance
+  enable_superset     = var.enable_analytics
 }
 
 module "seaweedfs" {
@@ -144,6 +146,7 @@ module "trino" {
 
 module "openmetadata" {
   source = "../../modules/governance/openmetadata"
+  count  = var.enable_governance ? 1 : 0
 
   namespace            = kubernetes_namespace_v1.lakehouse.metadata[0].name
   base_values_file     = "${path.root}/../../../helm/values/local/openmetadata.yaml"
@@ -162,6 +165,7 @@ module "openmetadata" {
 
 module "superset" {
   source = "../../modules/analytics/superset"
+  count  = var.enable_analytics ? 1 : 0
 
   namespace           = kubernetes_namespace_v1.lakehouse.metadata[0].name
   base_values_file    = "${path.root}/../../../helm/values/local/superset.yaml"
@@ -173,6 +177,16 @@ module "superset" {
     module.postgresql,
     module.trino,
   ]
+}
+
+moved {
+  from = module.openmetadata
+  to   = module.openmetadata[0]
+}
+
+moved {
+  from = module.superset
+  to   = module.superset[0]
 }
 
 module "dagster" {

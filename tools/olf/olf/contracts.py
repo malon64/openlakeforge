@@ -222,17 +222,29 @@ def _apply_default_contract_env(env: _Env, base: Mapping[str, str], repo_root: P
     env.default("POLARIS_OAUTH_SCOPE", env.get("OPENLAKEFORGE_CATALOG_OAUTH_SCOPE"))
     env.default("OPENLAKEFORGE_DBT_TRINO_USER", "openlakeforge-dbt")
     env.default("OPENLAKEFORGE_DBT_EXECUTABLE", "dbt-ol")
-    env.default("OPENLINEAGE_URL", "http://openmetadata:8585")
-    env.default("OPENLINEAGE_ENDPOINT", "api/v1/openlineage/lineage")
-    env.default("OPENLINEAGE_NAMESPACE", "dagster")
-    env.default(
-        "OPENLAKEFORGE_GOVERNANCE_INGESTION_BOT_SECRET_NAME",
-        "openmetadata-ingestion-bot",
-    )
-    env.default(
-        "OPENLAKEFORGE_GOVERNANCE_INGESTION_BOT_JWT_KEY",
-        "OPENMETADATA_INGESTION_BOT_JWT",
-    )
+    env.default("OPENLAKEFORGE_GOVERNANCE_ENABLED", "true")
+    env.default("OPENLAKEFORGE_ANALYTICS_ENABLED", "true")
+    if env.get("OPENLAKEFORGE_GOVERNANCE_ENABLED") == "true":
+        env.default("OPENLINEAGE_URL", "http://openmetadata:8585")
+        env.default("OPENLINEAGE_ENDPOINT", "api/v1/openlineage/lineage")
+        env.default("OPENLINEAGE_NAMESPACE", "dagster")
+        env.default(
+            "OPENLAKEFORGE_GOVERNANCE_INGESTION_BOT_SECRET_NAME",
+            "openmetadata-ingestion-bot",
+        )
+        env.default(
+            "OPENLAKEFORGE_GOVERNANCE_INGESTION_BOT_JWT_KEY",
+            "OPENMETADATA_INGESTION_BOT_JWT",
+        )
+    else:
+        for name in (
+            "OPENLINEAGE_URL",
+            "OPENLINEAGE_ENDPOINT",
+            "OPENLINEAGE_NAMESPACE",
+            "OPENLAKEFORGE_GOVERNANCE_INGESTION_BOT_SECRET_NAME",
+            "OPENLAKEFORGE_GOVERNANCE_INGESTION_BOT_JWT_KEY",
+        ):
+            env.unset(name)
 
 
 def _apply_provider_contracts(env: _Env, contracts: dict[str, Any]) -> None:
@@ -242,6 +254,7 @@ def _apply_provider_contracts(env: _Env, contracts: dict[str, Any]) -> None:
     platform = contracts.get("kubernetes_platform", contracts.get("cluster")) or {}
     query = contracts.get("query") or {}
     governance = contracts.get("governance") or {}
+    reporting = contracts.get("reporting") or {}
     is_glue_catalog = catalog.get("catalog_type") == "glue" and catalog.get("catalog_provider") == "aws-glue"
     catalog_warehouse = (
         catalog.get("catalog_name") if is_glue_catalog else (catalog.get("warehouse") or catalog.get("catalog_name"))
@@ -332,15 +345,28 @@ def _apply_provider_contracts(env: _Env, contracts: dict[str, Any]) -> None:
     )
     emit("OPENLAKEFORGE_KUBE_NAMESPACE", platform.get("namespace"))
     emit("OPENLAKEFORGE_QUERY_TRINO_CATALOG", query.get("catalog_name"))
-    emit("OPENLINEAGE_URL", governance.get("endpoint"))
-    emit(
-        "OPENLAKEFORGE_GOVERNANCE_INGESTION_BOT_SECRET_NAME",
-        governance.get("ingestion_bot_secret_name"),
-    )
-    emit(
-        "OPENLAKEFORGE_GOVERNANCE_INGESTION_BOT_JWT_KEY",
-        governance.get("ingestion_bot_jwt_key"),
-    )
+    governance_enabled = governance.get("enabled", True)
+    emit("OPENLAKEFORGE_GOVERNANCE_ENABLED", governance_enabled)
+    emit("OPENLAKEFORGE_ANALYTICS_ENABLED", reporting.get("enabled", True))
+    if governance_enabled:
+        emit("OPENLINEAGE_URL", governance.get("endpoint"))
+        emit(
+            "OPENLAKEFORGE_GOVERNANCE_INGESTION_BOT_SECRET_NAME",
+            governance.get("ingestion_bot_secret_name"),
+        )
+        emit(
+            "OPENLAKEFORGE_GOVERNANCE_INGESTION_BOT_JWT_KEY",
+            governance.get("ingestion_bot_jwt_key"),
+        )
+    else:
+        for name in (
+            "OPENLINEAGE_URL",
+            "OPENLINEAGE_ENDPOINT",
+            "OPENLINEAGE_NAMESPACE",
+            "OPENLAKEFORGE_GOVERNANCE_INGESTION_BOT_SECRET_NAME",
+            "OPENLAKEFORGE_GOVERNANCE_INGESTION_BOT_JWT_KEY",
+        ):
+            env.unset(name)
     endpoint = query.get("endpoint")
     if endpoint and endpoint.startswith("http://"):
         host_port = endpoint.removeprefix("http://").split("/", 1)[0]

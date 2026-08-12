@@ -62,3 +62,11 @@ def test_aws_glue_profile_requires_glue_database() -> None:
     del env["OPENLAKEFORGE_CATALOG_GLUE_DATABASE"]
     with pytest.raises(SystemExit):
         render_profile(env)
+
+
+def test_profile_omits_openlineage_when_governance_is_disabled() -> None:
+    profile = render_profile({"OPENLAKEFORGE_GOVERNANCE_ENABLED": "false"})
+
+    assert "lineage:" not in profile
+    assert "OPENLINEAGE_API_KEY" not in profile
+    assert "openmetadata-ingestion-bot" not in profile

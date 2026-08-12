@@ -6,6 +6,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 CLUSTER_NAME="${CLUSTER_NAME:-openlakeforge-local}"
+ENABLE_GOVERNANCE="${ENABLE_GOVERNANCE:-true}"
+ENABLE_ANALYTICS="${ENABLE_ANALYTICS:-true}"
 DOCKER_PULL_ATTEMPTS="${LOCAL_PREFETCH_PULL_ATTEMPTS:-${DOCKER_PULL_ATTEMPTS:-5}}"
 DOCKER_PULL_RETRY_DELAY_SECONDS="${LOCAL_PREFETCH_PULL_RETRY_DELAY_SECONDS:-${DOCKER_PULL_RETRY_DELAY_SECONDS:-20}}"
 
@@ -25,17 +27,28 @@ case "${DOCKER_SERVER_ARCH}" in
     ;;
 esac
 
-IMAGES=(
-  "opensearchproject/opensearch:2.11.0"
-  "${POLARIS_IMAGE}"
-  "docker.getcollate.io/openmetadata/server:1.12.10"
-  "docker.getcollate.io/openmetadata/ingestion-base:1.12.10"
-  "postgres:16-alpine@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777"
-  "apache/superset:dockerize"
-  "apache/superset:6.1.0@sha256:fb3464528ec7076f91195f0ff7835755aa023e281f1bb78a84782ce7a36b3705"
-  "docker.io/bitnamilegacy/redis:7.0.10-debian-11-r4"
-  "ghcr.io/malon64/floe:0.6.11"
-)
+IMAGES=()
+if [[ "${ENABLE_GOVERNANCE}" == "true" ]]; then
+  IMAGES+=(
+    "opensearchproject/opensearch:2.11.0"
+  )
+fi
+IMAGES+=("${POLARIS_IMAGE}")
+if [[ "${ENABLE_GOVERNANCE}" == "true" ]]; then
+  IMAGES+=(
+    "docker.getcollate.io/openmetadata/server:1.12.10"
+    "docker.getcollate.io/openmetadata/ingestion-base:1.12.10"
+  )
+fi
+IMAGES+=("postgres:16-alpine@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777")
+if [[ "${ENABLE_ANALYTICS}" == "true" ]]; then
+  IMAGES+=(
+    "apache/superset:dockerize"
+    "apache/superset:6.1.0@sha256:fb3464528ec7076f91195f0ff7835755aa023e281f1bb78a84782ce7a36b3705"
+    "docker.io/bitnamilegacy/redis:7.0.10-debian-11-r4"
+  )
+fi
+IMAGES+=("ghcr.io/malon64/floe:0.6.11")
 
 WORK_DIR="$(mktemp -d)"
 trap 'rm -rf "${WORK_DIR}"' EXIT
