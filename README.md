@@ -262,6 +262,46 @@ make local-up
 Use `make local-platform-up` or `make local-artifacts-deploy` directly when you
 only need to refresh one phase.
 
+### Choose a Local Profile
+
+The default full profile keeps the complete evaluation experience: governance
+in OpenMetadata and dashboards in Superset. The slim profile retains the same
+ingestion-to-Gold data path, but omits both optional layers. It is intended for
+teams that want to evaluate a Gold table and query it before adding catalog and
+dashboard services.
+
+| Profile | Command | Enabled layers | Steady-state pods | Requested memory |
+| --- | --- | --- | ---: | ---: |
+| Full (default) | `make local-up` | OpenMetadata and Superset | 15 | 8,320Mi (8.13Gi) |
+| Slim | `make local-slim-up` | Neither | 9 | 4,096Mi (4.00Gi) |
+
+The figures above are steady-state Kubernetes **container memory requests**,
+not host RAM or transient bootstrap Jobs. The full value was measured from a
+running local cluster; the slim value is the sum of the rendered slim pod
+requests. Both were recorded on 2026-08-12. The full profile still benefits
+from the 6 CPU / 12Gi Colima allocation shown above because kind, Kubernetes,
+images, and workload limits add host overhead.
+
+The slim profile is defined by
+[`infra/terraform/environments/local/slim.tfvars`](infra/terraform/environments/local/slim.tfvars).
+It sets `enable_governance = false` and `enable_analytics = false`; both
+variables default to `true` in every environment, so `make local-up` is
+unchanged. It also disables the otherwise idle Dagster background daemon. The
+profile has no schedules or sensors, and its E2E suite launches product runs
+directly through Dagster. Its wrapper skips Superset image prefetch/build and
+its dynamic Superset/OpenMetadata artifact imports while preserving the
+foundation, platform, and artifact phases.
+
+Validate the slim profile with:
+
+```sh
+make local-slim-e2e
+```
+
+It launches every product pipeline and checks Silver, Gold, Trino, and
+ops-bucket artifacts. It reports the Superset and OpenMetadata assertions as
+skipped. Tear it down with `make local-slim-down`.
+
 Check the cluster at any point with:
 
 ```sh

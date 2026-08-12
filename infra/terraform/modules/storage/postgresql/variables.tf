@@ -39,6 +39,18 @@ variable "dagster_credentials_secret_name" {
   default     = "postgresql-dagster-creds"
 }
 
+variable "enable_openmetadata" {
+  description = "Whether to create the OpenMetadata PostgreSQL database credentials."
+  type        = bool
+  default     = true
+}
+
+variable "enable_superset" {
+  description = "Whether to create the Superset PostgreSQL database credentials."
+  type        = bool
+  default     = true
+}
+
 variable "openmetadata_db_name" {
   description = "PostgreSQL database name for OpenMetadata."
   type        = string

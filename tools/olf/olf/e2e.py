@@ -28,6 +28,7 @@ from olf.inventory import DomainInventory, inventory_for
 
 Environment = Literal["local", "azure", "aws"]
 Suite = Literal["full", "smoke"]
+Layer = Literal["governance", "analytics"]
 
 # The one artifact prefix that is genuinely platform-level, not per-product:
 # Dagster's own compute-log archive path. Per-product prefixes (Floe reports,
@@ -63,6 +64,15 @@ class DagsterTransientError(E2EError):
 
 class DagsterHTTPError(E2EError):
     """A non-transient Dagster HTTP response (normally a client error)."""
+
+
+@dataclass(frozen=True)
+class FullAssertion:
+    """One full-suite assertion and the optional platform layer it needs."""
+
+    label: str
+    check: Callable[[E2EConfig], None]
+    layer: Layer | None = None
 
 
 def workload_health_class(item: Mapping[str, Any], suite_jobs: tuple[str, ...]) -> str:
@@ -326,13 +336,50 @@ def run_smoke(cfg: E2EConfig) -> None:
 
 
 def run_full(cfg: E2EConfig) -> None:
-    launch_and_poll_dagster_jobs(cfg)
-    check_trino_tables_and_marts(cfg)
+    enabled_layers = configured_layers(cfg)
+    skipped: list[str] = []
+    for assertion in full_assertions(cfg):
+        if assertion.layer is not None and not enabled_layers[assertion.layer]:
+            skipped.append(assertion.label)
+            log.info(f"Skipping {assertion.label}: {assertion.layer} layer is disabled.")
+            continue
+        assertion.check(cfg)
+    if skipped:
+        log.info("Skipped e2e assertions: " + ", ".join(skipped))
+
+
+def full_assertions(cfg: E2EConfig) -> tuple[FullAssertion, ...]:
+    """Return the full-suite assertion inventory for the deployed profile."""
+    assertions = [
+        FullAssertion("Dagster product pipelines", launch_and_poll_dagster_jobs),
+        FullAssertion("Silver and Gold tables", check_trino_tables_and_marts),
+    ]
     if cfg.env == "local":
-        check_polaris_restart_recovery(cfg)
-    check_superset_dashboards(cfg)
-    check_openmetadata_assets(cfg)
-    check_ops_artifacts(cfg)
+        assertions.append(FullAssertion("Polaris restart recovery", check_polaris_restart_recovery))
+    assertions.extend(
+        [
+            FullAssertion("Superset dashboards", check_superset_dashboards, layer="analytics"),
+            FullAssertion("OpenMetadata governance assets", check_openmetadata_assets, layer="governance"),
+            FullAssertion("ops bucket artifacts", check_ops_artifacts),
+        ]
+    )
+    return tuple(assertions)
+
+
+def configured_layers(cfg: E2EConfig) -> dict[Layer, bool]:
+    """Read enabled platform layers once from the environment contract."""
+    provider_contracts = load_provider_contracts_or_raise(cfg)
+    layers = {
+        "governance": provider_contracts.get("governance") or {},
+        "analytics": provider_contracts.get("reporting") or {},
+    }
+    enabled: dict[Layer, bool] = {}
+    for layer, contract in layers.items():
+        value = contract.get("enabled", True)
+        if not isinstance(value, bool):
+            raise E2EError(f"provider_contracts.{layer}.enabled must be a boolean.")
+        enabled[layer] = value
+    return enabled
 
 
 def check_pods_ready(cfg: E2EConfig) -> None:

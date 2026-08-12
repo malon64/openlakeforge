@@ -15,6 +15,8 @@ DEPLOYMENT_SCOPE="${DEPLOYMENT_SCOPE:-azure}"
 export HELM_CACHE_SCOPE="${HELM_CACHE_SCOPE:-${DEPLOYMENT_SCOPE}}"
 PROJECT_CODE_IMAGE_PULL_POLICY="${PROJECT_CODE_IMAGE_PULL_POLICY:-Always}"
 PROJECT_CODE_IMAGE_REVISION="${PROJECT_CODE_IMAGE_REVISION:-manual}"
+ENABLE_GOVERNANCE="${ENABLE_GOVERNANCE:-true}"
+ENABLE_ANALYTICS="${ENABLE_ANALYTICS:-true}"
 SUPERSET_IMAGE_PULL_POLICY="${SUPERSET_IMAGE_PULL_POLICY:-Always}"
 TRINO_CHART_REPOSITORY="${TRINO_CHART_REPOSITORY:-https://trinodb.github.io/charts}"
 TRINO_CHART_VERSION="${TRINO_CHART_VERSION:-1.42.2}"
@@ -98,6 +100,8 @@ terraform_apply_once() {
     -var="project_code_image_tag=${PROJECT_CODE_IMAGE_TAG}" \
     -var="project_code_image_pull_policy=${PROJECT_CODE_IMAGE_PULL_POLICY}" \
     -var="project_code_image_revision=${PROJECT_CODE_IMAGE_REVISION}" \
+    -var="enable_governance=${ENABLE_GOVERNANCE}" \
+    -var="enable_analytics=${ENABLE_ANALYTICS}" \
     -var="superset_image_repository=${SUPERSET_IMAGE_REPOSITORY}" \
     -var="superset_image_tag=${SUPERSET_IMAGE_TAG}" \
     -var="superset_image_pull_policy=${SUPERSET_IMAGE_PULL_POLICY}" \
@@ -109,7 +113,11 @@ echo "==> Checking Azure platform prerequisites..."
 check_prereqs az docker helm kubectl terraform uv base64
 prepare_aks_context
 prepare_image_variables
-prepare_superset_image
+if [[ "${ENABLE_ANALYTICS}" == "true" ]]; then
+  prepare_superset_image
+else
+  echo "==> Skipping Superset image build: analytics layer is disabled."
+fi
 prepare_helm_cache_dirs
 prepare_cached_chart "Trino" trino "${TRINO_CHART_REPOSITORY}" trino/trino \
   "${TRINO_CHART_VERSION}" "${TRINO_CHART_PACKAGE_PATH}"
@@ -127,6 +135,8 @@ terraform_import_namespace_args=(
   -var="project_code_image_tag=${PROJECT_CODE_IMAGE_TAG}"
   -var="project_code_image_pull_policy=${PROJECT_CODE_IMAGE_PULL_POLICY}"
   -var="project_code_image_revision=${PROJECT_CODE_IMAGE_REVISION}"
+  -var="enable_governance=${ENABLE_GOVERNANCE}"
+  -var="enable_analytics=${ENABLE_ANALYTICS}"
   -var="superset_image_repository=${SUPERSET_IMAGE_REPOSITORY}"
   -var="superset_image_tag=${SUPERSET_IMAGE_TAG}"
   -var="superset_image_pull_policy=${SUPERSET_IMAGE_PULL_POLICY}"

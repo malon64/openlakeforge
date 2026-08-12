@@ -74,21 +74,7 @@ def render_profile(environ: Mapping[str, str]) -> str:
     catalog_secret = env("OPENLAKEFORGE_CATALOG_FLOE_CREDENTIALS_SECRET_NAME", "polaris-floe-creds")
     catalog_client_id_key = env("OPENLAKEFORGE_CATALOG_FLOE_CLIENT_ID_KEY", "POLARIS_FLOE_CLIENT_ID")
     catalog_client_secret_key = env("OPENLAKEFORGE_CATALOG_FLOE_CLIENT_SECRET_KEY", "POLARIS_FLOE_CLIENT_SECRET")
-    lineage_url = env("OPENLINEAGE_URL", "http://openmetadata:8585")
-    lineage_endpoint = env("OPENLINEAGE_ENDPOINT", "api/v1/openlineage/lineage")
-    lineage_namespace = env("OPENLINEAGE_NAMESPACE", "dagster")
-    lineage_dataset_namespace = env(
-        "OPENLAKEFORGE_FLOE_LINEAGE_DATASET_NAMESPACE",
-        "aws_glue" if is_aws_glue else "polaris",
-    )
-    lineage_secret = env(
-        "OPENLAKEFORGE_GOVERNANCE_INGESTION_BOT_SECRET_NAME",
-        "openmetadata-ingestion-bot",
-    )
-    lineage_secret_key = env(
-        "OPENLAKEFORGE_GOVERNANCE_INGESTION_BOT_JWT_KEY",
-        "OPENMETADATA_INGESTION_BOT_JWT",
-    )
+    governance_enabled = env("OPENLAKEFORGE_GOVERNANCE_ENABLED", "true") == "true"
 
     if storage_implementation.startswith("storage.") and "s3" in storage_implementation:
         catalog_warehouse_prefix = _absolute_s3_prefix(storage_silver_bucket, catalog_warehouse_prefix)
@@ -148,9 +134,34 @@ def render_profile(environ: Mapping[str, str]) -> str:
         key: {catalog_client_secret_key}
 """
 
-    lineage_secret_yaml = f"""      - name: OPENLINEAGE_API_KEY
+    lineage_secret_yaml = ""
+    lineage_block = ""
+    if governance_enabled:
+        lineage_url = env("OPENLINEAGE_URL", "http://openmetadata:8585")
+        lineage_endpoint = env("OPENLINEAGE_ENDPOINT", "api/v1/openlineage/lineage")
+        lineage_namespace = env("OPENLINEAGE_NAMESPACE", "dagster")
+        lineage_dataset_namespace = env(
+            "OPENLAKEFORGE_FLOE_LINEAGE_DATASET_NAMESPACE",
+            "aws_glue" if is_aws_glue else "polaris",
+        )
+        lineage_secret = env(
+            "OPENLAKEFORGE_GOVERNANCE_INGESTION_BOT_SECRET_NAME",
+            "openmetadata-ingestion-bot",
+        )
+        lineage_secret_key = env(
+            "OPENLAKEFORGE_GOVERNANCE_INGESTION_BOT_JWT_KEY",
+            "OPENMETADATA_INGESTION_BOT_JWT",
+        )
+        lineage_secret_yaml = f"""      - name: OPENLINEAGE_API_KEY
         secret_name: {lineage_secret}
         key: {lineage_secret_key}
+"""
+        lineage_block = f"""lineage:
+  url: {_yaml_string(lineage_url)}
+  endpoint: {_yaml_string(lineage_endpoint)}
+  namespace: {_yaml_string(lineage_namespace)}
+  dataset_namespace: {_yaml_string(lineage_dataset_namespace)}
+  timeout_secs: 5
 """
 
     secrets_entries = (storage_secret_yaml + catalog_secret_yaml + lineage_secret_yaml).rstrip("\n")
@@ -212,12 +223,6 @@ execution:
     env:
 {runner_env_yaml}
 {secrets_block}
-lineage:
-  url: {_yaml_string(lineage_url)}
-  endpoint: {_yaml_string(lineage_endpoint)}
-  namespace: {_yaml_string(lineage_namespace)}
-  dataset_namespace: {_yaml_string(lineage_dataset_namespace)}
-  timeout_secs: 5
-validation:
+{lineage_block}validation:
   strict: true
 """

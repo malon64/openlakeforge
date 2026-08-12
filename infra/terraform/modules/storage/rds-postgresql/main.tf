@@ -20,11 +20,15 @@ resource "random_password" "dagster" {
 }
 
 resource "random_password" "openmetadata" {
+  count = var.enable_openmetadata ? 1 : 0
+
   length  = 32
   special = false
 }
 
 resource "random_password" "superset" {
+  count = var.enable_superset ? 1 : 0
+
   length  = 32
   special = false
 }
@@ -101,6 +105,8 @@ resource "kubernetes_secret_v1" "dagster" {
 }
 
 resource "kubernetes_secret_v1" "openmetadata" {
+  count = var.enable_openmetadata ? 1 : 0
+
   metadata {
     name      = var.openmetadata_credentials_secret_name
     namespace = var.namespace
@@ -108,11 +114,13 @@ resource "kubernetes_secret_v1" "openmetadata" {
   }
 
   data = {
-    postgresql-password = random_password.openmetadata.result
+    postgresql-password = random_password.openmetadata[0].result
   }
 }
 
 resource "kubernetes_secret_v1" "superset" {
+  count = var.enable_superset ? 1 : 0
+
   metadata {
     name      = var.superset_credentials_secret_name
     namespace = var.namespace
@@ -120,7 +128,7 @@ resource "kubernetes_secret_v1" "superset" {
   }
 
   data = {
-    postgresql-password = random_password.superset.result
+    postgresql-password = random_password.superset[0].result
   }
 }
 
@@ -196,8 +204,8 @@ resource "kubernetes_job_v1" "bootstrap" {
             }
 
             create_role_and_db "${var.dagster_db_name}" "${var.dagster_db_user}" "$DAGSTER_PASSWORD"
-            create_role_and_db "${var.openmetadata_db_name}" "${var.openmetadata_db_user}" "$OPENMETADATA_PASSWORD"
-            create_role_and_db "${var.superset_db_name}" "${var.superset_db_user}" "$SUPERSET_PASSWORD"
+            ${var.enable_openmetadata ? "create_role_and_db \"${var.openmetadata_db_name}\" \"${var.openmetadata_db_user}\" \"$OPENMETADATA_PASSWORD\"" : ""}
+            ${var.enable_superset ? "create_role_and_db \"${var.superset_db_name}\" \"${var.superset_db_user}\" \"$SUPERSET_PASSWORD\"" : ""}
           SCRIPT
           ]
 
@@ -236,22 +244,28 @@ resource "kubernetes_job_v1" "bootstrap" {
             }
           }
 
-          env {
-            name = "OPENMETADATA_PASSWORD"
-            value_from {
-              secret_key_ref {
-                name = kubernetes_secret_v1.openmetadata.metadata[0].name
-                key  = "postgresql-password"
+          dynamic "env" {
+            for_each = var.enable_openmetadata ? [true] : []
+            content {
+              name = "OPENMETADATA_PASSWORD"
+              value_from {
+                secret_key_ref {
+                  name = kubernetes_secret_v1.openmetadata[0].metadata[0].name
+                  key  = "postgresql-password"
+                }
               }
             }
           }
 
-          env {
-            name = "SUPERSET_PASSWORD"
-            value_from {
-              secret_key_ref {
-                name = kubernetes_secret_v1.superset.metadata[0].name
-                key  = "postgresql-password"
+          dynamic "env" {
+            for_each = var.enable_superset ? [true] : []
+            content {
+              name = "SUPERSET_PASSWORD"
+              value_from {
+                secret_key_ref {
+                  name = kubernetes_secret_v1.superset[0].metadata[0].name
+                  key  = "postgresql-password"
+                }
               }
             }
           }
@@ -270,4 +284,24 @@ resource "kubernetes_job_v1" "bootstrap" {
   depends_on = [
     aws_db_instance.this,
   ]
+}
+
+moved {
+  from = random_password.openmetadata
+  to   = random_password.openmetadata[0]
+}
+
+moved {
+  from = random_password.superset
+  to   = random_password.superset[0]
+}
+
+moved {
+  from = kubernetes_secret_v1.openmetadata
+  to   = kubernetes_secret_v1.openmetadata[0]
+}
+
+moved {
+  from = kubernetes_secret_v1.superset
+  to   = kubernetes_secret_v1.superset[0]
 }

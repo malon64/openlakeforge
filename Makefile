@@ -1,12 +1,15 @@
-.PHONY: help tree check-structure check-components check-contracts check-infra check-project-code check-dbt check-lockfiles release-check release-bundle floe-manifest floe-manifest-upload dbt-parse project-code-image project-code-load superset-image superset-load superset-reports-deploy superset-reports-export openmetadata-metadata-deploy local-foundation-up local-foundation-down local-platform-up local-platform-down local-artifacts-deploy local-up local-down local-status local-forward local-prefetch local-e2e azure-foundation-up azure-platform-up azure-platform-down azure-artifacts-deploy azure-up azure-forward azure-e2e azure-down azure-foundation-down aws-foundation-up aws-platform-up aws-platform-down aws-artifacts-deploy aws-up aws-forward aws-e2e aws-down aws-foundation-down
+.PHONY: help tree check-structure check-components check-contracts check-infra check-project-code check-dbt check-lockfiles release-check release-bundle floe-manifest floe-manifest-upload dbt-parse project-code-image project-code-load superset-image superset-load superset-reports-deploy superset-reports-export openmetadata-metadata-deploy local-foundation-up local-foundation-down local-platform-up local-platform-down local-artifacts-deploy local-up local-down local-status local-forward local-prefetch local-e2e local-slim-platform-up local-slim-artifacts-deploy local-slim-up local-slim-e2e local-slim-down azure-foundation-up azure-platform-up azure-platform-down azure-artifacts-deploy azure-up azure-forward azure-e2e azure-down azure-foundation-down aws-foundation-up aws-platform-up aws-platform-down aws-artifacts-deploy aws-up aws-forward aws-e2e aws-down aws-foundation-down
 
 NAMESPACE ?= lakehouse
 CLUSTER_NAME ?= openlakeforge-local
 KUBE_CONTEXT ?= kind-$(CLUSTER_NAME)
 LOCAL_KUBECONFIG_PATH ?= $(CURDIR)/.tmp/kubeconfigs/local.yaml
+LOCAL_TFVARS_FILE ?=
 PROJECT_CODE_IMAGE_REPOSITORY ?= ghcr.io/openlakeforge/project-code
 PROJECT_CODE_IMAGE_TAG ?= local
 PROJECT_CODE_IMAGE_PULL_POLICY ?= Never
+ENABLE_GOVERNANCE ?= true
+ENABLE_ANALYTICS ?= true
 SUPERSET_IMAGE_REPOSITORY ?= ghcr.io/openlakeforge/superset
 SUPERSET_IMAGE_TAG ?= local
 SUPERSET_IMAGE_PULL_POLICY ?= Never
@@ -67,6 +70,8 @@ help:
 	@printf '%s\n' '  make local-platform-down  Terraform-destroy local lakehouse platform services'
 	@printf '%s\n' '  make local-artifacts-deploy  Deploy dynamic local/CD artifacts'
 	@printf '%s\n' '  make local-up         Full wrapper: foundation, prefetch, platform, artifacts'
+	@printf '%s\n' '  make local-slim-up    Slim wrapper: full data path without OpenMetadata or Superset'
+	@printf '%s\n' '  make local-slim-e2e   Validate the slim profile (reports disabled assertions)'
 	@printf '%s\n' '  make local-down       Full teardown wrapper: platform, foundation'
 	@printf '%s\n' '  make local-status     Show pod and service status in the configured namespace'
 	@printf '%s\n' '  make local-forward    Port-forward all services to localhost (Dagster :3000, Superset :8088, OpenMetadata :8585, Trino :8080, Polaris :8181, S3 :9000, SeaweedFS Filer :8888, Master :9333)'
@@ -161,7 +166,7 @@ local-foundation-down:
 	@NAMESPACE=$(NAMESPACE) CLUSTER_NAME=$(CLUSTER_NAME) KUBE_CONTEXT=$(KUBE_CONTEXT) KUBECONFIG_PATH="$(LOCAL_KUBECONFIG_PATH)" bash scripts/local/foundation/down.sh
 
 local-platform-up:
-	@NAMESPACE=$(NAMESPACE) CLUSTER_NAME=$(CLUSTER_NAME) KUBE_CONTEXT=$(KUBE_CONTEXT) KUBECONFIG_PATH="$(LOCAL_KUBECONFIG_PATH)" DEPLOYMENT_SCOPE=local PROJECT_CODE_IMAGE_REPOSITORY=$(PROJECT_CODE_IMAGE_REPOSITORY) PROJECT_CODE_IMAGE_TAG=$(PROJECT_CODE_IMAGE_TAG) PROJECT_CODE_IMAGE_PULL_POLICY=$(PROJECT_CODE_IMAGE_PULL_POLICY) SUPERSET_IMAGE_REPOSITORY=$(SUPERSET_IMAGE_REPOSITORY) SUPERSET_IMAGE_TAG=$(SUPERSET_IMAGE_TAG) SUPERSET_IMAGE_PULL_POLICY=$(SUPERSET_IMAGE_PULL_POLICY) bash scripts/local/stack/platform-up.sh
+	@NAMESPACE=$(NAMESPACE) CLUSTER_NAME=$(CLUSTER_NAME) KUBE_CONTEXT=$(KUBE_CONTEXT) KUBECONFIG_PATH="$(LOCAL_KUBECONFIG_PATH)" LOCAL_TFVARS_FILE="$(LOCAL_TFVARS_FILE)" DEPLOYMENT_SCOPE=local PROJECT_CODE_IMAGE_REPOSITORY=$(PROJECT_CODE_IMAGE_REPOSITORY) PROJECT_CODE_IMAGE_TAG=$(PROJECT_CODE_IMAGE_TAG) PROJECT_CODE_IMAGE_PULL_POLICY=$(PROJECT_CODE_IMAGE_PULL_POLICY) ENABLE_GOVERNANCE=$(ENABLE_GOVERNANCE) ENABLE_ANALYTICS=$(ENABLE_ANALYTICS) SUPERSET_IMAGE_REPOSITORY=$(SUPERSET_IMAGE_REPOSITORY) SUPERSET_IMAGE_TAG=$(SUPERSET_IMAGE_TAG) SUPERSET_IMAGE_PULL_POLICY=$(SUPERSET_IMAGE_PULL_POLICY) bash scripts/local/stack/platform-up.sh
 
 local-artifacts-deploy:
 	@NAMESPACE=$(NAMESPACE) CLUSTER_NAME=$(CLUSTER_NAME) KUBE_CONTEXT=$(KUBE_CONTEXT) KUBECONFIG_PATH="$(LOCAL_KUBECONFIG_PATH)" DEPLOYMENT_SCOPE=local PROJECT_CODE_IMAGE_REPOSITORY=$(PROJECT_CODE_IMAGE_REPOSITORY) PROJECT_CODE_IMAGE_TAG=$(PROJECT_CODE_IMAGE_TAG) bash scripts/local/stack/deploy-artifacts.sh
@@ -172,12 +177,30 @@ local-up:
 	@$(MAKE) local-platform-up
 	@$(MAKE) local-artifacts-deploy
 
+local-slim-platform-up:
+	@$(MAKE) local-platform-up LOCAL_TFVARS_FILE=infra/terraform/environments/local/slim.tfvars ENABLE_GOVERNANCE=false ENABLE_ANALYTICS=false
+
+local-slim-artifacts-deploy:
+	@$(MAKE) local-artifacts-deploy ENABLE_GOVERNANCE=false ENABLE_ANALYTICS=false
+
+local-slim-up:
+	@$(MAKE) local-foundation-up
+	@$(MAKE) local-prefetch ENABLE_GOVERNANCE=false ENABLE_ANALYTICS=false
+	@$(MAKE) local-slim-platform-up
+	@$(MAKE) local-slim-artifacts-deploy
+
+local-slim-e2e:
+	@$(MAKE) local-e2e ENABLE_GOVERNANCE=false ENABLE_ANALYTICS=false
+
+local-slim-down:
+	@$(MAKE) local-down LOCAL_TFVARS_FILE=infra/terraform/environments/local/slim.tfvars
+
 local-down:
 	@$(MAKE) local-platform-down
 	@$(MAKE) local-foundation-down
 
 local-platform-down:
-	@NAMESPACE=$(NAMESPACE) CLUSTER_NAME=$(CLUSTER_NAME) KUBE_CONTEXT=$(KUBE_CONTEXT) KUBECONFIG_PATH="$(LOCAL_KUBECONFIG_PATH)" bash scripts/local/stack/teardown.sh
+	@NAMESPACE=$(NAMESPACE) CLUSTER_NAME=$(CLUSTER_NAME) KUBE_CONTEXT=$(KUBE_CONTEXT) KUBECONFIG_PATH="$(LOCAL_KUBECONFIG_PATH)" LOCAL_TFVARS_FILE="$(LOCAL_TFVARS_FILE)" bash scripts/local/stack/teardown.sh
 
 local-status:
 	@echo "=== Pods ===" && KUBECONFIG="$(LOCAL_KUBECONFIG_PATH)" kubectl --context $(KUBE_CONTEXT) get pods -n $(NAMESPACE)
@@ -186,7 +209,7 @@ local-status:
 
 local-prefetch:
 	@echo "Pre-pulling heavy images into kind to avoid Helm timeouts..."
-	@CLUSTER_NAME=$(CLUSTER_NAME) bash scripts/local/cluster/prefetch-images.sh
+	@CLUSTER_NAME=$(CLUSTER_NAME) ENABLE_GOVERNANCE=$(ENABLE_GOVERNANCE) ENABLE_ANALYTICS=$(ENABLE_ANALYTICS) bash scripts/local/cluster/prefetch-images.sh
 
 local-forward:
 	@echo "Starting port-forwards (Ctrl-C to stop all)..."
@@ -227,7 +250,7 @@ azure-foundation-up:
 	@AZURE_TFVARS_FILE="$(AZURE_TFVARS_FILE)" AZURE_CLUSTER_NAME=$(AZURE_CLUSTER_NAME) AZURE_NODE_COUNT=$(AZURE_NODE_COUNT) AZURE_ACR_NAME_PREFIX=$(AZURE_ACR_NAME_PREFIX) KUBECONFIG_PATH="$(AZURE_KUBECONFIG_PATH)" bash scripts/azure/foundation/up.sh
 
 azure-platform-up:
-	@NAMESPACE=$(NAMESPACE) AZURE_CLUSTER_NAME=$(AZURE_CLUSTER_NAME) KUBE_CONTEXT=$(AZURE_KUBE_CONTEXT) KUBECONFIG_PATH="$(AZURE_KUBECONFIG_PATH)" DEPLOYMENT_SCOPE=azure AZURE_IMAGE_TAG=$(AZURE_IMAGE_TAG) PROJECT_CODE_IMAGE_REPOSITORY="$(AZURE_PROJECT_CODE_IMAGE_REPOSITORY)" PROJECT_CODE_IMAGE_TAG="$(AZURE_PROJECT_CODE_IMAGE_TAG)" PROJECT_CODE_IMAGE_PULL_POLICY=Always SUPERSET_IMAGE_REPOSITORY="$(AZURE_SUPERSET_IMAGE_REPOSITORY)" SUPERSET_IMAGE_TAG="$(AZURE_SUPERSET_IMAGE_TAG)" SUPERSET_IMAGE_PULL_POLICY=Always bash scripts/azure/stack/platform-up.sh
+	@NAMESPACE=$(NAMESPACE) AZURE_CLUSTER_NAME=$(AZURE_CLUSTER_NAME) KUBE_CONTEXT=$(AZURE_KUBE_CONTEXT) KUBECONFIG_PATH="$(AZURE_KUBECONFIG_PATH)" DEPLOYMENT_SCOPE=azure AZURE_IMAGE_TAG=$(AZURE_IMAGE_TAG) PROJECT_CODE_IMAGE_REPOSITORY="$(AZURE_PROJECT_CODE_IMAGE_REPOSITORY)" PROJECT_CODE_IMAGE_TAG="$(AZURE_PROJECT_CODE_IMAGE_TAG)" PROJECT_CODE_IMAGE_PULL_POLICY=Always ENABLE_GOVERNANCE=$(ENABLE_GOVERNANCE) ENABLE_ANALYTICS=$(ENABLE_ANALYTICS) SUPERSET_IMAGE_REPOSITORY="$(AZURE_SUPERSET_IMAGE_REPOSITORY)" SUPERSET_IMAGE_TAG="$(AZURE_SUPERSET_IMAGE_TAG)" SUPERSET_IMAGE_PULL_POLICY=Always bash scripts/azure/stack/platform-up.sh
 
 azure-artifacts-deploy:
 	@NAMESPACE=$(NAMESPACE) AZURE_CLUSTER_NAME=$(AZURE_CLUSTER_NAME) KUBE_CONTEXT=$(AZURE_KUBE_CONTEXT) KUBECONFIG_PATH="$(AZURE_KUBECONFIG_PATH)" DEPLOYMENT_SCOPE=azure AZURE_IMAGE_TAG=$(AZURE_IMAGE_TAG) PROJECT_CODE_IMAGE_REPOSITORY="$(AZURE_PROJECT_CODE_IMAGE_REPOSITORY)" PROJECT_CODE_IMAGE_TAG="$(AZURE_PROJECT_CODE_IMAGE_TAG)" bash scripts/azure/stack/deploy-artifacts.sh
@@ -281,7 +304,7 @@ aws-foundation-up:
 	@AWS_REGION=$(AWS_REGION) AWS_CLUSTER_NAME=$(AWS_CLUSTER_NAME) AWS_NODE_DESIRED_SIZE=$(AWS_NODE_DESIRED_SIZE) AWS_NODE_MIN_SIZE=$(AWS_NODE_MIN_SIZE) AWS_NODE_MAX_SIZE=$(AWS_NODE_MAX_SIZE) AWS_NODE_INSTANCE_TYPES=$(AWS_NODE_INSTANCE_TYPES) KUBECONFIG_PATH="$(AWS_KUBECONFIG_PATH)" bash scripts/aws/foundation/up.sh
 
 aws-platform-up:
-	@NAMESPACE=$(NAMESPACE) AWS_REGION=$(AWS_REGION) AWS_CLUSTER_NAME=$(AWS_CLUSTER_NAME) KUBE_CONTEXT=$(AWS_KUBE_CONTEXT) KUBECONFIG_PATH="$(AWS_KUBECONFIG_PATH)" DEPLOYMENT_SCOPE=aws AWS_IMAGE_TAG=$(AWS_IMAGE_TAG) PROJECT_CODE_IMAGE_REPOSITORY="$(AWS_PROJECT_CODE_IMAGE_REPOSITORY)" PROJECT_CODE_IMAGE_TAG="$(AWS_PROJECT_CODE_IMAGE_TAG)" PROJECT_CODE_IMAGE_PULL_POLICY=Always SUPERSET_IMAGE_REPOSITORY="$(AWS_SUPERSET_IMAGE_REPOSITORY)" SUPERSET_IMAGE_TAG="$(AWS_SUPERSET_IMAGE_TAG)" SUPERSET_IMAGE_PULL_POLICY=Always bash scripts/aws/stack/platform-up.sh
+	@NAMESPACE=$(NAMESPACE) AWS_REGION=$(AWS_REGION) AWS_CLUSTER_NAME=$(AWS_CLUSTER_NAME) KUBE_CONTEXT=$(AWS_KUBE_CONTEXT) KUBECONFIG_PATH="$(AWS_KUBECONFIG_PATH)" DEPLOYMENT_SCOPE=aws AWS_IMAGE_TAG=$(AWS_IMAGE_TAG) PROJECT_CODE_IMAGE_REPOSITORY="$(AWS_PROJECT_CODE_IMAGE_REPOSITORY)" PROJECT_CODE_IMAGE_TAG="$(AWS_PROJECT_CODE_IMAGE_TAG)" PROJECT_CODE_IMAGE_PULL_POLICY=Always ENABLE_GOVERNANCE=$(ENABLE_GOVERNANCE) ENABLE_ANALYTICS=$(ENABLE_ANALYTICS) SUPERSET_IMAGE_REPOSITORY="$(AWS_SUPERSET_IMAGE_REPOSITORY)" SUPERSET_IMAGE_TAG="$(AWS_SUPERSET_IMAGE_TAG)" SUPERSET_IMAGE_PULL_POLICY=Always bash scripts/aws/stack/platform-up.sh
 
 aws-artifacts-deploy:
 	@NAMESPACE=$(NAMESPACE) AWS_REGION=$(AWS_REGION) AWS_CLUSTER_NAME=$(AWS_CLUSTER_NAME) KUBE_CONTEXT=$(AWS_KUBE_CONTEXT) KUBECONFIG_PATH="$(AWS_KUBECONFIG_PATH)" DEPLOYMENT_SCOPE=aws AWS_IMAGE_TAG=$(AWS_IMAGE_TAG) PROJECT_CODE_IMAGE_REPOSITORY="$(AWS_PROJECT_CODE_IMAGE_REPOSITORY)" PROJECT_CODE_IMAGE_TAG="$(AWS_PROJECT_CODE_IMAGE_TAG)" bash scripts/aws/stack/deploy-artifacts.sh
