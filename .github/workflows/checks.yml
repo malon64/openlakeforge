@@ -146,7 +146,9 @@ jobs:
     timeout-minutes: 50
     env:
       CLUSTER_NAME: openlakeforge-pr-${{ github.run_id }}
+      KUBE_CONTEXT: kind-openlakeforge-pr-${{ github.run_id }}
       LOCAL_KUBECONFIG_PATH: ${{ github.workspace }}/.tmp/kubeconfigs/kind-smoke.yaml
+      KUBECONFIG: ${{ github.workspace }}/.tmp/kubeconfigs/kind-smoke.yaml
       PROJECT_CODE_IMAGE_TAG: ci-intentionally-missing
 
     steps:
