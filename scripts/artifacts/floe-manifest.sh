@@ -127,8 +127,18 @@ if [[ "${PERSIST_RUNTIME_ARTIFACTS}" == "true" ]]; then
     "${FLOE_RUNTIME_ARTIFACT_DIR}/profiles"
 fi
 
-if [[ -z "${PROFILE_PATH}" && "${IS_AWS_FLOE_PROFILE}" == "false" && "${NAMESPACE}" == "lakehouse" ]]; then
+if [[ -z "${PROFILE_PATH}" && "${IS_AWS_FLOE_PROFILE}" == "false" && "${NAMESPACE}" == "lakehouse" &&
+  "${OPENLAKEFORGE_GOVERNANCE_ENABLED}" == "true" ]]; then
   GENERATED_PROFILE_PATH="libs/floe/profiles/local-k8s.yml"
+elif [[ -z "${PROFILE_PATH}" && "${IS_AWS_FLOE_PROFILE}" == "false" ]]; then
+  if [[ "${PERSIST_RUNTIME_ARTIFACTS}" == "true" ]]; then
+    GENERATED_PROFILE_PATH="${FLOE_RUNTIME_ARTIFACT_DIR}/profiles/$(basename "${FLOE_RUNTIME_PROFILE_URI}")"
+  else
+    mkdir -p .tmp
+    PROFILE_TMP_DIR="$(mktemp -d .tmp/floe-profile.XXXXXX)"
+    GENERATED_PROFILE_PATH="${PROFILE_TMP_DIR}/$(basename "${FLOE_RUNTIME_PROFILE_URI}")"
+  fi
+  olf_run floe render-profile > "${GENERATED_PROFILE_PATH}"
 elif [[ -z "${PROFILE_PATH}" && "${IS_AWS_FLOE_PROFILE}" == "true" ]]; then
   if [[ "${PERSIST_RUNTIME_ARTIFACTS}" != "true" ]]; then
     mkdir -p .tmp

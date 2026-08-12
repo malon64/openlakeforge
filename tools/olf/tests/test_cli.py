@@ -16,6 +16,27 @@ def test_version_command_prints_package_version() -> None:
     assert result.output.strip() == olf.__version__
 
 
+def test_layers_enabled_exits_nonzero_for_a_disabled_layer(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OPENLAKEFORGE_ANALYTICS_ENABLED", "false")
+
+    result = runner.invoke(app, ["layers", "enabled", "--layer", "analytics"])
+
+    assert result.exit_code == 1
+
+
+def test_artifacts_deploy_optional_layers_skips_disabled_layers(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OPENLAKEFORGE_ANALYTICS_ENABLED", "false")
+    monkeypatch.setenv("OPENLAKEFORGE_GOVERNANCE_ENABLED", "false")
+    monkeypatch.setattr("olf.cli.deploy_superset_reports", lambda: pytest.fail("reports should be skipped"))
+    monkeypatch.setattr("olf.cli.deploy_openmetadata_metadata", lambda: pytest.fail("metadata should be skipped"))
+
+    result = runner.invoke(app, ["artifacts", "deploy-optional-layers"])
+
+    assert result.exit_code == 0
+    assert "Skipping Superset report assets" in result.output
+    assert "Skipping OpenMetadata governance metadata" in result.output
+
+
 def test_revision_compute_command_prints_runtime_artifact_revision(tmp_path: Path) -> None:
     path = tmp_path / "manifests/sales/order_revenue/order_revenue.manifest.json"
     path.parent.mkdir(parents=True)

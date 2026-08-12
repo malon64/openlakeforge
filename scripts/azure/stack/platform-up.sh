@@ -113,7 +113,7 @@ echo "==> Checking Azure platform prerequisites..."
 check_prereqs az docker helm kubectl terraform uv base64
 prepare_aks_context
 prepare_image_variables
-if [[ "${ENABLE_ANALYTICS}" == "true" ]]; then
+if OPENLAKEFORGE_ANALYTICS_ENABLED="${ENABLE_ANALYTICS}" olf_run layers enabled --layer analytics; then
   prepare_superset_image
 else
   echo "==> Skipping Superset image build: analytics layer is disabled."

@@ -137,7 +137,7 @@ check_prereqs terraform kubectl helm uv base64
 check_cluster
 require_kube_context
 
-if [[ "${ENABLE_ANALYTICS}" == "true" ]]; then
+if OPENLAKEFORGE_ANALYTICS_ENABLED="${ENABLE_ANALYTICS}" olf_run layers enabled --layer analytics; then
   prepare_local_superset_image
 else
   echo "==> Skipping Superset image build: analytics layer is disabled."

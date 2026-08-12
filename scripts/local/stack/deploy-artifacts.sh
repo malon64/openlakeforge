@@ -76,19 +76,7 @@ fi
 echo "==> Pointing Dagster at project-code image ${PROJECT_CODE_IMAGE}..."
 olf_run k8s set-project-code-image --image "${PROJECT_CODE_IMAGE}"
 
-if [[ "${OPENLAKEFORGE_ANALYTICS_ENABLED}" == "true" ]]; then
-  echo "==> Deploying product Superset report assets..."
-  olf_run superset deploy-reports
-else
-  echo "==> Skipping Superset report assets: analytics layer is disabled."
-fi
-
-if [[ "${OPENLAKEFORGE_GOVERNANCE_ENABLED}" == "true" ]]; then
-  echo "==> Deploying OpenMetadata governance metadata..."
-  OPENMETADATA_ALLOW_MISSING_ASSETS="${OPENMETADATA_ALLOW_MISSING_ASSETS:-true}" \
-    olf_run openmetadata deploy-metadata
-else
-  echo "==> Skipping OpenMetadata governance metadata: governance layer is disabled."
-fi
+OPENMETADATA_ALLOW_MISSING_ASSETS="${OPENMETADATA_ALLOW_MISSING_ASSETS:-true}" \
+  olf_run artifacts deploy-optional-layers
 
 echo "Dynamic OpenLakeForge local artifacts are deployed."
