@@ -1,3 +1,6 @@
+import hashlib
+import io
+import json
 import os
 from pathlib import Path
 from typing import Any
@@ -1117,6 +1120,41 @@ def test_check_ops_artifacts_uses_configured_bucket_for_local(monkeypatch: pytes
 
     assert bucket_waits == [("custom-ops-bucket", "http://127.0.0.1:19000")]
     assert artifact_checks == [("custom-ops-bucket", "lakehouse")]
+
+
+def test_assert_immutable_floe_manifests_verifies_descriptor_manifests() -> None:
+    revision_prefix = "floe/revisions/sha256/" + "a" * 64 + "/"
+    contents = {key: key.encode() for key in INVENTORY.manifest_keys}
+    entries = {key: hashlib.sha256(value).hexdigest() for key, value in contents.items()}
+    objects = {
+        revision_prefix + "REVISION.json": json.dumps({"revision": "sha256:" + "a" * 64, "entries": entries}).encode(),
+        **{revision_prefix + key: value for key, value in contents.items()},
+    }
+
+    class FakeS3Client:
+        def list_objects_v2(self, *, Bucket: str, Prefix: str) -> dict[str, Any]:
+            assert Bucket == "ops"
+            return {"Contents": [{"Key": key} for key in objects if key.startswith(Prefix)]}
+
+        def get_object(self, *, Bucket: str, Key: str) -> dict[str, io.BytesIO]:
+            assert Bucket == "ops"
+            return {"Body": io.BytesIO(objects[Key])}
+
+    e2e.assert_immutable_floe_manifests(FakeS3Client(), "ops", INVENTORY)
+
+
+def test_assert_immutable_floe_manifests_requires_all_descriptor_manifests() -> None:
+    sidecar = "floe/revisions/sha256/" + "a" * 64 + "/REVISION.json"
+
+    class FakeS3Client:
+        def list_objects_v2(self, *, Bucket: str, Prefix: str) -> dict[str, Any]:
+            return {"Contents": [{"Key": sidecar}]}
+
+        def get_object(self, *, Bucket: str, Key: str) -> dict[str, io.BytesIO]:
+            return {"Body": io.BytesIO(b'{"entries": {}}')}
+
+    with pytest.raises(e2e.E2EError, match="every descriptor-discovered product manifest"):
+        e2e.assert_immutable_floe_manifests(FakeS3Client(), "ops", INVENTORY)
 
 
 def test_run_retry_retries_transient_command_errors(monkeypatch: pytest.MonkeyPatch) -> None:

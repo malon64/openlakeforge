@@ -496,7 +496,10 @@ _IMAGE_DEPLOYMENT_SOURCES: dict[str, _ImageDeploymentSource] = {
             "infra/terraform/modules/catalog/polaris/variables.tf",
             "infra/terraform/modules/governance/openmetadata/variables.tf",
         ),
-        full_ref_pattern=re.compile(r'^\s*default\s*=\s*"([^"\n]+@sha256:[0-9a-f]{64})"\s*$', re.MULTILINE),
+        full_ref_pattern=re.compile(
+            r'variable\s+"bootstrap_job_image"\s*\{.*?default\s*=\s*"([^"\n]+@sha256:[0-9a-f]{64})"',
+            re.DOTALL,
+        ),
     ),
     "opensearch": _ImageDeploymentSource(
         paths=("infra/helm/values/local/openmetadata-deps.yaml",),
@@ -519,6 +522,13 @@ _IMAGE_DEPLOYMENT_SOURCES: dict[str, _ImageDeploymentSource] = {
         paths=("infra/helm/values/local/polaris.yaml",),
         repository_key_path=("image", "repository"),
         tag_key_path=("image", "tag"),
+    ),
+    "polaris_admin_tool": _ImageDeploymentSource(
+        paths=("infra/terraform/modules/catalog/polaris/variables.tf",),
+        full_ref_pattern=re.compile(
+            r'variable\s+"metastore_bootstrap_job_image"\s*\{.*?default\s*=\s*"([^"\n]+@sha256:[0-9a-f]{64})"',
+            re.DOTALL,
+        ),
     ),
     "trino": _ImageDeploymentSource(
         paths=("infra/helm/values/local/trino.yaml",),

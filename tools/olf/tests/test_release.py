@@ -488,14 +488,35 @@ def test_check_images_match_deployment_sources_flags_bootstrap_image_drift(tmp_p
     openmetadata_dir.mkdir(parents=True)
     bootstrap_ref = "alpine/k8s:1.30.0@sha256:" + "a" * 64
     stale_ref = "alpine/k8s:1.30.0@sha256:" + "b" * 64
-    (polaris_dir / "variables.tf").write_text(f'default = "{bootstrap_ref}"\n')
-    (openmetadata_dir / "variables.tf").write_text(f'default = "{stale_ref}"\n')
+    (polaris_dir / "variables.tf").write_text(
+        f'variable "bootstrap_job_image" {{\n  default = "{bootstrap_ref}"\n}}\n'
+    )
+    (openmetadata_dir / "variables.tf").write_text(
+        f'variable "bootstrap_job_image" {{\n  default = "{stale_ref}"\n}}\n'
+    )
 
     catalog = {"components": {"images": {"k8s_bootstrap": bootstrap_ref}}}
     result = release._check_images_match_deployment_sources(tmp_path, catalog)
 
     assert not result.ok
     assert "k8s_bootstrap" in result.detail
+    assert stale_ref in result.detail
+
+
+def test_check_images_match_deployment_sources_flags_polaris_admin_tool_drift(tmp_path: Path) -> None:
+    polaris_dir = tmp_path / "infra/terraform/modules/catalog/polaris"
+    polaris_dir.mkdir(parents=True)
+    catalog_ref = "apache/polaris-admin-tool:1.4.0@sha256:" + "a" * 64
+    stale_ref = "apache/polaris-admin-tool:1.4.0@sha256:" + "b" * 64
+    (polaris_dir / "variables.tf").write_text(
+        f'variable "metastore_bootstrap_job_image" {{\n  default = "{stale_ref}"\n}}\n'
+    )
+
+    catalog = {"components": {"images": {"polaris_admin_tool": catalog_ref}}}
+    result = release._check_images_match_deployment_sources(tmp_path, catalog)
+
+    assert not result.ok
+    assert "polaris_admin_tool" in result.detail
     assert stale_ref in result.detail
 
 

@@ -170,6 +170,143 @@ resource "kubernetes_role_binding_v1" "bootstrap" {
   }
 }
 
+resource "kubernetes_job_v1" "metastore_bootstrap" {
+  metadata {
+    name      = "polaris-metastore-bootstrap-${helm_release.polaris.metadata.revision}"
+    namespace = var.namespace
+    labels    = local.labels
+  }
+
+  spec {
+    backoff_limit = 3
+
+    template {
+      metadata {
+        labels = merge(local.labels, {
+          "openlakeforge.io/job" = "catalog-metastore-bootstrap"
+        })
+        annotations = local.bootstrap_annotations
+      }
+
+      spec {
+        restart_policy = "Never"
+
+        container {
+          name  = "metastore-bootstrap"
+          image = var.metastore_bootstrap_job_image
+
+          command = ["/bin/sh", "-ec"]
+          args = [<<-SCRIPT
+            set -eu
+
+            polaris_url="http://${var.release_name}:8181"
+            if curl -sf -X POST "$polaris_url/api/catalog/v1/oauth/tokens" \
+              -u "$ROOT_CLIENT_ID:$ROOT_CLIENT_SECRET" \
+              -d "grant_type=client_credentials" \
+              -d "scope=${local.oauth_scope}" >/dev/null; then
+              echo "Polaris relational metastore is already bootstrapped."
+              exit 0
+            fi
+
+            exec java -jar /deployments/polaris-admin-tool.jar bootstrap \
+              -r "$POLARIS_REALM" \
+              -c "$POLARIS_BOOTSTRAP_CREDENTIALS"
+          SCRIPT
+          ]
+
+          env {
+            name  = "POLARIS_PERSISTENCE_TYPE"
+            value = "relational-jdbc"
+          }
+
+          env {
+            name  = "POLARIS_REALM"
+            value = local.realm
+          }
+
+          env {
+            name = "POLARIS_BOOTSTRAP_CREDENTIALS"
+            value_from {
+              secret_key_ref {
+                name = kubernetes_secret_v1.bootstrap_credentials.metadata[0].name
+                key  = "POLARIS_BOOTSTRAP_CREDENTIALS"
+              }
+            }
+          }
+
+          env {
+            name = "ROOT_CLIENT_ID"
+            value_from {
+              secret_key_ref {
+                name = kubernetes_secret_v1.bootstrap_credentials.metadata[0].name
+                key  = "ROOT_CLIENT_ID"
+              }
+            }
+          }
+
+          env {
+            name = "ROOT_CLIENT_SECRET"
+            value_from {
+              secret_key_ref {
+                name = kubernetes_secret_v1.bootstrap_credentials.metadata[0].name
+                key  = "ROOT_CLIENT_SECRET"
+              }
+            }
+          }
+
+          env {
+            name = "QUARKUS_DATASOURCE_USERNAME"
+            value_from {
+              secret_key_ref {
+                name = var.postgresql_contract.polaris_credentials_secret_name
+                key  = "username"
+              }
+            }
+          }
+
+          env {
+            name = "QUARKUS_DATASOURCE_PASSWORD"
+            value_from {
+              secret_key_ref {
+                name = var.postgresql_contract.polaris_credentials_secret_name
+                key  = "password"
+              }
+            }
+          }
+
+          env {
+            name = "QUARKUS_DATASOURCE_JDBC_URL"
+            value_from {
+              secret_key_ref {
+                name = var.postgresql_contract.polaris_credentials_secret_name
+                key  = "jdbcUrl"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  wait_for_completion = true
+
+  timeouts {
+    create = "5m"
+    update = "5m"
+  }
+
+  depends_on = [
+    helm_release.polaris,
+  ]
+
+  lifecycle {
+    replace_triggered_by = [
+      terraform_data.polaris_release_revision,
+      terraform_data.polaris_bootstrap_revision,
+    ]
+  }
+}
+
 resource "kubernetes_job_v1" "bootstrap" {
   metadata {
     name      = "polaris-bootstrap-${helm_release.polaris.metadata.revision}"
@@ -403,7 +540,7 @@ resource "kubernetes_job_v1" "bootstrap" {
   }
 
   depends_on = [
-    helm_release.polaris,
+    kubernetes_job_v1.metastore_bootstrap,
     kubernetes_role_binding_v1.bootstrap,
   ]
 

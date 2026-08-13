@@ -7,6 +7,7 @@ checks that used to live in Azure/AWS bash scripts.
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import os
 import shutil
@@ -1129,8 +1130,7 @@ def trigger_log_archive_job(cfg: E2EConfig) -> None:
 
 
 def assert_ops_artifacts(client: Any, bucket: str, namespace: str, inventory: DomainInventory) -> None:
-    for key in inventory.manifest_keys:
-        client.head_object(Bucket=bucket, Key=key)
+    assert_immutable_floe_manifests(client, bucket, inventory)
     product_prefixes = tuple(
         prefix
         for product in inventory.products
@@ -1138,6 +1138,34 @@ def assert_ops_artifacts(client: Any, bucket: str, namespace: str, inventory: Do
     )
     for prefix in (*product_prefixes, *ARTIFACT_PREFIXES, f"logs/k8s/namespace={namespace}/"):
         require_s3_prefix(client, bucket, prefix)
+
+
+def assert_immutable_floe_manifests(client: Any, bucket: str, inventory: DomainInventory) -> None:
+    revisions = client.list_objects_v2(Bucket=bucket, Prefix="floe/revisions/sha256/")
+    sidecars = sorted(
+        item["Key"] for item in revisions.get("Contents", []) if item["Key"].endswith("/REVISION.json")
+    )
+    if not sidecars:
+        raise E2EError(f"expected an immutable Floe revision under s3://{bucket}/floe/revisions/sha256/.")
+
+    expected_manifest_keys = set(inventory.manifest_keys)
+    for sidecar_key in reversed(sidecars):
+        response = client.get_object(Bucket=bucket, Key=sidecar_key)
+        payload = json.loads(response["Body"].read())
+        entries = payload.get("entries", {})
+        if not expected_manifest_keys.issubset(entries):
+            continue
+        revision_prefix = sidecar_key.removesuffix("REVISION.json")
+        for artifact_key in expected_manifest_keys:
+            content = client.get_object(Bucket=bucket, Key=f"{revision_prefix}{artifact_key}")["Body"].read()
+            actual_digest = hashlib.sha256(content).hexdigest()
+            if actual_digest != entries[artifact_key]:
+                raise E2EError(
+                    f"immutable Floe artifact {artifact_key} hashes to {actual_digest}, "
+                    f"expected {entries[artifact_key]}."
+                )
+        return
+    raise E2EError("no immutable Floe revision contains every descriptor-discovered product manifest.")
 
 
 def wait_for_bucket(client: Any, bucket: str, endpoint: str, *, attempts: int = 60, delay: float = 2.0) -> None:
