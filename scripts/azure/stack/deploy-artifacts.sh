@@ -74,12 +74,21 @@ export FLOE_RUNTIME_ARTIFACT_DIR
 export FLOE_PERSIST_RUNTIME_ARTIFACTS="true"
 NAMESPACE="${NAMESPACE}" bash "${REPO_ROOT}/scripts/artifacts/floe-manifest.sh"
 
+echo "==> Computing immutable Floe runtime-artifact revision..."
+FLOE_MANIFEST_REVISION="$(olf_run revision compute --runtime-root "${FLOE_RUNTIME_ARTIFACT_DIR}")"
+export FLOE_MANIFEST_REVISION
+
+echo "==> Publishing immutable Floe runtime-artifact revision ${FLOE_MANIFEST_REVISION}..."
+olf_run revision publish --via port-forward --runtime-root "${FLOE_RUNTIME_ARTIFACT_DIR}"
+olf_run revision verify --via port-forward --revision "${FLOE_MANIFEST_REVISION}"
+
 echo "==> Building and pushing Azure project-code image..."
 ACR_LOGIN_SERVER="${ACR_LOGIN_SERVER}" \
 ACR_NAME="${ACR_NAME}" \
 AZURE_IMAGE_TAG="${AZURE_IMAGE_TAG}" \
 PROJECT_CODE_IMAGE_REPOSITORY="${PROJECT_CODE_IMAGE_REPOSITORY}" \
 PROJECT_CODE_IMAGE_TAG="${PROJECT_CODE_IMAGE_TAG}" \
+FLOE_MANIFEST_REVISION="${FLOE_MANIFEST_REVISION}" \
   bash "${SCRIPT_DIR}/../images/build-push-project-code.sh"
 
 echo "==> Publishing product Floe manifests to the Azure POC SeaweedFS ops bucket..."
