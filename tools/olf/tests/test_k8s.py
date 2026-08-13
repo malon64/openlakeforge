@@ -1,7 +1,7 @@
 import base64
 import json
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import MagicMock, Mock
 
 import pytest
 
@@ -65,6 +65,7 @@ def test_port_forward_uses_explicit_kube_context(monkeypatch: pytest.MonkeyPatch
     process.poll.return_value = 0
     popen = Mock(return_value=process)
     monkeypatch.setattr(k8s.subprocess, "Popen", popen)
+    monkeypatch.setattr(k8s, "_wait_for_port_forward", Mock())
 
     with k8s.port_forward(
         "superset",
@@ -86,6 +87,70 @@ def test_port_forward_uses_explicit_kube_context(monkeypatch: pytest.MonkeyPatch
         "-n",
         "lakehouse",
     ]
+    process.terminate.assert_called_once_with()
+    process.wait.assert_called_once_with(timeout=10)
+
+
+def test_wait_for_port_forward_retries_until_the_listener_accepts(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    process = Mock()
+    process.poll.return_value = None
+    attempts = iter((OSError("not ready"), MagicMock()))
+
+    def create_connection(*_args: object, **_kwargs: object) -> MagicMock:
+        result = next(attempts)
+        if isinstance(result, OSError):
+            raise result
+        return result
+
+    monkeypatch.setattr(k8s.socket, "create_connection", create_connection)
+    monkeypatch.setattr(k8s.time, "sleep", lambda _delay: None)
+
+    k8s._wait_for_port_forward(process, 18088, str(tmp_path / "port-forward.log"))
+
+
+def test_wait_for_port_forward_reports_an_early_process_exit(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    log_path = tmp_path / "port-forward.log"
+    log_path.write_text("error: services \"missing\" not found\n")
+    process = Mock()
+    process.poll.return_value = 1
+
+    with pytest.raises(k8s.KubectlError, match="services .*missing.*not found"):
+        k8s._wait_for_port_forward(process, 18088, str(log_path))
+
+
+def test_wait_for_port_forward_times_out_and_reports_the_log(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    log_path = tmp_path / "port-forward.log"
+    log_path.write_text("still starting\n")
+    process = Mock()
+    process.poll.return_value = None
+    clock = iter((0.0, 0.0, k8s.PORT_FORWARD_READY_TIMEOUT_SECONDS + 0.1))
+
+    monkeypatch.setattr(k8s.socket, "create_connection", Mock(side_effect=OSError("not ready")))
+    monkeypatch.setattr(k8s.time, "monotonic", lambda: next(clock))
+    monkeypatch.setattr(k8s.time, "sleep", lambda _delay: None)
+
+    with pytest.raises(k8s.KubectlError, match=r"(?s)timed out.*still starting"):
+        k8s._wait_for_port_forward(process, 18088, str(log_path))
+
+
+def test_port_forward_cleans_up_after_readiness_failure(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    process = Mock()
+    process.poll.return_value = 0
+    monkeypatch.setattr(k8s.subprocess, "Popen", Mock(return_value=process))
+    monkeypatch.setattr(k8s, "_wait_for_port_forward", Mock(side_effect=k8s.KubectlError("not ready")))
+
+    with pytest.raises(k8s.KubectlError, match="not ready"):
+        with k8s.port_forward(
+            "polaris",
+            8181,
+            "lakehouse",
+            log_path=str(tmp_path / "port-forward.log"),
+            kube_context="kind-openlakeforge-local",
+        ):
+            pass
+
     process.terminate.assert_called_once_with()
     process.wait.assert_called_once_with(timeout=10)
 

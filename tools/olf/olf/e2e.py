@@ -87,6 +87,12 @@ def _bounded_pod_diagnostics(cfg: E2EConfig, names: list[str]) -> str:
             )
         except E2EError as exc:
             output = f"unable to collect logs: {exc}"
+            try:
+                description = kubectl(cfg, ["describe", "pod", "-n", cfg.namespace, name], capture=True)
+            except E2EError as describe_exc:
+                output += f"\nunable to describe pod: {describe_exc}"
+            else:
+                output += f"\npod description:\n{description[-6000:]}"
         lines.append(f"{name}:\n{output[-6000:]}")
     return "\n".join(lines)
 
