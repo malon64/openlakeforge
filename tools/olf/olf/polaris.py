@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import base64
 import json
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -20,6 +21,8 @@ from olf.catalog import CATALOG_KEY, MANAGED_BY_KEY, MANAGED_BY_VALUE, Namespace
 from olf.inventory import CatalogNamespace
 
 LOCATION_PROPERTY = "location"
+TOKEN_REQUEST_ATTEMPTS = 60
+TOKEN_REQUEST_RETRY_DELAY_SECONDS = 2
 
 
 class PolarisError(RuntimeError):
@@ -108,14 +111,20 @@ class PolarisClient:
                 "Accept": "application/json",
             },
         )
-        try:
-            with urllib.request.urlopen(request, timeout=30) as response:  # noqa: S310 - localhost forward
-                body = json.loads(response.read().decode("utf-8"))
-        except urllib.error.HTTPError as err:
-            detail = err.read().decode("utf-8", errors="replace")
-            raise PolarisError(f"Polaris token request failed with HTTP {err.code}: {detail}") from err
-        except urllib.error.URLError as err:
-            raise PolarisError(f"Polaris token request failed: {err}") from err
+        for attempt in range(1, TOKEN_REQUEST_ATTEMPTS + 1):
+            try:
+                with urllib.request.urlopen(request, timeout=30) as response:  # noqa: S310 - localhost forward
+                    body = json.loads(response.read().decode("utf-8"))
+                break
+            except urllib.error.HTTPError as err:
+                detail = err.read().decode("utf-8", errors="replace")
+                raise PolarisError(f"Polaris token request failed with HTTP {err.code}: {detail}") from err
+            except urllib.error.URLError as err:
+                if attempt == TOKEN_REQUEST_ATTEMPTS:
+                    raise PolarisError(
+                        f"Polaris token request failed after {TOKEN_REQUEST_ATTEMPTS} attempts: {err}"
+                    ) from err
+                time.sleep(TOKEN_REQUEST_RETRY_DELAY_SECONDS)
 
         token = body.get("access_token")
         if not token:
