@@ -7,7 +7,6 @@ checks that used to live in Azure/AWS bash scripts.
 from __future__ import annotations
 
 import base64
-import hashlib
 import json
 import os
 import shutil
@@ -24,7 +23,7 @@ import requests
 import yaml
 from botocore.config import Config
 
-from olf import contracts, k8s, log, superset
+from olf import contracts, k8s, log, revision, superset
 from olf.inventory import DomainInventory, Product, inventory_for
 
 Environment = Literal["local", "azure", "aws"]
@@ -620,7 +619,6 @@ def launch_and_poll_dagster_jobs(cfg: E2EConfig, *, products: Sequence[Product] 
 
 def expected_user_code_pods(cfg: E2EConfig, location_names: Sequence[str]) -> list[str]:
     """Discover configured user-code deployments for bounded failure diagnostics."""
-    deployment_prefixes = tuple(f"dagster-user-deployments-{name}-" for name in location_names)
     try:
         raw = kubectl(cfg, ["get", "pods", "-n", cfg.namespace, "-o", "json"], capture=True)
         payload = json.loads(raw)
@@ -629,8 +627,9 @@ def expected_user_code_pods(cfg: E2EConfig, location_names: Sequence[str]) -> li
     return [
         str(item.get("metadata", {}).get("name"))
         for item in payload.get("items", [])
-        if str(item.get("metadata", {}).get("name", "")).startswith(deployment_prefixes)
-    ][:5]
+        if item.get("metadata", {}).get("labels", {}).get("app.kubernetes.io/name") == "dagster-user-deployments"
+        and item.get("metadata", {}).get("labels", {}).get("deployment") in location_names
+    ]
 
 
 def expected_repository_location_names(cfg: E2EConfig) -> list[str]:
@@ -1061,11 +1060,12 @@ class OpenMetadataE2EClient:
 def check_ops_artifacts(cfg: E2EConfig) -> None:
     log.step("Checking ops artifact bucket contents...")
     trigger_log_archive_job(cfg)
+    deployed_revision = deployed_floe_manifest_revision(cfg)
     provider_contracts = load_provider_contracts_or_raise(cfg)
     bucket = provider_contracts["artifact_bucket"]["bucket_name"]
     if cfg.env == "aws":
         client = boto3.client("s3", region_name=aws_stack_region(cfg))
-        assert_ops_artifacts(client, bucket, cfg.namespace, cfg.inventory)
+        assert_ops_artifacts(client, bucket, cfg.namespace, cfg.inventory, deployed_revision)
         return
 
     assert cfg.seaweedfs_local_port is not None
@@ -1100,7 +1100,7 @@ def check_ops_artifacts(cfg: E2EConfig) -> None:
             config=Config(s3={"addressing_style": "path"}),
         )
         wait_for_bucket(client, bucket, endpoint)
-        assert_ops_artifacts(client, bucket, cfg.namespace, cfg.inventory)
+        assert_ops_artifacts(client, bucket, cfg.namespace, cfg.inventory, deployed_revision)
 
 
 def trigger_log_archive_job(cfg: E2EConfig) -> None:
@@ -1129,8 +1129,47 @@ def trigger_log_archive_job(cfg: E2EConfig) -> None:
     )
 
 
-def assert_ops_artifacts(client: Any, bucket: str, namespace: str, inventory: DomainInventory) -> None:
-    assert_immutable_floe_manifests(client, bucket, inventory)
+def deployed_floe_manifest_revision(cfg: E2EConfig) -> str:
+    """Read the immutable revision baked into each running Dagster code pod."""
+    location_names = expected_repository_location_names(cfg)
+    pods = expected_user_code_pods(cfg, location_names)
+    if not pods:
+        raise E2EError("no running Dagster user-code pods were found to identify the deployed Floe revision.")
+
+    revisions: dict[str, str] = {}
+    for pod in pods:
+        value = kubectl(
+            cfg,
+            [
+                "exec",
+                "-n",
+                cfg.namespace,
+                pod,
+                "--",
+                "printenv",
+                "OPENLAKEFORGE_FLOE_MANIFEST_REVISION_BUILT",
+            ],
+            capture=True,
+        ).strip()
+        if not value:
+            raise E2EError(f"Dagster user-code pod {pod} has no built Floe manifest revision.")
+        revisions[pod] = value
+
+    unique_revisions = set(revisions.values())
+    if len(unique_revisions) != 1:
+        details = ", ".join(f"{pod}={value}" for pod, value in sorted(revisions.items()))
+        raise E2EError(f"Dagster user-code pods disagree on the built Floe manifest revision: {details}.")
+    return unique_revisions.pop()
+
+
+def assert_ops_artifacts(
+    client: Any,
+    bucket: str,
+    namespace: str,
+    inventory: DomainInventory,
+    deployed_revision: str,
+) -> None:
+    assert_immutable_floe_manifests(client, bucket, inventory, deployed_revision)
     product_prefixes = tuple(
         prefix
         for product in inventory.products
@@ -1140,32 +1179,20 @@ def assert_ops_artifacts(client: Any, bucket: str, namespace: str, inventory: Do
         require_s3_prefix(client, bucket, prefix)
 
 
-def assert_immutable_floe_manifests(client: Any, bucket: str, inventory: DomainInventory) -> None:
-    revisions = client.list_objects_v2(Bucket=bucket, Prefix="floe/revisions/sha256/")
-    sidecars = sorted(
-        item["Key"] for item in revisions.get("Contents", []) if item["Key"].endswith("/REVISION.json")
-    )
-    if not sidecars:
-        raise E2EError(f"expected an immutable Floe revision under s3://{bucket}/floe/revisions/sha256/.")
-
+def assert_immutable_floe_manifests(
+    client: Any, bucket: str, inventory: DomainInventory, deployed_revision: str
+) -> None:
+    try:
+        manifest = revision.verify(client, bucket, deployed_revision)
+    except revision.RevisionError as exc:
+        raise E2EError(f"failed to verify deployed immutable Floe revision {deployed_revision}: {exc}") from exc
     expected_manifest_keys = set(inventory.manifest_keys)
-    for sidecar_key in reversed(sidecars):
-        response = client.get_object(Bucket=bucket, Key=sidecar_key)
-        payload = json.loads(response["Body"].read())
-        entries = payload.get("entries", {})
-        if not expected_manifest_keys.issubset(entries):
-            continue
-        revision_prefix = sidecar_key.removesuffix("REVISION.json")
-        for artifact_key in expected_manifest_keys:
-            content = client.get_object(Bucket=bucket, Key=f"{revision_prefix}{artifact_key}")["Body"].read()
-            actual_digest = hashlib.sha256(content).hexdigest()
-            if actual_digest != entries[artifact_key]:
-                raise E2EError(
-                    f"immutable Floe artifact {artifact_key} hashes to {actual_digest}, "
-                    f"expected {entries[artifact_key]}."
-                )
-        return
-    raise E2EError("no immutable Floe revision contains every descriptor-discovered product manifest.")
+    missing = expected_manifest_keys.difference(manifest.entries)
+    if missing:
+        raise E2EError(
+            f"deployed immutable Floe revision {deployed_revision} does not contain every "
+            f"descriptor-discovered product manifest: {', '.join(sorted(missing))}."
+        )
 
 
 def wait_for_bucket(client: Any, bucket: str, endpoint: str, *, attempts: int = 60, delay: float = 2.0) -> None:

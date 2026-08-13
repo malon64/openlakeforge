@@ -1,8 +1,7 @@
-import hashlib
-import io
 import json
 import os
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -859,22 +858,48 @@ def test_expected_user_code_pods_filters_to_configured_locations(
     monkeypatch.setattr(
         e2e,
         "kubectl",
-        lambda *_args, **_kwargs: '''
-        {"items": [
-          {"metadata": {"name": "dagster-user-deployments-openlakeforge-dagster-abc"}},
-          {"metadata": {"name": "dagster-user-deployments-sales-dagster-def"}},
-          {"metadata": {"name": "dagster-user-deployments-supply-chain-dagster-ghi"}},
-          {"metadata": {"name": "unrelated"}}
-        ]}
-        ''',
+        lambda *_args, **_kwargs: json.dumps(
+            {
+                "items": [
+                    {
+                        "metadata": {
+                            "name": "dagster-dagster-user-deployments-openlakeforge-dagster-abc",
+                            "labels": {
+                                "app.kubernetes.io/name": "dagster-user-deployments",
+                                "deployment": "openlakeforge-dagster",
+                            },
+                        }
+                    },
+                    {
+                        "metadata": {
+                            "name": "dagster-dagster-user-deployments-sales-dagster-def",
+                            "labels": {
+                                "app.kubernetes.io/name": "dagster-user-deployments",
+                                "deployment": "sales-dagster",
+                            },
+                        }
+                    },
+                    {
+                        "metadata": {
+                            "name": "dagster-dagster-user-deployments-supply-chain-dagster-ghi",
+                            "labels": {
+                                "app.kubernetes.io/name": "dagster-user-deployments",
+                                "deployment": "supply-chain-dagster",
+                            },
+                        }
+                    },
+                    {"metadata": {"name": "unrelated"}},
+                ]
+            }
+        ),
     )
 
     assert e2e.expected_user_code_pods(cfg(tmp_path), ["openlakeforge-dagster"]) == [
-        "dagster-user-deployments-openlakeforge-dagster-abc"
+        "dagster-dagster-user-deployments-openlakeforge-dagster-abc"
     ]
     assert e2e.expected_user_code_pods(cfg(tmp_path), ["sales-dagster", "supply-chain-dagster"]) == [
-        "dagster-user-deployments-sales-dagster-def",
-        "dagster-user-deployments-supply-chain-dagster-ghi",
+        "dagster-dagster-user-deployments-sales-dagster-def",
+        "dagster-dagster-user-deployments-supply-chain-dagster-ghi",
     ]
 
 
@@ -1113,48 +1138,103 @@ def test_check_ops_artifacts_uses_configured_bucket_for_local(monkeypatch: pytes
     monkeypatch.setattr(
         e2e,
         "assert_ops_artifacts",
-        lambda _client, bucket, namespace, _inventory: artifact_checks.append((bucket, namespace)),
+        lambda _client, bucket, namespace, _inventory, deployed_revision: artifact_checks.append(
+            (bucket, namespace, deployed_revision)
+        ),
     )
+    monkeypatch.setattr(e2e, "deployed_floe_manifest_revision", lambda _cfg: "sha256:" + "a" * 64)
 
     e2e.check_ops_artifacts(local_cfg)
 
     assert bucket_waits == [("custom-ops-bucket", "http://127.0.0.1:19000")]
-    assert artifact_checks == [("custom-ops-bucket", "lakehouse")]
+    assert artifact_checks == [("custom-ops-bucket", "lakehouse", "sha256:" + "a" * 64)]
 
 
-def test_assert_immutable_floe_manifests_verifies_descriptor_manifests() -> None:
-    revision_prefix = "floe/revisions/sha256/" + "a" * 64 + "/"
-    contents = {key: key.encode() for key in INVENTORY.manifest_keys}
-    entries = {key: hashlib.sha256(value).hexdigest() for key, value in contents.items()}
-    objects = {
-        revision_prefix + "REVISION.json": json.dumps({"revision": "sha256:" + "a" * 64, "entries": entries}).encode(),
-        **{revision_prefix + key: value for key, value in contents.items()},
-    }
+def test_deployed_floe_manifest_revision_reads_running_user_code_pods(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    deployed_revision = "sha256:" + "a" * 64
+    local_cfg = cfg(tmp_path)
+    monkeypatch.setattr(e2e, "expected_repository_location_names", lambda _cfg: ["sales", "supply-chain"])
+    monkeypatch.setattr(
+        e2e,
+        "expected_user_code_pods",
+        lambda _cfg, _locations: [
+            "dagster-dagster-user-deployments-sales-abc",
+            "dagster-dagster-user-deployments-supply-chain-def",
+        ],
+    )
+    commands: list[list[str]] = []
+    monkeypatch.setattr(
+        e2e,
+        "kubectl",
+        lambda _cfg, args, *, capture=False: commands.append(args) or deployed_revision + "\n",
+    )
 
-    class FakeS3Client:
-        def list_objects_v2(self, *, Bucket: str, Prefix: str) -> dict[str, Any]:
-            assert Bucket == "ops"
-            return {"Contents": [{"Key": key} for key in objects if key.startswith(Prefix)]}
+    assert e2e.deployed_floe_manifest_revision(local_cfg) == deployed_revision
+    assert commands == [
+        [
+            "exec",
+            "-n",
+            "lakehouse",
+            "dagster-dagster-user-deployments-sales-abc",
+            "--",
+            "printenv",
+            "OPENLAKEFORGE_FLOE_MANIFEST_REVISION_BUILT",
+        ],
+        [
+            "exec",
+            "-n",
+            "lakehouse",
+            "dagster-dagster-user-deployments-supply-chain-def",
+            "--",
+            "printenv",
+            "OPENLAKEFORGE_FLOE_MANIFEST_REVISION_BUILT",
+        ],
+    ]
 
-        def get_object(self, *, Bucket: str, Key: str) -> dict[str, io.BytesIO]:
-            assert Bucket == "ops"
-            return {"Body": io.BytesIO(objects[Key])}
 
-    e2e.assert_immutable_floe_manifests(FakeS3Client(), "ops", INVENTORY)
+def test_deployed_floe_manifest_revision_rejects_inconsistent_user_code_pods(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    values = iter(("sha256:" + "a" * 64, "sha256:" + "b" * 64))
+    monkeypatch.setattr(e2e, "expected_repository_location_names", lambda _cfg: ["sales", "supply-chain"])
+    monkeypatch.setattr(e2e, "expected_user_code_pods", lambda _cfg, _locations: ["sales", "supply-chain"])
+    monkeypatch.setattr(e2e, "kubectl", lambda *_args, **_kwargs: next(values))
+
+    with pytest.raises(e2e.E2EError, match="disagree on the built Floe manifest revision"):
+        e2e.deployed_floe_manifest_revision(cfg(tmp_path))
 
 
-def test_assert_immutable_floe_manifests_requires_all_descriptor_manifests() -> None:
-    sidecar = "floe/revisions/sha256/" + "a" * 64 + "/REVISION.json"
+def test_assert_immutable_floe_manifests_verifies_deployed_revision(
+    monkeypatch: pytest.MonkeyPatch
+) -> None:
+    deployed_revision = "sha256:" + "a" * 64
 
-    class FakeS3Client:
-        def list_objects_v2(self, *, Bucket: str, Prefix: str) -> dict[str, Any]:
-            return {"Contents": [{"Key": sidecar}]}
+    def verify(_client: Any, bucket: str, revision: str) -> SimpleNamespace:
+        assert bucket == "ops"
+        assert revision == deployed_revision
+        return SimpleNamespace(entries={key: "a" * 64 for key in INVENTORY.manifest_keys})
 
-        def get_object(self, *, Bucket: str, Key: str) -> dict[str, io.BytesIO]:
-            return {"Body": io.BytesIO(b'{"entries": {}}')}
+    monkeypatch.setattr(
+        e2e.revision,
+        "verify",
+        verify,
+    )
+
+    e2e.assert_immutable_floe_manifests(object(), "ops", INVENTORY, deployed_revision)
+
+
+def test_assert_immutable_floe_manifests_requires_all_descriptor_manifests(monkeypatch: pytest.MonkeyPatch) -> None:
+    deployed_revision = "sha256:" + "a" * 64
+    monkeypatch.setattr(
+        e2e.revision,
+        "verify",
+        lambda *_args: SimpleNamespace(entries={INVENTORY.manifest_keys[0]: "a" * 64}),
+    )
 
     with pytest.raises(e2e.E2EError, match="every descriptor-discovered product manifest"):
-        e2e.assert_immutable_floe_manifests(FakeS3Client(), "ops", INVENTORY)
+        e2e.assert_immutable_floe_manifests(object(), "ops", INVENTORY, deployed_revision)
 
 
 def test_run_retry_retries_transient_command_errors(monkeypatch: pytest.MonkeyPatch) -> None:
