@@ -213,17 +213,17 @@ def test_patch_deployment_image_if_exists_uses_strategic_patch(monkeypatch: pyte
 def test_discover_dagster_user_deployments_filters_chart_generated_names(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    calls: list[list[str]] = []
     monkeypatch.setattr(
         k8s,
         "_kubectl",
-        lambda args, **kwargs: "\n".join(
+        lambda args, **kwargs: calls.append(args)
+        or "\n".join(
             [
                 "dagster-user-deployments-openlakeforge-dagster",
                 "dagster-dagster-user-deployments-current-chart",
-                "dagster-webserver",
                 "dagster-user-deployments-domain-a",
                 "dagster-user-deployments-domain-b",
-                "custom-dagster",
             ]
         ),
     )
@@ -235,6 +235,18 @@ def test_discover_dagster_user_deployments_filters_chart_generated_names(
         "dagster-dagster-user-deployments-current-chart",
         "dagster-user-deployments-domain-a",
         "dagster-user-deployments-domain-b",
+    ]
+    assert calls == [
+        [
+            "get",
+            "deployments",
+            "-n",
+            "lakehouse",
+            "-l",
+            "app.kubernetes.io/name=dagster-user-deployments,app.kubernetes.io/instance=dagster",
+            "-o",
+            'jsonpath={range .items[*]}{.metadata.name}{"\\n"}{end}',
+        ]
     ]
 
 

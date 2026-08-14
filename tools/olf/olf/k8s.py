@@ -138,12 +138,14 @@ def discover_dagster_user_deployments(namespace: str) -> list[str]:
             "deployments",
             "-n",
             namespace,
+            "-l",
+            "app.kubernetes.io/name=dagster-user-deployments,app.kubernetes.io/instance=dagster",
             "-o",
             'jsonpath={range .items[*]}{.metadata.name}{"\\n"}{end}',
         ],
         capture=True,
     )
-    return [name for name in raw.splitlines() if "dagster-user-deployments-" in name]
+    return raw.splitlines()
 
 
 # --- Pure image-patch builders (unit tested) -------------------------------
