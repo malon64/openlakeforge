@@ -62,15 +62,11 @@ export FLOE_RUNTIME_ARTIFACT_DIR
 export FLOE_PERSIST_RUNTIME_ARTIFACTS="true"
 NAMESPACE="${NAMESPACE}" bash "${REPO_ROOT}/scripts/artifacts/floe-manifest.sh"
 
-echo "==> Computing immutable Floe runtime-artifact revision..."
-FLOE_MANIFEST_REVISION="$(olf_run revision compute --runtime-root "${FLOE_RUNTIME_ARTIFACT_DIR}")"
+echo "==> Publishing and verifying immutable Floe runtime-artifact revision..."
+FLOE_MANIFEST_REVISION="$(olf_run revision activate --via port-forward --runtime-root "${FLOE_RUNTIME_ARTIFACT_DIR}")"
 export FLOE_MANIFEST_REVISION
 
 prepare_local_project_code_image
-
-echo "==> Publishing immutable Floe runtime-artifact revision ${FLOE_MANIFEST_REVISION}..."
-olf_run revision publish --via port-forward --runtime-root "${FLOE_RUNTIME_ARTIFACT_DIR}"
-olf_run revision verify --via port-forward --revision "${FLOE_MANIFEST_REVISION}"
 
 if [[ "${PROJECT_CODE_IMAGE_TAG}" != "local" ]]; then
   echo "==> Publishing legacy Floe manifests for the supplied project-code image..."

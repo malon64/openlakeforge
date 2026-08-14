@@ -18,12 +18,15 @@ DOCKER_SERVER_ARCH="$(docker version --format '{{.Server.Arch}}' 2>/dev/null || 
 case "${DOCKER_SERVER_ARCH}" in
   arm64|aarch64)
     POLARIS_IMAGE="apache/polaris:1.4.0@sha256:705f7c0294bee6e8f1586276205d5525a714ed134549ab6f945850b6ee85fc94"
+    POLARIS_ADMIN_TOOL_IMAGE="apache/polaris-admin-tool:1.4.0@sha256:c5313c03a1575bca4e1a85d807417a08de3f213bccb6a0fffd321c8dcef6994f"
     ;;
   amd64|x86_64)
     POLARIS_IMAGE="apache/polaris:1.4.0@sha256:f4676e56a3a64bfa742c8ace36e6eb9f28697e4a6c2eca46b4869e094edb4d41"
+    POLARIS_ADMIN_TOOL_IMAGE="apache/polaris-admin-tool:1.4.0@sha256:3b13addc425766cd1e39fc33f1496dbd8512c00e2d87b0a1f5b932f8195cfd2c"
     ;;
   *)
     POLARIS_IMAGE="apache/polaris:1.4.0"
+    POLARIS_ADMIN_TOOL_IMAGE="apache/polaris-admin-tool:1.4.0@sha256:7ef7557b528964e792caeaef3908434bd99c7d2f994caa654da1d77c6b428a80"
     ;;
 esac
 
@@ -33,7 +36,7 @@ if [[ "${ENABLE_GOVERNANCE}" == "true" ]]; then
     "opensearchproject/opensearch:2.11.0"
   )
 fi
-IMAGES+=("${POLARIS_IMAGE}")
+IMAGES+=("${POLARIS_IMAGE}" "${POLARIS_ADMIN_TOOL_IMAGE}")
 if [[ "${ENABLE_GOVERNANCE}" == "true" ]]; then
   IMAGES+=(
     "docker.getcollate.io/openmetadata/server:1.12.10"

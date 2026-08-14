@@ -87,6 +87,7 @@ prepare_local_superset_image() {
 
 terraform_apply_once() {
   cleanup_failed_jobs_by_prefix "polaris-bootstrap-"
+  cleanup_failed_jobs_by_prefix "polaris-metastore-bootstrap-"
 
   terraform -chdir="${TERRAFORM_DIR}" apply -auto-approve \
     ${TFVARS_ARGS[@]+"${TFVARS_ARGS[@]}"} \

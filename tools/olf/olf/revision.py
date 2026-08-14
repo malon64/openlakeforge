@@ -109,6 +109,13 @@ def compute_revision(runtime_root: Path) -> RevisionManifest:
     return manifest_from_uploads(uploads)
 
 
+def activate(client: Any, bucket: str, uploads: list[s3.ManifestUpload]) -> RevisionManifest:
+    """Publish and verify an immutable artifact revision before it is deployed."""
+    manifest = publish(client, bucket, uploads)
+    verify(client, bucket, manifest.revision)
+    return manifest
+
+
 def revision_prefix(revision: str) -> str:
     return f"{REVISION_PREFIX}/sha256/{_revision_digest(revision)}"
 

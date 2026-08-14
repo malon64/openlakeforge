@@ -115,6 +115,12 @@ variable "bootstrap_job_image" {
   default     = "alpine/k8s:1.30.0@sha256:bd01dae02676ce4cab62fc744e43443eee5bf660054e94d3496d23bfc35d384e"
 }
 
+variable "metastore_bootstrap_job_image" {
+  description = "Version-matched Polaris Admin Tool image used to initialize the relational metastore."
+  type        = string
+  default     = "apache/polaris-admin-tool:1.4.0@sha256:7ef7557b528964e792caeaef3908434bd99c7d2f994caa654da1d77c6b428a80"
+}
+
 variable "om_principal_name" {
   description = "Polaris service principal name for OpenMetadata (read-only catalog discovery)."
   type        = string

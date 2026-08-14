@@ -8,9 +8,10 @@ replicaCount: 1
 
 # Polaris stores catalog state in the shared in-cluster PostgreSQL service.
 # Terraform supplies the relational JDBC Secret reference from the database contract.
-polaris:
-  persistence:
-    type: relational-jdbc
+# This is a chart-level value; nesting it under `polaris` silently selects the
+# chart's in-memory default and loses principals after a pod restart.
+persistence:
+  type: relational-jdbc
 
 service:
   type: ClusterIP

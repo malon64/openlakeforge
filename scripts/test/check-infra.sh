@@ -47,10 +47,15 @@ helm template seaweedfs seaweedfs/seaweedfs \
   --values infra/helm/values/local/seaweedfs.yaml >/dev/null
 
 echo "==> Helm template: Polaris"
-helm template polaris polaris/polaris \
+polaris_render="$(helm template polaris polaris/polaris \
   --version 1.4.1 \
   --namespace lakehouse \
-  --values infra/helm/values/local/polaris.yaml >/dev/null
+  --values infra/helm/values/local/polaris.yaml)"
+
+if ! grep -q '^    polaris.persistence.type=relational-jdbc$' <<<"${polaris_render}"; then
+  echo "ERROR: rendered Polaris chart is not configured for relational JDBC persistence." >&2
+  exit 1
+fi
 
 echo "==> Helm template: Trino"
 helm template trino trino/trino \

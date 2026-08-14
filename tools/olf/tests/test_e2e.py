@@ -1,5 +1,7 @@
+import json
 import os
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -104,8 +106,8 @@ def test_unhealthy_pod_messages_reports_unready_and_failed_pods() -> None:
     ]
 
 
-def test_classify_pod_health_warns_for_unrelated_failed_job() -> None:
-    bad, warned = e2e.classify_pod_health(
+def test_classify_pod_health_ignores_job_attempt_pods() -> None:
+    assert e2e.classify_pod_health(
         {
             "items": [
                 {
@@ -117,73 +119,192 @@ def test_classify_pod_health_warns_for_unrelated_failed_job() -> None:
                     "status": {"phase": "Failed"},
                 }
             ]
-        },
-        suite_jobs=INVENTORY.job_names,
+        }
+    ) == []
+
+
+def test_classify_job_health_accepts_completed_job_with_failed_retry_pod() -> None:
+    bad, warned = e2e.classify_job_health(
+        {
+            "items": [
+                {
+                    "metadata": {"name": "postgresql-bootstrap"},
+                    "spec": {
+                        "template": {
+                            "metadata": {"labels": {"openlakeforge.io/readiness": "required"}}
+                        }
+                    },
+                    "status": {
+                        "failed": 2,
+                        "succeeded": 1,
+                        "conditions": [{"type": "Complete", "status": "True"}],
+                    },
+                }
+            ]
+        }
     )
+    assert warned == []
     assert bad == []
-    assert "unrelated Job om-job-pod" in warned[0]
 
 
-def test_classify_pod_health_blocks_suite_owned_job() -> None:
-    bad, warned = e2e.classify_pod_health(
+def test_classify_job_health_blocks_failed_platform_bootstrap_job() -> None:
+    bad, warned = e2e.classify_job_health(
+        {
+            "items": [
+                {
+                    "metadata": {"name": "polaris-bootstrap"},
+                    "spec": {
+                        "template": {
+                            "metadata": {"labels": {"openlakeforge.io/readiness": "required"}}
+                        }
+                    },
+                    "status": {"conditions": [{"type": "Failed", "status": "True"}]},
+                }
+            ]
+        }
+    )
+
+    assert warned == []
+    assert bad == ["polaris-bootstrap: Failed"]
+
+
+def test_classify_job_health_warns_for_historical_cron_job_failure() -> None:
+    bad, warned = e2e.classify_job_health(
+        {
+            "items": [
+                {
+                    "metadata": {"name": "openmetadata-polaris-refresh-old"},
+                    "spec": {"template": {"metadata": {"labels": {"openlakeforge.io/job": "catalog-refresh"}}}},
+                    "status": {"conditions": [{"type": "Failed", "status": "True"}]},
+                }
+            ]
+        }
+    )
+
+    assert bad == []
+    assert warned == [
+        "openmetadata-polaris-refresh-old: non-blocking Job is Failed; continuing E2E readiness"
+    ]
+
+
+def test_classify_job_health_blocks_active_suite_job() -> None:
+    bad, warned = e2e.classify_job_health(
         {
             "items": [
                 {
                     "metadata": {
-                        "name": "run-pod",
-                        "ownerReferences": [{"kind": "Job", "name": "sales_order_revenue_pipeline-run"}],
+                        "name": "dagster-run-current",
+                        "labels": {"dagster/job": "sales_order_revenue_pipeline"},
                     },
-                    "status": {"phase": "Failed"},
+                    "status": {"active": 1},
                 }
             ]
         },
-        suite_jobs=INVENTORY.job_names,
+        suite_jobs=("sales_order_revenue_pipeline",),
     )
+
+    assert bad == ["dagster-run-current: Running"]
     assert warned == []
-    assert bad == ["run-pod: Failed"]
 
 
-def test_classify_pod_health_blocks_platform_bootstrap_job() -> None:
-    bad, warned = e2e.classify_pod_health(
+def test_classify_job_health_warns_for_historical_suite_job_failure() -> None:
+    bad, warned = e2e.classify_job_health(
         {
             "items": [
                 {
                     "metadata": {
-                        "name": "polaris-bootstrap-pod",
-                        "ownerReferences": [{"kind": "Job", "name": "polaris-bootstrap"}],
-                        "labels": {
-                            "job-name": "polaris-bootstrap",
-                            "openlakeforge.io/job": "catalog-bootstrap",
-                        },
+                        "name": "dagster-run-old",
+                        "labels": {"dagster/job": "sales_order_revenue_pipeline"},
                     },
-                    "status": {"phase": "Failed"},
+                    "status": {"conditions": [{"type": "Failed", "status": "True"}]},
                 }
             ]
         },
-        suite_jobs=INVENTORY.job_names,
+        suite_jobs=("sales_order_revenue_pipeline",),
     )
 
-    assert warned == []
-    assert bad == ["polaris-bootstrap-pod: Failed"]
-
-
-def test_workload_health_classifies_required_service() -> None:
-    assert (
-        e2e.workload_health_class({"metadata": {"name": "dagster-webserver"}}, INVENTORY.job_names)
-        == "required-service"
-    )
+    assert bad == []
+    assert warned == ["dagster-run-old: non-blocking Job is Failed; continuing E2E readiness"]
 
 
 def test_check_pods_ready_retries_until_pods_are_ready(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    payloads = [
-        '{"items":[{"metadata":{"name":"service"},"status":{"phase":"Running","containerStatuses":[{"name":"app","ready":false}]}}]}',
-        '{"items":[{"metadata":{"name":"service"},"status":{"phase":"Running","containerStatuses":[{"name":"app","ready":true}]}}]}',
-    ]
-    monkeypatch.setattr(e2e, "kubectl", lambda _cfg, _args, capture=False: payloads.pop(0))
+    pod_payloads = iter(
+        [
+            '{"items":[{"metadata":{"name":"service"},"status":{"phase":"Running","containerStatuses":[{"name":"app","ready":false}]}}]}',
+            '{"items":[{"metadata":{"name":"service"},"status":{"phase":"Running","containerStatuses":[{"name":"app","ready":true}]}}]}',
+        ]
+    )
+
+    def kubectl(_cfg, args, capture=False):  # noqa: ANN001, ARG001 - test double
+        return next(pod_payloads) if args[1] == "pods" else '{"items":[]}'
+
+    monkeypatch.setattr(e2e, "kubectl", kubectl)
     monkeypatch.setattr(e2e.time, "sleep", lambda _delay: None)
 
     e2e.check_pods_ready(cfg(tmp_path))
-    assert payloads == []
+
+
+def test_check_pods_ready_uses_job_completion_not_retry_pod_phase(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    calls: list[list[str]] = []
+    pod_payload = json.dumps(
+        {
+            "items": [
+                {
+                    "metadata": {
+                        "name": "postgresql-bootstrap-retry",
+                        "ownerReferences": [{"kind": "Job", "name": "postgresql-bootstrap"}],
+                    },
+                    "status": {"phase": "Failed"},
+                }
+            ]
+        }
+    )
+    job_payload = json.dumps(
+        {
+            "items": [
+                {
+                    "metadata": {"name": "postgresql-bootstrap"},
+                    "spec": {
+                        "template": {
+                            "metadata": {"labels": {"openlakeforge.io/readiness": "required"}}
+                        }
+                    },
+                    "status": {"conditions": [{"type": "Complete", "status": "True"}]},
+                }
+            ]
+        }
+    )
+
+    def kubectl(_cfg, args, capture=False):  # noqa: ANN001, ARG001 - test double
+        calls.append(args)
+        return pod_payload if args[1] == "pods" else job_payload
+
+    monkeypatch.setattr(e2e, "kubectl", kubectl)
+
+    e2e.check_pods_ready(cfg(tmp_path))
+
+    assert calls == [
+        ["get", "pods", "-n", "lakehouse", "-o", "json"],
+        ["get", "jobs", "-n", "lakehouse", "-o", "json"],
+    ]
+
+
+def test_job_diagnostics_use_configured_namespace(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    calls: list[list[str]] = []
+    monkeypatch.setattr(e2e, "kubectl", lambda _cfg, args, capture=False: calls.append(args) or "job log")
+
+    assert e2e._bounded_job_diagnostics(cfg(tmp_path), ["polaris-bootstrap"]) == "polaris-bootstrap:\njob log"
+    assert calls == [["logs", "-n", "lakehouse", "job/polaris-bootstrap", "--tail=80"]]
+
+
+def test_pod_diagnostics_use_configured_namespace(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    calls: list[list[str]] = []
+    monkeypatch.setattr(e2e, "kubectl", lambda _cfg, args, capture=False: calls.append(args) or "pod log")
+
+    assert e2e._bounded_pod_diagnostics(cfg(tmp_path), ["trino-coordinator"]) == "trino-coordinator:\npod log"
+    assert calls == [["logs", "-n", "lakehouse", "pod/trino-coordinator", "--all-containers", "--tail=80"]]
 
 
 @pytest.mark.parametrize("env", ["local", "azure", "aws"])
@@ -224,6 +345,7 @@ def test_local_smoke_runs_only_the_descriptor_default_product(monkeypatch: pytes
     local_cfg = cfg(tmp_path, suite="smoke")
 
     monkeypatch.setattr(e2e, "check_trino_catalog", lambda _cfg: calls.append("catalog"))
+    monkeypatch.setattr(e2e, "check_catalog_namespaces", lambda _cfg: calls.append("namespaces"))
     monkeypatch.setattr(
         e2e,
         "launch_and_poll_dagster_jobs",
@@ -237,7 +359,17 @@ def test_local_smoke_runs_only_the_descriptor_default_product(monkeypatch: pytes
 
     e2e.run_smoke(local_cfg)
 
-    assert calls == ["catalog", (INVENTORY.default_product.id,), ("tables", INVENTORY.default_product.id)]
+    assert calls == ["catalog", "namespaces", (INVENTORY.default_product.id,), ("tables", INVENTORY.default_product.id)]
+
+
+def test_check_catalog_namespaces_reports_missing_descriptor_namespace(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    available = INVENTORY.silver_namespace_names | (INVENTORY.gold_namespace_names - {"sales_order_revenue_gold"})
+    monkeypatch.setattr(e2e, "trino_query", lambda _cfg, _sql: "\n".join(sorted(available)))
+
+    with pytest.raises(e2e.E2EError, match="sales_order_revenue_gold"):
+        e2e.check_catalog_namespaces(cfg(tmp_path))
 
 
 def test_smoke_product_table_check_fails_for_an_empty_gold_mart(
@@ -255,9 +387,9 @@ def test_smoke_product_table_check_fails_for_an_empty_gold_mart(
 @pytest.mark.parametrize(
     ("env", "expected"),
     [
-        ("local", ["jobs", "tables", "recovery", "superset", "openmetadata", "artifacts"]),
-        ("azure", ["jobs", "tables", "superset", "openmetadata", "artifacts"]),
-        ("aws", ["jobs", "tables", "superset", "openmetadata", "artifacts"]),
+        ("local", ["namespaces", "jobs", "tables", "recovery", "superset", "openmetadata", "artifacts"]),
+        ("azure", ["namespaces", "jobs", "tables", "superset", "openmetadata", "artifacts"]),
+        ("aws", ["namespaces", "jobs", "tables", "superset", "openmetadata", "artifacts"]),
     ],
 )
 def test_run_full_only_restarts_polaris_for_local(
@@ -265,6 +397,7 @@ def test_run_full_only_restarts_polaris_for_local(
 ) -> None:
     calls: list[str] = []
 
+    monkeypatch.setattr(e2e, "check_catalog_namespaces", lambda _cfg: calls.append("namespaces"))
     monkeypatch.setattr(e2e, "launch_and_poll_dagster_jobs", lambda _cfg: calls.append("jobs"))
     monkeypatch.setattr(e2e, "check_trino_tables_and_marts", lambda _cfg: calls.append("tables"))
     monkeypatch.setattr(e2e, "check_polaris_restart_recovery", lambda _cfg: calls.append("recovery"))
@@ -284,6 +417,7 @@ def test_run_full_skips_disabled_layer_assertions_and_reports_them(
     calls: list[str] = []
     messages: list[str] = []
 
+    monkeypatch.setattr(e2e, "check_catalog_namespaces", lambda _cfg: calls.append("namespaces"))
     monkeypatch.setattr(e2e, "launch_and_poll_dagster_jobs", lambda _cfg: calls.append("jobs"))
     monkeypatch.setattr(e2e, "check_trino_tables_and_marts", lambda _cfg: calls.append("tables"))
     monkeypatch.setattr(e2e, "check_polaris_restart_recovery", lambda _cfg: calls.append("recovery"))
@@ -295,7 +429,7 @@ def test_run_full_skips_disabled_layer_assertions_and_reports_them(
 
     e2e.run_full(cfg(tmp_path))
 
-    assert calls == ["jobs", "tables", "recovery", "artifacts"]
+    assert calls == ["namespaces", "jobs", "tables", "recovery", "artifacts"]
     assert "Skipped e2e assertions: Superset dashboards, OpenMetadata governance assets" in messages
 
 
@@ -856,22 +990,61 @@ def test_expected_user_code_pods_filters_to_configured_locations(
     monkeypatch.setattr(
         e2e,
         "kubectl",
-        lambda *_args, **_kwargs: '''
-        {"items": [
-          {"metadata": {"name": "dagster-user-deployments-openlakeforge-dagster-abc"}},
-          {"metadata": {"name": "dagster-user-deployments-sales-dagster-def"}},
-          {"metadata": {"name": "dagster-user-deployments-supply-chain-dagster-ghi"}},
-          {"metadata": {"name": "unrelated"}}
-        ]}
-        ''',
+        lambda *_args, **_kwargs: json.dumps(
+            {
+                "items": [
+                    {
+                        "metadata": {
+                            "name": "dagster-dagster-user-deployments-openlakeforge-dagster-abc",
+                            "labels": {
+                                "app.kubernetes.io/name": "dagster-user-deployments",
+                                "app.kubernetes.io/instance": "dagster",
+                                "deployment": "openlakeforge-dagster",
+                            },
+                        }
+                    },
+                    {
+                        "metadata": {
+                            "name": "dagster-dagster-user-deployments-sales-dagster-def",
+                            "labels": {
+                                "app.kubernetes.io/name": "dagster-user-deployments",
+                                "app.kubernetes.io/instance": "dagster",
+                                "deployment": "sales-dagster",
+                            },
+                        }
+                    },
+                    {
+                        "metadata": {
+                            "name": "dagster-dagster-user-deployments-supply-chain-dagster-ghi",
+                            "labels": {
+                                "app.kubernetes.io/name": "dagster-user-deployments",
+                                "app.kubernetes.io/instance": "dagster",
+                                "deployment": "supply-chain-dagster",
+                            },
+                        }
+                    },
+                    {
+                        "metadata": {
+                            "name": "other-release-user-code",
+                            "labels": {
+                                "app.kubernetes.io/name": "dagster-user-deployments",
+                                "app.kubernetes.io/instance": "other-dagster",
+                                "deployment": "openlakeforge-dagster",
+                            },
+                        }
+                    },
+                    {"metadata": {"name": "unrelated"}},
+                ]
+            }
+        ),
     )
 
     assert e2e.expected_user_code_pods(cfg(tmp_path), ["openlakeforge-dagster"]) == [
-        "dagster-user-deployments-openlakeforge-dagster-abc"
+        "dagster-dagster-user-deployments-openlakeforge-dagster-abc"
     ]
     assert e2e.expected_user_code_pods(cfg(tmp_path), ["sales-dagster", "supply-chain-dagster"]) == [
-        "dagster-user-deployments-sales-dagster-def",
-        "dagster-user-deployments-supply-chain-dagster-ghi",
+        "dagster-dagster-user-deployments-sales-dagster-def",
+        "dagster-dagster-user-deployments-supply-chain-dagster-ghi",
     ]
 
 
@@ -1110,13 +1283,118 @@ def test_check_ops_artifacts_uses_configured_bucket_for_local(monkeypatch: pytes
     monkeypatch.setattr(
         e2e,
         "assert_ops_artifacts",
-        lambda _client, bucket, namespace, _inventory: artifact_checks.append((bucket, namespace)),
+        lambda _client, bucket, namespace, _inventory, deployed_revision: artifact_checks.append(
+            (bucket, namespace, deployed_revision)
+        ),
     )
+    monkeypatch.setattr(e2e, "deployed_floe_manifest_revision", lambda _cfg: "sha256:" + "a" * 64)
 
     e2e.check_ops_artifacts(local_cfg)
 
     assert bucket_waits == [("custom-ops-bucket", "http://127.0.0.1:19000")]
-    assert artifact_checks == [("custom-ops-bucket", "lakehouse")]
+    assert artifact_checks == [("custom-ops-bucket", "lakehouse", "sha256:" + "a" * 64)]
+
+
+def test_deployed_floe_manifest_revision_reads_running_user_code_pods(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    deployed_revision = "sha256:" + "a" * 64
+    local_cfg = cfg(tmp_path)
+    monkeypatch.setattr(e2e, "expected_repository_location_names", lambda _cfg: ["sales", "supply-chain"])
+    monkeypatch.setattr(
+        e2e,
+        "expected_user_code_pods",
+        lambda _cfg, _locations: [
+            "dagster-dagster-user-deployments-sales-abc",
+            "dagster-dagster-user-deployments-supply-chain-def",
+        ],
+    )
+    commands: list[list[str]] = []
+    monkeypatch.setattr(
+        e2e,
+        "kubectl",
+        lambda _cfg, args, *, capture=False: commands.append(args) or deployed_revision + "\n",
+    )
+
+    assert e2e.deployed_floe_manifest_revision(local_cfg) == deployed_revision
+    assert commands == [
+        [
+            "exec",
+            "-n",
+            "lakehouse",
+            "dagster-dagster-user-deployments-sales-abc",
+            "--",
+            "printenv",
+            "OPENLAKEFORGE_FLOE_MANIFEST_REVISION_BUILT",
+        ],
+        [
+            "exec",
+            "-n",
+            "lakehouse",
+            "dagster-dagster-user-deployments-supply-chain-def",
+            "--",
+            "printenv",
+            "OPENLAKEFORGE_FLOE_MANIFEST_REVISION_BUILT",
+        ],
+    ]
+
+
+def test_deployed_floe_manifest_revision_rejects_inconsistent_user_code_pods(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    values = iter(("sha256:" + "a" * 64, "sha256:" + "b" * 64))
+    monkeypatch.setattr(e2e, "expected_repository_location_names", lambda _cfg: ["sales", "supply-chain"])
+    monkeypatch.setattr(e2e, "expected_user_code_pods", lambda _cfg, _locations: ["sales", "supply-chain"])
+    monkeypatch.setattr(e2e, "kubectl", lambda *_args, **_kwargs: next(values))
+
+    with pytest.raises(e2e.E2EError, match="disagree on the built Floe manifest revision"):
+        e2e.deployed_floe_manifest_revision(cfg(tmp_path))
+
+
+def test_assert_immutable_floe_manifests_verifies_deployed_revision(
+    monkeypatch: pytest.MonkeyPatch
+) -> None:
+    deployed_revision = "sha256:" + "a" * 64
+
+    def verify(_client: Any, bucket: str, revision: str) -> SimpleNamespace:
+        assert bucket == "ops"
+        assert revision == deployed_revision
+        return SimpleNamespace(entries={key: "a" * 64 for key in INVENTORY.manifest_keys})
+
+    monkeypatch.setattr(
+        e2e.revision,
+        "verify",
+        verify,
+    )
+
+    e2e.assert_immutable_floe_manifests(object(), "ops", INVENTORY, deployed_revision)
+
+
+def test_assert_immutable_floe_manifests_requires_all_descriptor_manifests(monkeypatch: pytest.MonkeyPatch) -> None:
+    deployed_revision = "sha256:" + "a" * 64
+    monkeypatch.setattr(
+        e2e.revision,
+        "verify",
+        lambda *_args: SimpleNamespace(entries={INVENTORY.manifest_keys[0]: "a" * 64}),
+    )
+
+    with pytest.raises(e2e.E2EError, match="every descriptor-discovered product manifest"):
+        e2e.assert_immutable_floe_manifests(object(), "ops", INVENTORY, deployed_revision)
+
+
+def test_assert_ops_artifacts_uses_legacy_manifests_for_supplied_local_image(monkeypatch: pytest.MonkeyPatch) -> None:
+    checked: list[tuple[str, str]] = []
+
+    class FakeS3Client:
+        def head_object(self, *, Bucket: str, Key: str) -> None:
+            checked.append((Bucket, Key))
+
+    monkeypatch.setattr(e2e, "require_s3_prefix", lambda *_args: None)
+    monkeypatch.setattr(e2e, "assert_immutable_floe_manifests", lambda *_args: pytest.fail("must use legacy checks"))
+
+    e2e.assert_ops_artifacts(FakeS3Client(), "ops", "lakehouse", INVENTORY, "manual")
+
+    assert checked == [("ops", key) for key in INVENTORY.manifest_keys]
 
 
 def test_run_retry_retries_transient_command_errors(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1230,7 +1508,10 @@ def test_two_product_fixture_repo_drives_exactly_its_own_jobs_dashboards_and_mar
         ],
         expected,
     )
-    bad, warned = e2e.classify_pod_health(
+    # Pipeline Job attempts are assessed by the launch-and-poll assertion, not
+    # by the initial platform readiness check. Historical failed attempts must
+    # not prevent a later suite from starting.
+    assert e2e.classify_pod_health(
         {
             "items": [
                 {
@@ -1241,11 +1522,8 @@ def test_two_product_fixture_repo_drives_exactly_its_own_jobs_dashboards_and_mar
                     "status": {"phase": "Failed"},
                 }
             ]
-        },
-        suite_jobs=fixture_cfg.inventory.job_names,
-    )
-    assert warned == []
-    assert bad == ["widgets-alpha-run-pod: Failed"]
+        }
+    ) == []
 
 
 def test_discovered_dashboards_rejects_a_product_with_no_dashboard_export(tmp_path: Path) -> None:

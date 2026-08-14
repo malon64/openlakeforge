@@ -17,25 +17,37 @@ locals {
     #!/bin/sh
     set -eu
 
+    psql_with_retry() {
+      attempt=1
+      while true; do
+        psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" "$@" && return 0
+        status=$?
+        if [ "$status" -ne 2 ] || [ "$attempt" -ge 30 ]; then
+          return "$status"
+        fi
+        echo "PostgreSQL connection was lost; retrying bootstrap query ($attempt/30)..." >&2
+        attempt=$((attempt + 1))
+        sleep 2
+      done
+    }
+
     psql_base() {
-      psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname postgres "$@"
+      psql_with_retry --dbname postgres "$@"
     }
 
     create_or_update_role() {
       role_name="$1"
       role_password="$2"
 
-      psql_base <<SQL
-    DO \$\$
+      psql_base -c "DO \$\$
     BEGIN
       IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = '$role_name') THEN
-        CREATE ROLE "$role_name" LOGIN PASSWORD '$role_password';
+        CREATE ROLE \"$role_name\" LOGIN PASSWORD '$role_password';
       ELSE
-        ALTER ROLE "$role_name" WITH LOGIN PASSWORD '$role_password';
+        ALTER ROLE \"$role_name\" WITH LOGIN PASSWORD '$role_password';
       END IF;
     END
-    \$\$;
-    SQL
+    \$\$;"
     }
 
     create_database_if_missing() {
@@ -50,7 +62,7 @@ locals {
 
       psql_base -c "ALTER DATABASE \"$db_name\" OWNER TO \"$owner_name\";"
       psql_base -c "GRANT ALL PRIVILEGES ON DATABASE \"$db_name\" TO \"$owner_name\";"
-      psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$db_name" \
+      psql_with_retry --dbname "$db_name" \
         -c "GRANT ALL ON SCHEMA public TO \"$owner_name\";" \
         -c "ALTER SCHEMA public OWNER TO \"$owner_name\";"
     }
@@ -418,7 +430,8 @@ resource "kubernetes_job_v1" "bootstrap" {
     template {
       metadata {
         labels = merge(local.pod_labels, {
-          "openlakeforge.io/job" = "postgresql-bootstrap"
+          "openlakeforge.io/job"       = "postgresql-bootstrap"
+          "openlakeforge.io/readiness" = "required"
         })
       }
 

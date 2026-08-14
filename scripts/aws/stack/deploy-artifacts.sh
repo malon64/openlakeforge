@@ -74,11 +74,16 @@ olf_run catalog sync-namespaces
 echo "==> Generating product Floe manifests before baking the project-code image..."
 NAMESPACE="${NAMESPACE}" bash "${REPO_ROOT}/scripts/artifacts/floe-manifest.sh"
 
+echo "==> Publishing and verifying immutable Floe runtime-artifact revision..."
+FLOE_MANIFEST_REVISION="$(olf_run revision activate --via direct --runtime-root "${FLOE_RUNTIME_ARTIFACT_DIR}")"
+export FLOE_MANIFEST_REVISION
+
 echo "==> Building and pushing AWS project-code image..."
 AWS_REGION="${AWS_REGION}" \
 AWS_IMAGE_TAG="${AWS_IMAGE_TAG}" \
 PROJECT_CODE_IMAGE_REPOSITORY="${PROJECT_CODE_IMAGE_REPOSITORY}" \
 PROJECT_CODE_IMAGE_TAG="${PROJECT_CODE_IMAGE_TAG}" \
+FLOE_MANIFEST_REVISION="${FLOE_MANIFEST_REVISION}" \
   bash "${SCRIPT_DIR}/../images/build-push-project-code.sh"
 
 echo "==> Publishing product Floe runtime artifacts to the AWS S3 ops bucket..."
