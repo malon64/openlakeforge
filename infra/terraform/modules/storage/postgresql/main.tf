@@ -39,17 +39,15 @@ locals {
       role_name="$1"
       role_password="$2"
 
-      psql_base <<SQL
-    DO \$\$
+      psql_base -c "DO \$\$
     BEGIN
       IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = '$role_name') THEN
-        CREATE ROLE "$role_name" LOGIN PASSWORD '$role_password';
+        CREATE ROLE \"$role_name\" LOGIN PASSWORD '$role_password';
       ELSE
-        ALTER ROLE "$role_name" WITH LOGIN PASSWORD '$role_password';
+        ALTER ROLE \"$role_name\" WITH LOGIN PASSWORD '$role_password';
       END IF;
     END
-    \$\$;
-    SQL
+    \$\$;"
     }
 
     create_database_if_missing() {

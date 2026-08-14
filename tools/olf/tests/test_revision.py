@@ -57,6 +57,15 @@ def test_publish_uses_revision_qualified_keys_and_is_idempotent(tmp_path: Path) 
     assert len(client.puts) == first_put_count
 
 
+def test_activate_publishes_and_verifies_the_selected_revision(tmp_path: Path) -> None:
+    uploads = _uploads(tmp_path)
+    client = FakeS3()
+
+    manifest = revision.activate(client, "ops", uploads)
+
+    assert revision.verify(client, "ops", manifest.revision) == manifest
+
+
 def test_publish_refuses_different_existing_content(tmp_path: Path) -> None:
     uploads = _uploads(tmp_path)
     client = FakeS3()
