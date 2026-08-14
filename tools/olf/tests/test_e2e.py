@@ -1382,6 +1382,21 @@ def test_assert_immutable_floe_manifests_requires_all_descriptor_manifests(monke
         e2e.assert_immutable_floe_manifests(object(), "ops", INVENTORY, deployed_revision)
 
 
+def test_assert_ops_artifacts_uses_legacy_manifests_for_supplied_local_image(monkeypatch: pytest.MonkeyPatch) -> None:
+    checked: list[tuple[str, str]] = []
+
+    class FakeS3Client:
+        def head_object(self, *, Bucket: str, Key: str) -> None:
+            checked.append((Bucket, Key))
+
+    monkeypatch.setattr(e2e, "require_s3_prefix", lambda *_args: None)
+    monkeypatch.setattr(e2e, "assert_immutable_floe_manifests", lambda *_args: pytest.fail("must use legacy checks"))
+
+    e2e.assert_ops_artifacts(FakeS3Client(), "ops", "lakehouse", INVENTORY, "manual")
+
+    assert checked == [("ops", key) for key in INVENTORY.manifest_keys]
+
+
 def test_run_retry_retries_transient_command_errors(monkeypatch: pytest.MonkeyPatch) -> None:
     attempts = 0
 

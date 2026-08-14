@@ -1168,7 +1168,7 @@ def trigger_log_archive_job(cfg: E2EConfig) -> None:
 
 
 def deployed_floe_manifest_revision(cfg: E2EConfig) -> str:
-    """Read the immutable revision baked into each running Dagster code pod."""
+    """Read the Floe revision marker baked into each running Dagster code pod."""
     location_names = expected_repository_location_names(cfg)
     pods = expected_user_code_pods(cfg, location_names)
     if not pods:
@@ -1190,7 +1190,7 @@ def deployed_floe_manifest_revision(cfg: E2EConfig) -> str:
             capture=True,
         ).strip()
         if not value:
-            raise E2EError(f"Dagster user-code pod {pod} has no built Floe manifest revision.")
+            raise E2EError(f"Dagster user-code pod {pod} has no built Floe manifest revision marker.")
         revisions[pod] = value
 
     unique_revisions = set(revisions.values())
@@ -1207,7 +1207,10 @@ def assert_ops_artifacts(
     inventory: DomainInventory,
     deployed_revision: str,
 ) -> None:
-    assert_immutable_floe_manifests(client, bucket, inventory, deployed_revision)
+    if deployed_revision == "manual":
+        assert_legacy_floe_manifests(client, bucket, inventory)
+    else:
+        assert_immutable_floe_manifests(client, bucket, inventory, deployed_revision)
     product_prefixes = tuple(
         prefix
         for product in inventory.products
@@ -1231,6 +1234,15 @@ def assert_immutable_floe_manifests(
             f"deployed immutable Floe revision {deployed_revision} does not contain every "
             f"descriptor-discovered product manifest: {', '.join(sorted(missing))}."
         )
+
+
+def assert_legacy_floe_manifests(client: Any, bucket: str, inventory: DomainInventory) -> None:
+    """Verify mutable manifests for a supplied local project-code image."""
+    for key in inventory.manifest_keys:
+        try:
+            client.head_object(Bucket=bucket, Key=key)
+        except Exception as exc:
+            raise E2EError(f"missing legacy Floe manifest s3://{bucket}/{key}: {exc}") from exc
 
 
 def wait_for_bucket(client: Any, bucket: str, endpoint: str, *, attempts: int = 60, delay: float = 2.0) -> None:
