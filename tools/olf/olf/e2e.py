@@ -655,6 +655,7 @@ def expected_user_code_pods(cfg: E2EConfig, location_names: Sequence[str]) -> li
         str(item.get("metadata", {}).get("name"))
         for item in payload.get("items", [])
         if item.get("metadata", {}).get("labels", {}).get("app.kubernetes.io/name") == "dagster-user-deployments"
+        and item.get("metadata", {}).get("labels", {}).get("app.kubernetes.io/instance") == "dagster"
         and item.get("metadata", {}).get("labels", {}).get("deployment") in location_names
     ]
 

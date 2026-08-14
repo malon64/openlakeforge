@@ -958,6 +958,7 @@ def test_expected_user_code_pods_filters_to_configured_locations(
                             "name": "dagster-dagster-user-deployments-openlakeforge-dagster-abc",
                             "labels": {
                                 "app.kubernetes.io/name": "dagster-user-deployments",
+                                "app.kubernetes.io/instance": "dagster",
                                 "deployment": "openlakeforge-dagster",
                             },
                         }
@@ -967,6 +968,7 @@ def test_expected_user_code_pods_filters_to_configured_locations(
                             "name": "dagster-dagster-user-deployments-sales-dagster-def",
                             "labels": {
                                 "app.kubernetes.io/name": "dagster-user-deployments",
+                                "app.kubernetes.io/instance": "dagster",
                                 "deployment": "sales-dagster",
                             },
                         }
@@ -976,7 +978,18 @@ def test_expected_user_code_pods_filters_to_configured_locations(
                             "name": "dagster-dagster-user-deployments-supply-chain-dagster-ghi",
                             "labels": {
                                 "app.kubernetes.io/name": "dagster-user-deployments",
+                                "app.kubernetes.io/instance": "dagster",
                                 "deployment": "supply-chain-dagster",
+                            },
+                        }
+                    },
+                    {
+                        "metadata": {
+                            "name": "other-release-user-code",
+                            "labels": {
+                                "app.kubernetes.io/name": "dagster-user-deployments",
+                                "app.kubernetes.io/instance": "other-dagster",
+                                "deployment": "openlakeforge-dagster",
                             },
                         }
                     },
