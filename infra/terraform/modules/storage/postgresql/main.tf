@@ -430,7 +430,8 @@ resource "kubernetes_job_v1" "bootstrap" {
     template {
       metadata {
         labels = merge(local.pod_labels, {
-          "openlakeforge.io/job" = "postgresql-bootstrap"
+          "openlakeforge.io/job"       = "postgresql-bootstrap"
+          "openlakeforge.io/readiness" = "required"
         })
       }
 

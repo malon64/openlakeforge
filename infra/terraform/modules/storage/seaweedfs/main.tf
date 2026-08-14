@@ -118,7 +118,8 @@ resource "kubernetes_job_v1" "bucket" {
     template {
       metadata {
         labels = merge(local.labels, {
-          "openlakeforge.io/job" = "bucket-bootstrap"
+          "openlakeforge.io/job"       = "bucket-bootstrap"
+          "openlakeforge.io/readiness" = "required"
         })
         annotations = local.bucket_job_annotations
       }

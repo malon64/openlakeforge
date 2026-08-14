@@ -178,7 +178,8 @@ resource "kubernetes_job_v1" "bootstrap" {
     template {
       metadata {
         labels = merge(local.labels, {
-          "openlakeforge.io/job" = "governance-bootstrap"
+          "openlakeforge.io/job"       = "governance-bootstrap"
+          "openlakeforge.io/readiness" = "required"
         })
         annotations = local.bootstrap_annotations
       }

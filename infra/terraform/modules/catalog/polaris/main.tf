@@ -183,7 +183,8 @@ resource "kubernetes_job_v1" "metastore_bootstrap" {
     template {
       metadata {
         labels = merge(local.labels, {
-          "openlakeforge.io/job" = "catalog-metastore-bootstrap"
+          "openlakeforge.io/job"       = "catalog-metastore-bootstrap"
+          "openlakeforge.io/readiness" = "required"
         })
         annotations = local.bootstrap_annotations
       }
@@ -320,7 +321,8 @@ resource "kubernetes_job_v1" "bootstrap" {
     template {
       metadata {
         labels = merge(local.labels, {
-          "openlakeforge.io/job" = "catalog-bootstrap"
+          "openlakeforge.io/job"       = "catalog-bootstrap"
+          "openlakeforge.io/readiness" = "required"
         })
         annotations = local.bootstrap_annotations
       }

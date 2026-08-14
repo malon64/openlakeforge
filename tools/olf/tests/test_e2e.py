@@ -131,7 +131,7 @@ def test_classify_job_health_accepts_completed_job_with_failed_retry_pod() -> No
                     "metadata": {"name": "postgresql-bootstrap"},
                     "spec": {
                         "template": {
-                            "metadata": {"labels": {"openlakeforge.io/job": "postgresql-bootstrap"}}
+                            "metadata": {"labels": {"openlakeforge.io/readiness": "required"}}
                         }
                     },
                     "status": {
@@ -155,7 +155,7 @@ def test_classify_job_health_blocks_failed_platform_bootstrap_job() -> None:
                     "metadata": {"name": "polaris-bootstrap"},
                     "spec": {
                         "template": {
-                            "metadata": {"labels": {"openlakeforge.io/job": "catalog-bootstrap"}}
+                            "metadata": {"labels": {"openlakeforge.io/readiness": "required"}}
                         }
                     },
                     "status": {"conditions": [{"type": "Failed", "status": "True"}]},
@@ -268,7 +268,7 @@ def test_check_pods_ready_uses_job_completion_not_retry_pod_phase(
                     "metadata": {"name": "postgresql-bootstrap"},
                     "spec": {
                         "template": {
-                            "metadata": {"labels": {"openlakeforge.io/job": "postgresql-bootstrap"}}
+                            "metadata": {"labels": {"openlakeforge.io/readiness": "required"}}
                         }
                     },
                     "status": {"conditions": [{"type": "Complete", "status": "True"}]},

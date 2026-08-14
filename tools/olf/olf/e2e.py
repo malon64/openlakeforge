@@ -45,16 +45,7 @@ KUBECTL_READ_RETRY_ATTEMPTS = 4
 KUBECTL_READ_RETRY_DELAY_SECONDS = 2
 POLARIS_POD_SELECTOR = "app.kubernetes.io/name=polaris,app.kubernetes.io/instance=polaris"
 POLARIS_RESTART_TIMEOUT_SECONDS = 300
-REQUIRED_PLATFORM_JOB_TYPES = frozenset(
-    {
-        "bucket-bootstrap",
-        "catalog-bootstrap",
-        "catalog-metastore-bootstrap",
-        "governance-bootstrap",
-        "postgresql-bootstrap",
-        "rds-bootstrap",
-    }
-)
+REQUIRED_READINESS_LABEL = "required"
 TRANSIENT_KUBECTL_ERROR_MARKERS = (
     "tls handshake timeout",
     "i/o timeout",
@@ -428,9 +419,8 @@ def classify_job_health(
         metadata = item.get("metadata", {})
         name = str(metadata.get("name", "<unnamed>"))
         labels = item.get("spec", {}).get("template", {}).get("metadata", {}).get("labels", {})
-        job_type = labels.get("openlakeforge.io/job", "")
         state = job_state(item)
-        if job_type in REQUIRED_PLATFORM_JOB_TYPES:
+        if labels.get("openlakeforge.io/readiness") == REQUIRED_READINESS_LABEL:
             if state != "Complete":
                 bad.append(f"{name}: {state}")
             continue
