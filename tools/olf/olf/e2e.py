@@ -45,6 +45,16 @@ KUBECTL_READ_RETRY_ATTEMPTS = 4
 KUBECTL_READ_RETRY_DELAY_SECONDS = 2
 POLARIS_POD_SELECTOR = "app.kubernetes.io/name=polaris,app.kubernetes.io/instance=polaris"
 POLARIS_RESTART_TIMEOUT_SECONDS = 300
+REQUIRED_PLATFORM_JOB_TYPES = frozenset(
+    {
+        "bucket-bootstrap",
+        "catalog-bootstrap",
+        "catalog-metastore-bootstrap",
+        "governance-bootstrap",
+        "postgresql-bootstrap",
+        "rds-bootstrap",
+    }
+)
 TRANSIENT_KUBECTL_ERROR_MARKERS = (
     "tls handshake timeout",
     "i/o timeout",
@@ -75,41 +85,13 @@ class FullAssertion:
     layer: Layer | None = None
 
 
-def workload_health_class(item: Mapping[str, Any], suite_jobs: tuple[str, ...]) -> str:
-    """Classify a Kubernetes workload for E2E readiness policy.
-
-    ReplicaSet/StatefulSet pods and OpenLakeForge bootstrap Jobs are required.
-    Other Job pods are warnings unless their name/labels identify a job owned
-    by this suite.
-    """
-    metadata = item.get("metadata", {})
-    owner_kinds = {str(owner.get("kind")) for owner in metadata.get("ownerReferences", [])}
-    if "Job" not in owner_kinds:
-        return "required-service"
-    labels = metadata.get("labels", {})
-    if labels.get("openlakeforge.io/job"):
-        return "platform-owned-job"
-    identity = " ".join(
-        str(value)
-        for value in (
-            metadata.get("name", ""),
-            labels.get("job-name", ""),
-            labels.get("dagster/job", ""),
-            *(owner.get("name", "") for owner in metadata.get("ownerReferences", [])),
-        )
-    )
-    if any(job in identity for job in suite_jobs):
-        return "suite-owned-job"
-    return "independent-job"
-
-
 def _bounded_pod_diagnostics(cfg: E2EConfig, names: list[str]) -> str:
     lines: list[str] = []
     for name in names[:10]:
         try:
             output = kubectl(
                 cfg,
-                ["logs", f"pod/{name}", "--all-containers", f"--tail={DIAGNOSTIC_LOG_LINES}"],
+                ["logs", "-n", cfg.namespace, f"pod/{name}", "--all-containers", f"--tail={DIAGNOSTIC_LOG_LINES}"],
                 capture=True,
             )
         except E2EError as exc:
@@ -118,25 +100,19 @@ def _bounded_pod_diagnostics(cfg: E2EConfig, names: list[str]) -> str:
     return "\n".join(lines)
 
 
-def _bounded_job_diagnostics(cfg: E2EConfig, payload: Mapping[str, Any]) -> str:
-    """Collect only a small tail from failed independent Jobs."""
+def _bounded_job_diagnostics(cfg: E2EConfig, names: list[str]) -> str:
+    """Collect only a small tail from the named Jobs."""
     diagnostics: list[str] = []
-    for item in payload.get("items", []):
-        if workload_health_class(item, cfg.inventory.job_names) != "independent-job":
-            continue
-        status = item.get("status", {}).get("phase")
-        if status not in {"Failed", "Unknown"}:
-            continue
-        metadata = item.get("metadata", {})
-        job_name = metadata.get("labels", {}).get("job-name") or next(
-            (owner.get("name") for owner in metadata.get("ownerReferences", []) if owner.get("kind") == "Job"),
-            metadata.get("name", "unknown"),
-        )
+    for job_name in names[:10]:
         try:
-            output = kubectl(cfg, ["logs", f"job/{job_name}", f"--tail={DIAGNOSTIC_LOG_LINES}"], capture=True)
+            output = kubectl(
+                cfg,
+                ["logs", "-n", cfg.namespace, f"job/{job_name}", f"--tail={DIAGNOSTIC_LOG_LINES}"],
+                capture=True,
+            )
         except E2EError as exc:
             output = f"unable to collect logs: {exc}"
-        diagnostics.append(f"{job_name} ({status}):\n{output[-6000:]}")
+        diagnostics.append(f"{job_name}:\n{output[-6000:]}")
     return "\n".join(diagnostics)
 
 
@@ -333,6 +309,7 @@ def run_smoke(cfg: E2EConfig) -> None:
         check_aws_provider_contracts(cfg)
         check_aws_storage_and_glue(cfg)
     check_trino_catalog(cfg)
+    check_catalog_namespaces(cfg)
     if cfg.env == "local":
         product = cfg.inventory.default_product
         log.step(f"Running smoke path for descriptor-selected product {product.id}...")
@@ -356,6 +333,7 @@ def run_full(cfg: E2EConfig) -> None:
 def full_assertions(cfg: E2EConfig) -> tuple[FullAssertion, ...]:
     """Return the full-suite assertion inventory for the deployed profile."""
     assertions = [
+        FullAssertion("Polaris namespaces", check_catalog_namespaces),
         FullAssertion("Dagster product pipelines", launch_and_poll_dagster_jobs),
         FullAssertion("Silver and Gold tables", check_trino_tables_and_marts),
     ]
@@ -389,53 +367,92 @@ def configured_layers(cfg: E2EConfig) -> dict[Layer, bool]:
 
 def check_pods_ready(cfg: E2EConfig) -> None:
     log.step("Checking pod health...")
-    bad: list[str] = []
-    warned: list[str] = []
+    service_bad: list[str] = []
+    job_bad: list[str] = []
     last_error: E2EError | None = None
+    reported_warnings: set[str] = set()
     for _ in range(READINESS_ATTEMPTS):
         try:
-            payload = json.loads(kubectl(cfg, ["get", "pods", "-n", cfg.namespace, "-o", "json"], capture=True))
+            pod_payload = json.loads(kubectl(cfg, ["get", "pods", "-n", cfg.namespace, "-o", "json"], capture=True))
+            job_payload = json.loads(kubectl(cfg, ["get", "jobs", "-n", cfg.namespace, "-o", "json"], capture=True))
         except E2EError as exc:
             last_error = exc
             time.sleep(5)
             continue
-        bad, warned = classify_pod_health(payload, suite_jobs=cfg.inventory.job_names)
-        for message in warned:
+        service_bad = classify_pod_health(pod_payload)
+        job_bad, warned = classify_job_health(job_payload)
+        new_warnings = [message for message in warned if message not in reported_warnings]
+        reported_warnings.update(new_warnings)
+        for message in new_warnings:
             log.warn(message)
-        if warned:
-            diagnostics = _bounded_job_diagnostics(cfg, payload)
+        if new_warnings:
+            warning_job_names = [message.split(":", 1)[0] for message in new_warnings]
+            diagnostics = _bounded_job_diagnostics(cfg, warning_job_names)
             if diagnostics:
-                log.warn(f"independent Job diagnostics:\n{diagnostics}")
-        if not bad:
+                log.warn(f"non-blocking Job diagnostics:\n{diagnostics}")
+        if not service_bad and not job_bad:
             return
         time.sleep(READINESS_DELAY_SECONDS)
-    if last_error is not None and not bad:
+    if last_error is not None and not service_bad and not job_bad:
         raise last_error
-    required_names = [message.split(":", 1)[0] for message in bad]
-    diagnostics = _bounded_pod_diagnostics(cfg, required_names)
-    raise E2EError("unhealthy required services:\n" + "\n".join(bad) + "\nDiagnostics:\n" + diagnostics)
+    diagnostics: list[str] = []
+    if service_bad:
+        diagnostics.append(_bounded_pod_diagnostics(cfg, [message.split(":", 1)[0] for message in service_bad]))
+    if job_bad:
+        diagnostics.append(_bounded_job_diagnostics(cfg, [message.split(":", 1)[0] for message in job_bad]))
+    raise E2EError(
+        "unhealthy required services:\n"
+        + "\n".join([*service_bad, *job_bad])
+        + "\nDiagnostics:\n"
+        + "\n".join(diagnostics)
+    )
 
 
-def classify_pod_health(payload: Mapping[str, Any], *, suite_jobs: tuple[str, ...]) -> tuple[list[str], list[str]]:
-    """Return blocking service failures and bounded warning messages for Jobs."""
+def classify_pod_health(payload: Mapping[str, Any]) -> list[str]:
+    """Return blocking health failures for long-lived service pods only."""
+    bad: list[str] = []
+    for item in payload.get("items", []):
+        owner_kinds = {str(owner.get("kind")) for owner in item.get("metadata", {}).get("ownerReferences", [])}
+        if "Job" not in owner_kinds:
+            bad.extend(unhealthy_pod_messages({"items": [item]}))
+    return bad
+
+
+def classify_job_health(payload: Mapping[str, Any]) -> tuple[list[str], list[str]]:
+    """Return blocking bootstrap Job failures and warnings for non-blocking Jobs."""
     bad: list[str] = []
     warned: list[str] = []
     for item in payload.get("items", []):
-        name = str(item.get("metadata", {}).get("name", "<unnamed>"))
-        phase = item.get("status", {}).get("phase")
-        health_class = workload_health_class(item, suite_jobs)
-        message = unhealthy_pod_messages({"items": [item]})
-        if not message:
+        metadata = item.get("metadata", {})
+        name = str(metadata.get("name", "<unnamed>"))
+        labels = item.get("spec", {}).get("template", {}).get("metadata", {}).get("labels", {})
+        job_type = labels.get("openlakeforge.io/job", "")
+        state = job_state(item)
+        if job_type in REQUIRED_PLATFORM_JOB_TYPES:
+            if state != "Complete":
+                bad.append(f"{name}: {state}")
             continue
-        if health_class != "independent-job":
-            bad.extend(message)
-        else:
-            labels = item.get("metadata", {}).get("labels", {})
-            warned.append(
-                f"unrelated Job {name} ({labels.get('job-name', labels.get('dagster/pipeline', 'unknown owner'))}) "
-                f"is {phase}; continuing E2E readiness"
-            )
+        if state != "Complete":
+            warned.append(f"{name}: non-blocking Job is {state}; continuing E2E readiness")
     return bad, warned
+
+
+def job_state(item: Mapping[str, Any]) -> str:
+    """Return the terminal or current state represented by a Kubernetes Job."""
+    conditions = item.get("status", {}).get("conditions", [])
+    completed = any(
+        condition.get("type") == "Complete" and condition.get("status") == "True" for condition in conditions
+    )
+    if completed:
+        return "Complete"
+    failed = any(
+        condition.get("type") == "Failed" and condition.get("status") == "True" for condition in conditions
+    )
+    if failed:
+        return "Failed"
+    if item.get("status", {}).get("active"):
+        return "Running"
+    return "Pending"
 
 
 def unhealthy_pod_messages(payload: Mapping[str, Any]) -> list[str]:
@@ -461,6 +478,16 @@ def check_trino_catalog(cfg: E2EConfig) -> None:
     catalogs = trino_query(cfg, "SHOW CATALOGS")
     if "iceberg" not in set(catalogs.splitlines()):
         raise E2EError("Trino did not expose the iceberg catalog.")
+
+
+def check_catalog_namespaces(cfg: E2EConfig) -> None:
+    """Verify Polaris exposes every descriptor-derived namespace through Trino."""
+    log.step("Checking Polaris namespaces through Trino...")
+    namespaces = set(trino_query(cfg, "SHOW SCHEMAS FROM iceberg").splitlines())
+    expected = cfg.inventory.silver_namespace_names | cfg.inventory.gold_namespace_names
+    missing = sorted(expected - namespaces)
+    if missing:
+        raise E2EError("Polaris is missing descriptor-derived namespaces: " + ", ".join(missing))
 
 
 def _schema_in_list(schema_names: frozenset[str]) -> str:

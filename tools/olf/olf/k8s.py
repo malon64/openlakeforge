@@ -143,7 +143,7 @@ def discover_dagster_user_deployments(namespace: str) -> list[str]:
         ],
         capture=True,
     )
-    return [name for name in raw.splitlines() if name.startswith("dagster-user-deployments-")]
+    return [name for name in raw.splitlines() if "dagster-user-deployments-" in name]
 
 
 # --- Pure image-patch builders (unit tested) -------------------------------

@@ -17,8 +17,22 @@ locals {
     #!/bin/sh
     set -eu
 
+    psql_with_retry() {
+      attempt=1
+      while true; do
+        psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" "$@" && return 0
+        status=$?
+        if [ "$status" -ne 2 ] || [ "$attempt" -ge 30 ]; then
+          return "$status"
+        fi
+        echo "PostgreSQL connection was lost; retrying bootstrap query ($attempt/30)..." >&2
+        attempt=$((attempt + 1))
+        sleep 2
+      done
+    }
+
     psql_base() {
-      psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname postgres "$@"
+      psql_with_retry --dbname postgres "$@"
     }
 
     create_or_update_role() {
@@ -50,7 +64,7 @@ locals {
 
       psql_base -c "ALTER DATABASE \"$db_name\" OWNER TO \"$owner_name\";"
       psql_base -c "GRANT ALL PRIVILEGES ON DATABASE \"$db_name\" TO \"$owner_name\";"
-      psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$db_name" \
+      psql_with_retry --dbname "$db_name" \
         -c "GRANT ALL ON SCHEMA public TO \"$owner_name\";" \
         -c "ALTER SCHEMA public OWNER TO \"$owner_name\";"
     }

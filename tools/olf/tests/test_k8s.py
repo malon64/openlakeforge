@@ -219,6 +219,7 @@ def test_discover_dagster_user_deployments_filters_chart_generated_names(
         lambda args, **kwargs: "\n".join(
             [
                 "dagster-user-deployments-openlakeforge-dagster",
+                "dagster-dagster-user-deployments-current-chart",
                 "dagster-webserver",
                 "dagster-user-deployments-domain-a",
                 "dagster-user-deployments-domain-b",
@@ -231,6 +232,7 @@ def test_discover_dagster_user_deployments_filters_chart_generated_names(
 
     assert deployments == [
         "dagster-user-deployments-openlakeforge-dagster",
+        "dagster-dagster-user-deployments-current-chart",
         "dagster-user-deployments-domain-a",
         "dagster-user-deployments-domain-b",
     ]
