@@ -380,7 +380,7 @@ def check_pods_ready(cfg: E2EConfig) -> None:
             time.sleep(5)
             continue
         service_bad = classify_pod_health(pod_payload)
-        job_bad, warned = classify_job_health(job_payload)
+        job_bad, warned = classify_job_health(job_payload, suite_jobs=cfg.inventory.job_names)
         new_warnings = [message for message in warned if message not in reported_warnings]
         reported_warnings.update(new_warnings)
         for message in new_warnings:
@@ -418,7 +418,9 @@ def classify_pod_health(payload: Mapping[str, Any]) -> list[str]:
     return bad
 
 
-def classify_job_health(payload: Mapping[str, Any]) -> tuple[list[str], list[str]]:
+def classify_job_health(
+    payload: Mapping[str, Any], *, suite_jobs: Sequence[str] = ()
+) -> tuple[list[str], list[str]]:
     """Return blocking bootstrap Job failures and warnings for non-blocking Jobs."""
     bad: list[str] = []
     warned: list[str] = []
@@ -432,9 +434,27 @@ def classify_job_health(payload: Mapping[str, Any]) -> tuple[list[str], list[str
             if state != "Complete":
                 bad.append(f"{name}: {state}")
             continue
+        if is_active_suite_job(item, suite_jobs, state):
+            bad.append(f"{name}: {state}")
+            continue
         if state != "Complete":
             warned.append(f"{name}: non-blocking Job is {state}; continuing E2E readiness")
     return bad, warned
+
+
+def is_active_suite_job(item: Mapping[str, Any], suite_jobs: Sequence[str], state: str) -> bool:
+    """Whether a currently active Dagster Job belongs to this E2E suite."""
+    if state not in {"Pending", "Running"}:
+        return False
+    metadata = item.get("metadata", {})
+    labels = metadata.get("labels", {})
+    identities = {
+        str(metadata.get("name", "")),
+        str(labels.get("dagster/job", "")),
+        str(labels.get("job-name", "")),
+        *(str(owner.get("name", "")) for owner in metadata.get("ownerReferences", [])),
+    }
+    return any(job_name in identities for job_name in suite_jobs)
 
 
 def job_state(item: Mapping[str, Any]) -> str:

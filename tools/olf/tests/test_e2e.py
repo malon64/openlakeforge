@@ -187,6 +187,46 @@ def test_classify_job_health_warns_for_historical_cron_job_failure() -> None:
     ]
 
 
+def test_classify_job_health_blocks_active_suite_job() -> None:
+    bad, warned = e2e.classify_job_health(
+        {
+            "items": [
+                {
+                    "metadata": {
+                        "name": "dagster-run-current",
+                        "labels": {"dagster/job": "sales_order_revenue_pipeline"},
+                    },
+                    "status": {"active": 1},
+                }
+            ]
+        },
+        suite_jobs=("sales_order_revenue_pipeline",),
+    )
+
+    assert bad == ["dagster-run-current: Running"]
+    assert warned == []
+
+
+def test_classify_job_health_warns_for_historical_suite_job_failure() -> None:
+    bad, warned = e2e.classify_job_health(
+        {
+            "items": [
+                {
+                    "metadata": {
+                        "name": "dagster-run-old",
+                        "labels": {"dagster/job": "sales_order_revenue_pipeline"},
+                    },
+                    "status": {"conditions": [{"type": "Failed", "status": "True"}]},
+                }
+            ]
+        },
+        suite_jobs=("sales_order_revenue_pipeline",),
+    )
+
+    assert bad == []
+    assert warned == ["dagster-run-old: non-blocking Job is Failed; continuing E2E readiness"]
+
+
 def test_check_pods_ready_retries_until_pods_are_ready(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     pod_payloads = iter(
         [
