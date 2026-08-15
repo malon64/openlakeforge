@@ -227,6 +227,28 @@ def test_classify_job_health_warns_for_historical_suite_job_failure() -> None:
     assert warned == ["dagster-run-old: non-blocking Job is Failed; continuing E2E readiness"]
 
 
+def test_bounded_pod_diagnostics_describes_a_pod_when_logs_are_unavailable(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    calls: list[list[str]] = []
+
+    def fake_kubectl(_cfg: e2e.E2EConfig, args: list[str], *, capture: bool = False) -> str:
+        calls.append(args)
+        if args[0] == "logs":
+            raise e2e.E2EError("container is waiting to start")
+        return "Events:\n  Failed to pull image"
+
+    monkeypatch.setattr(e2e, "kubectl", fake_kubectl)
+
+    diagnostics = e2e._bounded_pod_diagnostics(cfg(tmp_path), ["dagster-pod"])
+
+    assert calls == [
+        ["logs", "-n", "lakehouse", "pod/dagster-pod", "--all-containers", "--tail=80"],
+        ["describe", "pod", "-n", "lakehouse", "dagster-pod"],
+    ]
+    assert "Failed to pull image" in diagnostics
+
+
 def test_check_pods_ready_retries_until_pods_are_ready(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     pod_payloads = iter(
         [

@@ -26,6 +26,10 @@ class KubectlError(RuntimeError):
     pass
 
 
+PORT_FORWARD_READY_TIMEOUT_SECONDS = 30.0
+PORT_FORWARD_READY_POLL_SECONDS = 0.1
+
+
 def kubectl_command(args: list[str], *, kube_context: str | None = None) -> list[str]:
     """Build a kubectl command pinned to the declared deployment context."""
     context = kube_context or os.environ.get("KUBE_CONTEXT")
@@ -88,6 +92,35 @@ def _free_local_port() -> int:
         return sock.getsockname()[1]
 
 
+def _port_forward_failure(log_path: str, detail: str) -> KubectlError:
+    """Return a bounded, actionable error for a port-forward that did not start."""
+    try:
+        log_tail = open(log_path, encoding="utf-8").read()[-4000:].strip()
+    except OSError:
+        log_tail = ""
+    if log_tail:
+        detail = f"{detail}\nkubectl port-forward log:\n{log_tail}"
+    return KubectlError(detail)
+
+
+def _wait_for_port_forward(process: subprocess.Popen[object], port: int, log_path: str) -> None:
+    """Wait until kubectl has bound the local forwarding socket."""
+    deadline = time.monotonic() + PORT_FORWARD_READY_TIMEOUT_SECONDS
+    while True:
+        if process.poll() is not None:
+            raise _port_forward_failure(log_path, f"kubectl port-forward exited before localhost:{port} became ready.")
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=PORT_FORWARD_READY_POLL_SECONDS):
+                return
+        except OSError as err:
+            if time.monotonic() >= deadline:
+                raise _port_forward_failure(
+                    log_path,
+                    f"timed out waiting for kubectl port-forward to bind localhost:{port}.",
+                ) from err
+            time.sleep(PORT_FORWARD_READY_POLL_SECONDS)
+
+
 @contextlib.contextmanager
 def port_forward(
     service: str,
@@ -100,8 +133,8 @@ def port_forward(
 ) -> Iterator[int]:
     """Run `kubectl port-forward` for the block, yielding the local port.
 
-    Callers own readiness polling because each service has a different health
-    probe (Polaris OAuth, OpenMetadata JWKS, S3 head-bucket).
+    The yielded localhost port is accepting connections. Callers still own the
+    service-specific health probe (Polaris OAuth, OpenMetadata JWKS, S3 bucket).
     """
     port = local_port or _free_local_port()
     command = kubectl_command(
@@ -121,6 +154,7 @@ def port_forward(
             stderr=subprocess.STDOUT,
         )
     try:
+        _wait_for_port_forward(process, port, log_path)
         yield port
     finally:
         process.terminate()
