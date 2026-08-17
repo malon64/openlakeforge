@@ -3,7 +3,7 @@ with no repository clone, then prove the running cluster matches the
 release manifest exactly.
 
 Reuses the same Terraform roots, Helm values, and phase scripts as
-`make local-up` (ADR 0024): `scripts/local/stack/platform-up.sh` and
+`make local-up` (ADR 0025): `scripts/local/stack/platform-up.sh` and
 `deploy-artifacts.sh` are driven with image references and layer toggles
 resolved from `component-manifest.json`, never from repository state.
 

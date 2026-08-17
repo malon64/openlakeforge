@@ -5,8 +5,10 @@ installable from a clean checkout. This document covers both sides of that
 contract: how a maintainer cuts a release, and how a consumer verifies one.
 
 See also [component-catalog.md](component-catalog.md) for how the input
-inventory is maintained, and [compatibility-matrix.md](compatibility-matrix.md)
-for the published compatibility matrix.
+inventory is maintained, [compatibility-matrix.md](compatibility-matrix.md)
+for the published compatibility matrix, and [installing.md](installing.md)
+for the consumer-facing walkthrough of applying a release to a cluster with
+no repository clone.
 
 ## Pipeline shape
 
@@ -38,12 +40,14 @@ Jobs:
 3. **`bundle`** — assembles the release bundle: the component manifest
    (`olf release manifest`, catalog + resolved image digests + git SHA), the
    compatibility matrix (`olf release compatibility-matrix`), a verbatim
-   copy of `release/component-catalog.yaml`, `CHANGELOG.md`, both SBOMs, and
-   a deterministic `checksums.txt` (`olf release checksums`) covering every
-   asset. On a real publish, keyless cosign signs that checksum manifest and
-   publishes its `checksums.txt.bundle` verification bundle alongside it; in
-   dry-run mode the unsigned inspection bundle is uploaded as a single
-   workflow artifact.
+   copy of `release/component-catalog.yaml`, `CHANGELOG.md`, both SBOMs, the
+   consumer install bundle (`install-bundle.tar.gz` --
+   `scripts/release/build-install-bundle.sh`, see [installing.md](installing.md)),
+   and a deterministic `checksums.txt` (`olf release checksums`) covering
+   every asset. On a real publish, keyless cosign signs that checksum
+   manifest and publishes its `checksums.txt.bundle` verification bundle
+   alongside it; in dry-run mode the unsigned inspection bundle is uploaded
+   as a single workflow artifact.
 
 The heavy cross-environment logic (manifest construction, checksums,
 compatibility-matrix rendering, the readiness gate) lives in
@@ -66,8 +70,8 @@ thin shell orchestrators over docker/cosign/syft/git, per
    `workflow_dispatch` with `dry_run: true` (the default). Inspect the
    uploaded `release-dry-run-bundle-<version>` artifact — it should contain
    `component-manifest.json`, `compatibility-matrix.md`,
-   `component-catalog.yaml`, `CHANGELOG.md`, both SBOMs, and
-   `checksums.txt`.
+   `component-catalog.yaml`, `CHANGELOG.md`, both SBOMs,
+   `install-bundle.tar.gz`, and `checksums.txt`.
 5. Once the dry run looks right, cut the real tag:
    `git tag v<version> && git push origin v<version>`. The tag push triggers
    the same workflow with `dry_run: false`, which builds, pushes, signs,
@@ -112,6 +116,10 @@ Every release publishes:
 - `project-code.spdx.json` / `superset.spdx.json` — SPDX SBOMs, both
   attached to the Release and available as cosign attestations on the image
   digests.
+- `install-bundle.tar.gz` — the exact deploy inputs (Terraform roots/modules,
+  Helm values, domain/lib code, phase scripts, `tools/olf`) `olf install run`
+  needs to apply this release into an existing cluster with no repository
+  clone. See [installing.md](installing.md).
 - `checksums.txt` — sha256 over every asset above.
 - `checksums.txt.bundle` — the keyless Sigstore verification bundle that
   authenticates `checksums.txt` before it is trusted.
@@ -171,6 +179,26 @@ This script requires `git`, `gh`, `cosign`, `uv`, `docker` (only for
 anyone: it only reads public release assets and verifies public Sigstore
 signatures.
 
+### Verify a consumer install
+
+```sh
+scripts/release/verify-install.sh v0.1.0-alpha.1 --consumer-install --kube-context <ctx>
+```
+
+Add `--profile slim` to install the slim profile instead of the default
+`full`. This runs the signature/checksum steps above, then `olf install
+run`/`olf install verify` against the target cluster — proving a consumer
+can actually install the tag, not only that its artifacts are authentic.
+Add `--strict` to also fail on any running image the manifest doesn't
+declare at all; it is opt-in because `release/component-catalog.yaml` does
+not yet register every image a `full`-profile install runs (see
+[ADR 0025](../adr/0025-consumer-install-from-release-manifest.md)) — with
+`--strict` on by default, this check would fail against a healthy `full`
+install. Requires `kubectl`, `terraform`, and `helm` in addition to the
+base requirements, and a kubeconfig context (`--kube-context`) that already
+points at a cluster you can deploy into. See [installing.md](installing.md)
+for the full walkthrough.
+
 ## Release evidence
 
 `v0.1.0-alpha.1` has been published. This section records what actually ran, so
@@ -189,6 +217,12 @@ conclusion above is the evidence for image publication and signing. To confirm
 independently, run the consumer verification commands in the section above, or
 `scripts/release/verify-install.sh v0.1.0-alpha.1 --pull-images`.
 
+`v0.1.0-alpha.1` predates `install-bundle.tar.gz` and `olf install` (#80); it
+cannot be installed via `scripts/release/verify-install.sh --consumer-install`.
+The `consumer-install` job in `.github/workflows/checks.yml` exercises the
+install mechanism itself against every pull request, independent of any
+specific published tag.
+
 Verification that is still outstanding, and should be recorded here when it
 runs:
 
@@ -196,3 +230,5 @@ runs:
   published tag by someone other than the release author.
 - A `workflow_dispatch` dry run ahead of the next tag, to exercise the dry-run
   path itself.
+- `scripts/release/verify-install.sh --consumer-install` against the next
+  published tag, once one includes `install-bundle.tar.gz`.

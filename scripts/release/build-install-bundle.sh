@@ -3,7 +3,7 @@
 # deploy inputs `olf install run` needs to apply a tagged release into an
 # existing cluster with no repository clone -- the same Terraform roots, Helm
 # values, domain/lib code, phase scripts, and tools/olf that `make local-up`
-# deploys from (ADR 0024). Nothing here is regenerated or transformed, only
+# deploys from (ADR 0025). Nothing here is regenerated or transformed, only
 # tarred, so the maintainer and consumer paths cannot drift.
 #
 # Usage:

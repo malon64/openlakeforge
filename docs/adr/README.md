@@ -89,3 +89,10 @@ the Dagster connector remains deferred.
 `0024-canonical-domain-model-package.md` establishes one lightweight,
 provider-neutral descriptor and inventory package shared by `olf` and
 project-code. Dagster-specific definition discovery remains a runtime adapter.
+
+`0025-consumer-install-from-release-manifest.md` chooses `olf install` over a
+published Helm chart to make a tagged release installable into an existing
+cluster with no repository clone, adds an existing-cluster foundation mode to
+`infra/terraform/environments/local` instead of a second Terraform root, and
+records why image digests are proven by reading back running containers
+rather than pinned through Helm/Terraform.

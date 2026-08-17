@@ -169,6 +169,33 @@ and [CHANGELOG.md](CHANGELOG.md) records migration notes per release.
 every pull request; `make release-bundle` builds a local release bundle for
 inspection without publishing anything.
 
+## Installing a Release
+
+To run a tagged release in your own cluster without cloning this repository,
+use `olf install`. **Read the "Data durability" warning in
+[docs/release/installing.md](docs/release/installing.md) first** — the
+storage values are inherited unmodified from the local kind profile
+(SeaweedFS's data volumes are `emptyDir`, not persistent). That page also
+covers the verified download steps (`cosign verify-blob` + `sha256sum -c`
+against `install-bundle.tar.gz` before extracting or running anything from
+it), profiles (`--profile slim|full`), and prerequisites. Once `olf` is on
+your machine:
+
+```sh
+uv run --project tools/olf olf install run --tag v0.1.0-alpha.1 --kube-context <your-context>
+uv run --project tools/olf olf install verify --manifest ~/.openlakeforge/install/<your-context>-<hash>/lakehouse/assets/component-manifest.json --kube-context <your-context>
+```
+
+`olf install run` verifies checksums and image signatures before applying
+anything, resolves every component version and image digest from the
+release's `component-manifest.json` (never from local state), and deploys
+the same platform `make local-up` deploys, into your existing cluster.
+`olf install verify` then proves the running image digests match the release
+exactly.
+
+`make local-up` (below) remains the workflow for developing OpenLakeForge
+itself.
+
 ## Local Development
 
 ```sh
