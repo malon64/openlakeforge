@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Clean-checkout install verification for a published OpenLakeForge release.
+# Install verification for a published OpenLakeForge release.
 #
 # Run this against a tag that has already been published by
 # .github/workflows/release.yml (i.e. a real, non-dry-run release). It
-# proves the three acceptance-criteria claims in docs/release/releasing.md:
+# proves the acceptance-criteria claims in docs/release/releasing.md:
 #
 #   1. Signatures verify:  cosign verify against the published image digests.
 #   2. Checksum manifest:  keyless cosign verification authenticates the
@@ -11,19 +11,32 @@
 #   3. Clean checkout:     a fresh `git clone` at the release tag passes the
 #                          repository's own structural/component consistency
 #                          checks with no local state carried over.
+#   4. Consumer install (--consumer-install --kube-context <ctx>, opt-in):
+#                          `olf install run`/`olf install verify` apply the
+#                          tag into an existing cluster with no repository
+#                          clone and prove the running image digests match
+#                          component-manifest.json exactly (#80).
 #
 # Usage:
-#   scripts/release/verify-install.sh [TAG]
+#   scripts/release/verify-install.sh [TAG] [--pull-images]
+#     [--consumer-install --kube-context CONTEXT [--profile slim|full] [--strict]]
+#
+# --strict also fails on any running image the manifest doesn't declare at
+# all; it is opt-in because the catalog does not yet register every image a
+# `full`-profile install runs (see docs/adr/0023). Omit it for the
+# documented default full-profile walkthrough.
 #
 # TAG defaults to v<distribution.version> from release/component-catalog.yaml
 # in the current checkout. Requires: git, curl or gh, cosign, sha256sum (or
 # shasum on macOS), uv (https://docs.astral.sh/uv/, used by the cloned
 # checkout's own scripts/test/check-components.sh), and docker (for the
-# optional --pull-images smoke).
+# optional --pull-images smoke). --consumer-install additionally requires
+# kubectl, terraform, and helm, and CONTEXT must already exist in the
+# resolved kubeconfig ($KUBECONFIG, or ~/.kube/config).
 #
 # This script is intentionally runnable by anyone outside CI: it downloads
 # public release assets and verifies public Sigstore signatures, no
-# credentials required.
+# credentials required (--consumer-install additionally needs cluster access).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -31,25 +44,58 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 REPO_SLUG="${OPENLAKEFORGE_REPO_SLUG:-malon64/openlakeforge}"
 WORK_DIR="${OPENLAKEFORGE_VERIFY_WORKDIR:-$(mktemp -d /tmp/openlakeforge-verify.XXXXXX)}"
 PULL_IMAGES="false"
+CONSUMER_INSTALL="false"
+CONSUMER_KUBE_CONTEXT=""
+CONSUMER_PROFILE="full"
+CONSUMER_STRICT="false"
 
 run_python() {
   uv run --project "${REPO_ROOT}/tools/olf" --locked python "$@"
 }
 
-for arg in "$@"; do
-  case "${arg}" in
+run_olf() {
+  uv run --project "${REPO_ROOT}/tools/olf" --locked olf "$@"
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
     --pull-images)
       PULL_IMAGES="true"
+      shift
+      ;;
+    --consumer-install)
+      CONSUMER_INSTALL="true"
+      shift
+      ;;
+    --kube-context)
+      CONSUMER_KUBE_CONTEXT="${2:-}"
+      [[ -n "${CONSUMER_KUBE_CONTEXT}" ]] || { echo "ERROR: --kube-context requires a value" >&2; exit 1; }
+      shift 2
+      ;;
+    --profile)
+      CONSUMER_PROFILE="${2:-}"
+      [[ -n "${CONSUMER_PROFILE}" ]] || { echo "ERROR: --profile requires a value" >&2; exit 1; }
+      shift 2
+      ;;
+    --strict)
+      CONSUMER_STRICT="true"
+      shift
       ;;
     -*)
-      echo "ERROR: unknown flag ${arg}" >&2
+      echo "ERROR: unknown flag $1" >&2
       exit 1
       ;;
     *)
-      TAG="${arg}"
+      TAG="$1"
+      shift
       ;;
   esac
 done
+
+if [[ "${CONSUMER_INSTALL}" == "true" && -z "${CONSUMER_KUBE_CONTEXT}" ]]; then
+  echo "ERROR: --consumer-install requires --kube-context <context>" >&2
+  exit 1
+fi
 
 if [[ -z "${TAG:-}" ]]; then
   TAG="v$(run_python -c "
@@ -220,6 +266,43 @@ print(manifest['resolved_images']['${image}'])
     docker pull "${reference}"
   done
   echo "    Image pull OK."
+fi
+
+# --- 6. Optional: the consumer install path (#80) ---------------------------------
+#
+# Everything above proves the release *artifacts* are authentic and the
+# tagged *source tree* is self-consistent. It does not prove a consumer can
+# actually run the release without cloning it. This step does: it drives
+# `olf install` against the already-downloaded, already-verified assets in
+# ${WORK_DIR}/assets, then proves the resulting cluster's running image
+# digests match component-manifest.json exactly.
+if [[ "${CONSUMER_INSTALL}" == "true" ]]; then
+  echo "==> Installing ${TAG} (${CONSUMER_PROFILE} profile) into context ${CONSUMER_KUBE_CONTEXT} via 'olf install'"
+  run_olf install run \
+    --tag "${TAG}" \
+    --kube-context "${CONSUMER_KUBE_CONTEXT}" \
+    --profile "${CONSUMER_PROFILE}" \
+    --assets-dir "${WORK_DIR}/assets"
+
+  echo "==> Proving installed image digests match component-manifest.json"
+  verify_args=(
+    install verify
+    --manifest "${manifest_json}"
+    --kube-context "${CONSUMER_KUBE_CONTEXT}"
+    --profile "${CONSUMER_PROFILE}"
+  )
+  # --strict also fails on running images the manifest doesn't declare at
+  # all. release/component-catalog.yaml does not yet register every image a
+  # `full`-profile install runs (e.g. the OpenMetadata server itself, only
+  # its ingestion image is tracked), so --strict is opt-in here rather than
+  # the default -- unconditionally enabling it would fail this check against
+  # a healthy full-profile install. The non-strict check (every declared
+  # image present and at the right digest) still runs unconditionally.
+  if [[ "${CONSUMER_STRICT}" == "true" ]]; then
+    verify_args+=(--strict)
+  fi
+  run_olf "${verify_args[@]}"
+  echo "    Consumer install OK: running digests match the release manifest exactly."
 fi
 
 echo ""

@@ -200,3 +200,129 @@ jobs:
           path: .tmp/kind-smoke-diagnostics
           if-no-files-found: error
           retention-days: 14
+
+  consumer-install:
+    name: Consumer install (olf install) into an existing cluster
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    # Exercises the #80 consumer path end to end: build the release bundle
+    # locally (mirrors the release pipeline's bundle assembly), create a
+    # plain kind cluster with NO foundation Terraform root involved, `olf
+    # install run` it with no repository clone in scope, then `olf install
+    # verify` proves the running image digests match component-manifest.json
+    # exactly for every image the catalog declares.
+    #
+    # The two first-party images are built locally here and never pushed to
+    # a registry, so they genuinely have no registry-assigned digest to pin
+    # or verify against (confirmed empirically: a locally built, kind-loaded
+    # image's reported imageID is neither `docker image inspect`'s config
+    # digest nor a `repo@digest` reference at all -- kind load never
+    # populates a repo digest for an image that was never pulled from or
+    # pushed to a registry). --skip-digest-pin and --skip-image exclude them
+    # from the parts of the mechanism that fundamentally require a real
+    # registry digest, without excluding the deploy itself (they still
+    # deploy and run, pinned by tag -- exactly like `make local-up`).
+    # Every OTHER catalog image (postgres, seaweedfs, polaris, trino, ...) is
+    # pulled from its real upstream registry by digest, so the parity check
+    # for those is genuine and always runs.
+    #
+    # --strict is intentionally NOT used here: `kind load docker-image`
+    # itself is a further source of environment-specific noise unrelated to
+    # olf's own correctness -- on runners where Docker's containerd image
+    # store is active, kind's load path can lose an image's tag metadata in
+    # transit and containerd falls back to a synthetic `import-<date>` name
+    # (a known kind/containerd compatibility quirk, confirmed via this job's
+    # own diagnostics artifact). A real install never hits this: it pulls
+    # named images from a registry and never calls `kind load` at all.
+    timeout-minutes: 60
+    env:
+      CLUSTER_NAME: openlakeforge-install-${{ github.run_id }}
+      KUBE_CONTEXT: kind-openlakeforge-install-${{ github.run_id }}
+      KUBECONFIG: ${{ github.workspace }}/.tmp/kubeconfigs/consumer-install.yaml
+      RELEASE_BUNDLE_DIR: ${{ github.workspace }}/.tmp/release-bundle
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd
+        with:
+          terraform_version: 1.8.5
+
+      - name: Setup Helm
+        uses: azure/setup-helm@bf6a7d304bc2fdb57e0331155b7ebf2c504acf0a
+        with:
+          version: v3.18.6
+
+      - name: Setup Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@e58605a9b6da7c637471fab8847a5e5a6b8df081
+
+      - name: Install kind
+        uses: helm/kind-action@a1b0e391336a6ee6713a0583f8c6240d70863de3
+        with:
+          install_only: true
+          version: v0.26.0
+          kubectl_version: v1.31.4
+
+      - name: Create a cluster with no foundation Terraform root
+        run: |
+          set -euo pipefail
+          mkdir -p "$(dirname "${KUBECONFIG}")"
+          kind create cluster --name "${CLUSTER_NAME}" --kubeconfig "${KUBECONFIG}" --wait 120s
+
+      - name: Build the release bundle
+        run: make release-bundle
+
+      - name: Load the locally-built images into the cluster
+        run: |
+          set -euo pipefail
+          version="$(uv run --project tools/olf --locked python -c "
+          import yaml
+          print(yaml.safe_load(open('release/component-catalog.yaml'))['distribution']['version'])
+          ")"
+          kind load docker-image "ghcr.io/openlakeforge/project-code:${version}" --name "${CLUSTER_NAME}"
+          kind load docker-image "ghcr.io/openlakeforge/superset:${version}" --name "${CLUSTER_NAME}"
+
+      - name: Install the release bundle into the cluster (no repository clone)
+        run: |
+          set -euo pipefail
+          version="$(uv run --project tools/olf --locked python -c "
+          import yaml
+          print(yaml.safe_load(open('release/component-catalog.yaml'))['distribution']['version'])
+          ")"
+          uv run --project tools/olf --locked olf install run \
+            --tag "v${version}" \
+            --kube-context "${KUBE_CONTEXT}" \
+            --profile slim \
+            --assets-dir "${RELEASE_BUNDLE_DIR}" \
+            --kubeconfig "${KUBECONFIG}" \
+            --skip-signature-verification \
+            --skip-digest-pin
+
+      - name: Prove installed image digests match the release manifest
+        run: |
+          uv run --project tools/olf --locked olf install verify \
+            --manifest "${RELEASE_BUNDLE_DIR}/component-manifest.json" \
+            --kube-context "${KUBE_CONTEXT}" \
+            --profile slim \
+            --skip-image ghcr.io/openlakeforge/project-code \
+            --skip-image ghcr.io/openlakeforge/superset
+
+      - name: Collect kind diagnostics
+        if: failure()
+        run: scripts/ci/kind-diagnostics.sh .tmp/consumer-install-diagnostics
+
+      - name: Upload kind diagnostics
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: consumer-install-diagnostics-${{ github.run_id }}
+          path: .tmp/consumer-install-diagnostics
+          if-no-files-found: error
+          retention-days: 14
