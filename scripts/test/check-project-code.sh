@@ -33,11 +33,13 @@ PYTHON_BIN="$(select_python)"
 CACHE_ROOT="${PROJECT_CODE_CHECK_CACHE_DIR:-.cache/project-code-check}"
 python_tag="$("${PYTHON_BIN}" -c 'import sys; print(f"py{sys.version_info.major}{sys.version_info.minor}")')"
 pyproject_hash="$("${PYTHON_BIN}" -c 'import hashlib, pathlib; print(hashlib.sha256(pathlib.Path("images/project-code/pyproject.toml").read_bytes()).hexdigest()[:16])')"
-site_dir="${CACHE_ROOT}/${python_tag}-${pyproject_hash}/site"
-stamp_path="${CACHE_ROOT}/${python_tag}-${pyproject_hash}/.complete"
+domain_model_hash="$("${PYTHON_BIN}" -c 'import hashlib, pathlib; root=pathlib.Path("packages/domain-model"); digest=hashlib.sha256(); [digest.update(path.relative_to(root).as_posix().encode()+path.read_bytes()) for path in sorted(root.rglob("*")) if path.is_file()]; print(digest.hexdigest()[:16])')"
+cache_key="${python_tag}-${pyproject_hash}-${domain_model_hash}"
+site_dir="${CACHE_ROOT}/${cache_key}/site"
+stamp_path="${CACHE_ROOT}/${cache_key}/.complete"
 
 if [[ ! -f "${stamp_path}" ]]; then
-  rm -rf "${CACHE_ROOT:?}/${python_tag}-${pyproject_hash}"
+  rm -rf "${CACHE_ROOT:?}/${cache_key}"
   mkdir -p "${site_dir}"
 
   dependencies=()
@@ -75,6 +77,11 @@ for dependency in dependencies:
     --prefer-binary \
     --target "${site_dir}" \
     "${dependencies[@]}"
+  uv pip install \
+    --python "${PYTHON_BIN}" \
+    --target "${site_dir}" \
+    --no-deps \
+    ./packages/domain-model
   touch "${stamp_path}"
 else
   echo "==> Reusing project-code dependency cache ${site_dir}"
@@ -104,7 +111,7 @@ from importlib import import_module
 
 from domains.definitions import defs as merged_defs
 import libs.product_dagster as product_dagster_lib
-from libs.domain_inventory import load_all_products
+from openlakeforge_domain import load_domain_inventory
 
 
 def _dlt_entities(descriptor_product) -> tuple[str, ...]:
@@ -122,12 +129,13 @@ def _dlt_entities(descriptor_product) -> tuple[str, ...]:
 
 
 PRODUCTS = []
-for _descriptor_product in load_all_products("domains"):
+for _descriptor_product in load_domain_inventory("domains").products:
     _entities = _dlt_entities(_descriptor_product)
-    if set(_descriptor_product.bronze_names) != set(_entities):
+    bronze_names = {table.name for table in _descriptor_product.bronze_tables}
+    if bronze_names != set(_entities):
         raise SystemExit(
             f"{_descriptor_product.domain_name}/domain.yaml: product {_descriptor_product.id!r} bronze names "
-            f"{sorted(_descriptor_product.bronze_names)} do not match dlt entities {sorted(_entities)}"
+            f"{sorted(bronze_names)} do not match dlt entities {sorted(_entities)}"
         )
     PRODUCTS.append(
         {
@@ -140,7 +148,7 @@ for _descriptor_product in load_all_products("domains"):
                 f"{_descriptor_product.id}.manifest.json"
             ),
             "entities": _entities,
-            "gold": set(_descriptor_product.gold_names),
+            "gold": {table.name for table in _descriptor_product.gold_tables},
         }
     )
 

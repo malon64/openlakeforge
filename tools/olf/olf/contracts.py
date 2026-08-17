@@ -26,7 +26,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from olf.inventory import inventory_for
+from openlakeforge_domain import inventory_for
 
 PROVIDER_CONTRACT_SCHEMA_VERSION = "2.0.0"
 

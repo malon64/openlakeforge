@@ -12,7 +12,6 @@ parsing. See [ADR 0017](../../docs/adr/0017-shared-python-deploy-tooling.md).
 | Command | Purpose |
 | --- | --- |
 | `olf contracts env [--terraform-dir D]` | Resolve the provider-contract runtime environment to `export`/`unset` lines (sourced by `scripts/contracts/load-runtime-env.sh`). Namespace and schema-FQN defaults are derived from the domain inventory. |
-| `olf inventory terraform-external` | Render the typed, provider-neutral domain inventory for Terraform's external data source. |
 | `olf catalog sync-namespaces [--dry-run] [--prune]` | Reconcile catalog namespaces (Polaris) or databases (Glue) with domain descriptors (ADR 0022). Runs first in `artifacts-deploy`, before any table is written. It creates, adopts matching legacy namespaces, and relocates OpenLakeForge-managed namespaces. `--prune` removes only OpenLakeForge-managed catalog metadata and retains object-store files; foreign namespaces are never changed. Unsupported providers fail explicitly. |
 | `olf floe render-profile` | Render the Floe EnvironmentProfile YAML for the active contract env. |
 | `olf artifacts upload-manifests --via port-forward\|direct` | Publish product Floe manifests to the ops bucket (in-cluster S3 or cloud S3). |

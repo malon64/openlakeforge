@@ -78,6 +78,7 @@ openlakeforge/
 ├── infra/
 ├── images/project-code/
 ├── libs/
+├── packages/domain-model/ # canonical domain descriptor and inventory package
 ├── domains/
 │   ├── sales/
 │   └── supply_chain/

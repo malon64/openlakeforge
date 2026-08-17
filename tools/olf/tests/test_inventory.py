@@ -1,13 +1,10 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
-
-from olf.descriptors import DomainDescriptorError
-from olf.inventory import (
-    external_result,
+from openlakeforge_domain import (
+    DomainDescriptorError,
     inventory_for,
     load_domain_inventory,
     load_domain_inventory_from_descriptors,
@@ -85,11 +82,6 @@ def test_seed_inventory_derives_every_product_expectation() -> None:
         "mart_order_revenue_by_channel",
         "mart_order_revenue_margin_by_product",
     ]
-    assert inventory.expected_dashboards == {
-        "sales-order-revenue": "Sales Order Revenue",
-        "sales-customer-health": "Sales Customer Health",
-        "supply-chain-inventory-reliability": "Supply Chain Inventory Reliability",
-    }
     assert inventory.products[0].openmetadata_data_product_fqns == (
         "sales_order_revenue",
         "sales.sales_order_revenue",
@@ -260,7 +252,6 @@ def test_renaming_descriptor_product_changes_discovered_work_without_shared_code
 
     assert product.job_name == "sales_revenue_pipeline"
     assert product.silver_namespace == "sales_revenue_silver"
-    assert product.dashboard.slug == "sales-revenue"
     assert product.openmetadata_data_product_fqns == ("sales_revenue", "sales.sales_revenue")
     assert product.artifact_prefixes.manifest_key == "floe/manifests/sales/revenue/revenue.manifest.json"
     assert product.definitions_module == "domains.sales.pipelines.dagster.revenue"
@@ -268,30 +259,3 @@ def test_renaming_descriptor_product_changes_discovered_work_without_shared_code
     assert inventory.gold_mart_names == ("sales_revenue_gold.mart_revenue",)
     assert inventory.manifest_keys == ("floe/manifests/sales/revenue/revenue.manifest.json",)
     assert inventory.silver_namespace_names == frozenset({"sales_revenue_silver"})
-
-
-def test_inventory_external_result_is_terraform_compatible() -> None:
-    result = external_result(ROOT)
-    payload = json.loads(result["inventory"])
-
-    assert payload["aggregate_definitions_module"] == "domains.definitions"
-    assert payload["domains"] == [
-        {
-            "code_location_name": "sales-dagster",
-            "definitions_module": "domains.sales.definitions",
-            "name": "sales",
-        },
-        {
-            "code_location_name": "supply-chain-dagster",
-            "definitions_module": "domains.supply_chain.definitions",
-            "name": "supply_chain",
-        },
-    ]
-    assert payload["products"][0] == {
-        "asset_prefix": "sales_order_revenue",
-        "domain_name": "sales",
-        "gold_namespace": "sales_order_revenue_gold",
-        "id": "order_revenue",
-        "manifest_key": "floe/manifests/sales/order_revenue/order_revenue.manifest.json",
-        "silver_namespace": "sales_order_revenue_silver",
-    }

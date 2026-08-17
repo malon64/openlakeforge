@@ -3,8 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
-from olf.descriptors import DomainDescriptorError, load_domain_descriptor, validate_domain_descriptor
+from openlakeforge_domain import DomainDescriptorError, load_domain_descriptor, validate_domain_descriptor
 
 ROOT = Path(__file__).parents[3]
 

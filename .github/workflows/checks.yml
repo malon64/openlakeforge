@@ -68,6 +68,9 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Setup uv
+        uses: astral-sh/setup-uv@e58605a9b6da7c637471fab8847a5e5a6b8df081
+
       - name: Check project-code package
         run: make check-project-code
 

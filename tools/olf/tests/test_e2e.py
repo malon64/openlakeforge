@@ -5,9 +5,9 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from openlakeforge_domain import inventory_for, load_domain_inventory
 
 from olf import e2e
-from olf.inventory import inventory_for, load_domain_inventory
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 INVENTORY = inventory_for(REPO_ROOT)
@@ -687,25 +687,6 @@ def test_check_polaris_restart_recovery_requires_a_pod(monkeypatch: pytest.Monke
 def test_assert_scalar_equals_reports_mismatch() -> None:
     with pytest.raises(e2e.E2EError, match="expected Gold mart count 9, got 8"):
         e2e.assert_scalar_equals("8", "9", "Gold mart count")
-
-
-def test_superset_dashboard_assertion_accepts_slug_or_title_match() -> None:
-    e2e.assert_superset_dashboards(
-        [
-            {"slug": "sales-order-revenue", "dashboard_title": "Sales Order Revenue"},
-            {"slug": "different-slug", "dashboard_title": "Sales Customer Health"},
-            {
-                "slug": "supply-chain-inventory-reliability",
-                "dashboard_title": "Supply Chain Inventory Reliability",
-            },
-        ],
-        INVENTORY.expected_dashboards,
-    )
-
-
-def test_superset_dashboard_assertion_reports_missing_dashboard() -> None:
-    with pytest.raises(e2e.E2EError, match="missing Superset dashboards"):
-        e2e.assert_superset_dashboards([], INVENTORY.expected_dashboards)
 
 
 def test_openmetadata_data_product_candidates_try_short_and_domain_names() -> None:

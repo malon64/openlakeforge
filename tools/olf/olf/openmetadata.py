@@ -18,8 +18,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from olf.descriptors import load_domain_descriptor
-from olf.inventory import load_domain_inventory_from_descriptors
+from openlakeforge_domain import load_domain_descriptor, load_domain_inventory_from_descriptors
 
 
 class OpenMetadataError(RuntimeError):

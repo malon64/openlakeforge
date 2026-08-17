@@ -22,9 +22,9 @@ import boto3
 import requests
 import yaml
 from botocore.config import Config
+from openlakeforge_domain import DomainInventory, Product, inventory_for
 
 from olf import contracts, k8s, log, revision, superset
-from olf.inventory import DomainInventory, Product, inventory_for
 
 Environment = Literal["local", "azure", "aws"]
 Suite = Literal["full", "smoke"]

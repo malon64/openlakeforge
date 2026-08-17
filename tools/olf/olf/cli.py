@@ -1,7 +1,7 @@
 """The olf CLI: entrypoint for OpenLakeForge deployment tooling.
 
 Subcommand groups are registered here as they are implemented:
-contracts, inventory, floe, artifacts, revision, superset, openmetadata, k8s, e2e, release.
+contracts, catalog, floe, artifacts, revision, superset, openmetadata, k8s, e2e, release.
 """
 
 from __future__ import annotations
@@ -15,12 +15,12 @@ from urllib.parse import urlparse
 
 import boto3
 import typer
+from openlakeforge_domain import inventory_for
 
 import olf
 from olf import config
 from olf import contracts as contracts_module
 from olf import floe as floe_module
-from olf import inventory as inventory_module
 from olf import layers as layers_module
 from olf import smoke as smoke_module
 
@@ -32,7 +32,6 @@ app = typer.Typer(
 )
 
 contracts_app = typer.Typer(help="Provider-contract runtime environment helpers.")
-inventory_app = typer.Typer(help="Typed domain inventory helpers.")
 catalog_app = typer.Typer(help="Iceberg catalog namespace reconciliation.")
 floe_app = typer.Typer(help="Floe profile and manifest helpers.")
 artifacts_app = typer.Typer(help="Object-storage artifact helpers.")
@@ -45,7 +44,6 @@ e2e_app = typer.Typer(help="End-to-end environment validation.")
 smoke_app = typer.Typer(help="Bounded deployment smoke helpers.")
 release_app = typer.Typer(help="Release manifest, checksums, compatibility matrix, and readiness gate.")
 app.add_typer(contracts_app, name="contracts")
-app.add_typer(inventory_app, name="inventory")
 app.add_typer(catalog_app, name="catalog")
 app.add_typer(floe_app, name="floe")
 app.add_typer(artifacts_app, name="artifacts")
@@ -92,12 +90,6 @@ def contracts_env(
     output = contracts_module.render_shell_exports(exports, unsets)
     if output:
         typer.echo(output)
-
-
-@inventory_app.command("terraform-external")
-def inventory_terraform_external() -> None:
-    """Render a Terraform external-provider inventory result on stdout."""
-    inventory_module.main()
 
 
 def _reconcile_and_report(
@@ -466,7 +458,7 @@ def superset_export_reports() -> None:
     from olf import superset
 
     repo_root = _repo_root()
-    default_product = inventory_module.inventory_for(repo_root).default_product
+    default_product = inventory_for(repo_root).default_product
     report_source_dir = config.env("SUPERSET_REPORT_SOURCE_DIR", default_product.report_source_dir)
 
     def _default_dashboard_title() -> str:

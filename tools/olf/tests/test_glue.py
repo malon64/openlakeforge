@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import boto3
 from botocore.stub import Stubber
+from openlakeforge_domain import CatalogNamespace
 
 from olf import glue
 from olf.catalog import CATALOG_KEY, MANAGED_BY_KEY, MANAGED_BY_VALUE, NamespaceState
-from olf.inventory import CatalogNamespace
 
 
 def make_client() -> tuple[glue.GlueClient, Stubber]:

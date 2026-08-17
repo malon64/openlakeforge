@@ -13,10 +13,10 @@ For each `domains/<domain>/domain.yaml`:
    `silver_tables.tables`, and non-empty `gold_tables.tables` for every
    product.
 4. Ensure the descriptor `name` exactly matches its parent directory.
-5. Validate with
-   `echo '{"repo_root": "."}' | uv run --project tools/olf olf inventory terraform-external`
-   (run from the repository root; the command reads its query from stdin) or
-   the repository gates before deployment.
+5. Validate with `make check-contracts` (run from the repository root) or the
+   complete repository gates before deployment. The canonical
+   `openlakeforge_domain` package loads the same descriptor model for deploy
+   tooling and Dagster runtime discovery.
 
 The validator still accepts the former `v1alpha1` envelope so existing metadata
 can be inspected during migration. Its frozen schema remains at
