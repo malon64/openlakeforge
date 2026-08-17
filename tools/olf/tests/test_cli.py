@@ -193,3 +193,45 @@ def test_catalog_sync_namespaces_rejects_an_unknown_provider(monkeypatch: pytest
     assert result.exit_code == 1
     assert calls == []
     assert "snowflake" in result.output
+
+
+def test_install_run_prints_the_resolved_kubeconfig_path_not_the_raw_flag(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A relative --kubeconfig normalizes correctly for THIS run (against
+    this cwd), but the advertised follow-up 'olf install verify' command may
+    be copy-pasted and run later from a different directory, where the same
+    relative value would resolve to a different file or none at all. The
+    printed command must use the resolved absolute path run_install already
+    computed, not the raw --kubeconfig string the user typed.
+    """
+    from olf import install as install_module
+
+    def fake_run_install(options):
+        return {
+            "manifest": {},
+            "manifest_path": Path("/work/assets/component-manifest.json"),
+            "bundle_root": Path("/work/bundle"),
+            "work_dir": Path("/work"),
+            "resolved_kubeconfig_path": "/home/user/project/cluster.yaml",
+        }
+
+    monkeypatch.setattr(install_module, "run_install", fake_run_install)
+
+    result = runner.invoke(
+        app,
+        [
+            "install",
+            "run",
+            "--tag",
+            "v0.1.0-alpha.1",
+            "--kube-context",
+            "my-cluster",
+            "--kubeconfig",
+            "./cluster.yaml",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "--kubeconfig /home/user/project/cluster.yaml" in result.output
+    assert "--kubeconfig ./cluster.yaml" not in result.output

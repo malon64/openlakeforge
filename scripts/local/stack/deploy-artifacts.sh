@@ -11,7 +11,20 @@ KUBECONFIG_PATH="${KUBECONFIG_PATH:-${REPO_ROOT}/.tmp/kubeconfigs/local.yaml}"
 DEPLOYMENT_SCOPE="${DEPLOYMENT_SCOPE:-local}"
 PROJECT_CODE_IMAGE_REPOSITORY="${PROJECT_CODE_IMAGE_REPOSITORY:-ghcr.io/openlakeforge/project-code}"
 PROJECT_CODE_IMAGE_TAG="${PROJECT_CODE_IMAGE_TAG:-local}"
-PROJECT_CODE_IMAGE="${PROJECT_CODE_IMAGE_REPOSITORY}:${PROJECT_CODE_IMAGE_TAG}"
+# Set by `olf install run` to the cosign-verified digest; empty for
+# make local-up (dev tags aren't signed releases, so there is nothing to
+# pin against). When present, it -- not the mutable version tag -- is what
+# actually gets deployed: a tag can be moved after publication without
+# moving the digest, so deploying by tag alone would not actually run the
+# bytes cosign verified.
+PROJECT_CODE_IMAGE_DIGEST="${PROJECT_CODE_IMAGE_DIGEST:-}"
+if [[ -n "${PROJECT_CODE_IMAGE_DIGEST}" ]]; then
+  PROJECT_CODE_IMAGE="${PROJECT_CODE_IMAGE_REPOSITORY}@${PROJECT_CODE_IMAGE_DIGEST}"
+else
+  PROJECT_CODE_IMAGE="${PROJECT_CODE_IMAGE_REPOSITORY}:${PROJECT_CODE_IMAGE_TAG}"
+fi
+SUPERSET_IMAGE_REPOSITORY="${SUPERSET_IMAGE_REPOSITORY:-ghcr.io/openlakeforge/superset}"
+SUPERSET_IMAGE_DIGEST="${SUPERSET_IMAGE_DIGEST:-}"
 FLOE_RUNTIME_ARTIFACT_DIR="${FLOE_RUNTIME_ARTIFACT_DIR:-${REPO_ROOT}/.tmp/floe-runtime/local}"
 export OPENLAKEFORGE_REPO_ROOT="${REPO_ROOT}"
 
@@ -75,6 +88,17 @@ fi
 
 echo "==> Pointing Dagster at project-code image ${PROJECT_CODE_IMAGE}..."
 olf_run k8s set-project-code-image --image "${PROJECT_CODE_IMAGE}"
+
+# The Superset Helm chart has no digest-pinning support at all (unlike
+# Dagster's chart), so this is the only way to run it pinned by digest
+# rather than by the mutable tag Terraform/Helm deployed it with. Gated on
+# the digest being set (only true for `olf install run`) so make local-up,
+# which never has a release digest to pin to, is unaffected.
+if [[ -n "${SUPERSET_IMAGE_DIGEST}" ]]; then
+  superset_image="${SUPERSET_IMAGE_REPOSITORY}@${SUPERSET_IMAGE_DIGEST}"
+  echo "==> Pointing Superset at verified digest ${superset_image}..."
+  olf_run k8s set-superset-image --image "${superset_image}"
+fi
 
 OPENMETADATA_ALLOW_MISSING_ASSETS="${OPENMETADATA_ALLOW_MISSING_ASSETS:-true}" \
   olf_run artifacts deploy-optional-layers

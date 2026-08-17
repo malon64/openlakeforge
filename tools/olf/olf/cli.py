@@ -6,6 +6,7 @@ contracts, catalog, floe, artifacts, revision, superset, openmetadata, k8s, e2e,
 
 from __future__ import annotations
 
+import json
 import os
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -43,6 +44,7 @@ k8s_app = typer.Typer(help="Kubernetes image bookkeeping helpers.")
 e2e_app = typer.Typer(help="End-to-end environment validation.")
 smoke_app = typer.Typer(help="Bounded deployment smoke helpers.")
 release_app = typer.Typer(help="Release manifest, checksums, compatibility matrix, and readiness gate.")
+install_app = typer.Typer(help="Consumer install of a tagged release into an existing cluster.")
 app.add_typer(contracts_app, name="contracts")
 app.add_typer(catalog_app, name="catalog")
 app.add_typer(floe_app, name="floe")
@@ -55,6 +57,7 @@ app.add_typer(k8s_app, name="k8s")
 app.add_typer(e2e_app, name="e2e")
 app.add_typer(smoke_app, name="smoke")
 app.add_typer(release_app, name="release")
+app.add_typer(install_app, name="install")
 
 
 def _repo_root() -> Path:
@@ -542,6 +545,17 @@ def k8s_set_project_code_image(
     k8s.set_project_code_image(image, config.namespace(), rollout_timeout=timeout)
 
 
+@k8s_app.command("set-superset-image")
+def k8s_set_superset_image(
+    image: str = typer.Option(..., "--image", help="Fully qualified Superset image reference."),
+    timeout: str = typer.Option("600s", "--timeout", help="Timeout for the Superset deployment rollout."),
+) -> None:
+    """Point the Superset deployment at an image and wait for its rollout."""
+    from olf import k8s
+
+    k8s.set_superset_image(image, config.namespace(), rollout_timeout=timeout)
+
+
 @e2e_app.command("run")
 def e2e_run(
     env: str = typer.Option(..., "--env", help="Environment to validate: local, azure, or aws."),
@@ -677,6 +691,162 @@ def release_check(
 
     typer.echo(report.render())
     if not report.ok:
+        raise typer.Exit(code=1)
+
+
+@install_app.command("run")
+def install_run(
+    tag: str = typer.Option(..., "--tag", help="Release tag to install, e.g. v0.1.0-alpha.1."),
+    kube_context: str = typer.Option(
+        ..., "--kube-context", help="Target kubectl context; must already exist in the resolved kubeconfig."
+    ),
+    namespace: str = typer.Option("lakehouse", "--namespace", help="Kubernetes namespace for the platform."),
+    profile: str = typer.Option("full", "--profile", help="Component profile to install: 'slim' or 'full'."),
+    repo_slug: str = typer.Option(
+        "malon64/openlakeforge", "--repo-slug", help="GitHub <owner>/<repo> the release was published from."
+    ),
+    assets_dir: str = typer.Option(
+        "", "--assets-dir", help="Use already-downloaded release assets instead of fetching from GitHub."
+    ),
+    kubeconfig: str = typer.Option(
+        "", "--kubeconfig", help="Kubeconfig path (default: $KUBECONFIG, or ~/.kube/config)."
+    ),
+    cluster_name: str = typer.Option(
+        "openlakeforge-install", "--cluster-name", help="Cluster name recorded in the foundation contract."
+    ),
+    work_dir: str = typer.Option(
+        "",
+        "--work-dir",
+        help="Directory for downloads, the unpacked bundle, and Terraform state (default: a stable "
+        "~/.openlakeforge/install/<context>-<kubeconfig-hash>/<namespace> directory, reused across repeat "
+        "installs -- including upgrades to a different tag -- against the same target so Terraform state "
+        "survives). An explicit --work-dir is bound to the first (--kubeconfig, --kube-context, "
+        "--namespace) it's used for; reusing it for a different target is refused, since the Terraform "
+        "state inside it is target-scoped and reusing it elsewhere can delete or orphan resources.",
+    ),
+    skip_artifacts: bool = typer.Option(
+        False,
+        "--skip-artifacts",
+        help="Apply only the static platform (Phase 1); skip Phase 2 artifacts. Also skips re-pinning "
+        "project-code/Superset to their exact verified digest, which Phase 2 does -- a Phase-1-only "
+        "install stays on whatever the version tag resolved to at apply time."
+    ),
+    skip_signature_verification: bool = typer.Option(
+        False,
+        "--skip-signature-verification",
+        help="DANGEROUS: skip cosign verification. Only for rehearsing against an unsigned dry-run bundle "
+        "(e.g. 'make release-bundle'); never use against a real release.",
+    ),
+    skip_digest_pin: bool = typer.Option(
+        False,
+        "--skip-digest-pin",
+        help="Only for rehearsing against images built locally and never pushed to a registry: such an "
+        "image has no registry-assigned digest to pin to. Falls Phase 2 back to patching by tag. Never "
+        "use against a real release.",
+    ),
+    storage_values_override: str = typer.Option(
+        "",
+        "--storage-values-override",
+        help="Helm values file layered on top of the bundle's SeaweedFS values (e.g. to switch data "
+        "volumes off emptyDir onto a PersistentVolumeClaim). Its path must be OUTSIDE --work-dir's "
+        "bundle/ subtree when first passed -- that subtree is deleted and re-extracted on every "
+        "install/upgrade. Only needs to be passed once per --work-dir: its content is copied into "
+        "--work-dir and reused automatically by every later run against the same target, even one "
+        "that omits this flag.",
+    ),
+    adopt_namespace: bool = typer.Option(
+        False,
+        "--adopt-namespace",
+        help="Take ownership of a pre-existing --namespace this --work-dir has no record of managing. "
+        "Without this, olf install refuses (rather than silently adopting or resetting) a namespace "
+        "that already exists but isn't already tracked in this work directory's Terraform state -- it "
+        "may be unrelated to this install. Only needed once per --work-dir; a namespace already owned "
+        "by a prior run of this exact target is reconciled normally regardless of this flag.",
+    ),
+) -> None:
+    """Verify and install a tagged release into an existing cluster -- no repository clone."""
+    from olf import install as install_module
+
+    options = install_module.InstallOptions(
+        tag=tag,
+        kube_context=kube_context,
+        repo_slug=repo_slug,
+        namespace=namespace,
+        profile=profile,
+        cluster_name=cluster_name,
+        kubeconfig_path=kubeconfig or None,
+        assets_dir=Path(assets_dir) if assets_dir else None,
+        work_dir=Path(work_dir) if work_dir else None,
+        skip_artifacts=skip_artifacts,
+        skip_signature_verification=skip_signature_verification,
+        skip_digest_pin=skip_digest_pin,
+        storage_values_override=Path(storage_values_override) if storage_values_override else None,
+        adopt_namespace=adopt_namespace,
+    )
+    try:
+        result = install_module.run_install(options)
+    except install_module.InstallError as exc:
+        raise typer.Exit(code=_fail(str(exc))) from exc
+    typer.echo(f"Installed {tag} into context {kube_context}, namespace {namespace}.")
+    # The RESOLVED absolute path, not the raw --kubeconfig value: a relative
+    # value normalized correctly for this run (against this cwd), but the
+    # advertised command may be copy-pasted and run from a different
+    # directory later, where the same relative value would resolve to a
+    # different file (or none).
+    resolved_kubeconfig_path = result["resolved_kubeconfig_path"]
+    typer.echo(
+        f"Manifest at {result['manifest_path']} -- run 'olf install verify --manifest {result['manifest_path']} "
+        f"--kube-context {kube_context} --namespace {namespace} --kubeconfig {resolved_kubeconfig_path} "
+        f"--profile {profile}' to prove the running images match it."
+    )
+
+
+@install_app.command("verify")
+def install_verify(
+    manifest: str = typer.Option(..., "--manifest", help="Path to component-manifest.json."),
+    namespace: str = typer.Option("lakehouse", "--namespace", help="Kubernetes namespace to inspect."),
+    kube_context: str = typer.Option(..., "--kube-context", help="kubectl context to inspect."),
+    kubeconfig: str = typer.Option(
+        "",
+        "--kubeconfig",
+        help="Kubeconfig path (default: $KUBECONFIG, or ~/.kube/config). Pass the same value given to "
+        "'olf install run' if that context only exists in a non-default kubeconfig.",
+    ),
+    profile: str = typer.Option("full", "--profile", help="Component profile that was installed: 'slim' or 'full'."),
+    strict: bool = typer.Option(
+        False, "--strict", help="Also fail on running images the manifest does not declare."
+    ),
+    skip_image: list[str] | None = typer.Option(  # noqa: B008 - typer's repeatable-option pattern
+        None,
+        "--skip-image",
+        help="Canonical repository (e.g. ghcr.io/openlakeforge/project-code) to exclude from the parity "
+        "check. Repeatable. Only for rehearsing against images built locally and never pushed to a "
+        "registry -- there is no correct expected digest to check them against. Never use against a "
+        "real install.",
+    ),
+) -> None:
+    """Prove the running cluster's image digests match the release manifest exactly."""
+    from olf import install as install_module
+
+    try:
+        install_module.profile_env(profile)
+    except install_module.InstallError as exc:
+        raise typer.Exit(code=_fail(str(exc))) from exc
+
+    manifest_data = json.loads(Path(manifest).read_text())
+    governance = profile == "full"
+    analytics = profile == "full"
+    report = install_module.run_verify(
+        manifest_data,
+        namespace=namespace,
+        kube_context=kube_context,
+        governance=governance,
+        analytics=analytics,
+        kubeconfig_path=kubeconfig or None,
+        skip_repositories=frozenset(skip_image or []),
+    )
+    typer.echo(report.render())
+    if not report.ok(strict=strict):
         raise typer.Exit(code=1)
 
 

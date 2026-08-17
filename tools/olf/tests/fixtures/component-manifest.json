@@ -1,0 +1,29 @@
+{
+  "apiVersion": "openlakeforge.io/v1alpha1",
+  "kind": "ReleaseManifest",
+  "distribution": {
+    "version": "0.1.0-alpha.1",
+    "tag": "v0.1.0-alpha.1",
+    "git_sha": "deadbeef"
+  },
+  "catalog": {
+    "components": {
+      "images": {
+        "k8s_bootstrap": "alpine/k8s:1.30.0@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "postgres": "postgres:16-alpine@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "seaweedfs": "chrislusf/seaweedfs:4.23@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "polaris": "apache/polaris:1.4.0@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "trino": "trinodb/trino:480@sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "opensearch": "opensearchproject/opensearch:3.3.2@sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "openmetadata_ingestion": "docker.getcollate.io/openmetadata/ingestion-base:1.12.10@sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "superset_init": "apache/superset:dockerize@sha256:2222222222222222222222222222222222222222222222222222222222222222",
+        "superset_redis": "docker.io/bitnamilegacy/redis:7.0.10-debian-11-r4@sha256:3333333333333333333333333333333333333333333333333333333333333333",
+        "floe": "ghcr.io/malon64/floe:0.6.11@sha256:6666666666666666666666666666666666666666666666666666666666666666"
+      }
+    }
+  },
+  "resolved_images": {
+    "project-code": "ghcr.io/malon64/openlakeforge/project-code@sha256:4444444444444444444444444444444444444444444444444444444444444444",
+    "superset": "ghcr.io/malon64/openlakeforge/superset@sha256:5555555555555555555555555555555555555555555555555555555555555555"
+  }
+}

@@ -46,13 +46,16 @@ def _kubectl(
     capture: bool = False,
     check: bool = True,
     kube_context: str | None = None,
+    kubeconfig_path: str | None = None,
 ) -> str:
     command = kubectl_command(args, kube_context=kube_context)
+    env = {**os.environ, "KUBECONFIG": kubeconfig_path} if kubeconfig_path else None
     result = subprocess.run(
         command,
         capture_output=capture,
         text=True,
         check=False,
+        env=env,
     )
     if check and result.returncode != 0:
         detail = (result.stderr or "").strip()
@@ -336,6 +339,131 @@ def set_project_code_image(image: str, namespace: str, *, rollout_timeout: str =
     for deployment in updated:
         log.step(f"Waiting for {deployment} rollout in {os.environ.get('KUBE_CONTEXT', 'current context')}...")
         _wait_for_rollout_with_diagnostics(deployment, namespace, rollout_timeout)
+
+
+def discover_superset_deployments(namespace: str, *, release_name: str = "superset") -> list[str]:
+    """Every Deployment the Superset Helm chart's `helm_release` (name
+    `release_name` -- infra/terraform/modules/analytics/superset's own
+    default, never overridden anywhere in this codebase) actually owns.
+
+    Selected by the chart's own ownership labels
+    (`release=<release_name>,heritage=Helm`), confirmed empirically against
+    the pinned chart version (`helm template superset/superset
+    --version 0.15.5`): it labels every Deployment with the pre-`app.kubernetes.io/*`
+    Helm convention (`release: <release-name>`, `heritage: Helm`), not the
+    modern `app.kubernetes.io/instance`. A name-prefix match ("superset" or
+    "superset-*") was used before this and is unsafe once a namespace can be
+    adopted from outside this tool (`--adopt-namespace`): a foreign
+    Deployment coincidentally named e.g. "superset-exporter" would match the
+    prefix but not the chart's actual ownership, and set_superset_image
+    would overwrite its containers with the Superset image.
+    """
+    raw = _kubectl(
+        [
+            "get",
+            "deployments",
+            "-n",
+            namespace,
+            "-l",
+            f"release={release_name},heritage=Helm",
+            "-o",
+            'jsonpath={range .items[*]}{.metadata.name}{"\\n"}{end}',
+        ],
+        capture=True,
+    )
+    return [name for name in raw.splitlines() if name]
+
+
+def set_superset_image(image: str, namespace: str, *, rollout_timeout: str = "600s") -> None:
+    """Point every discovered Superset deployment at an exact image reference and wait for each rollout.
+
+    The Superset Helm chart's own image template has no digest-pinning
+    support (unlike the Dagster chart's dagsterImage helper), so this
+    `kubectl patch` -- which accepts any valid image reference, tag or
+    digest, independent of the chart -- is the only way to run Superset
+    pinned by digest rather than by the mutable version tag Helm deployed it
+    with.
+    """
+    restarted_at = datetime.now(UTC).isoformat()
+    updated = [
+        deployment
+        for deployment in discover_superset_deployments(namespace)
+        if patch_deployment_image_if_exists(deployment, image, namespace, restarted_at=restarted_at)
+    ]
+    for deployment in updated:
+        log.step(f"Waiting for {deployment} rollout in {os.environ.get('KUBE_CONTEXT', 'current context')}...")
+        _wait_for_rollout_with_diagnostics(deployment, namespace, rollout_timeout)
+
+
+def list_pod_images(
+    namespace: str, *, kube_context: str | None = None, kubeconfig_path: str | None = None
+) -> list[dict[str, str]]:
+    """List every running container's image and its resolved imageID for pods in a namespace.
+
+    Used by `olf install verify` to prove the running cluster matches a
+    release manifest by digest, not by re-reading Terraform/Helm inputs.
+    """
+    raw = _kubectl(
+        ["get", "pods", "-n", namespace, "-o", "json"],
+        capture=True,
+        kube_context=kube_context,
+        kubeconfig_path=kubeconfig_path,
+    )
+    payload = json.loads(raw) if raw.strip() else {"items": []}
+    return pod_images_from_payload(payload)
+
+
+def pod_images_from_payload(payload: dict) -> list[dict[str, str]]:
+    """Pure extraction of running-container image bookkeeping from a
+    `kubectl get pods -o json` payload.
+
+    Only pods in phase "Running" are considered: a completed bootstrap Job
+    pod (e.g. Polaris's, whose image is deliberately not registered as an
+    expected long-running image) or a leftover terminal pod from a prior
+    rollout would otherwise be reported as unrecognized/mismatched drift by
+    `olf install verify`, even on an entirely healthy install.
+
+    initContainers are excluded entirely, not just filtered by phase: they
+    are ephemeral setup steps, not "what's running", and charts commonly
+    bake in generic dependency-wait init containers with their own hardcoded
+    images unrelated to anything the release manifest declares. Confirmed
+    concretely against a real deployment: the Dagster chart's default
+    `check-db-ready` init container runs `postgres:14.6` (a readiness probe
+    via `pg_isready`, never the database itself) and `init-user-deployment-*`
+    runs `busybox:1.28` for an nslookup wait-loop. `check-db-ready`'s
+    repository canonicalizes to the exact same `docker.io/library/postgres`
+    key as the real, declared PostgreSQL deployment -- without this
+    exclusion, that collision reports a false MISMATCH (two digests observed
+    for one expected image), not just harmless "unrecognized" noise.
+
+    Kept pure so `olf install verify`'s parity check is unit-testable from a
+    fixture payload without a cluster.
+    """
+    entries: list[dict[str, str]] = []
+    for pod in payload.get("items") or []:
+        status = pod.get("status") or {}
+        if status.get("phase") != "Running":
+            continue
+        pod_name = (pod.get("metadata") or {}).get("name", "")
+        spec = pod.get("spec") or {}
+        spec_images = {
+            container.get("name", ""): container.get("image", "") for container in spec.get("containers") or []
+        }
+        for container_status in status.get("containerStatuses") or []:
+            name = container_status.get("name", "")
+            entries.append(
+                {
+                    "pod": pod_name,
+                    "container": name,
+                    "image": spec_images.get(name, container_status.get("image", "")),
+                    "image_id": _normalize_image_id(container_status.get("imageID", "")),
+                }
+            )
+    return entries
+
+
+def _normalize_image_id(image_id: str) -> str:
+    return image_id.removeprefix("docker-pullable://").removeprefix("docker://")
 
 
 def wait_for_rollout(kind_name: str, namespace: str, timeout: str = "300s") -> None:

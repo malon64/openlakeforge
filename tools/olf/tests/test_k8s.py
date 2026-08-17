@@ -8,6 +8,46 @@ import pytest
 from olf import k8s
 
 
+def test_kubectl_passes_kubeconfig_path_via_subprocess_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[dict] = []
+
+    class FakeCompleted:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    def fake_run(command, **kwargs):
+        calls.append(kwargs)
+        return FakeCompleted()
+
+    monkeypatch.setattr(k8s.subprocess, "run", fake_run)
+    monkeypatch.setenv("KUBE_CONTEXT", "kind-openlakeforge-local")
+
+    k8s._kubectl(["get", "pods"], kubeconfig_path="/custom/kubeconfig")
+
+    assert calls[0]["env"]["KUBECONFIG"] == "/custom/kubeconfig"
+
+
+def test_kubectl_leaves_env_untouched_without_kubeconfig_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[dict] = []
+
+    class FakeCompleted:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    def fake_run(command, **kwargs):
+        calls.append(kwargs)
+        return FakeCompleted()
+
+    monkeypatch.setattr(k8s.subprocess, "run", fake_run)
+    monkeypatch.setenv("KUBE_CONTEXT", "kind-openlakeforge-local")
+
+    k8s._kubectl(["get", "pods"])
+
+    assert calls[0]["env"] is None
+
+
 def test_secret_value_uses_explicit_kube_context(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[tuple[list[str], dict]] = []
     encoded = base64.b64encode(b"secret").decode("ascii")
@@ -362,3 +402,278 @@ def test_set_project_code_image_updates_all_dagster_surfaces(monkeypatch: pytest
     assert len({restarted_at for *_, restarted_at in deployment_images}) == 1
     assert cronjob_images == [("openlakeforge-k8s-log-archive", "repo/project-code:new", "lakehouse")]
     assert rollout_waits == [(deployment, "lakehouse", "600s") for deployment, *_ in deployment_images]
+
+
+def test_discover_superset_deployments_selects_by_chart_ownership_labels(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Confirmed empirically against the pinned chart (`helm template
+    superset/superset --version 0.15.5`): it labels every Deployment it owns
+    with the pre-app.kubernetes.io/* Helm convention (release=<release-name>,
+    heritage=Helm), not app.kubernetes.io/instance. Filtering server-side via
+    that label selector -- not a client-side name-prefix match -- is what
+    makes this safe once a namespace can be adopted from outside this tool
+    (--adopt-namespace): a foreign deployment named e.g. "superset-exporter"
+    would match a name prefix but never carry the chart's own labels.
+    """
+    calls: list[list[str]] = []
+
+    def fake_kubectl(args, **kwargs):
+        calls.append(args)
+        return "\n".join(["superset", "superset-worker"])
+
+    monkeypatch.setattr(k8s, "_kubectl", fake_kubectl)
+
+    deployments = k8s.discover_superset_deployments("lakehouse")
+
+    assert deployments == ["superset", "superset-worker"]
+    assert calls == [
+        [
+            "get",
+            "deployments",
+            "-n",
+            "lakehouse",
+            "-l",
+            "release=superset,heritage=Helm",
+            "-o",
+            'jsonpath={range .items[*]}{.metadata.name}{"\\n"}{end}',
+        ]
+    ]
+
+
+def test_discover_superset_deployments_uses_the_given_release_name(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[list[str]] = []
+    monkeypatch.setattr(k8s, "_kubectl", lambda args, **kwargs: calls.append(args) or "")
+
+    k8s.discover_superset_deployments("lakehouse", release_name="custom-superset")
+
+    assert "-l" in calls[0]
+    assert calls[0][calls[0].index("-l") + 1] == "release=custom-superset,heritage=Helm"
+
+
+def test_set_superset_image_patches_discovered_deployments_and_waits_for_rollout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(k8s, "discover_superset_deployments", lambda namespace: ["superset", "superset-worker"])
+    patch_calls = []
+    monkeypatch.setattr(
+        k8s,
+        "patch_deployment_image_if_exists",
+        lambda deployment, image, namespace, **kwargs: (
+            patch_calls.append((deployment, image, namespace, kwargs["restarted_at"])) or True
+        ),
+    )
+    rollout_waits = []
+    monkeypatch.setattr(
+        k8s,
+        "_wait_for_rollout_with_diagnostics",
+        lambda deployment, namespace, timeout: rollout_waits.append((deployment, namespace, timeout)),
+    )
+
+    k8s.set_superset_image("repo/superset@sha256:" + "a" * 64, "lakehouse")
+
+    assert [(d, i, n) for d, i, n, _ in patch_calls] == [
+        ("superset", "repo/superset@sha256:" + "a" * 64, "lakehouse"),
+        ("superset-worker", "repo/superset@sha256:" + "a" * 64, "lakehouse"),
+    ]
+    assert len({restarted_at for *_, restarted_at in patch_calls}) == 1
+    assert rollout_waits == [("superset", "lakehouse", "600s"), ("superset-worker", "lakehouse", "600s")]
+
+
+def test_set_superset_image_skips_rollout_wait_when_deployment_absent(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(k8s, "discover_superset_deployments", lambda namespace: ["superset"])
+    monkeypatch.setattr(k8s, "patch_deployment_image_if_exists", lambda *a, **k: False)
+    rollout_waits = []
+    monkeypatch.setattr(
+        k8s, "_wait_for_rollout_with_diagnostics", lambda *a: rollout_waits.append(a)
+    )
+
+    k8s.set_superset_image("repo/superset@sha256:" + "a" * 64, "lakehouse")
+
+    assert rollout_waits == []
+
+
+def test_pod_images_from_payload_extracts_containers_but_not_init_containers() -> None:
+    """initContainers are excluded entirely (see the function's docstring for
+    the concrete Dagster check-db-ready/postgres collision that motivated
+    this): they are ephemeral setup steps, not "what's running", and their
+    images are unrelated to anything a release manifest declares.
+    """
+    payload = {
+        "items": [
+            {
+                "metadata": {"name": "trino-0"},
+                "spec": {
+                    "containers": [{"name": "trino", "image": "trinodb/trino:480"}],
+                    "initContainers": [{"name": "wait-for-catalog", "image": "busybox:1.36"}],
+                },
+                "status": {
+                    "phase": "Running",
+                    "containerStatuses": [
+                        {
+                            "name": "trino",
+                            "image": "trinodb/trino:480",
+                            "imageID": "docker-pullable://trinodb/trino@sha256:" + "e" * 64,
+                        }
+                    ],
+                    "initContainerStatuses": [
+                        {
+                            "name": "wait-for-catalog",
+                            "image": "busybox:1.36",
+                            "imageID": "busybox@sha256:" + "f" * 64,
+                        }
+                    ],
+                },
+            },
+            {
+                "metadata": {"name": "pending-pod"},
+                "spec": {"containers": [{"name": "app", "image": "repo/app:latest"}]},
+                "status": {
+                    "phase": "Running",
+                    "containerStatuses": [{"name": "app", "image": "repo/app:latest", "imageID": ""}],
+                },
+            },
+        ]
+    }
+
+    entries = k8s.pod_images_from_payload(payload)
+
+    assert entries == [
+        {
+            "pod": "trino-0",
+            "container": "trino",
+            "image": "trinodb/trino:480",
+            "image_id": "trinodb/trino@sha256:" + "e" * 64,
+        },
+        {"pod": "pending-pod", "container": "app", "image": "repo/app:latest", "image_id": ""},
+    ]
+
+
+def test_pod_images_from_payload_handles_empty_items() -> None:
+    assert k8s.pod_images_from_payload({}) == []
+    assert k8s.pod_images_from_payload({"items": []}) == []
+
+
+def test_pod_images_from_payload_excludes_completed_and_pending_pods() -> None:
+    """A completed bootstrap Job pod (e.g. Polaris's) must not surface its
+    image -- it is deliberately unregistered in expected_images, so
+    including it would report it as drift on an otherwise healthy install.
+    """
+    payload = {
+        "items": [
+            {
+                "metadata": {"name": "polaris-bootstrap-abcdef"},
+                "spec": {"containers": [{"name": "bootstrap", "image": "alpine/k8s:1.30.0"}]},
+                "status": {
+                    "phase": "Succeeded",
+                    "containerStatuses": [
+                        {
+                            "name": "bootstrap",
+                            "image": "alpine/k8s:1.30.0",
+                            "imageID": "alpine/k8s@sha256:" + "a" * 64,
+                        }
+                    ],
+                },
+            },
+            {
+                "metadata": {"name": "still-scheduling"},
+                "spec": {"containers": [{"name": "app", "image": "repo/app:latest"}]},
+                "status": {"phase": "Pending"},
+            },
+        ]
+    }
+
+    assert k8s.pod_images_from_payload(payload) == []
+
+
+def test_pod_images_from_payload_ignores_dagster_readiness_wait_init_containers() -> None:
+    """Regression test for a real CI failure: the Dagster chart's default
+    check-db-ready init container runs a DIFFERENT postgres version
+    (postgres:14.6, a pg_isready probe) than the actual deployed PostgreSQL
+    (postgres:16-alpine). Both canonicalize to the same
+    docker.io/library/postgres repository, so before initContainers were
+    excluded, this produced a false MISMATCH (two digests for one expected
+    image) on an entirely healthy install.
+    """
+    payload = {
+        "items": [
+            {
+                "metadata": {"name": "dagster-daemon-abc"},
+                "spec": {
+                    "initContainers": [
+                        {"name": "check-db-ready", "image": "docker.io/library/postgres:14.6"},
+                        {"name": "init-user-deployment", "image": "docker.io/busybox:1.28"},
+                    ],
+                    "containers": [
+                        {"name": "dagster-daemon", "image": "ghcr.io/malon64/openlakeforge/project-code:0.1.0-alpha.1"}
+                    ],
+                },
+                "status": {
+                    "phase": "Running",
+                    "initContainerStatuses": [
+                        {
+                            "name": "check-db-ready",
+                            "image": "docker.io/library/postgres:14.6",
+                            "imageID": "docker.io/library/postgres@sha256:" + "9" * 64,
+                        },
+                        {
+                            "name": "init-user-deployment",
+                            "image": "docker.io/busybox:1.28",
+                            "imageID": "docker.io/library/busybox@sha256:" + "8" * 64,
+                        },
+                    ],
+                    "containerStatuses": [
+                        {
+                            "name": "dagster-daemon",
+                            "image": "ghcr.io/malon64/openlakeforge/project-code:0.1.0-alpha.1",
+                            "imageID": "ghcr.io/malon64/openlakeforge/project-code@sha256:" + "4" * 64,
+                        }
+                    ],
+                },
+            }
+        ]
+    }
+
+    entries = k8s.pod_images_from_payload(payload)
+
+    assert [entry["container"] for entry in entries] == ["dagster-daemon"]
+
+
+def test_list_pod_images_parses_kubectl_json(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[list[str], dict]] = []
+    payload = {
+        "items": [
+            {
+                "metadata": {"name": "polaris-0"},
+                "spec": {"containers": [{"name": "polaris", "image": "apache/polaris:1.4.0"}]},
+                "status": {
+                    "phase": "Running",
+                    "containerStatuses": [
+                        {
+                            "name": "polaris",
+                            "image": "apache/polaris:1.4.0",
+                            "imageID": "apache/polaris@sha256:" + "a" * 64,
+                        }
+                    ],
+                },
+            }
+        ]
+    }
+    monkeypatch.setattr(
+        k8s, "_kubectl", lambda args, **kwargs: calls.append((args, kwargs)) or json.dumps(payload)
+    )
+
+    entries = k8s.list_pod_images("lakehouse", kube_context="kind-openlakeforge-local")
+
+    assert calls == [
+        (
+            ["get", "pods", "-n", "lakehouse", "-o", "json"],
+            {"capture": True, "kube_context": "kind-openlakeforge-local", "kubeconfig_path": None},
+        )
+    ]
+    assert entries == [
+        {
+            "pod": "polaris-0",
+            "container": "polaris",
+            "image": "apache/polaris:1.4.0",
+            "image_id": "apache/polaris@sha256:" + "a" * 64,
+        }
+    ]

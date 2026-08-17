@@ -7,6 +7,10 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 TERRAFORM_DIR="${REPO_ROOT}/infra/terraform/environments/local"
 FOUNDATION_TERRAFORM_DIR="${REPO_ROOT}/infra/terraform/foundations/local-kind"
 FOUNDATION_STATE_PATH="${FOUNDATION_STATE_PATH:-${FOUNDATION_TERRAFORM_DIR}/terraform.tfstate}"
+# existing-cluster is used by `olf install`: it targets a cluster with no
+# foundation Terraform root/state, so the state-file precondition below and
+# the foundation_state_path Terraform variable are skipped.
+FOUNDATION_MODE="${FOUNDATION_MODE:-kind-foundation-state}"
 LOCAL_TFVARS_FILE="${LOCAL_TFVARS_FILE:-}"
 NAMESPACE="${NAMESPACE:-lakehouse}"
 export NAMESPACE
@@ -26,6 +30,17 @@ SUPERSET_IMAGE_TAG="${SUPERSET_IMAGE_TAG:-local}"
 SUPERSET_IMAGE_PULL_POLICY="${SUPERSET_IMAGE_PULL_POLICY:-Never}"
 TRINO_CHART_REPOSITORY="${TRINO_CHART_REPOSITORY:-https://trinodb.github.io/charts}"
 TRINO_CHART_VERSION="${TRINO_CHART_VERSION:-1.42.2}"
+# Optional Helm values layered on top of infra/helm/values/local/seaweedfs.yaml
+# (e.g. to move data volumes off emptyDir). Must be a path outside the
+# extracted install bundle -- see docs/release/installing.md -- since
+# unpack_install_bundle deletes and re-extracts that tree on every install.
+SEAWEEDFS_OVERRIDE_VALUES_FILE="${SEAWEEDFS_OVERRIDE_VALUES_FILE:-}"
+# Absolute path to Terraform's own state file, set by `olf install run` to a
+# location under --work-dir/state/ -- deliberately OUTSIDE this Terraform
+# root (and outside the bundle unpack_install_bundle wipes on every run).
+# Empty for `make local-up`, which resolves to this root's own default local
+# backend path exactly as before this variable existed.
+TERRAFORM_STATE_PATH="${TERRAFORM_STATE_PATH:-}"
 
 RUN_RETRY_ATTEMPTS="${LOCAL_UP_RETRY_ATTEMPTS:-4}"
 RUN_RETRY_DELAY_SECONDS="${LOCAL_UP_RETRY_DELAY_SECONDS:-20}"
@@ -49,8 +64,19 @@ if [[ -n "${LOCAL_TFVARS_FILE}" ]]; then
   TFVARS_ARGS+=("-var-file=${LOCAL_TFVARS_FILE}")
 fi
 
+# Only every `terraform init` call needs this (it is an init-time backend
+# setting, not a `-var`); every other terraform subcommand (apply, destroy,
+# state show, import) just operates against whatever backend init already
+# configured. Empty when TERRAFORM_STATE_PATH is unset, so `make local-up`
+# gets the exact same default local backend path as before this existed.
+TF_INIT_ARGS=()
+if [[ -n "${TERRAFORM_STATE_PATH}" ]]; then
+  mkdir -p "$(dirname "${TERRAFORM_STATE_PATH}")"
+  TF_INIT_ARGS+=("-backend-config=path=${TERRAFORM_STATE_PATH}")
+fi
+
 check_cluster() {
-  if [[ ! -f "${FOUNDATION_STATE_PATH}" ]]; then
+  if [[ "${FOUNDATION_MODE}" == "kind-foundation-state" && ! -f "${FOUNDATION_STATE_PATH}" ]]; then
     echo "ERROR: local foundation Terraform state is missing: ${FOUNDATION_STATE_PATH}" >&2
     echo "Run 'make local-foundation-up' before applying the local platform." >&2
     exit 1
@@ -94,7 +120,9 @@ terraform_apply_once() {
     -var="namespace=${NAMESPACE}" \
     -var="kube_context=${KUBE_CONTEXT}" \
     -var="kubeconfig_path=${KUBECONFIG_PATH}" \
+    -var="foundation_mode=${FOUNDATION_MODE}" \
     -var="foundation_state_path=${FOUNDATION_STATE_PATH}" \
+    -var="cluster_name=${CLUSTER_NAME}" \
     -var="project_code_image_repository=${PROJECT_CODE_IMAGE_REPOSITORY}" \
     -var="project_code_image_tag=${PROJECT_CODE_IMAGE_TAG}" \
     -var="project_code_image_pull_policy=${PROJECT_CODE_IMAGE_PULL_POLICY}" \
@@ -104,7 +132,8 @@ terraform_apply_once() {
     -var="superset_image_repository=${SUPERSET_IMAGE_REPOSITORY}" \
     -var="superset_image_tag=${SUPERSET_IMAGE_TAG}" \
     -var="superset_image_pull_policy=${SUPERSET_IMAGE_PULL_POLICY}" \
-    -var="trino_chart_package_path=${TRINO_CHART_PACKAGE_PATH}"
+    -var="trino_chart_package_path=${TRINO_CHART_PACKAGE_PATH}" \
+    -var="seaweedfs_override_values_file=${SEAWEEDFS_OVERRIDE_VALUES_FILE}"
 }
 
 state_has_resource() {
@@ -113,6 +142,17 @@ state_has_resource() {
 }
 
 reset_drifted_local_platform_if_needed() {
+  # kind-foundation-state (the `make local-up` dev loop) only: recover from
+  # a PREVIOUS run of this same tool leaving in-cluster resources behind
+  # with no matching Terraform state (e.g. a kind cluster reused across
+  # local-up/local-down cycles). Never applicable to existing-cluster: `olf
+  # install run` (tools/olf/olf/install.py's check_namespace_ownership)
+  # already vets namespace ownership in Python before this script runs at
+  # all -- see AGENTS.md #4 ("Python for behaviour, shell for structure").
+  if [[ "${FOUNDATION_MODE}" == "existing-cluster" ]]; then
+    return 0
+  fi
+
   if ! kubectl --context "${KUBE_CONTEXT}" get namespace "${NAMESPACE}" >/dev/null 2>&1; then
     return 0
   fi
@@ -126,11 +166,12 @@ reset_drifted_local_platform_if_needed() {
   NAMESPACE="${NAMESPACE}" \
   CLUSTER_NAME="${CLUSTER_NAME}" \
   KUBE_CONTEXT="${KUBE_CONTEXT}" \
+  FOUNDATION_MODE="${FOUNDATION_MODE}" \
   FOUNDATION_STATE_PATH="${FOUNDATION_STATE_PATH}" \
     bash "${SCRIPT_DIR}/teardown.sh"
 
   echo "==> Reinitializing Terraform after local platform reset..."
-  terraform -chdir="${TERRAFORM_DIR}" init
+  terraform -chdir="${TERRAFORM_DIR}" init ${TF_INIT_ARGS[@]+"${TF_INIT_ARGS[@]}"}
 }
 
 echo "==> Checking static platform prerequisites..."
@@ -148,14 +189,16 @@ prepare_cached_chart "Trino" trino "${TRINO_CHART_REPOSITORY}" trino/trino \
   "${TRINO_CHART_VERSION}" "${TRINO_CHART_PACKAGE_PATH}"
 
 echo "==> Initializing Terraform..."
-terraform -chdir="${TERRAFORM_DIR}" init
+terraform -chdir="${TERRAFORM_DIR}" init ${TF_INIT_ARGS[@]+"${TF_INIT_ARGS[@]}"}
 reset_drifted_local_platform_if_needed
 terraform_import_namespace_args=(
   ${TFVARS_ARGS[@]+"${TFVARS_ARGS[@]}"}
   -var="namespace=${NAMESPACE}"
   -var="kube_context=${KUBE_CONTEXT}"
   -var="kubeconfig_path=${KUBECONFIG_PATH}"
+  -var="foundation_mode=${FOUNDATION_MODE}"
   -var="foundation_state_path=${FOUNDATION_STATE_PATH}"
+  -var="cluster_name=${CLUSTER_NAME}"
   -var="project_code_image_repository=${PROJECT_CODE_IMAGE_REPOSITORY}"
   -var="project_code_image_tag=${PROJECT_CODE_IMAGE_TAG}"
   -var="project_code_image_pull_policy=${PROJECT_CODE_IMAGE_PULL_POLICY}"
@@ -166,6 +209,7 @@ terraform_import_namespace_args=(
   -var="superset_image_tag=${SUPERSET_IMAGE_TAG}"
   -var="superset_image_pull_policy=${SUPERSET_IMAGE_PULL_POLICY}"
   -var="trino_chart_package_path=${TRINO_CHART_PACKAGE_PATH}"
+  -var="seaweedfs_override_values_file=${SEAWEEDFS_OVERRIDE_VALUES_FILE}"
 )
 import_namespace_if_missing_in_state \
   "${TERRAFORM_DIR}" \

@@ -19,7 +19,17 @@ cd "${REPO_ROOT}"
 
 default_floe_version="0.6.11"
 FLOE_VERSION="${FLOE_VERSION:-${default_floe_version}}"
-FLOE_IMAGE="${FLOE_IMAGE:-ghcr.io/malon64/floe:${FLOE_VERSION}}"
+# Pinned by digest, matching release/component-catalog.yaml (AGENTS.md #6:
+# "Pins are immutable"). FLOE_IMAGE remains overridable -- olf install run
+# passes the manifest-resolved reference for a verified consumer install,
+# and local rehearsal can still point at a different build -- but the
+# default must never be a mutable tag alone: this container receives a
+# writable bind mount of the entire extracted repository/bundle tree (see
+# FLOE_CMD below), so a moved tag could inject arbitrary code into
+# whatever the rest of Phase 2 subsequently reads back, with nothing else
+# in this path verifying it.
+default_floe_image="ghcr.io/malon64/floe:0.6.11@sha256:0dd95faa25c26fffaf9e6ae2d656611a260385b1da4fb5247beb1c9688bab26d"
+FLOE_IMAGE="${FLOE_IMAGE:-${default_floe_image}}"
 FLOE_RUNTIME="${FLOE_RUNTIME:-image}"
 
 if [[ -z "${FLOE_RUNTIME_PROFILE_URI:-}" ]]; then

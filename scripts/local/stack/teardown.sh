@@ -8,6 +8,9 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 TERRAFORM_DIR="${REPO_ROOT}/infra/terraform/environments/local"
 FOUNDATION_TERRAFORM_DIR="${REPO_ROOT}/infra/terraform/foundations/local-kind"
 FOUNDATION_STATE_PATH="${FOUNDATION_STATE_PATH:-${FOUNDATION_TERRAFORM_DIR}/terraform.tfstate}"
+# existing-cluster is used by `olf install`, whose bundles never contain a
+# foundation Terraform root/state; see the matching platform-up.sh handling.
+FOUNDATION_MODE="${FOUNDATION_MODE:-kind-foundation-state}"
 LOCAL_TFVARS_FILE="${LOCAL_TFVARS_FILE:-}"
 NAMESPACE="${NAMESPACE:-lakehouse}"
 CLUSTER_NAME="${CLUSTER_NAME:-openlakeforge-local}"
@@ -41,7 +44,7 @@ if ! kubectl cluster-info --context "${KUBE_CONTEXT}" >/dev/null 2>&1; then
   echo "The platform must be destroyed before the local foundation is destroyed." >&2
   exit 1
 fi
-if [[ ! -f "${FOUNDATION_STATE_PATH}" ]]; then
+if [[ "${FOUNDATION_MODE}" == "kind-foundation-state" && ! -f "${FOUNDATION_STATE_PATH}" ]]; then
   echo "ERROR: local foundation Terraform state is missing: ${FOUNDATION_STATE_PATH}" >&2
   echo "The platform state depends on the foundation contract; restore or recreate it before running local-platform-down." >&2
   exit 1
@@ -59,7 +62,9 @@ terraform -chdir="${TERRAFORM_DIR}" destroy \
   -var="namespace=${NAMESPACE}" \
   -var="kube_context=${KUBE_CONTEXT}" \
   -var="kubeconfig_path=${KUBECONFIG_PATH}" \
-  -var="foundation_state_path=${FOUNDATION_STATE_PATH}"
+  -var="foundation_mode=${FOUNDATION_MODE}" \
+  -var="foundation_state_path=${FOUNDATION_STATE_PATH}" \
+  -var="cluster_name=${CLUSTER_NAME}"
 
 # One-time compatibility cleanup for stacks that were deployed before Terraform
 # owned the local environment.
