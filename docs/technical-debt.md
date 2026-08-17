@@ -66,6 +66,7 @@ runtime bugs above because they mostly affect operational maturity.
 
 - [ADR 0007: Superset Reporting over Gold Marts via Trino](adr/0007-superset-reporting-over-gold-via-trino.md)
 - [ADR 0009: OpenMetadata Lineage Integration Deferred](adr/0009-openmetadata-lineage-direct-rest-push.md)
+- [ADR 0023: Native OpenLineage Emission Restored](adr/0023-native-openlineage-emission-restored.md)
 - [Floe issue #382](https://github.com/malon64/floe/issues/382)
 - [Floe issue #424](https://github.com/malon64/floe/issues/424)
 - [Floe issue #425](https://github.com/malon64/floe/issues/425)

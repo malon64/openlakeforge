@@ -143,8 +143,9 @@ The iterations below record the POC delivery history:
 - Iteration 2: project-code image and Dagster deployment with Kubernetes run launcher.
 - Iteration 3: Sales POC ingestion and Floe Silver materialization.
 - Iteration 4: dbt-trino Gold models and Dagster-dbt integration.
-- Iteration 5: OpenMetadata governance, catalog discovery, and OpenLineage ingestion (OL removed in Iteration 6 — see ADR 0009).
-- Iteration 6: Superset reporting over Gold marts; OpenLineage integration deferred pending upstream connector fixes.
+- Iteration 5: OpenMetadata governance, catalog discovery, and OpenLineage ingestion.
+- Iteration 6: Superset reporting over Gold marts; lineage was temporarily
+  deferred, then restored through native Floe and dbt-trino emission (ADR 0023).
 - Iteration 7: multi-product seed POC with product-owned dlt, Floe, dbt, Dagster, Superset, and OpenMetadata artifacts.
 
 ## Releases

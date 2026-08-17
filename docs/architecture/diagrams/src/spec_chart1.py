@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Chart 1 — Cluster Pod Census. Verified via `helm template` with the
-project's own values files: 16 pods at rest (10 Deployments, 6 StatefulSets)."""
+project's own values files: 15 pods at rest (9 Deployments, 6 StatefulSets)."""
 from pathlib import Path
 from k8ssvg import Chart
 
@@ -14,11 +14,10 @@ ROW1, ROW2, ROW3 = 150, 436, 660
 IY1, IY2 = 46, 152  # icon y-offsets inside a row-1 card
 
 # --- Row 1 ---
-c.box(52, ROW1, 350, 258, "Dagster — 4 pods", color="platform", fill="#FFFFFF")
+c.box(52, ROW1, 350, 258, "Dagster — 3 pods", color="platform", fill="#FFFFFF")
 c.icon(140, ROW1 + IY1, "deploy", "webserver", label2="dagster chart 1.13.6")
 c.icon(316, ROW1 + IY1, "deploy", "daemon", label2="K8sRunLauncher")
-c.icon(140, ROW1 + IY2, "deploy", "code server", label2="sales")
-c.icon(316, ROW1 + IY2, "deploy", "code server", label2="supply-chain")
+c.icon(228, ROW1 + IY2, "deploy", "code server", label2="domains.definitions")
 
 c.box(422, ROW1, 350, 258, "SeaweedFS — 4 pods", color="platform", fill="#FFFFFF")
 c.icon(510, ROW1 + IY1, "sts", "master", label2=":9333")
@@ -46,12 +45,12 @@ c.box(790, ROW2, 168, 180, "Trino — 1", color="platform", fill="#FFFFFF")
 c.icon(874, ROW2 + IY1, "deploy", "coordinator", label2="workers: 0 · 2G heap")
 
 c.badge(978, ROW2, 164, 180,
-        ["16 pods", "at steady state", "", "10 Deployments", "6 StatefulSets"],
+        ["15 pods", "at steady state", "", "9 Deployments", "6 StatefulSets"],
         color="control")
 
 # --- Row 3: ephemeral, grouped by what creates each Job ---
 c.box(52, ROW3, 1090, 360,
-      "Ephemeral workloads — created on demand, never part of the 16",
+      "Ephemeral workloads — created on demand, never part of the 15",
       color="ephemeral", fill="#FAF6FC", dashed=True)
 
 # each sub-box spaces its own icons evenly, so a label never hangs off the group
@@ -84,7 +83,7 @@ c.icon(SCHEDULED[2], EY1, "job", "OM ingestion", variant="ephemeral",
        label2="OM scheduler · ttl 3600s")
 
 # lower — one-shot, created by Terraform (or a Helm hook) at platform apply
-c.box(68, ROW3 + 202, 1058, 142, "Bootstrap · once per platform apply (Phase 2)",
+c.box(68, ROW3 + 202, 1058, 142, "Bootstrap · once per platform apply (Phase 1)",
       color="ephemeral", title_size=13)
 c.icon(BOOTSTRAP[0], EY2, "job", "polaris-bootstrap", variant="ephemeral", label2="no TTL")
 c.icon(BOOTSTRAP[1], EY2, "job", "seaweedfs buckets", variant="ephemeral",

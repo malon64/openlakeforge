@@ -24,7 +24,8 @@ The first local infrastructure target is kind. The current seed POC contains
 domain capability folders: raw CSV examples, dlt Bronze loader, Floe contract
 and manifest, dbt Gold models, Dagster job, Superset report bundle, and
 OpenMetadata metadata nested in `domain.yaml`. OpenLineage integration is
-deferred until upstream connector issues are fixed; see ADR 0009.
+enabled for Floe and dbt-trino through OpenMetadata's native endpoint; see
+ADR 0023. The OpenMetadata Dagster connector remains deferred.
 
 ## Core Platform Decisions
 
@@ -39,7 +40,7 @@ deferred until upstream connector issues are fixed; see ADR 0009.
 | Query layer | Trino for analytics queries only |
 | Reporting | Superset over Gold marts through Trino |
 | Orchestration | Dagster asset graph |
-| Lineage protocol | OpenLineage target, currently deferred |
+| Lineage protocol | Native OpenLineage from Floe and dbt-trino to OpenMetadata |
 | Governance target | OpenMetadata |
 | IAM target | Keycloak later; local uses development credentials |
 | Secret management target | Vault / External Secrets later; local uses Kubernetes Secrets |

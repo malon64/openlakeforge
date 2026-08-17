@@ -26,6 +26,7 @@ required_paths=(
   "docs/adr/0014-ops-artifact-bucket-and-domain-dagster-locations.md"
   "docs/adr/0019-merged-dagster-code-location-default.md"
   "docs/adr/0022-phase-two-catalog-namespace-reconciliation.md"
+  "docs/adr/0023-native-openlineage-emission-restored.md"
   "docs/adr/0015-aws-eks-managed-services-poc.md"
   "infra/README.md"
   "infra/terraform/README.md"
