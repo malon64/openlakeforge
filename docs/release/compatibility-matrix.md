@@ -64,6 +64,7 @@ The exact version `.terraform.lock.hcl` pins for each root -- what a consumer of
 
 | Image | Reference |
 | --- | --- |
+| floe | `ghcr.io/malon64/floe:0.6.11@sha256:0dd95faa25c26fffaf9e6ae2d656611a260385b1da4fb5247beb1c9688bab26d` |
 | k8s_bootstrap | `alpine/k8s:1.30.0@sha256:bd01dae02676ce4cab62fc744e43443eee5bf660054e94d3496d23bfc35d384e` |
 | openmetadata_ingestion | `docker.getcollate.io/openmetadata/ingestion-base:1.12.10@sha256:dadd44b28cc73488a943009c22da7b3c7a9e52d2adb47e61ed2c5ba791e2a07d` |
 | opensearch | `opensearchproject/opensearch:3.3.2@sha256:798cf28e226a32f5c928dd1ed9478dd3a33d2212176aad3679020088ad3afa1a` |

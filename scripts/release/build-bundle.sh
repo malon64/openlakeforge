@@ -43,14 +43,28 @@ echo "==> Resolving local image digests"
 project_code_digest="$(docker image inspect --format='{{.Id}}' "${project_code_ref}")"
 superset_digest="$(docker image inspect --format='{{.Id}}' "${superset_ref}")"
 
+version="$(uv run --project tools/olf --locked python -c "
+import yaml
+print(yaml.safe_load(open('release/component-catalog.yaml'))['distribution']['version'])
+")"
+
+# Retag with the plain catalog version so 'repo:version' resolves to this
+# exact local digest -- mirroring what the real release pipeline's
+# `docker buildx imagetools create -t "<repo>:<version>"` step guarantees for
+# a published tag (.github/workflows/release.yml). This is what lets
+# `olf install run` (tools/olf/olf/install.py) deploy from this local
+# rehearsal bundle the same way it deploys a real one; never pushed anywhere.
+docker tag "${project_code_ref}" "ghcr.io/openlakeforge/project-code:${version}"
+docker tag "${superset_ref}" "ghcr.io/openlakeforge/superset:${version}"
+
 rm -rf "${RELEASE_BUNDLE_DIR}"
 mkdir -p "${RELEASE_BUNDLE_DIR}"
 
 echo "==> Writing component manifest"
 uv run --project tools/olf --locked olf release manifest \
   --git-sha "${GIT_SHA}" \
-  --image "project-code=${project_code_ref}@${project_code_digest} (local build, not pushed)" \
-  --image "superset=${superset_ref}@${superset_digest} (local build, not pushed)" \
+  --image "project-code=${project_code_ref%:bundle}@${project_code_digest}" \
+  --image "superset=${superset_ref%:bundle}@${superset_digest}" \
   --output "${RELEASE_BUNDLE_DIR}/component-manifest.json"
 
 echo "==> Writing compatibility matrix"
@@ -69,6 +83,9 @@ else
   echo "WARN: 'syft' not found on PATH; skipping local SBOM generation." >&2
   echo "      Install from https://github.com/anchore/syft to generate SBOMs locally." >&2
 fi
+
+echo "==> Building install bundle"
+INSTALL_BUNDLE_OUTPUT="${RELEASE_BUNDLE_DIR}/install-bundle.tar.gz" bash "${SCRIPT_DIR}/build-install-bundle.sh"
 
 echo "==> Writing checksums.txt"
 uv run --project tools/olf --locked olf release checksums --dir "${RELEASE_BUNDLE_DIR}"

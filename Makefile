@@ -1,4 +1,4 @@
-.PHONY: help tree check-structure check-components check-contracts check-infra check-project-code check-dbt check-lockfiles release-check release-bundle floe-manifest floe-manifest-upload dbt-parse project-code-image project-code-load superset-image superset-load superset-reports-deploy superset-reports-export openmetadata-metadata-deploy local-foundation-up local-foundation-down local-platform-up local-platform-down local-artifacts-deploy local-up local-down local-status local-forward local-prefetch local-e2e local-slim-platform-up local-slim-artifacts-deploy local-slim-up local-slim-e2e local-slim-smoke local-slim-down azure-foundation-up azure-platform-up azure-platform-down azure-artifacts-deploy azure-up azure-forward azure-e2e azure-down azure-foundation-down aws-foundation-up aws-platform-up aws-platform-down aws-artifacts-deploy aws-up aws-forward aws-e2e aws-down aws-foundation-down
+.PHONY: help tree check-structure check-components check-contracts check-infra check-project-code check-dbt check-lockfiles release-check release-bundle release-install-bundle floe-manifest floe-manifest-upload dbt-parse project-code-image project-code-load superset-image superset-load superset-reports-deploy superset-reports-export openmetadata-metadata-deploy local-foundation-up local-foundation-down local-platform-up local-platform-down local-artifacts-deploy local-up local-down local-status local-forward local-prefetch local-e2e local-slim-platform-up local-slim-artifacts-deploy local-slim-up local-slim-e2e local-slim-smoke local-slim-down azure-foundation-up azure-platform-up azure-platform-down azure-artifacts-deploy azure-up azure-forward azure-e2e azure-down azure-foundation-down aws-foundation-up aws-platform-up aws-platform-down aws-artifacts-deploy aws-up aws-forward aws-e2e aws-down aws-foundation-down
 
 NAMESPACE ?= lakehouse
 CLUSTER_NAME ?= openlakeforge-local
@@ -53,6 +53,7 @@ help:
 	@printf '%s\n' '  make check-lockfiles  Validate Python lockfiles are in sync with their pyproject.toml'
 	@printf '%s\n' '  make release-check    Validate release readiness (all check-* targets plus olf release check)'
 	@printf '%s\n' '  make release-bundle   Build a local release bundle (manifest, checksums, matrix, SBOMs) for inspection'
+	@printf '%s\n' '  make release-install-bundle  Build install-bundle.tar.gz alone (no docker/image build required)'
 	@printf '%s\n' '  make floe-manifest   Generate product Floe Dagster manifests'
 	@printf '%s\n' '  make floe-manifest-upload  Upload product Floe manifests to the local ops bucket'
 	@printf '%s\n' '  make dbt-parse       Generate product dbt manifests'
@@ -131,6 +132,9 @@ release-check: check-structure check-components check-contracts check-infra chec
 
 release-bundle:
 	@bash scripts/release/build-bundle.sh
+
+release-install-bundle:
+	@bash scripts/release/build-install-bundle.sh
 
 floe-manifest:
 	@NAMESPACE=$(NAMESPACE) bash scripts/artifacts/floe-manifest.sh

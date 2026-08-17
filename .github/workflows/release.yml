@@ -399,6 +399,8 @@ jobs:
 
           cp CHANGELOG.md "${bundle_dir}/CHANGELOG.md"
 
+          bash scripts/release/build-install-bundle.sh "${bundle_dir}/install-bundle.tar.gz"
+
           uv run --project tools/olf --locked olf release checksums --dir "${bundle_dir}"
 
           echo "bundle_dir=${bundle_dir}" >> "$GITHUB_OUTPUT"
@@ -465,6 +467,7 @@ jobs:
             ${{ steps.assemble.outputs.bundle_dir }}/CHANGELOG.md
             ${{ steps.assemble.outputs.bundle_dir }}/project-code.spdx.json
             ${{ steps.assemble.outputs.bundle_dir }}/superset.spdx.json
+            ${{ steps.assemble.outputs.bundle_dir }}/install-bundle.tar.gz
             ${{ steps.assemble.outputs.bundle_dir }}/checksums.txt
             ${{ steps.assemble.outputs.bundle_dir }}/checksums.txt.bundle
 

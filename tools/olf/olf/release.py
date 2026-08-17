@@ -556,6 +556,10 @@ _IMAGE_DEPLOYMENT_SOURCES: dict[str, _ImageDeploymentSource] = {
         repository_key_path=("redis", "image", "repository"),
         tag_key_path=("redis", "image", "tag"),
     ),
+    "floe": _ImageDeploymentSource(
+        paths=("scripts/artifacts/floe-manifest.sh",),
+        full_ref_pattern=re.compile(r'default_floe_image\s*=\s*"([^"\n]+@sha256:[0-9a-f]{64})"'),
+    ),
 }
 _BUILD_ONLY_IMAGES = frozenset({"project_code_base", "superset_base"})
 
