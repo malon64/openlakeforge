@@ -2,16 +2,14 @@
 
 from __future__ import annotations
 
-import json
 import re
-import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
 from typing import Any
 
-from olf.descriptors import DOMAIN_API_VERSION, DomainDescriptorError, load_domain_descriptor
+from .descriptors import DOMAIN_API_VERSION, DomainDescriptorError, load_domain_descriptor
 
 _IDENTIFIER_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
 
@@ -21,14 +19,6 @@ class Table:
     """A provider-neutral logical table."""
 
     name: str
-
-
-@dataclass(frozen=True)
-class Dashboard:
-    """The Superset dashboard expected for a product."""
-
-    slug: str
-    title: str
 
 
 @dataclass(frozen=True)
@@ -42,7 +32,7 @@ class ArtifactPrefixes:
 
 @dataclass(frozen=True)
 class Product:
-    """A product and every provider-neutral name derived from its descriptor."""
+    """A product and its provider-neutral derived identities."""
 
     domain_name: str
     id: str
@@ -74,10 +64,6 @@ class Product:
         return f"domains/{self.domain_name}/reports/superset/{self.id}"
 
     @property
-    def dashboard(self) -> Dashboard:
-        return Dashboard(slug=self.asset_prefix.replace("_", "-"), title=self.display_name)
-
-    @property
     def openmetadata_data_product_fqns(self) -> tuple[str, str]:
         return self.name, f"{self.domain_name}.{self.name}"
 
@@ -106,14 +92,6 @@ class Domain:
     name: str
     display_name: str
     products: tuple[Product, ...]
-
-    @property
-    def definitions_module(self) -> str:
-        return f"domains.{self.name}.definitions"
-
-    @property
-    def code_location_name(self) -> str:
-        return f"{self.name.replace('_', '-')}-dagster"
 
 
 @dataclass(frozen=True)
@@ -190,14 +168,6 @@ class DomainInventory:
         return self.products[0]
 
     @property
-    def aggregate_definitions_module(self) -> str:
-        return "domains.definitions"
-
-    @property
-    def expected_dashboards(self) -> dict[str, str]:
-        return {product.dashboard.slug: product.dashboard.title for product in self.products}
-
-    @property
     def artifact_prefixes(self) -> tuple[ArtifactPrefixes, ...]:
         return tuple(product.artifact_prefixes for product in self.products)
 
@@ -241,20 +211,14 @@ class DomainInventory:
         gold_bucket: str,
         manifest_base_uri: str,
     ) -> PhysicalInventory:
-        """Resolve provider-specific names without storing providers in descriptors."""
+        """Resolve physical names from provider-contract values."""
         namespaces: list[CatalogNamespace] = []
         products: list[PhysicalProductNames] = []
         for product in self.products:
             namespaces.extend(
                 (
-                    CatalogNamespace(
-                        name=product.silver_namespace,
-                        location=f"s3://{silver_bucket}/{product.silver_namespace}/",
-                    ),
-                    CatalogNamespace(
-                        name=product.gold_namespace,
-                        location=f"s3://{gold_bucket}/{product.gold_namespace}/",
-                    ),
+                    CatalogNamespace(product.silver_namespace, f"s3://{silver_bucket}/{product.silver_namespace}/"),
+                    CatalogNamespace(product.gold_namespace, f"s3://{gold_bucket}/{product.gold_namespace}/"),
                 )
             )
             products.append(
@@ -264,42 +228,17 @@ class DomainInventory:
                     gold_namespace=product.gold_namespace,
                     silver_schema_fqn=f"{catalog_database_fqn}.{product.silver_namespace}",
                     gold_schema_fqn=f"{catalog_database_fqn}.{product.gold_namespace}",
-                    manifest_uri=f"{manifest_base_uri.rstrip('/')}/{product.domain_name}/{product.id}/{product.id}.manifest.json",
+                    manifest_uri=(
+                        f"{manifest_base_uri.rstrip('/')}/{product.domain_name}/{product.id}/{product.id}.manifest.json"
+                    ),
                 )
             )
         return PhysicalInventory(catalog_namespaces=tuple(namespaces), products=tuple(products))
 
-    def terraform_payload(self) -> dict[str, Any]:
-        """Return the logical inventory consumed by Terraform's external provider."""
-        return {
-            "aggregate_definitions_module": self.aggregate_definitions_module,
-            "domains": [
-                {
-                    "name": domain.name,
-                    "definitions_module": domain.definitions_module,
-                    "code_location_name": domain.code_location_name,
-                }
-                for domain in self.domains
-            ],
-            "products": [
-                {
-                    "domain_name": product.domain_name,
-                    "id": product.id,
-                    "asset_prefix": product.asset_prefix,
-                    "manifest_key": product.artifact_prefixes.manifest_key,
-                    "silver_namespace": product.silver_namespace,
-                    "gold_namespace": product.gold_namespace,
-                }
-                for product in self.products
-            ],
-        }
-
 
 def _domains_root(path: Path) -> Path:
     candidate = path.resolve()
-    if (candidate / "domains").is_dir():
-        return candidate / "domains"
-    return candidate
+    return candidate / "domains" if (candidate / "domains").is_dir() else candidate
 
 
 def _product_label(product: Mapping[str, Any], index: int) -> str:
@@ -330,11 +269,9 @@ def _table_group(path: Path, product: Mapping[str, Any], index: int, field: str)
     tables = value.get("tables")
     if not isinstance(tables, list) or not tables:
         raise _error(path, product, index, f"{field}.tables", "must be a non-empty array")
-    names: list[str] = []
-    for table_index, table in enumerate(tables):
-        if not isinstance(table, Mapping) or not isinstance(table.get("name"), str) or not table["name"]:
-            raise _error(path, product, index, f"{field}.tables[{table_index}].name", "must be a non-empty string")
-        names.append(table["name"])
+    names = [table.get("name") for table in tables if isinstance(table, Mapping)]
+    if len(names) != len(tables) or any(not isinstance(name, str) or not name for name in names):
+        raise _error(path, product, index, f"{field}.tables", "must contain non-empty string names")
     if len(names) != len(set(names)):
         raise _error(path, product, index, f"{field}.tables", "must not contain duplicate names")
     return tuple(Table(name=name) for name in names)
@@ -344,11 +281,9 @@ def _bronze_tables(path: Path, product: Mapping[str, Any], index: int) -> tuple[
     entries = product.get("bronze")
     if not isinstance(entries, list) or not entries:
         raise _error(path, product, index, "bronze", "is required and must be a non-empty array")
-    names: list[str] = []
-    for entry_index, entry in enumerate(entries):
-        if not isinstance(entry, Mapping) or not isinstance(entry.get("name"), str) or not entry["name"]:
-            raise _error(path, product, index, f"bronze[{entry_index}].name", "must be a non-empty string")
-        names.append(entry["name"])
+    names = [entry.get("name") for entry in entries if isinstance(entry, Mapping)]
+    if len(names) != len(entries) or any(not isinstance(name, str) or not name for name in names):
+        raise _error(path, product, index, "bronze", "must contain non-empty string names")
     if len(names) != len(set(names)):
         raise _error(path, product, index, "bronze", "must not contain duplicate names")
     return tuple(Table(name=name) for name in names)
@@ -391,13 +326,9 @@ def _validate_inventory_identities(domains: tuple[Domain, ...]) -> None:
                     f"{domain.descriptor_path}: product {product.id!r}: duplicate id within domain {domain.name!r}"
                 )
             if product.name in seen_product_names:
-                raise DomainDescriptorError(
-                    f"{domain.descriptor_path}: product {product.id!r}: duplicate name {product.name!r}"
-                )
+                raise DomainDescriptorError(f"{domain.descriptor_path}: duplicate name {product.name!r}")
             if product.asset_prefix in seen_asset_prefixes:
-                raise DomainDescriptorError(
-                    f"{domain.descriptor_path}: product {product.id!r}: duplicate asset_prefix {product.asset_prefix!r}"
-                )
+                raise DomainDescriptorError(f"{domain.descriptor_path}: duplicate asset_prefix {product.asset_prefix!r}")
             seen_product_names.add(product.name)
             seen_asset_prefixes.add(product.asset_prefix)
             seen_product_ids.add(identity)
@@ -406,24 +337,10 @@ def _validate_inventory_identities(domains: tuple[Domain, ...]) -> None:
 def load_domain_inventory_from_descriptors(
     descriptor_paths: Sequence[str | Path], *, source_label: str | Path, require_directory_match: bool = True
 ) -> DomainInventory:
-    """Load and validate an explicit set of ``domain.yaml`` descriptor paths.
-
-    Lower-level than :func:`load_domain_inventory`: callers that resolve their
-    own descriptor set (for example an ``OPENMETADATA_METADATA_SOURCE_DIR``
-    override naming a single file or domain directory, which does not fit the
-    ``<root>/*/domain.yaml`` layout) build the same validated model this way,
-    so the inventory always reflects the descriptors actually in use.
-
-    ``require_directory_match`` enforces that each descriptor's ``name``
-    matches its parent directory — meaningful for the standard
-    ``<root>/<domain>/domain.yaml`` layout, but not for a standalone override
-    naming an arbitrary file or directory (for example ``/metadata/domain.yaml``),
-    where the parent directory name carries no significance.
-    """
+    """Load and validate an explicit set of domain descriptors."""
     paths = sorted(Path(descriptor_path) for descriptor_path in descriptor_paths)
     if not paths:
         raise DomainDescriptorError(f"{source_label}: no domain descriptors found")
-
     domains: list[Domain] = []
     for descriptor_path in paths:
         document = load_domain_descriptor(descriptor_path)
@@ -435,24 +352,20 @@ def load_domain_inventory_from_descriptors(
             )
         if require_directory_match and domain_name != descriptor_path.parent.name:
             raise DomainDescriptorError(
-                f"{descriptor_path}: name {domain_name!r} must match descriptor directory "
-                f"{descriptor_path.parent.name!r}"
+                f"{descriptor_path}: name {domain_name!r} must match descriptor directory {descriptor_path.parent.name!r}"
             )
-        raw_products = document["data_products"]
-        products = tuple(
-            _product(descriptor_path, domain_name, product, index)
-            for index, product in enumerate(raw_products)
-            if isinstance(product, Mapping)
-        )
         domains.append(
             Domain(
                 descriptor_path=descriptor_path,
                 name=domain_name,
                 display_name=document["displayName"],
-                products=products,
+                products=tuple(
+                    _product(descriptor_path, domain_name, product, index)
+                    for index, product in enumerate(document["data_products"])
+                    if isinstance(product, Mapping)
+                ),
             )
         )
-
     inventory = DomainInventory(domains_root=Path(source_label), domains=tuple(domains))
     _validate_inventory_identities(inventory.domains)
     _ = inventory.default_product
@@ -462,10 +375,10 @@ def load_domain_inventory_from_descriptors(
 def load_domain_inventory(path: str | Path) -> DomainInventory:
     """Load and validate every ``domains/*/domain.yaml`` under ``path``."""
     domains_root = _domains_root(Path(path))
-    descriptor_paths = sorted(descriptor for descriptor in domains_root.glob("*/domain.yaml") if descriptor.is_file())
-    if not descriptor_paths:
+    descriptors = sorted(path for path in domains_root.glob("*/domain.yaml") if path.is_file())
+    if not descriptors:
         raise DomainDescriptorError(f"{domains_root}: no domain descriptors found at */domain.yaml")
-    return load_domain_inventory_from_descriptors(descriptor_paths, source_label=domains_root)
+    return load_domain_inventory_from_descriptors(descriptors, source_label=domains_root)
 
 
 @cache
@@ -474,31 +387,5 @@ def _cached_domain_inventory(resolved_path: str) -> DomainInventory:
 
 
 def inventory_for(repo_root: str | Path) -> DomainInventory:
-    """Load and cache the domain inventory for a repository root.
-
-    Every consumer within one process (e2e, contracts, the CLI) resolves the
-    same descriptors, so this avoids re-parsing and re-validating YAML per call.
-    """
+    """Load and cache the inventory for a repository root."""
     return _cached_domain_inventory(str(Path(repo_root).resolve()))
-
-
-def external_result(repo_root: str | Path) -> dict[str, str]:
-    """Render the string-only result contract required by Terraform external."""
-    return {"inventory": json.dumps(load_domain_inventory(repo_root).terraform_payload(), separators=(",", ":"))}
-
-
-def main() -> None:
-    """Serve Terraform external-provider requests over stdin/stdout."""
-    try:
-        query = json.load(sys.stdin)
-        repo_root = query.get("repo_root") if isinstance(query, Mapping) else None
-        if not isinstance(repo_root, str) or not repo_root:
-            raise DomainDescriptorError("Terraform external inventory query requires non-empty repo_root")
-        json.dump(external_result(repo_root), sys.stdout, separators=(",", ":"))
-    except (DomainDescriptorError, OSError, json.JSONDecodeError) as exc:
-        print(f"olf inventory: {exc}", file=sys.stderr)
-        raise SystemExit(1) from exc
-
-
-if __name__ == "__main__":
-    main()

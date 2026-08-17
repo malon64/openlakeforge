@@ -15,6 +15,10 @@ Appropriate examples include:
 Domain business logic stays under `domains/`; `libs/` contains reusable platform
 glue shared by those domains.
 
+The provider-neutral descriptor and inventory model is deliberately not in
+`libs/`: it is the `openlakeforge_domain` package under `packages/domain-model/`
+so `olf` and project-code install the identical implementation.
+
 dbt environment profiles live under `libs/dbt/profiles/` and are rendered into
 product projects by `libs.dbt.render_profiles`. Product dbt projects keep
 product-local model code and schema defaults; provider-specific attach settings

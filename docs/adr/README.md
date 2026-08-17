@@ -85,3 +85,7 @@ provider. Glue's Terraform-tracked databases are handed to Phase 2 with a
 dbt lineage deferral. Floe and dbt-trino now emit directly to OpenMetadata's
 native endpoint; the proxy and custom REST-push rejections remain binding, and
 the Dagster connector remains deferred.
+
+`0024-canonical-domain-model-package.md` establishes one lightweight,
+provider-neutral descriptor and inventory package shared by `olf` and
+project-code. Dagster-specific definition discovery remains a runtime adapter.

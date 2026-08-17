@@ -6,9 +6,9 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import boto3
+from openlakeforge_domain import CatalogNamespace
 
 from olf.catalog import CATALOG_KEY, MANAGED_BY_KEY, MANAGED_BY_VALUE, NamespaceState
-from olf.inventory import CatalogNamespace
 
 LOCATION_PROPERTY = "LocationUri"
 

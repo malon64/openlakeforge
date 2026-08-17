@@ -17,8 +17,9 @@ import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
 
+from openlakeforge_domain import CatalogNamespace
+
 from olf.catalog import CATALOG_KEY, MANAGED_BY_KEY, MANAGED_BY_VALUE, NamespaceState
-from olf.inventory import CatalogNamespace
 
 LOCATION_PROPERTY = "location"
 TOKEN_REQUEST_ATTEMPTS = 60

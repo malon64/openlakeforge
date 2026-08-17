@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
 
-from olf.inventory import CatalogNamespace, inventory_for
+from openlakeforge_domain import CatalogNamespace, inventory_for
 
 MANAGED_BY_KEY = "openlakeforge.io/managed-by"
 MANAGED_BY_VALUE = "openlakeforge"

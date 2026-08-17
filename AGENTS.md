@@ -37,6 +37,7 @@ labels expressing intended sequence within a milestone.
 | --- | --- |
 | `domains/<domain>/` | Business logic: descriptor, Floe contracts, dlt extract, dbt project, Dagster module, Superset reports, example CSVs |
 | `libs/` | Shared runtime Python imported by the project-code image |
+| `packages/domain-model/` | Canonical provider-neutral descriptor and inventory package |
 | `tools/olf/` | The `olf` CLI — uv-managed deploy tooling, contracts, artifacts, e2e |
 | `infra/terraform/environments/` | Per-environment wiring; `contracts.tf` is the contract surface |
 | `infra/terraform/foundations/` | Cluster and registry creation (kind, AKS, EKS) |
