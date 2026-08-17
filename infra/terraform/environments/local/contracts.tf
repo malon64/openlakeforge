@@ -1,4 +1,8 @@
+# Read only in the default kind-foundation-state mode (make local-up and its
+# wrapper scripts): foundation_mode = existing-cluster (olf install) targets a
+# cluster with no foundation Terraform root or state to read.
 data "terraform_remote_state" "local_foundation" {
+  count   = var.foundation_mode == "kind-foundation-state" ? 1 : 0
   backend = "local"
 
   config = {
@@ -10,16 +14,32 @@ locals {
   local_provider_name   = "local"
   foundation_state_path = var.foundation_state_path != null ? abspath(pathexpand(var.foundation_state_path)) : abspath("${path.root}/../../foundations/local-kind/terraform.tfstate")
 
-  foundation_contract = merge(data.terraform_remote_state.local_foundation.outputs.foundation_contract, {
-    provider              = local.local_provider_name
-    implementation        = "foundation.kind"
-    adapter               = "foundation.kind"
-    cluster_type          = "kind"
-    network_model         = "docker-bridge"
-    platform_state_model  = "separate-terraform-root"
-    platform_apply_order  = "foundation-before-platform"
-    supported_environment = "local-dev"
-  })
+  # foundation_mode = existing-cluster builds the same contract shape the kind
+  # foundation root's own outputs.tf produces, from explicit variables instead
+  # of Terraform state, so `olf install` can target a cluster the kind
+  # foundation root never created.
+  existing_cluster_foundation_contract = {
+    provider            = local.local_provider_name
+    implementation      = "kind"
+    cluster_name        = var.cluster_name
+    kube_context        = var.kube_context
+    kubeconfig_path     = local.kubeconfig_path
+    cluster_config_path = null
+  }
+
+  foundation_contract = merge(
+    var.foundation_mode == "kind-foundation-state" ? data.terraform_remote_state.local_foundation[0].outputs.foundation_contract : local.existing_cluster_foundation_contract,
+    {
+      provider              = local.local_provider_name
+      implementation        = var.foundation_mode == "kind-foundation-state" ? "foundation.kind" : "foundation.existing_cluster"
+      adapter               = var.foundation_mode == "kind-foundation-state" ? "foundation.kind" : "foundation.existing_cluster"
+      cluster_type          = var.foundation_mode == "kind-foundation-state" ? "kind" : "external"
+      network_model         = var.foundation_mode == "kind-foundation-state" ? "docker-bridge" : "unmanaged"
+      platform_state_model  = "separate-terraform-root"
+      platform_apply_order  = "foundation-before-platform"
+      supported_environment = var.foundation_mode == "kind-foundation-state" ? "local-dev" : "consumer-install"
+    }
+  )
 
   kubernetes_platform_contract = {
     provider             = local.local_provider_name

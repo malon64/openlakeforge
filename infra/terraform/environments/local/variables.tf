@@ -17,9 +17,25 @@ variable "kube_context" {
 }
 
 variable "foundation_state_path" {
-  description = "Local Terraform state path for the local cluster foundation root."
+  description = "Local Terraform state path for the local cluster foundation root. Only read when foundation_mode = kind-foundation-state."
   type        = string
   default     = null
+}
+
+variable "foundation_mode" {
+  description = "How the foundation contract is resolved: 'kind-foundation-state' reads infra/terraform/foundations/local-kind's Terraform state (make local-up); 'existing-cluster' builds the contract from cluster_name/kube_context/kubeconfig_path with no foundation Terraform root, for installing a release into a cluster that already exists (olf install)."
+  type        = string
+  default     = "kind-foundation-state"
+  validation {
+    condition     = contains(["kind-foundation-state", "existing-cluster"], var.foundation_mode)
+    error_message = "foundation_mode must be 'kind-foundation-state' or 'existing-cluster'."
+  }
+}
+
+variable "cluster_name" {
+  description = "Cluster name recorded in the foundation contract when foundation_mode = existing-cluster."
+  type        = string
+  default     = "openlakeforge-local"
 }
 
 variable "catalog_name" {
@@ -110,6 +126,12 @@ variable "superset_image_pull_policy" {
   description = "Superset image pull policy used by the local Superset Helm release."
   type        = string
   default     = "Never"
+}
+
+variable "seaweedfs_override_values_file" {
+  description = "Optional Helm values file layered on top of infra/helm/values/local/seaweedfs.yaml, e.g. to switch SeaweedFS's data volumes from emptyDir to a PersistentVolumeClaim for a real (non-disposable) cluster. Empty string disables it. Must be a path outside an `olf install` work directory's bundle/ subtree -- see docs/release/installing.md's durability override guidance -- since that subtree is deleted and re-extracted on every install/upgrade."
+  type        = string
+  default     = ""
 }
 
 variable "trino_chart_package_path" {

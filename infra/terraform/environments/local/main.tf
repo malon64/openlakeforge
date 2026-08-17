@@ -1,6 +1,15 @@
 terraform {
   required_version = ">= 1.7.0"
 
+  # Explicit (rather than the implicit default this root used before) so
+  # `-backend-config="path=..."` can point state at a location OUTSIDE this
+  # root's own directory. With no -backend-config passed, this resolves to
+  # the exact same default path as before ("terraform.tfstate" in this
+  # directory), so `make local-up` is unaffected. `olf install` uses this to
+  # keep Terraform state outside the disposable bundle tree it re-extracts
+  # on every run -- see docs/adr/0023-consumer-install-from-release-manifest.md.
+  backend "local" {}
+
   required_providers {
     helm = {
       source  = "hashicorp/helm"
@@ -70,8 +79,9 @@ module "postgresql" {
 module "seaweedfs" {
   source = "../../modules/storage/seaweedfs"
 
-  namespace        = kubernetes_namespace_v1.lakehouse.metadata[0].name
-  base_values_file = "${path.root}/../../../helm/values/local/seaweedfs.yaml"
+  namespace            = kubernetes_namespace_v1.lakehouse.metadata[0].name
+  base_values_file     = "${path.root}/../../../helm/values/local/seaweedfs.yaml"
+  override_values_file = var.seaweedfs_override_values_file
   bucket_names = [
     var.bronze_bucket_name,
     var.silver_bucket_name,

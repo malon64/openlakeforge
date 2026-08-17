@@ -48,26 +48,31 @@ resource "helm_release" "seaweedfs" {
   wait    = true
   timeout = 900
 
-  values = [
-    file(var.base_values_file),
-    yamlencode({
-      image = {
-        tag = var.image_tag
-      }
+  values = concat(
+    [
+      file(var.base_values_file),
+      yamlencode({
+        image = {
+          tag = var.image_tag
+        }
 
-      s3 = {
-        port          = var.s3_port
-        domainName    = "${var.namespace}.svc.cluster.local"
-        createBuckets = []
-        credentials = {
-          admin = {
-            accessKey = local.access_key_id
-            secretKey = random_password.s3_secret_key.result
+        s3 = {
+          port          = var.s3_port
+          domainName    = "${var.namespace}.svc.cluster.local"
+          createBuckets = []
+          credentials = {
+            admin = {
+              accessKey = local.access_key_id
+              secretKey = random_password.s3_secret_key.result
+            }
           }
         }
-      }
-    }),
-  ]
+      }),
+    ],
+    # Layered last so it wins over base_values_file on any key it sets
+    # (e.g. master.data/volume.dataDirs/filer.data to switch off emptyDir).
+    var.override_values_file != "" ? [file(var.override_values_file)] : [],
+  )
 }
 
 resource "kubernetes_service_v1" "bucket_virtual_host" {

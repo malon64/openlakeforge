@@ -26,6 +26,12 @@ variable "base_values_file" {
   type        = string
 }
 
+variable "override_values_file" {
+  description = "Optional Helm values file layered on top of base_values_file (e.g. to switch data volumes from emptyDir to a PersistentVolumeClaim). Empty string disables it. Deliberately a plain path, not resolved relative to the module -- see docs/release/installing.md's durability override guidance for why this must live outside an olf install bundle's extraction tree."
+  type        = string
+  default     = ""
+}
+
 variable "image_tag" {
   description = "SeaweedFS image tag used by the chart and bucket jobs."
   type        = string
