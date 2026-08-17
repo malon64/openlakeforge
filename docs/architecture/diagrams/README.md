@@ -12,16 +12,16 @@ complement the product chart in
 [../../assets/openlakeforge_v1.png](../../assets/openlakeforge_v1.png), which shows
 *what* the platform does; these show *how*.
 
-| **16** | **1+N** | **3** | **0** |
+| **15** | **1+N** | **3** | **0** |
 | --- | --- | --- | --- |
-| pods at steady state — 10 Deployments, 6 StatefulSets | nested ephemeral Kubernetes Jobs per ingestion run — one run pod, one Floe Job per entity | deployment targets sharing one contract — kind, AKS, EKS | run/Floe pods between runs (Gold runs in Trino) |
+| pods at steady state — 9 Deployments, 6 StatefulSets | nested ephemeral Kubernetes Jobs per ingestion run — one run pod, one Floe Job per entity | deployment targets sharing one contract — kind, AKS, EKS | run/Floe pods between runs (Gold runs in Trino) |
 
 ### Reading key — used identically in every chart
 
 | Signal | Means |
 | --- | --- |
 | Blue heptagon icon | Kubernetes workload — the badge names the kind (`deploy`, `sts`, `svc`, `secret`) |
-| **Purple icon / dashed purple border** | **On-demand Job or CronJob** — created by something other than a Deployment, and never counted in the 16 |
+| **Purple icon / dashed purple border** | **On-demand Job or CronJob** — created by something other than a Deployment, and never counted in the 15 |
 | Green box | Long-lived service, grouped by Helm release |
 | Blue box / badge | Control plane — Terraform, contracts, `olf` |
 | Cylinder | Bucket or datastore; bronze / grey / amber follow the medallion layers |
@@ -46,19 +46,20 @@ complement the product chart in
 *Every pod in the namespace, grouped by service — verified with `helm template` against
 this repo's own values.*
 
-Sixteen pods at steady state: Dagster runs four (webserver, daemon, one code server per
-domain), SeaweedFS four (three StatefulSets and an S3-gateway Deployment), Superset
-three, OpenMetadata two, and PostgreSQL, Polaris, and Trino one each — Trino
-deliberately coordinator-only.
+Fifteen pods run at steady state: Dagster runs three (webserver, daemon, and the merged
+`openlakeforge-dagster` code server loading `domains.definitions`), SeaweedFS runs four
+(three StatefulSets and an S3-gateway Deployment), Superset runs three, OpenMetadata
+runs two, and PostgreSQL, Polaris, and Trino run one each. Trino is deliberately
+coordinator-only.
 
-The purple band underneath is everything that is *not* in that 16, split by what creates
+The purple band underneath is everything that is *not* in that 15, split by what creates
 it. **Per pipeline run**: the run pod and its Floe runners, TTL-collected within the hour,
 so ingestion scales to zero between runs — Gold is the exception, running as SQL inside
 the long-lived Trino coordinator above rather than in a Job. **Bootstrap**: five grouped
-categories — polaris, seaweedfs (one Job per bucket, four buckets), postgresql,
-openmetadata, and Superset's Helm hook — eight one-shot Jobs in total, firing once per
-platform apply (Phase ②). **Scheduled**: the two CronJobs on the cluster clock
-(log-archive every 15 min, OM catalog refresh hourly).
+categories — Polaris, SeaweedFS (one Job per bucket, four buckets), PostgreSQL,
+OpenMetadata, and Superset's Helm hook — eight one-shot Jobs in total, firing once per
+platform apply (Phase 1). **Scheduled**: the two CronJobs on the cluster clock
+(log archive every 15 minutes, OpenMetadata catalog refresh hourly).
 
 ![Cluster Pod Census](chart1-cluster-pod-census.svg)
 
@@ -214,32 +215,34 @@ profile, `glue` the native Glue profile. Naming stays stable across Glue's two-l
 model, so SQL and dbt models are unchanged. Not implemented (declared future adapters):
 Keycloak, Vault/External Secrets, Traefik + cert-manager, Athena, Lake Formation, remote
 Terraform state. OpenLineage is live, not deferred — Floe and dbt-trino emit lineage
-events directly to OpenMetadata's native `openlineage` endpoint, enabled during Terraform
-bootstrap (`infra/terraform/modules/governance/openmetadata/main.tf`). This supersedes
-[ADR 0009](../../adr/0009-openmetadata-lineage-direct-rest-push.md), which removed an
-earlier proxy-based integration; no ADR yet documents the current native-endpoint design.
+events directly to OpenMetadata's native `openlineage` endpoint. The governance bootstrap
+creates the endpoint credentials; runners receive them only through Secret references.
+[ADR 0023](../../adr/0023-native-openlineage-emission-restored.md) supersedes ADR 0009's
+engine-lineage deferral while retaining its rejection of a proxy and custom REST push.
 
-## Three-phase deploy — the CD boundary
+## Foundation plus two-phase deploy — the CD boundary
 
-Split by lifetime: each phase owns resources that change at a different pace, and a
-domain commit triggers phase ③ only — CI never runs Terraform for domain changes
+Foundation work creates the cluster and registry. The deployment boundary itself has two
+phases: static platform resources, then dynamic artifacts. A domain commit triggers the
+artifact phase only — CI never runs Terraform for domain changes
 ([ADR 0008](../../adr/0008-two-phase-deploy-infra-and-artifacts.md),
 [ADR 0017](../../adr/0017-shared-python-deploy-tooling.md)).
 
-| Phase | Target | Deploys |
+| Boundary | Target | Deploys |
 | --- | --- | --- |
-| ① Foundation | `make local-foundation-up` | Terraform: the Kubernetes cluster + container registry — kind locally, EKS + ECR on AWS, AKS + ACR on Azure |
-| ② Platform | `make local-platform-up` | Terraform-managed platform resources: Helm releases for SeaweedFS, Polaris, Trino, OpenMetadata, Superset, Dagster — plus PostgreSQL, which Terraform creates directly as a StatefulSet + Service + bootstrap Job (no Helm release) |
-| ③ Artifacts | `make local-artifacts-deploy` | **the CD phase** — dynamic artifacts: the project-code image (dbt code), Floe contracts + manifests, Superset dashboards, OpenMetadata data products |
+| Foundation (outside the deploy boundary) | `make local-foundation-up` | Terraform: the Kubernetes cluster + container registry — kind locally, EKS + ECR on AWS, AKS + ACR on Azure |
+| Phase 1 — Platform | `make local-platform-up` | Terraform-managed platform resources: Helm releases for SeaweedFS, Polaris, Trino, OpenMetadata, Superset, Dagster — plus PostgreSQL, which Terraform creates directly as a StatefulSet + Service + bootstrap Job (no Helm release) |
+| Phase 2 — Artifacts | `make local-artifacts-deploy` | **the CD phase** — dynamic artifacts: the project-code image (dbt code), Floe contracts + manifests, Superset dashboards, OpenMetadata data products |
 
-`make local-up` chains ① → ② → ③; ① and ② are idempotent no-ops when nothing changed.
-Phase ③, in order: load contract env → compile Floe manifests → build + load
+`make local-up` chains foundation → Phase 1 → Phase 2; foundation and Phase 1 are
+idempotent no-ops when nothing changed. Phase 2, in order: load contract env → compile
+Floe manifests → build + load
 `project-code` → `olf artifacts upload-manifests` → `olf superset deploy-reports` →
 `olf openmetadata deploy-metadata` → `olf k8s set-project-code-image`, which patches
 the run-launcher ConfigMap, every Dagster deployment, and the log-archive CronJob to
 the new image before waiting on each rollout — not a bare `kubectl rollout restart`.
-CI runs five parallel jobs: structure, infrastructure, contracts, project-code image
-build, tooling.
+CI validates structure, infrastructure, contracts, project-code, tooling, dbt, and
+release readiness; pull requests also run the bounded slim kind smoke.
 
 ## Identity — one principal per engine
 
@@ -307,16 +310,11 @@ domains/<domain>/
 ```
 
 Both domains fill the identical shape — `sales` (`order_revenue`, `customer_health`) and
-`supply_chain` (`inventory_reliability`). Adding a data product means adding one file or
-directory per concern under a domain, then running Phase ③ — for products that reuse an
-existing product's catalog namespaces. A brand-new product needs one more step first:
-`catalog_product_namespaces` in the environment's Terraform (e.g.
-`infra/terraform/environments/local/main.tf`) is a hard-coded map the Polaris bootstrap
-Job reads to create Silver/Gold namespaces (`infra/terraform/modules/catalog/polaris/
-main.tf`), so a new product's entry has to be added there and applied via Phase ② before
-its first Floe/dbt/OpenMetadata run — the seven platform services and the buckets
-themselves stay untouched, but the catalog namespace list is platform-owned, not
-artifact-owned. A domain's `README.md` and `domain.yaml` are the human- and
+`supply_chain` (`inventory_reliability`). Adding a data product changes only its domain
+slice, then runs the artifact phase. `olf catalog sync-namespaces` derives the Silver and
+Gold namespaces from `domain.yaml` and reconciles them before Floe, dbt, or OpenMetadata
+use them. A new product or domain therefore needs no environment Terraform edit or
+platform apply; see ADR 0022. A domain's `README.md` and `domain.yaml` are the human- and
 machine-readable descriptors of that slice.
 
 ---

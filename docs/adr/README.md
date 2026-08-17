@@ -80,3 +80,8 @@ create/update/delete out of Phase 1 into `olf catalog sync-namespaces` for
 both Polaris and AWS Glue, so `platform-up` never reads domain code on either
 provider. Glue's Terraform-tracked databases are handed to Phase 2 with a
 `removed` block, requiring Terraform >= 1.7.
+
+`0023-native-openlineage-emission-restored.md` supersedes ADR 0009's Floe and
+dbt lineage deferral. Floe and dbt-trino now emit directly to OpenMetadata's
+native endpoint; the proxy and custom REST-push rejections remain binding, and
+the Dagster connector remains deferred.
