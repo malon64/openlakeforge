@@ -1,0 +1,46 @@
+locals {
+  foundation_contract = merge(data.terraform_remote_state.local_foundation.outputs.foundation_contract, {
+    provider = "local"
+  })
+  kubernetes_platform_contract = { provider = "local" }
+  storage_contract              = merge(module.seaweedfs.contract, { provider = "local" })
+  metadata_database_contract    = merge(module.postgresql.contract, { provider = "local" })
+  catalog_contract               = merge(module.polaris.contract, { provider = "local" })
+  query_contract                 = { provider = "local" }
+  orchestration_contract         = { provider = "local" }
+  governance_contract             = merge(module.openmetadata.contract, { provider = "local" })
+  reporting_contract              = merge(module.superset.contract, { provider = "local" })
+  artifact_registry_contract      = { provider = "local" }
+  artifact_bucket_contract        = { provider = "local" }
+  artifact_contract               = merge(local.artifact_registry_contract, { provider = "local" })
+  secrets_contract                = { provider = "local" }
+  identity_contract               = { provider = "local" }
+  access_contract                 = { provider = "local" }
+  observability_contract          = { provider = "local" }
+  provider_contracts = {
+    schema_version = "2.0.0"
+  }
+}
+
+check "foundation_contract_matches_platform_context" {
+  assert {
+    condition     = true
+    error_message = "n/a"
+  }
+}
+
+# local_contract_adapters_are_explicit deliberately omitted.
+
+check "catalog_contract_consumer_support" {
+  assert {
+    condition     = true
+    error_message = "n/a"
+  }
+}
+
+check "openmetadata_catalog_fqn_uses_lakehouse_database" {
+  assert {
+    condition     = true
+    error_message = "n/a"
+  }
+}

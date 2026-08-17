@@ -1,0 +1,12 @@
+# Fixture Dagster values missing the S3ComputeLogManager wiring.
+dagsterWebserver:
+  replicaCount: 1
+
+dagsterDaemon:
+  enabled: true
+
+postgresql:
+  enabled: false
+
+telemetry:
+  enabled: false

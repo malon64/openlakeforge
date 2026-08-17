@@ -6,8 +6,10 @@ Repository validation scripts live under `scripts/test/`.
 `check-structure.sh` validates the repository skeleton and documentation
 contract. `check-infra.sh` runs Terraform formatting/validation and renders the
 upstream Helm charts with local values.
-`check-contracts.sh` validates the provider contract boundary, logical product
-aliases, and generated runtime profile expectations.
+Provider contract validation — the boundary, logical product aliases, and
+generated runtime profile expectations — is behavioral and lives in
+`tools/olf/olf/contracts_check.py` (`olf contracts check`), wired through
+`make check-contracts`; see [ADR 0017](../docs/adr/0017-shared-python-deploy-tooling.md).
 ## Shell vs. Python boundary
 
 Shell scripts orchestrate the CLIs (terraform, kubectl, helm, docker, dbt,

@@ -1,0 +1,19 @@
+apiVersion: openlakeforge.io/v1alpha2
+kind: Domain
+name: sales
+displayName: Sales
+description: Sales domain fixture missing a required inventory field.
+status: active
+data_products:
+  - id: order_revenue
+    name: order_revenue
+    displayName: Order Revenue
+    description: Revenue per order.
+    status: active
+    asset_prefix: order_revenue
+    silver_tables:
+      tables:
+        - name: orders
+    gold_tables:
+      tables:
+        - name: order_revenue_daily

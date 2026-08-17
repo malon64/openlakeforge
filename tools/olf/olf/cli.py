@@ -92,6 +92,19 @@ def contracts_env(
         typer.echo(output)
 
 
+@contracts_app.command("check")
+def contracts_check(
+    repo_root: str = typer.Option(".", "--repo-root", help="Repository root to validate."),
+) -> None:
+    """Behavioral contract validation: HCL structure, descriptors, rendered outputs."""
+    from olf import contracts_check as contracts_check_module
+
+    report = contracts_check_module.run_contracts_check(repo_root)
+    typer.echo(report.render())
+    if not report.ok:
+        raise typer.Exit(code=1)
+
+
 def _reconcile_and_report(
     label: str,
     client: Any,

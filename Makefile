@@ -112,7 +112,7 @@ check-components:
 	@bash scripts/test/check-components.sh
 
 check-contracts:
-	@bash scripts/test/check-contracts.sh
+	@uv run --project tools/olf --locked olf contracts check --repo-root .
 
 check-infra:
 	@bash scripts/test/check-infra.sh
