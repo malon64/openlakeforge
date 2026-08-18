@@ -1,0 +1,107 @@
+from pathlib import Path
+
+import pytest
+from conftest import E2E_INVENTORY, e2e_cfg
+
+from olf.e2e import _trino
+from olf.e2e._shell import E2EError
+
+
+def test_check_catalog_namespaces_reports_missing_descriptor_namespace(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    available = E2E_INVENTORY.silver_namespace_names | (
+        E2E_INVENTORY.gold_namespace_names - {"sales_order_revenue_gold"}
+    )
+    monkeypatch.setattr(_trino, "trino_query", lambda _cfg, _sql: "\n".join(sorted(available)))
+
+    with pytest.raises(E2EError, match="sales_order_revenue_gold"):
+        _trino.check_catalog_namespaces(e2e_cfg(tmp_path))
+
+
+def test_smoke_product_table_check_fails_for_an_empty_gold_mart(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    product = E2E_INVENTORY.default_product
+    values = iter((str(len(product.silver_tables)), str(len(product.gold_tables)), "0"))
+    monkeypatch.setattr(_trino, "check_trino_catalog", lambda _cfg: None)
+    monkeypatch.setattr(_trino, "trino_scalar", lambda _cfg, _sql: next(values))
+
+    with pytest.raises(E2EError, match="expected iceberg"):
+        _trino.check_trino_product_tables_and_marts(e2e_cfg(tmp_path, suite="smoke"), product)
+
+
+def test_parse_trino_scalar_returns_last_non_empty_line() -> None:
+    assert _trino.parse_trino_scalar("\n15\r\n") == "15"
+
+
+def test_trino_scalar_requests_transient_kubectl_retries(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    calls: list[dict] = []
+
+    def kubectl(_cfg, args, *, capture=False, retry_transient=False):
+        calls.append({"args": args, "capture": capture, "retry_transient": retry_transient})
+        return "6\n"
+
+    monkeypatch.setattr(_trino, "kubectl", kubectl)
+
+    assert _trino.trino_scalar(e2e_cfg(tmp_path), "SELECT count(*) FROM iceberg.test.table") == "6"
+    assert calls[0]["capture"] is True
+    assert calls[0]["retry_transient"] is True
+
+
+def test_check_polaris_restart_recovery_waits_then_rechecks_trino(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    commands: list[list[str]] = []
+    checks: list[str] = []
+
+    def kubectl(_cfg, args, *, capture=False, retry_transient=False):
+        commands.append(args)
+        assert not retry_transient
+        if args[0] == "get":
+            assert capture
+            return "polaris-6b8d7d9f5c-abcde"
+        assert not capture
+        return ""
+
+    monkeypatch.setattr(_trino, "kubectl", kubectl)
+    monkeypatch.setattr(_trino, "check_trino_tables_and_marts", lambda _cfg: checks.append("trino"))
+
+    _trino.check_polaris_restart_recovery(e2e_cfg(tmp_path))
+
+    assert commands == [
+        [
+            "get",
+            "pods",
+            "-n",
+            "lakehouse",
+            "-l",
+            "app.kubernetes.io/name=polaris,app.kubernetes.io/instance=polaris",
+            "-o",
+            "jsonpath={.items[0].metadata.name}",
+        ],
+        ["delete", "pod", "polaris-6b8d7d9f5c-abcde", "-n", "lakehouse"],
+        [
+            "wait",
+            "--for=condition=Ready",
+            "pod",
+            "-n",
+            "lakehouse",
+            "-l",
+            "app.kubernetes.io/name=polaris,app.kubernetes.io/instance=polaris",
+            "--timeout=300s",
+        ],
+    ]
+    assert checks == ["trino"]
+
+
+def test_check_polaris_restart_recovery_requires_a_pod(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(_trino, "kubectl", lambda *_args, **_kwargs: "")
+
+    with pytest.raises(E2EError, match="could not find the Polaris pod"):
+        _trino.check_polaris_restart_recovery(e2e_cfg(tmp_path))
+
+
+def test_assert_scalar_equals_reports_mismatch() -> None:
+    with pytest.raises(E2EError, match="expected Gold mart count 9, got 8"):
+        _trino.assert_scalar_equals("8", "9", "Gold mart count")

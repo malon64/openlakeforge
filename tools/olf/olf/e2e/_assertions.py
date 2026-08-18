@@ -1,0 +1,129 @@
+"""Superset dashboard and OpenMetadata domain/data-product assertions."""
+
+from __future__ import annotations
+
+import time
+from collections.abc import Mapping
+from typing import Any
+
+import yaml
+from openlakeforge_domain import DomainInventory
+
+from olf import k8s, log, superset
+from olf.clients.base import ServiceClientError
+from olf.clients.openmetadata import OpenMetadataClient, OpenMetadataError, OpenMetadataTransientError
+from olf.clients.superset import SupersetClient
+from olf.e2e._shell import E2EConfig, E2EError
+
+
+def check_superset_dashboards(cfg: E2EConfig) -> None:
+    log.step("Checking Superset report imports...")
+    assert cfg.superset_local_port is not None
+    log_path = f"/tmp/openlakeforge-{cfg.env}-superset-port-forward.log"
+    with k8s.port_forward(
+        "superset",
+        8088,
+        cfg.namespace,
+        local_port=cfg.superset_local_port,
+        log_path=log_path,
+        kube_context=cfg.kube_context,
+    ):
+        base_url = f"http://127.0.0.1:{cfg.superset_local_port}"
+        if not k8s.http_wait(f"{base_url}/health", attempts=90, delay=2):
+            raise E2EError("Superset endpoint did not become reachable.")
+        try:
+            dashboards = SupersetClient(base_url).dashboards()
+        except ServiceClientError as exc:
+            raise E2EError(str(exc)) from exc
+    assert_superset_dashboards(dashboards, discovered_dashboards(cfg))
+
+
+def discovered_dashboards(cfg: E2EConfig) -> dict[str, str]:
+    """Read the slug/title of every dashboard each product actually exports.
+
+    A product's descriptor cannot say what its dashboard is titled or slugged
+    as, or how many it exports — that identity lives only in the
+    source-controlled Superset export YAML under
+    ``<report_source_dir>/dashboards/*.yaml`` (or ``.yml``, both of which
+    ``superset.build_report_bundle`` packages), which is what actually gets
+    imported. Reading it here (rather than inventing slug/title from
+    asset_prefix/displayName) is what lets a product export a differently
+    named or multiple dashboards without failing this check.
+    """
+    expected: dict[str, str] = {}
+    for product in cfg.inventory.products:
+        report_dir = cfg.repo_root / product.report_source_dir
+        dashboard_files = superset.discover_dashboard_files(report_dir)
+        if not dashboard_files:
+            raise E2EError(
+                f"{report_dir / 'dashboards'}: product {product.asset_prefix!r} exports no Superset dashboards"
+            )
+        for dashboard_file in dashboard_files:
+            document = yaml.safe_load(dashboard_file.read_text())
+            slug = document.get("slug") if isinstance(document, Mapping) else None
+            title = document.get("dashboard_title") if isinstance(document, Mapping) else None
+            if not slug or not title:
+                raise E2EError(f"{dashboard_file}: missing slug or dashboard_title")
+            expected[slug] = title
+    return expected
+
+
+def assert_superset_dashboards(dashboards: list[Mapping[str, Any]], expected: Mapping[str, str]) -> None:
+    by_slug = {dashboard.get("slug"): dashboard.get("dashboard_title") for dashboard in dashboards}
+    titles = {dashboard.get("dashboard_title") for dashboard in dashboards}
+    missing = [
+        f"{slug} ({title})" for slug, title in expected.items() if by_slug.get(slug) != title and title not in titles
+    ]
+    if missing:
+        raise E2EError("missing Superset dashboards: " + ", ".join(missing))
+
+
+def check_openmetadata_assets(cfg: E2EConfig) -> None:
+    log.step("Checking OpenMetadata domains and data products...")
+    assert cfg.openmetadata_local_port is not None
+    log_path = f"/tmp/openlakeforge-{cfg.env}-openmetadata-port-forward.log"
+    with k8s.port_forward(
+        "openmetadata",
+        8585,
+        cfg.namespace,
+        local_port=cfg.openmetadata_local_port,
+        log_path=log_path,
+        kube_context=cfg.kube_context,
+    ):
+        base_url = f"http://127.0.0.1:{cfg.openmetadata_local_port}"
+        if not k8s.http_wait(f"{base_url}/api/v1/system/config/jwks", attempts=90, delay=2):
+            raise E2EError("OpenMetadata endpoint did not become reachable.")
+        assert_openmetadata_assets(OpenMetadataClient(base_url), cfg.inventory)
+
+
+def assert_openmetadata_assets(client: OpenMetadataClient, inventory: DomainInventory) -> None:
+    _openmetadata_e2e_login(client)
+    for domain in inventory.domain_names:
+        client.request("GET", f"/api/v1/domains/name/{domain}")
+    for product, candidates in inventory.openmetadata_data_products.items():
+        if not _first_existing_data_product(client, candidates):
+            raise E2EError(f"missing OpenMetadata data product {product}")
+
+
+def _openmetadata_e2e_login(client: OpenMetadataClient) -> None:
+    last_error: Exception | None = None
+    for _ in range(60):
+        try:
+            client.login("admin@open-metadata.org", "admin")
+            return
+        except OpenMetadataError as exc:
+            last_error = exc
+            time.sleep(2)
+    raise E2EError(f"OpenMetadata login failed: {last_error}")
+
+
+def _first_existing_data_product(client: OpenMetadataClient, candidates: tuple[str, ...]) -> str | None:
+    for candidate in candidates:
+        try:
+            client.request("GET", f"/api/v1/dataProducts/name/{candidate}")
+        except OpenMetadataTransientError:
+            raise
+        except OpenMetadataError:
+            continue
+        return candidate
+    return None
