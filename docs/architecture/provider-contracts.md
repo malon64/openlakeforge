@@ -4,8 +4,28 @@ OpenLakeForge platform modules exchange provider-neutral contracts instead of
 assuming one local implementation. Local, Azure, and AWS roots now publish the
 same contract families while choosing different provider adapters.
 
-This remains a POC boundary. It does not add Keycloak, Vault, remote Terraform
+These environments are functionally implemented but validated as POCs/sandbox deployments and are not production-hardened. It does not add Keycloak, Vault, remote Terraform
 state, ingress/TLS, or production hardening services.
+
+## Environment overview
+
+The OpenLakeForge data platform remains logically identical across environments.
+Provider contracts determine which infrastructure implementation satisfies each
+platform capability.
+
+| Capability | Local | Azure | AWS |
+| --- | --- | --- | --- |
+| Kubernetes | kind | AKS | EKS |
+| Object storage | SeaweedFS | SeaweedFS | S3 |
+| Metadata database | PostgreSQL | PostgreSQL | RDS PostgreSQL |
+| Iceberg catalog | Polaris | Polaris | AWS Glue |
+| Container registry | local kind images | ACR | ECR |
+
+Data products remain provider-neutral: the same domain descriptors, Floe
+contracts, dbt projects and Dagster definitions can be deployed against each
+environment.
+
+The sections below describe the contracts that make this portability possible.
 
 ## Contract Source Of Truth
 

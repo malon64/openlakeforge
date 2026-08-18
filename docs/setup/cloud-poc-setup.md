@@ -10,8 +10,8 @@ environment variables (Azure).
 
 ## Prerequisites
 
-Install and put on your `PATH`: `terraform` (>= 1.6), `kubectl`, `helm`,
-`docker`, `python3`, `make`, plus the CLI for your cloud (`aws` or `az`).
+Install and put on your `PATH`: `terraform` (>= 1.7.0), `kubectl`, `helm`,
+`docker`, `python3`, `uv`, `make`, plus the CLI for your cloud (`aws` or `az`).
 
 Terraform state is stored **locally** (no remote backend), so run the `make`
 targets from the same machine/checkout each time for a given environment.
@@ -50,9 +50,7 @@ cd ../../environments/aws-poc
 cp sandbox.tfvars.example sandbox.tfvars      # set your Owner tag
 ```
 
-Set `Owner`/`Requester` to **your** email. The **cluster name** is not in tfvars —
-it comes from `AWS_CLUSTER_NAME` (see the overrides table below) so it stays in
-sync with the kube context; if your account needs an IAM naming prefix such as
+Set `Owner`/`Requester` to **your** email. If your account needs an IAM naming prefix such as
 `limited-`, set that via `AWS_CLUSTER_NAME`. To keep the tfvars elsewhere:
 `export AWS_TFVARS_FILE=/abs/path/to/your.tfvars`.
 
