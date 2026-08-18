@@ -48,8 +48,12 @@ OpenLakeForge provides an end-to-end batch data platform from ingestion to analy
 |Governance|OpenMetadata _(optional)_|
 |Dashboards|Superset _(optional)_|
 
-The underlying infrastructure is exposed through provider-neutral contracts, allowing infrastructure implementations to change without redefining the data platform. [Provider contracts](/docs/architecture/provider-contracts.md) 
+The underlying infrastructure is exposed through provider-neutral contracts, allowing infrastructure implementations to change without redefining the data platform. 
 
+Local, AWS and Azure therefore expose the same platform capabilities while using
+different infrastructure implementations.
+
+→ [Learn how provider portability works](/docs/architecture/provider-contracts.md)
 
 ## Quick start
 
