@@ -10,7 +10,13 @@ from typing import Any
 
 import requests
 
+from olf import log
+
 from .base import ServiceClientError, TransientServiceError
+
+DAGSTER_JOB_TIMEOUT_SECONDS = 1800
+LAUNCH_RETRY_ATTEMPTS = 4
+LAUNCH_RETRY_DELAY_SECONDS = 3
 
 
 class DagsterTransientError(TransientServiceError):
@@ -55,8 +61,6 @@ class DagsterClient:
             }
         }
         last_error: DagsterTransientError | None = None
-        LAUNCH_RETRY_ATTEMPTS = 4
-        LAUNCH_RETRY_DELAY_SECONDS = 3
         for attempt in range(LAUNCH_RETRY_ATTEMPTS):
             try:
                 result = self.graphql(
@@ -159,7 +163,7 @@ class DagsterClient:
         job_name: str,
         run_id: str,
         *,
-        timeout_seconds: int = 1800,
+        timeout_seconds: int = DAGSTER_JOB_TIMEOUT_SECONDS,
         delay: float = 10.0,
         attempts: int | None = None,
     ) -> None:
@@ -194,6 +198,7 @@ class DagsterClient:
                 raise ServiceClientError(f"could not read run {run_id}: {result}")
             status = result["status"]
             if status != last_status:
+                log.info(f"{job_name}: {status} ({run_id})")
                 last_status = status
             if status in terminal:
                 if status != "SUCCESS":

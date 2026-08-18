@@ -31,7 +31,7 @@ class OpenMetadataClient(JsonHttpClient):
             response = self.request(
                 "POST",
                 "/api/v1/users/login",
-                json_body={"email": email, "password": encoded_password},
+                payload={"email": email, "password": encoded_password},
             )
             token = response.get("accessToken")
             if not token:
@@ -45,18 +45,20 @@ class OpenMetadataClient(JsonHttpClient):
         method: str,
         path: str,
         *,
-        json_body: Mapping[str, Any] | None = None,
-        params: Mapping[str, Any] | None = None,
+        payload: Mapping[str, Any] | None = None,
         ok_statuses: tuple[int, ...] = (200,),
         content_type: str = "application/json",
     ) -> Mapping[str, Any]:
-        """Make an HTTP request, wrapping errors in OpenMetadataError."""
+        """Make an HTTP request, wrapping errors in OpenMetadataError.
+
+        Keeps the ``payload`` keyword name (rather than the base client's
+        ``json_body``) to match every existing OpenMetadataDeployer call site.
+        """
         try:
             return super().request(
                 method,
                 path,
-                json_body=json_body,
-                params=params,
+                json_body=payload,
                 ok_statuses=ok_statuses,
                 content_type=content_type,
             )

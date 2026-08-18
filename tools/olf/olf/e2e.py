@@ -6,25 +6,26 @@ checks that used to live in Azure/AWS bash scripts.
 
 from __future__ import annotations
 
-import base64
 import json
 import os
 import shutil
 import subprocess
 import time
-import uuid
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
 import boto3
-import requests
 import yaml
 from botocore.config import Config
 from openlakeforge_domain import DomainInventory, Product, inventory_for
 
 from olf import contracts, k8s, log, revision, superset
+from olf.clients.base import ServiceClientError
+from olf.clients.dagster import DagsterClient, DagsterHTTPError, DagsterTransientError  # noqa: F401 - re-exported
+from olf.clients.openmetadata import OpenMetadataClient, OpenMetadataError, OpenMetadataTransientError
+from olf.clients.superset import SupersetClient
 
 Environment = Literal["local", "azure", "aws"]
 Suite = Literal["full", "smoke"]
@@ -39,8 +40,6 @@ DAGSTER_JOB_TIMEOUT_SECONDS = 1800
 READINESS_ATTEMPTS = 60
 READINESS_DELAY_SECONDS = 5
 DIAGNOSTIC_LOG_LINES = 80
-LAUNCH_RETRY_ATTEMPTS = 4
-LAUNCH_RETRY_DELAY_SECONDS = 3
 KUBECTL_READ_RETRY_ATTEMPTS = 4
 KUBECTL_READ_RETRY_DELAY_SECONDS = 2
 POLARIS_POD_SELECTOR = "app.kubernetes.io/name=polaris,app.kubernetes.io/instance=polaris"
@@ -57,14 +56,6 @@ TRANSIENT_KUBECTL_ERROR_MARKERS = (
 
 class E2EError(RuntimeError):
     pass
-
-
-class DagsterTransientError(E2EError):
-    pass
-
-
-class DagsterHTTPError(E2EError):
-    """A non-transient Dagster HTTP response (normally a client error)."""
 
 
 @dataclass(frozen=True)
@@ -650,14 +641,17 @@ def launch_and_poll_dagster_jobs(cfg: E2EConfig, *, products: Sequence[Product] 
             job = product.job_name
             try:
                 run_id = client.launch(job)
-            except E2EError as exc:
+            except ServiceClientError as exc:
                 diagnostics = _bounded_pod_diagnostics(
                     cfg,
                     ["dagster-dagster-webserver", *expected_user_code_pods(cfg, location_names)],
                 )
                 raise E2EError(f"{exc}\nDagster diagnostics:\n{diagnostics}") from exc
             log.info(f"{job}: launched ({run_id})")
-            client.poll(job, run_id, timeout_seconds=timeout_seconds)
+            try:
+                client.poll(job, run_id, timeout_seconds=timeout_seconds)
+            except ServiceClientError as exc:
+                raise E2EError(str(exc)) from exc
 
 
 def expected_user_code_pods(cfg: E2EConfig, location_names: Sequence[str]) -> list[str]:
@@ -689,253 +683,6 @@ def expected_repository_location_names(cfg: E2EConfig) -> list[str]:
     return location_names
 
 
-class DagsterClient:
-    def __init__(
-        self,
-        graphql_url: str,
-        *,
-        expected_location_names: Sequence[str] = (),
-        request_json: Callable[[str, Mapping[str, Any] | None], Mapping[str, Any]] | None = None,
-    ) -> None:
-        self.graphql_url = graphql_url
-        self.expected_location_names = tuple(expected_location_names)
-        self._request_json = request_json or self._requests_graphql
-
-    def launch(self, job_name: str) -> str:
-        location_name, repository_name = self.wait_for_repository(job_name)
-        launch_key = f"openlakeforge-e2e-{job_name}-{uuid.uuid4().hex}"
-        variables = {
-            "executionParams": {
-                "selector": {
-                    "repositoryLocationName": location_name,
-                    "repositoryName": repository_name,
-                    "pipelineName": job_name,
-                },
-                "runConfigData": {},
-                "mode": "default",
-                "executionMetadata": {
-                    "tags": [{"key": "openlakeforge/e2e-key", "value": launch_key}],
-                },
-            }
-        }
-        last_error: DagsterTransientError | None = None
-        for attempt in range(LAUNCH_RETRY_ATTEMPTS):
-            try:
-                result = self.graphql(
-                    """
-            mutation LaunchRun($executionParams: ExecutionParams!) {
-              launchRun(executionParams: $executionParams) {
-                __typename
-                ... on LaunchRunSuccess { run { runId status } }
-                ... on RunConfigValidationInvalid { errors { message } }
-                ... on PythonError { message stack }
-              }
-            }
-            """,
-                    variables,
-                )["launchRun"]
-                break
-            except DagsterTransientError as exc:
-                last_error = exc
-                existing = self.find_run_by_tag(launch_key)
-                if existing:
-                    return existing
-                if attempt + 1 == LAUNCH_RETRY_ATTEMPTS:
-                    raise E2EError(
-                        f"Dagster launch for {job_name} failed after {LAUNCH_RETRY_ATTEMPTS} attempts: {exc}"
-                    ) from exc
-                time.sleep(LAUNCH_RETRY_DELAY_SECONDS)
-        else:  # pragma: no cover - loop always breaks or raises
-            raise E2EError(f"Dagster launch failed: {last_error}")
-        if result["__typename"] != "LaunchRunSuccess":
-            raise E2EError(f"failed to launch {job_name}: {json.dumps(result, indent=2)}")
-        return result["run"]["runId"]
-
-    def find_run_by_tag(self, launch_key: str) -> str | None:
-        """Find a run created before an ambiguous HTTP response."""
-        try:
-            result = self.graphql(
-                """
-                query ExistingRun($key: String!) {
-                  runsOrError(filter: {tags: [{key: "openlakeforge/e2e-key", value: $key}]}, limit: 1) {
-                    __typename
-                    ... on Runs { results { runId } }
-                  }
-                }
-                """,
-                {"key": launch_key},
-            )["runsOrError"]
-            runs = result.get("results", [])
-            return str(runs[0]["runId"]) if runs else None
-        except E2EError:
-            return None
-
-    def wait_for_repository(
-        self,
-        job_name: str,
-        *,
-        timeout_seconds: int = 90,
-        delay: float = 2.0,
-    ) -> tuple[str, str]:
-        deadline = time.monotonic() + timeout_seconds
-        last_error: E2EError | None = None
-        while time.monotonic() < deadline:
-            try:
-                return self.discover_repository(job_name)
-            except E2EError as exc:
-                last_error = exc
-                self.try_reload_repository_locations()
-                time.sleep(delay)
-        detail = f": {last_error}" if last_error else ""
-        raise E2EError(
-            f"Dagster repository for {job_name} did not become ready "
-            f"within {timeout_seconds} seconds{detail}. Required code location may be unavailable; "
-            "inspect Dagster webserver and user-code logs."
-        )
-
-    def try_reload_repository_location(self, location_name: str) -> None:
-        try:
-            self.graphql(
-                """
-                mutation ReloadRepositoryLocation($repositoryLocationName: String!) {
-                  reloadRepositoryLocation(repositoryLocationName: $repositoryLocationName) {
-                    __typename
-                    ... on WorkspaceLocationEntry { name }
-                    ... on ReloadNotSupported { message }
-                    ... on RepositoryLocationNotFound { message }
-                    ... on PythonError { message }
-                  }
-                }
-                """,
-                {"repositoryLocationName": location_name},
-            )
-        except E2EError:
-            return
-
-    def try_reload_repository_locations(self) -> None:
-        for location_name in self.expected_location_names:
-            self.try_reload_repository_location(location_name)
-
-    def poll(
-        self,
-        job_name: str,
-        run_id: str,
-        *,
-        timeout_seconds: int = DAGSTER_JOB_TIMEOUT_SECONDS,
-        delay: float = 10.0,
-        attempts: int | None = None,
-    ) -> None:
-        terminal = {"SUCCESS", "FAILURE", "CANCELED"}
-        last_error: Exception | None = None
-        last_status: str | None = None
-        remaining_attempts = attempts
-        deadline = time.monotonic() + timeout_seconds
-        while remaining_attempts is None or remaining_attempts > 0:
-            if remaining_attempts is None and time.monotonic() >= deadline:
-                break
-            if remaining_attempts is not None:
-                remaining_attempts -= 1
-            try:
-                result = self.graphql(
-                    """
-                    query Run($runId: ID!) {
-                      runOrError(runId: $runId) {
-                        __typename
-                        ... on Run { status }
-                        ... on PythonError { message }
-                      }
-                    }
-                    """,
-                    {"runId": run_id},
-                )["runOrError"]
-            except DagsterTransientError as exc:
-                last_error = exc
-                time.sleep(delay)
-                continue
-            if result["__typename"] != "Run":
-                raise E2EError(f"could not read run {run_id}: {result}")
-            status = result["status"]
-            if status != last_status:
-                log.info(f"{job_name}: {status} ({run_id})")
-                last_status = status
-            if status in terminal:
-                if status != "SUCCESS":
-                    raise E2EError(f"{job_name} run {run_id} ended with {status}")
-                return
-            time.sleep(delay)
-        detail = f": {last_error}" if last_error else ""
-        raise E2EError(f"{job_name} run {run_id} did not finish within {timeout_seconds} seconds{detail}")
-
-    def discover_repository(self, job_name: str) -> tuple[str, str]:
-        workspace = self.graphql(
-            """
-            query Workspace {
-              workspaceOrError {
-                __typename
-                ... on Workspace {
-                  locationEntries {
-                    name
-                    locationOrLoadError {
-                      __typename
-                      ... on RepositoryLocation {
-                        repositories {
-                          name
-                          pipelines { name }
-                          jobs { name }
-                        }
-                      }
-                      ... on PythonError { message }
-                    }
-                  }
-                }
-              }
-            }
-            """,
-        )["workspaceOrError"]
-        if workspace.get("__typename") != "Workspace":
-            raise E2EError(f"Dagster workspace query failed: {workspace}")
-
-        load_errors: list[str] = []
-        for entry in workspace.get("locationEntries", []):
-            location = entry.get("locationOrLoadError") or {}
-            if location.get("__typename") != "RepositoryLocation":
-                if location.get("__typename") == "PythonError":
-                    message = location.get("message", "unknown Dagster workspace error").strip()
-                    load_errors.append(f"{entry.get('name')}: {message}")
-                continue
-            for repo in location.get("repositories", []):
-                job_names = {job["name"] for job in repo.get("jobs", [])}
-                pipeline_names = {pipeline["name"] for pipeline in repo.get("pipelines", [])}
-                if job_name in job_names or job_name in pipeline_names:
-                    return entry["name"], repo["name"]
-        detail = f" Workspace load errors: {'; '.join(load_errors)}" if load_errors else ""
-        raise E2EError(f"Dagster job {job_name} is not available yet.{detail}")
-
-    def graphql(self, query: str, variables: Mapping[str, Any] | None = None) -> Mapping[str, Any]:
-        data = self._request_json(query, variables)
-        if data.get("errors"):
-            raise E2EError(json.dumps(data["errors"], indent=2))
-        return data["data"]
-
-    def _requests_graphql(self, query: str, variables: Mapping[str, Any] | None) -> Mapping[str, Any]:
-        try:
-            response = requests.post(
-                self.graphql_url,
-                json={"query": query, "variables": variables or {}},
-                headers={"Accept": "application/json"},
-                timeout=30,
-            )
-            response.raise_for_status()
-        except requests.HTTPError as exc:
-            status = exc.response.status_code if exc.response is not None else None
-            if status is not None and 500 <= status < 600:
-                raise DagsterTransientError(f"Dagster GraphQL HTTP {status}: {exc}") from exc
-            raise DagsterHTTPError(f"Dagster GraphQL HTTP {status}: {exc}") from exc
-        except (requests.ConnectionError, requests.Timeout) as exc:
-            raise DagsterTransientError(f"Dagster GraphQL request failed: {exc}") from exc
-        return response.json()
-
-
 def check_superset_dashboards(cfg: E2EConfig) -> None:
     log.step("Checking Superset report imports...")
     assert cfg.superset_local_port is not None
@@ -951,7 +698,10 @@ def check_superset_dashboards(cfg: E2EConfig) -> None:
         base_url = f"http://127.0.0.1:{cfg.superset_local_port}"
         if not k8s.http_wait(f"{base_url}/health", attempts=90, delay=2):
             raise E2EError("Superset endpoint did not become reachable.")
-        dashboards = SupersetClient(base_url).dashboards()
+        try:
+            dashboards = SupersetClient(base_url).dashboards()
+        except ServiceClientError as exc:
+            raise E2EError(str(exc)) from exc
     assert_superset_dashboards(dashboards, discovered_dashboards(cfg))
 
 
@@ -985,39 +735,6 @@ def discovered_dashboards(cfg: E2EConfig) -> dict[str, str]:
     return expected
 
 
-class SupersetClient:
-    def __init__(self, base_url: str) -> None:
-        self.base_url = base_url.rstrip("/")
-
-    def dashboards(self) -> list[Mapping[str, Any]]:
-        token = self._login()
-        response = requests.get(
-            f"{self.base_url}/api/v1/dashboard/",
-            params={"q": json.dumps({"page_size": 100})},
-            headers={"Accept": "application/json", "Authorization": f"Bearer {token}"},
-            timeout=30,
-        )
-        response.raise_for_status()
-        return response.json().get("result", [])
-
-    def _login(self) -> str:
-        last_error: Exception | None = None
-        for _ in range(60):
-            try:
-                response = requests.post(
-                    f"{self.base_url}/api/v1/security/login",
-                    json={"username": "admin", "password": "admin", "provider": "db", "refresh": True},
-                    headers={"Accept": "application/json"},
-                    timeout=30,
-                )
-                response.raise_for_status()
-                return str(response.json()["access_token"])
-            except Exception as exc:
-                last_error = exc
-                time.sleep(2)
-        raise E2EError(f"Superset login failed: {last_error}")
-
-
 def assert_superset_dashboards(dashboards: list[Mapping[str, Any]], expected: Mapping[str, str]) -> None:
     by_slug = {dashboard.get("slug"): dashboard.get("dashboard_title") for dashboard in dashboards}
     titles = {dashboard.get("dashboard_title") for dashboard in dashboards}
@@ -1043,62 +760,40 @@ def check_openmetadata_assets(cfg: E2EConfig) -> None:
         base_url = f"http://127.0.0.1:{cfg.openmetadata_local_port}"
         if not k8s.http_wait(f"{base_url}/api/v1/system/config/jwks", attempts=90, delay=2):
             raise E2EError("OpenMetadata endpoint did not become reachable.")
-        OpenMetadataE2EClient(base_url, cfg.inventory).assert_assets()
+        assert_openmetadata_assets(OpenMetadataClient(base_url), cfg.inventory)
 
 
-class OpenMetadataE2EClient:
-    def __init__(self, base_url: str, inventory: DomainInventory) -> None:
-        self.base_url = base_url.rstrip("/")
-        self.inventory = inventory
+def assert_openmetadata_assets(client: OpenMetadataClient, inventory: DomainInventory) -> None:
+    _openmetadata_e2e_login(client)
+    for domain in inventory.domain_names:
+        client.request("GET", f"/api/v1/domains/name/{domain}")
+    for product, candidates in inventory.openmetadata_data_products.items():
+        if not _first_existing_data_product(client, candidates):
+            raise E2EError(f"missing OpenMetadata data product {product}")
 
-    def assert_assets(self) -> None:
-        token = self._login()
-        for domain in self.inventory.domain_names:
-            self._request("GET", f"/api/v1/domains/name/{domain}", token)
-        for product, candidates in self.inventory.openmetadata_data_products.items():
-            if not self._first_existing_data_product(candidates, token):
-                raise E2EError(f"missing OpenMetadata data product {product}")
 
-    def _first_existing_data_product(self, candidates: tuple[str, ...], token: str) -> str | None:
-        for candidate in candidates:
-            if self._request("GET", f"/api/v1/dataProducts/name/{candidate}", token, ok_statuses=(200, 404))[0] == 200:
-                return candidate
-        return None
+def _openmetadata_e2e_login(client: OpenMetadataClient) -> None:
+    last_error: Exception | None = None
+    for _ in range(60):
+        try:
+            client.login("admin@open-metadata.org", "admin")
+            return
+        except OpenMetadataError as exc:
+            last_error = exc
+            time.sleep(2)
+    raise E2EError(f"OpenMetadata login failed: {last_error}")
 
-    def _login(self) -> str:
-        encoded_password = base64.b64encode(b"admin").decode("ascii")
-        last_error: Exception | None = None
-        for _ in range(60):
-            try:
-                status, payload = self._request(
-                    "POST",
-                    "/api/v1/users/login",
-                    "",
-                    payload={"email": "admin@open-metadata.org", "password": encoded_password},
-                )
-                if status == 200:
-                    return str(payload["accessToken"])
-            except Exception as exc:
-                last_error = exc
-                time.sleep(2)
-        raise E2EError(f"OpenMetadata login failed: {last_error}")
 
-    def _request(
-        self,
-        method: str,
-        path: str,
-        token: str,
-        *,
-        payload: Mapping[str, Any] | None = None,
-        ok_statuses: tuple[int, ...] = (200,),
-    ) -> tuple[int, Mapping[str, Any]]:
-        headers = {"Accept": "application/json"}
-        if token:
-            headers["Authorization"] = f"Bearer {token}"
-        response = requests.request(method, f"{self.base_url}{path}", json=payload, headers=headers, timeout=30)
-        if response.status_code not in ok_statuses:
-            raise E2EError(f"{method} {path} failed with HTTP {response.status_code}: {response.text}")
-        return response.status_code, response.json() if response.text else {}
+def _first_existing_data_product(client: OpenMetadataClient, candidates: tuple[str, ...]) -> str | None:
+    for candidate in candidates:
+        try:
+            client.request("GET", f"/api/v1/dataProducts/name/{candidate}")
+        except OpenMetadataTransientError:
+            raise
+        except OpenMetadataError:
+            continue
+        return candidate
+    return None
 
 
 def check_ops_artifacts(cfg: E2EConfig) -> None:

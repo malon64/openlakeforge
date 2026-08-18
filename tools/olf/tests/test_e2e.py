@@ -8,6 +8,9 @@ import pytest
 from openlakeforge_domain import inventory_for, load_domain_inventory
 
 from olf import e2e
+from olf.clients import dagster as dagster_client_module
+from olf.clients.base import ServiceClientError
+from olf.clients.openmetadata import OpenMetadataError
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 INVENTORY = inventory_for(REPO_ROOT)
@@ -692,24 +695,16 @@ def test_assert_scalar_equals_reports_mismatch() -> None:
 def test_openmetadata_data_product_candidates_try_short_and_domain_names() -> None:
     seen: list[str] = []
 
-    class Client(e2e.OpenMetadataE2EClient):
-        def _request(
-            self,
-            method: str,
-            path: str,
-            token: str,
-            *,
-            payload: dict[str, Any] | None = None,
-            ok_statuses: tuple[int, ...] = (200,),
-        ) -> tuple[int, dict[str, Any]]:
-            seen.append(path)
-            if path.endswith("/sales.sales_order_revenue"):
-                return 200, {}
-            return 404, {}
+    def request(method: str, path: str, **_kwargs) -> dict[str, Any]:
+        seen.append(path)
+        if path.endswith("/sales.sales_order_revenue"):
+            return {}
+        raise OpenMetadataError(f"{method} {path} failed with HTTP 404: not found")
 
-    client = Client("http://openmetadata", INVENTORY)
+    client = e2e.OpenMetadataClient("http://openmetadata")
+    client.request = request
 
-    assert client._first_existing_data_product(("sales_order_revenue", "sales.sales_order_revenue"), "token") == (
+    assert e2e._first_existing_data_product(client, ("sales_order_revenue", "sales.sales_order_revenue")) == (
         "sales.sales_order_revenue"
     )
     assert seen == [
@@ -791,7 +786,7 @@ def test_dagster_repository_discovery_raises_on_workspace_error() -> None:
         request_json=lambda _query, _variables=None: {"errors": [{"message": "workspace unavailable"}]},
     )
 
-    with pytest.raises(e2e.E2EError, match="workspace unavailable"):
+    with pytest.raises(ServiceClientError, match="workspace unavailable"):
         client.discover_repository("supply_chain_inventory_reliability_pipeline")
 
 
@@ -816,7 +811,7 @@ def test_dagster_repository_discovery_reports_load_errors() -> None:
         },
     )
 
-    with pytest.raises(e2e.E2EError, match="user code unreachable"):
+    with pytest.raises(ServiceClientError, match="user code unreachable"):
         client.discover_repository("sales_order_revenue_pipeline")
 
 
@@ -1078,7 +1073,7 @@ def test_dagster_poll_reports_failure() -> None:
         },
     )
 
-    with pytest.raises(e2e.E2EError, match="ended with FAILURE"):
+    with pytest.raises(ServiceClientError, match="ended with FAILURE"):
         client.poll("sales_order_revenue_pipeline", "run-1", attempts=1, delay=0)
 
 
@@ -1138,7 +1133,7 @@ def test_dagster_launch_retries_transient_failure_and_keeps_launch_tag(monkeypat
             raise response
         return response
 
-    monkeypatch.setattr(e2e, "LAUNCH_RETRY_DELAY_SECONDS", 0)
+    monkeypatch.setattr(dagster_client_module, "LAUNCH_RETRY_DELAY_SECONDS", 0)
     run_id = e2e.DagsterClient("http://dagster/graphql", request_json=request_json).launch(
         "sales_order_revenue_pipeline"
     )
@@ -1156,7 +1151,7 @@ def test_dagster_poll_times_out_quickly_for_non_terminal_runs() -> None:
         },
     )
 
-    with pytest.raises(e2e.E2EError, match="did not finish within 1800 seconds"):
+    with pytest.raises(ServiceClientError, match="did not finish within 1800 seconds"):
         client.poll("sales_order_revenue_pipeline", "run-1", attempts=1, delay=0)
 
 
