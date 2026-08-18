@@ -1,0 +1,70 @@
+#!/bin/sh
+set -eu
+
+psql_with_retry() {
+  attempt=1
+  while true; do
+    psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" "$@" && return 0
+    status=$?
+    if [ "$status" -ne 2 ] || [ "$attempt" -ge 30 ]; then
+      return "$status"
+    fi
+    echo "PostgreSQL connection was lost; retrying bootstrap query ($attempt/30)..." >&2
+    attempt=$((attempt + 1))
+    sleep 2
+  done
+}
+
+psql_base() {
+  psql_with_retry --dbname postgres "$@"
+}
+
+create_or_update_role() {
+  role_name="$1"
+  role_password="$2"
+
+  psql_base -c "DO \$\$
+BEGIN
+  IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = '$role_name') THEN
+    CREATE ROLE \"$role_name\" LOGIN PASSWORD '$role_password';
+  ELSE
+    ALTER ROLE \"$role_name\" WITH LOGIN PASSWORD '$role_password';
+  END IF;
+END
+\$\$;"
+}
+
+create_database_if_missing() {
+  db_name="$1"
+  owner_name="$2"
+
+  if psql_base -tAc "SELECT 1 FROM pg_database WHERE datname = '$db_name'" | grep -qx 1; then
+    echo "Database '$db_name' already exists."
+  else
+    psql_base -c "CREATE DATABASE \"$db_name\" OWNER \"$owner_name\";"
+  fi
+
+  psql_base -c "ALTER DATABASE \"$db_name\" OWNER TO \"$owner_name\";"
+  psql_base -c "GRANT ALL PRIVILEGES ON DATABASE \"$db_name\" TO \"$owner_name\";"
+  psql_with_retry --dbname "$db_name" \
+    -c "GRANT ALL ON SCHEMA public TO \"$owner_name\";" \
+    -c "ALTER SCHEMA public OWNER TO \"$owner_name\";"
+}
+
+create_or_update_role "$DAGSTER_DB_USER" "$DAGSTER_DB_PASSWORD"
+create_database_if_missing "$DAGSTER_DB_NAME" "$DAGSTER_DB_USER"
+
+%{ if enable_openmetadata ~}
+create_or_update_role "$OM_DB_USER" "$OM_DB_PASSWORD"
+create_database_if_missing "$OM_DB_NAME" "$OM_DB_USER"
+
+%{ endif ~}
+
+%{ if enable_superset ~}
+create_or_update_role "$SUPERSET_DB_USER" "$SUPERSET_DB_PASSWORD"
+create_database_if_missing "$SUPERSET_DB_NAME" "$SUPERSET_DB_USER"
+
+%{ endif ~}
+
+create_or_update_role "$POLARIS_DB_USER" "$POLARIS_DB_PASSWORD"
+create_database_if_missing "$POLARIS_DB_NAME" "$POLARIS_DB_USER"
