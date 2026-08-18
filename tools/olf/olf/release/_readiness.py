@@ -102,7 +102,8 @@ _IMAGE_DEPLOYMENT_SOURCES: dict[str, _ImageDeploymentSource] = {
     ),
     "postgres": _ImageDeploymentSource(
         paths=(
-            "infra/terraform/modules/storage/postgresql/main.tf",
+            "infra/terraform/modules/storage/postgresql/workload.tf",
+            "infra/terraform/modules/storage/postgresql/bootstrap.tf",
             "infra/terraform/modules/storage/rds-postgresql/main.tf",
         ),
         full_ref_pattern=re.compile(r'image\s*=\s*"([^"]+@sha256:[0-9a-f]{64})"'),
