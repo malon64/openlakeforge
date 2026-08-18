@@ -48,7 +48,8 @@ OpenLakeForge provides an end-to-end batch data platform from ingestion to analy
 |Governance|OpenMetadata _(optional)_|
 |Dashboards|Superset _(optional)_|
 
-The underlying infrastructure is exposed through provider-neutral contracts, allowing infrastructure implementations to change without redefining the data platform.
+The underlying infrastructure is exposed through provider-neutral contracts, allowing infrastructure implementations to change without redefining the data platform. [Provider contracts](/docs/architecture/provider-contracts.md) 
+
 
 ## Quick start
 
@@ -107,7 +108,7 @@ make local-e2e
 make local-forward
 ```
 
-## Slim or Full?
+### Slim or Full?
 
 OpenLakeForge ships the same core platform in two footprints.
 
@@ -117,6 +118,7 @@ OpenLakeForge ships the same core platform in two footprints.
 |**Full**|Slim + OpenMetadata + Superset|You also want governance, lineage and dashboards|
 
 The optional layers do not change the underlying ingestion-to-Gold data path.
+
 
 ## Deploy to AWS
 
@@ -163,6 +165,7 @@ make aws-e2e
 
 The deployment follows the same foundation → platform → artifacts lifecycle as the local environment.
 
+
 ## Deploy to Azure
 
 The Azure environment runs the same platform on **AKS and ACR** while retaining the OpenLakeForge platform services.
@@ -205,24 +208,6 @@ Then:
 make azure-forward
 make azure-e2e
 ```
-
-## One platform, different infrastructure
-
-OpenLakeForge separates platform capabilities from provider implementations.
-
-||Local|AWS|Azure|
-|---|---|---|---|
-|Kubernetes|kind|EKS|AKS|
-|Container images|kind image load|ECR|ACR|
-|Object storage|SeaweedFS|S3|SeaweedFS|
-|Iceberg catalog|Polaris|AWS Glue|Polaris|
-|Metadata database|PostgreSQL|RDS PostgreSQL|PostgreSQL|
-|Query engine|Trino|Trino|Trino|
-|Orchestration|Dagster|Dagster|Dagster|
-
-The data platform remains the same while provider contracts determine how infrastructure capabilities are implemented.
-
-Read more about this design in [Provider Contracts](/docs/architecture/provider-contracts.md).
 
 ## Documentation
 
