@@ -1,0 +1,14 @@
+  set -eu
+
+  polaris_url="http://${release_name}:8181"
+  if curl -sf -X POST "$polaris_url/api/catalog/v1/oauth/tokens" \
+    -u "$ROOT_CLIENT_ID:$ROOT_CLIENT_SECRET" \
+    -d "grant_type=client_credentials" \
+    -d "scope=${oauth_scope}" >/dev/null; then
+    echo "Polaris relational metastore is already bootstrapped."
+    exit 0
+  fi
+
+  exec java -jar /deployments/polaris-admin-tool.jar bootstrap \
+    -r "$POLARIS_REALM" \
+    -c "$POLARIS_BOOTSTRAP_CREDENTIALS"

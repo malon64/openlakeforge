@@ -1,0 +1,161 @@
+  set -eu
+
+  polaris_url="http://${release_name}:8181"
+
+  request() {
+    method="$1"
+    path="$2"
+    expected_codes="$3"
+    data="$${4:-}"
+
+    if [ -n "$data" ]; then
+      code="$(curl -sS -o /tmp/polaris-body -w '%%{http_code}' \
+        -X "$method" "$polaris_url/api/management/v1$path" \
+        -H "Authorization: Bearer $POLARIS_TOKEN" \
+        -H "Content-Type: application/json" \
+        -d "$data")"
+    else
+      code="$(curl -sS -o /tmp/polaris-body -w '%%{http_code}' \
+        -X "$method" "$polaris_url/api/management/v1$path" \
+        -H "Authorization: Bearer $POLARIS_TOKEN" \
+        -H "Content-Type: application/json")"
+    fi
+
+    POLARIS_RESPONSE_CODE="$code"
+
+    case " $expected_codes " in
+      *" $code "*) return 0 ;;
+    esac
+
+    echo "Polaris $method $path returned HTTP $code" >&2
+    cat /tmp/polaris-body >&2 || true
+    exit 1
+  }
+
+  token_response=""
+  attempt=1
+  while [ "$attempt" -le 60 ]; do
+    if token_response="$(curl -sf -X POST "$polaris_url/api/catalog/v1/oauth/tokens" \
+      -u "$ROOT_CLIENT_ID:$ROOT_CLIENT_SECRET" \
+      -d "grant_type=client_credentials" \
+      -d "scope=${oauth_scope}")"; then
+      break
+    fi
+    sleep 5
+    attempt=$((attempt + 1))
+  done
+
+  POLARIS_TOKEN="$(echo "$token_response" | sed -n 's/.*"access_token":"\([^"]*\)".*/\1/p')"
+
+  if [ -z "$POLARIS_TOKEN" ]; then
+    echo "Failed to obtain Polaris root token" >&2
+    echo "$token_response" >&2
+    exit 1
+  fi
+
+  silver_bucket="${silver_bucket_name}"
+  gold_bucket="${gold_bucket_name}"
+
+  request POST "/catalogs" "201 409" "{
+    \"name\": \"${catalog_name}\",
+    \"type\": \"INTERNAL\",
+    \"properties\": {
+      \"default-base-location\": \"s3://$silver_bucket/\"
+    },
+    \"storageConfigInfo\": {
+      \"storageType\": \"S3\",
+      \"allowedLocations\": [\"s3://$silver_bucket/\", \"s3://$gold_bucket/\"],
+      \"pathStyleAccess\": true,
+      \"stsUnavailable\": true
+    }
+  }"
+
+  create_principal_secret() {
+    principal_name="$1"
+    secret_name="$2"
+    client_id_key="$3"
+    client_secret_key="$4"
+    pending_name="$secret_name-bootstrap-pending"
+
+    request GET "/principals/$principal_name" "200 404"
+    if [ "$POLARIS_RESPONSE_CODE" = "200" ]; then
+      if kubectl get configmap "$pending_name" -n "$NAMESPACE" >/dev/null 2>&1; then
+        # A pending marker is written before the first create call. It
+        # identifies the otherwise unrecoverable window where Polaris
+        # created a principal but Kubernetes did not persist its one-time
+        # credentials. It takes precedence over a legacy in-memory
+        # Secret, which cannot authenticate to this new principal.
+        request POST "/principals/$principal_name/rotate" "200"
+      elif kubectl get secret "$secret_name" -n "$NAMESPACE" >/dev/null 2>&1; then
+        return
+      else
+        echo "Polaris principal '$principal_name' exists but credential Secret '$secret_name' is missing." >&2
+        echo "Restore the Secret before rerunning the bootstrap job to avoid rotating active clients." >&2
+        exit 1
+      fi
+    else
+      if ! kubectl get configmap "$pending_name" -n "$NAMESPACE" >/dev/null 2>&1; then
+        kubectl create configmap "$pending_name" \
+          -n "$NAMESPACE" \
+          --from-literal="principal=$principal_name"
+      fi
+
+      # In-memory Polaris state is intentionally not migrated. Remove
+      # the unusable legacy Secret before creating fresh credentials in
+      # the relational metastore.
+      kubectl delete secret "$secret_name" -n "$NAMESPACE" --ignore-not-found
+      request POST "/principals" "201 409" "{\"name\": \"$principal_name\", \"type\": \"SERVICE\"}"
+      if [ "$POLARIS_RESPONSE_CODE" = "409" ]; then
+        request POST "/principals/$principal_name/rotate" "200"
+      fi
+    fi
+    client_id="$(sed -n 's/.*"clientId":"\([^"]*\)".*/\1/p' /tmp/polaris-body | head -n 1)"
+    client_secret="$(sed -n 's/.*"clientSecret":"\([^"]*\)".*/\1/p' /tmp/polaris-body | head -n 1)"
+
+    if [ -z "$client_id" ] || [ -z "$client_secret" ]; then
+      echo "Failed to parse Polaris principal credentials for $principal_name" >&2
+      cat /tmp/polaris-body >&2
+      exit 1
+    fi
+
+    kubectl delete secret "$secret_name" -n "$NAMESPACE" --ignore-not-found
+    kubectl create secret generic "$secret_name" \
+      -n "$NAMESPACE" \
+      --from-literal="$client_id_key=$client_id" \
+      --from-literal="$client_secret_key=$client_secret"
+    kubectl delete configmap "$pending_name" -n "$NAMESPACE" --ignore-not-found
+  }
+
+  grant_catalog_access() {
+    principal_name="$1"
+    principal_role="$2"
+    catalog_role="$3"
+    catalog_privilege="$4"
+
+    request POST "/principal-roles" "201 409" "{\"principalRole\": {\"name\": \"$principal_role\"}}"
+    request PUT "/principals/$principal_name/principal-roles" "201 409" "{\"principalRole\": {\"name\": \"$principal_role\"}}"
+    request POST "/catalogs/${catalog_name}/catalog-roles" "201 409" "{\"catalogRole\": {\"name\": \"$catalog_role\"}}"
+    request PUT "/catalogs/${catalog_name}/catalog-roles/$catalog_role/grants" "201 409" "{\"grant\": {\"type\": \"catalog\", \"privilege\": \"$catalog_privilege\"}}"
+    request PUT "/principal-roles/$principal_role/catalog-roles/${catalog_name}" "201 409" "{\"catalogRole\": {\"name\": \"$catalog_role\"}}"
+  }
+
+  create_principal_secret "${principal_name}" "${trino_credentials_secret_name}" "POLARIS_TRINO_CLIENT_ID" "POLARIS_TRINO_CLIENT_SECRET"
+  grant_catalog_access "${principal_name}" "${principal_role}" "${catalog_role}" "CATALOG_MANAGE_CONTENT"
+
+  create_principal_secret "${floe_principal_name}" "${floe_credentials_secret_name}" "POLARIS_FLOE_CLIENT_ID" "POLARIS_FLOE_CLIENT_SECRET"
+  grant_catalog_access "${floe_principal_name}" "${floe_principal_role}" "${floe_catalog_role}" "CATALOG_MANAGE_CONTENT"
+
+  # dbt Gold now writes through Trino. Remove credentials created by
+  # pre-migration deployments while keeping shared Floe roles intact.
+  request DELETE "/principals/dbt" "204 404"
+  kubectl delete secret "polaris-dbt-creds" -n "$NAMESPACE" --ignore-not-found
+
+  create_principal_secret "${om_principal_name}" "${om_credentials_secret_name}" "POLARIS_OM_CLIENT_ID" "POLARIS_OM_CLIENT_SECRET"
+  grant_catalog_access "${om_principal_name}" "${om_principal_role}" "${om_catalog_role}" "CATALOG_MANAGE_CONTENT"
+
+  # Namespace lifecycle belongs to Phase 2 (ADR 0022). Phase 1 stops at
+  # handing `olf catalog sync-namespaces` a principal that can create
+  # and drop namespaces, so no platform apply ever needs to know which
+  # products exist.
+  create_principal_secret "${deployer_principal_name}" "${deployer_credentials_secret_name}" "POLARIS_DEPLOYER_CLIENT_ID" "POLARIS_DEPLOYER_CLIENT_SECRET"
+  grant_catalog_access "${deployer_principal_name}" "${deployer_principal_role}" "${deployer_catalog_role}" "CATALOG_MANAGE_METADATA"

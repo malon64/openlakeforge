@@ -50,7 +50,10 @@ locals {
   # reconciles them from domains/*/domain.yaml during artifacts-deploy (ADR
   # 0022); this root only records which naming model those namespaces follow.
   catalog_namespace_model = "product-layer"
-  polaris_bootstrap_hash  = filesha256("${path.root}/../../modules/catalog/polaris/main.tf")
+  polaris_bootstrap_hash = sha256(join("", [
+    for f in sort(fileset("${path.root}/../../modules/catalog/polaris", "**/*.{tf,tftpl}")) :
+    filesha256("${path.root}/../../modules/catalog/polaris/${f}")
+  ]))
 }
 
 resource "kubernetes_namespace_v1" "lakehouse" {

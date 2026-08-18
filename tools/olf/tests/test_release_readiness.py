@@ -136,9 +136,8 @@ def test_check_images_match_deployment_sources_flags_every_postgres_terraform_re
     rds_dir.mkdir(parents=True)
     postgres_ref = "postgres:16-alpine@sha256:" + "a" * 64
     stale_ref = "postgres:16-alpine@sha256:" + "b" * 64
-    (postgres_dir / "main.tf").write_text(
-        f'image = "{postgres_ref}"\nimage = "{stale_ref}"\n'
-    )
+    (postgres_dir / "workload.tf").write_text(f'image = "{postgres_ref}"\n')
+    (postgres_dir / "bootstrap.tf").write_text(f'image = "{stale_ref}"\n')
     (rds_dir / "main.tf").write_text(f'image = "{postgres_ref}"\n')
 
     catalog = {"components": {"images": {"postgres": postgres_ref}}}
