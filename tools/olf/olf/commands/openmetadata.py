@@ -1,0 +1,54 @@
+"""OpenMetadata governance metadata helpers."""
+
+from __future__ import annotations
+
+import os
+
+import typer
+
+from olf import config
+from olf.commands._shared import fail, log_step
+
+app = typer.Typer(help="OpenMetadata governance metadata helpers.")
+
+
+@app.command("deploy-metadata")
+def openmetadata_deploy_metadata() -> None:
+    """Seed OpenMetadata domains, data products, and medallion containers."""
+    deploy_openmetadata_metadata()
+
+
+def deploy_openmetadata_metadata() -> None:
+    """Seed OpenMetadata domains, data products, and medallion containers."""
+    from olf import k8s
+    from olf import openmetadata as om
+
+    namespace = config.namespace()
+    service = config.env("OPENMETADATA_SERVICE", "openmetadata")
+    remote_port = int(config.env("OPENMETADATA_SERVICE_PORT", "8585"))
+
+    log_step(f"Waiting for OpenMetadata deployment {service}...")
+    k8s.wait_for_rollout(f"deployment/{service}", namespace)
+
+    log_prefix = config.env("OPENLAKEFORGE_PORT_FORWARD_LOG_PREFIX", "/tmp/openlakeforge")
+    log_path = f"{log_prefix}-openmetadata-port-forward.log"
+    with k8s.port_forward(service, remote_port, namespace, log_path=log_path) as local_port:
+        cfg = om.OpenMetadataConfig.from_environment(
+            os.environ,
+            base_url=f"http://127.0.0.1:{local_port}",
+            admin_email=config.env("OPENMETADATA_ADMIN_EMAIL", "admin@open-metadata.org"),
+            admin_password=config.env("OPENMETADATA_ADMIN_PASSWORD", "admin"),
+            metadata_root=config.env("OPENMETADATA_METADATA_ROOT", "domains"),
+            metadata_source_dir=os.environ.get("OPENMETADATA_METADATA_SOURCE_DIR", ""),
+            allow_missing_assets=config.truthy(config.env("OPENMETADATA_ALLOW_MISSING_ASSETS", "false")),
+            catalog_service=config.env("OPENMETADATA_CATALOG_SERVICE") or config.env("OPENLAKEFORGE_CATALOG_PROVIDER"),
+            catalog_database=config.env("OPENMETADATA_CATALOG_DATABASE") or config.env("OPENLAKEFORGE_CATALOG_NAME"),
+            cleanup_legacy_default_database=config.truthy(
+                config.env("OPENMETADATA_CLEANUP_LEGACY_DEFAULT_DATABASE", "true")
+            ),
+        )
+        try:
+            om.OpenMetadataDeployer(cfg, om.OpenMetadataClient(cfg.base_url)).deploy()
+        except om.OpenMetadataError as exc:
+            raise typer.Exit(code=fail(str(exc))) from exc
+    typer.echo("Deployed OpenMetadata governance metadata.")

@@ -26,8 +26,12 @@ def test_layers_enabled_exits_nonzero_for_a_disabled_layer(monkeypatch: pytest.M
 def test_artifacts_deploy_optional_layers_skips_disabled_layers(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("OPENLAKEFORGE_ANALYTICS_ENABLED", "false")
     monkeypatch.setenv("OPENLAKEFORGE_GOVERNANCE_ENABLED", "false")
-    monkeypatch.setattr("olf.cli.deploy_superset_reports", lambda: pytest.fail("reports should be skipped"))
-    monkeypatch.setattr("olf.cli.deploy_openmetadata_metadata", lambda: pytest.fail("metadata should be skipped"))
+    monkeypatch.setattr(
+        "olf.commands.artifacts.deploy_superset_reports", lambda: pytest.fail("reports should be skipped")
+    )
+    monkeypatch.setattr(
+        "olf.commands.artifacts.deploy_openmetadata_metadata", lambda: pytest.fail("metadata should be skipped")
+    )
 
     result = runner.invoke(app, ["artifacts", "deploy-optional-layers"])
 
@@ -50,9 +54,9 @@ def test_revision_compute_command_prints_runtime_artifact_revision(tmp_path: Pat
 def test_superset_export_reports_defaults_come_from_the_default_product(monkeypatch: pytest.MonkeyPatch) -> None:
     from openlakeforge_domain import inventory_for
 
-    from olf import cli
+    from olf import config
 
-    default_product = inventory_for(cli._repo_root()).default_product
+    default_product = inventory_for(config.repo_root()).default_product
     calls: list[dict] = []
     monkeypatch.setattr(
         "olf.superset.export_report",
@@ -118,19 +122,19 @@ data_products:
 def test_catalog_sync_namespaces_dispatches_to_glue_for_aws_glue_provider(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from olf import cli
+    from olf.commands import catalog
 
     calls: list[dict] = []
     monkeypatch.setenv("OPENLAKEFORGE_CATALOG_PROVIDER", "aws-glue")
     monkeypatch.setattr(
-        cli,
+        catalog,
         "_sync_glue_namespaces",
         lambda *, desired, dry_run, prune: calls.append(
             {"backend": "glue", "dry_run": dry_run, "prune": prune}
         ),
     )
     monkeypatch.setattr(
-        cli, "_sync_polaris_namespaces", lambda **kwargs: calls.append({"backend": "polaris"})
+        catalog, "_sync_polaris_namespaces", lambda **kwargs: calls.append({"backend": "polaris"})
     )
 
     result = runner.invoke(app, ["catalog", "sync-namespaces", "--dry-run"])
@@ -140,19 +144,19 @@ def test_catalog_sync_namespaces_dispatches_to_glue_for_aws_glue_provider(
 
 
 def test_catalog_sync_namespaces_dispatches_to_polaris_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
-    from olf import cli
+    from olf.commands import catalog
 
     calls: list[dict] = []
     monkeypatch.delenv("OPENLAKEFORGE_CATALOG_PROVIDER", raising=False)
     monkeypatch.setattr(
-        cli,
+        catalog,
         "_sync_polaris_namespaces",
         lambda *, desired, dry_run, prune: calls.append(
             {"backend": "polaris", "dry_run": dry_run, "prune": prune}
         ),
     )
     monkeypatch.setattr(
-        cli, "_sync_glue_namespaces", lambda **kwargs: calls.append({"backend": "glue"})
+        catalog, "_sync_glue_namespaces", lambda **kwargs: calls.append({"backend": "glue"})
     )
 
     result = runner.invoke(app, ["catalog", "sync-namespaces", "--prune"])
@@ -164,12 +168,12 @@ def test_catalog_sync_namespaces_dispatches_to_polaris_by_default(monkeypatch: p
 def test_catalog_sync_namespaces_treats_false_prune_environment_as_disabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from olf import cli
+    from olf.commands import catalog
 
     calls: list[dict] = []
     monkeypatch.setenv("OPENLAKEFORGE_CATALOG_PRUNE_NAMESPACES", "false")
     monkeypatch.setattr(
-        cli,
+        catalog,
         "_sync_polaris_namespaces",
         lambda *, desired, dry_run, prune: calls.append({"dry_run": dry_run, "prune": prune}),
     )
@@ -181,12 +185,12 @@ def test_catalog_sync_namespaces_treats_false_prune_environment_as_disabled(
 
 
 def test_catalog_sync_namespaces_rejects_an_unknown_provider(monkeypatch: pytest.MonkeyPatch) -> None:
-    from olf import cli
+    from olf.commands import catalog
 
     calls: list[str] = []
     monkeypatch.setenv("OPENLAKEFORGE_CATALOG_PROVIDER", "snowflake")
-    monkeypatch.setattr(cli, "_sync_polaris_namespaces", lambda **kwargs: calls.append("polaris"))
-    monkeypatch.setattr(cli, "_sync_glue_namespaces", lambda **kwargs: calls.append("glue"))
+    monkeypatch.setattr(catalog, "_sync_polaris_namespaces", lambda **kwargs: calls.append("polaris"))
+    monkeypatch.setattr(catalog, "_sync_glue_namespaces", lambda **kwargs: calls.append("glue"))
 
     result = runner.invoke(app, ["catalog", "sync-namespaces"])
 

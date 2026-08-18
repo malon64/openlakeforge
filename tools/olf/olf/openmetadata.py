@@ -8,21 +8,18 @@ exactly — only the host moved from a heredoc into this shared module.
 
 from __future__ import annotations
 
-import base64
 import json
 import time
-import urllib.error
 import urllib.parse
-import urllib.request
 from collections.abc import Iterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 from openlakeforge_domain import load_domain_descriptor, load_domain_inventory_from_descriptors
 
+from olf.clients.openmetadata import OpenMetadataClient, OpenMetadataError
 
-class OpenMetadataError(RuntimeError):
-    pass
+__all__ = ["OpenMetadataClient", "OpenMetadataError", "OpenMetadataConfig", "OpenMetadataDeployer"]
 
 
 @dataclass
@@ -167,49 +164,6 @@ def _default_schema_fqns(
         manifest_base_uri="",
     )
     return physical.silver_schema_fqns if layer == "silver" else physical.gold_schema_fqns
-
-
-@dataclass
-class OpenMetadataClient:
-    base_url: str
-    token: str | None = field(default=None)
-
-    def request(
-        self,
-        method: str,
-        path: str,
-        *,
-        payload=None,
-        ok_statuses: tuple[int, ...] = (200,),
-        content_type: str = "application/json",
-    ):
-        data = None
-        headers = {"Accept": "application/json"}
-        if payload is not None:
-            data = json.dumps(payload).encode("utf-8")
-            headers["Content-Type"] = content_type
-        if self.token:
-            headers["Authorization"] = f"Bearer {self.token}"
-
-        req = urllib.request.Request(f"{self.base_url}{path}", data=data, method=method, headers=headers)
-        try:
-            with urllib.request.urlopen(req, timeout=30) as response:  # noqa: S310 - localhost forward
-                body = response.read().decode("utf-8")
-                status = response.status
-        except urllib.error.HTTPError as err:
-            body = err.read().decode("utf-8", errors="replace")
-            status = err.code
-        except urllib.error.URLError as err:
-            raise OpenMetadataError(f"{method} {path} failed: {err}") from err
-
-        if status not in ok_statuses:
-            raise OpenMetadataError(f"{method} {path} failed with HTTP {status}: {body}")
-        if not body:
-            return {}
-        try:
-            return json.loads(body)
-        except json.JSONDecodeError:
-            return {"raw": body}
 
 
 def display_name_from_name(name: str) -> str:
@@ -458,16 +412,7 @@ class OpenMetadataDeployer:
     # --- REST operations --------------------------------------------------
 
     def login(self) -> None:
-        encoded_password = base64.b64encode(self.config.admin_password.encode("utf-8")).decode("ascii")
-        response = self.client.request(
-            "POST",
-            "/api/v1/users/login",
-            payload={"email": self.config.admin_email, "password": encoded_password},
-        )
-        token = response.get("accessToken")
-        if not token:
-            raise OpenMetadataError(f"OpenMetadata login did not return an access token: {response}")
-        self.client.token = token
+        self.client.login(self.config.admin_email, self.config.admin_password)
 
     def wait_for_openmetadata(self) -> None:
         last_error = None

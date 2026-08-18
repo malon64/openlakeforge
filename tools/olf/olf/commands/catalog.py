@@ -1,0 +1,130 @@
+"""Iceberg catalog namespace reconciliation."""
+
+from __future__ import annotations
+
+from typing import Any
+from urllib.parse import urlparse
+
+import typer
+
+from olf import config
+from olf.commands._shared import fail, log_step
+
+app = typer.Typer(help="Iceberg catalog namespace reconciliation.")
+
+
+def _reconcile_and_report(
+    label: str,
+    client: Any,
+    existing: dict,
+    desired: tuple,
+    *,
+    dry_run: bool,
+    prune: bool,
+) -> None:
+    from olf import catalog as catalog_module
+
+    plan = catalog_module.plan_namespace_sync(existing, desired, prune=prune)
+    typer.echo(catalog_module.render_plan(plan, prune=prune))
+    if dry_run:
+        typer.echo("Dry run: the catalog was not changed.")
+        return
+    if plan.is_empty:
+        typer.echo(f"{label} namespaces already match the descriptors.")
+        return
+    catalog_module.apply_namespace_sync(client, plan)
+    typer.echo(
+        f"Synced {label} namespaces: {len(plan.create)} created, {len(plan.adopt)} adopted, "
+        f"{len(plan.update)} updated, {len(plan.delete)} metadata-removed."
+    )
+
+
+def _sync_polaris_namespaces(*, desired: tuple, dry_run: bool, prune: bool) -> None:
+    from olf import k8s
+    from olf import polaris as polaris_module
+
+    rest_uri = config.env("OPENLAKEFORGE_CATALOG_REST_URI", "http://polaris:8181/api/catalog")
+    parsed = urlparse(rest_uri)
+    if not parsed.hostname:
+        raise typer.Exit(code=fail(f"OPENLAKEFORGE_CATALOG_REST_URI {rest_uri!r} has no host to port-forward to."))
+    service = parsed.hostname
+    remote_port = parsed.port or 8181
+
+    namespace = config.namespace()
+    secret_name = config.env("OPENLAKEFORGE_CATALOG_DEPLOYER_CREDENTIALS_SECRET_NAME", "polaris-deployer-creds")
+    client_id_key = config.env("OPENLAKEFORGE_CATALOG_DEPLOYER_CLIENT_ID_KEY", "POLARIS_DEPLOYER_CLIENT_ID")
+    client_secret_key = config.env(
+        "OPENLAKEFORGE_CATALOG_DEPLOYER_CLIENT_SECRET_KEY", "POLARIS_DEPLOYER_CLIENT_SECRET"
+    )
+
+    log_prefix = config.env("OPENLAKEFORGE_PORT_FORWARD_LOG_PREFIX", "/tmp/openlakeforge")
+    with k8s.port_forward(
+        service, remote_port, namespace, log_path=f"{log_prefix}-polaris-port-forward.log"
+    ) as local_port:
+        client = polaris_module.PolarisClient(
+            polaris_module.PolarisConfig(
+                base_url=f"http://127.0.0.1:{local_port}",
+                catalog_name=config.env("OPENLAKEFORGE_CATALOG_NAME", "lakehouse_dev"),
+                client_id=k8s.secret_value(secret_name, client_id_key, namespace),
+                client_secret=k8s.secret_value(secret_name, client_secret_key, namespace),
+                oauth_scope=config.env("OPENLAKEFORGE_CATALOG_OAUTH_SCOPE", "PRINCIPAL_ROLE:ALL"),
+            )
+        )
+        try:
+            client.login()
+            _reconcile_and_report(
+                "Polaris", client, client.list_namespaces(), desired, dry_run=dry_run, prune=prune
+            )
+        except polaris_module.PolarisError as exc:
+            raise typer.Exit(code=fail(str(exc))) from exc
+
+
+def _sync_glue_namespaces(*, desired: tuple, dry_run: bool, prune: bool) -> None:
+    from olf import glue as glue_module
+
+    client = glue_module.GlueClient(
+        glue_module.GlueConfig(
+            catalog_id=config.env("OPENLAKEFORGE_CATALOG_GLUE_CATALOG_ID"),
+            region=config.env("OPENLAKEFORGE_CATALOG_GLUE_REGION"),
+            catalog_name=config.env("OPENLAKEFORGE_CATALOG_NAME", "lakehouse_dev"),
+        )
+    )
+    try:
+        _reconcile_and_report("Glue", client, client.list_namespaces(), desired, dry_run=dry_run, prune=prune)
+    except glue_module.GlueError as exc:
+        raise typer.Exit(code=fail(str(exc))) from exc
+
+
+@app.command("sync-namespaces")
+def catalog_sync_namespaces(
+    dry_run: bool = typer.Option(False, "--dry-run", help="Print the plan without changing the catalog."),
+    prune: bool | None = typer.Option(
+        None,
+        "--prune/--no-prune",
+        help="Remove managed metadata for undeclared products; object-store files are retained.",
+    ),
+) -> None:
+    """Reconcile catalog namespaces (Polaris) or databases (Glue) with the domain descriptors.
+
+    Phase 2 owns namespace lifecycle (ADR 0022), so this runs before any table
+    is written.
+    """
+    from olf import catalog as catalog_module
+
+    provider = config.env("OPENLAKEFORGE_CATALOG_PROVIDER", "polaris")
+    if prune is None:
+        prune = config.truthy(config.env("OPENLAKEFORGE_CATALOG_PRUNE_NAMESPACES", "false"))
+    desired = catalog_module.desired_namespaces(
+        config.repo_root(),
+        silver_bucket=config.env("OPENLAKEFORGE_STORAGE_SILVER_BUCKET", "lakehouse-silver"),
+        gold_bucket=config.env("OPENLAKEFORGE_STORAGE_GOLD_BUCKET", "lakehouse-gold"),
+    )
+
+    if provider == "polaris":
+        log_step(f"Reconciling {len(desired)} Polaris namespace(s) from the domain descriptors...")
+        _sync_polaris_namespaces(desired=desired, dry_run=dry_run, prune=prune)
+    elif provider == "aws-glue":
+        log_step(f"Reconciling {len(desired)} Glue database(s) from the domain descriptors...")
+        _sync_glue_namespaces(desired=desired, dry_run=dry_run, prune=prune)
+    else:
+        raise typer.Exit(code=fail(f"Catalog provider {provider!r} has no namespace reconciliation backend."))
