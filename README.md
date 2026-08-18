@@ -164,6 +164,8 @@ Then:
 
 ```bash
 make aws-forward
+
+# Open a new terminal then
 make aws-e2e
 ```
 
@@ -210,6 +212,8 @@ Then:
 
 ```bash
 make azure-forward
+
+# Open a new terminal then
 make azure-e2e
 ```
 
