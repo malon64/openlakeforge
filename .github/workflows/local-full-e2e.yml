@@ -1,0 +1,161 @@
+name: Local full e2e (manual)
+
+# Manually-triggered fresh local end-to-end validation.
+#
+# Issue #60 scoped the full local e2e suite as a main/nightly gate. This
+# workflow instead exposes it as workflow_dispatch only, so a maintainer can
+# select any branch in the dispatch UI and verify that branch's runtime
+# conformance from GitHub Actions instead of a local machine.
+#
+# The job runs the same Make targets a developer runs locally:
+#   make local-up && make local-e2e          (full profile, suite=full)
+#   make local-slim-up && make local-slim-e2e (slim profile, suite=smoke)
+#
+# It reuses the kind-smoke plumbing from checks.yml (same toolchain setup,
+# kind-action install, and scripts/ci/kind-diagnostics.sh on failure) but
+# deploys the full profile by default and runs the complete assertion suite:
+# Polaris namespaces, Dagster product pipelines, Silver and Gold tables,
+# Polaris restart recovery, Superset dashboards, OpenMetadata assets, and
+# ops-bucket artifacts -- discovered dynamically from the domain inventory.
+
+on:
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: >
+          Suite to run. 'full' deploys the full profile (governance and
+          analytics enabled) and runs every product pipeline and assertion.
+          'smoke' deploys the slim profile and validates one product pipeline
+          through a queryable Gold table.
+        type: choice
+        options:
+          - full
+          - smoke
+        default: full
+      timeout_minutes:
+        description: >
+          Hard wall-clock budget for the whole job. The full profile builds the
+          project-code and Superset images and deploys OpenMetadata, so 120
+          minutes is the default; raise it if the run needs more.
+        type: number
+        default: 120
+      debug_fail_after_deploy:
+        description: >
+          Negative test: fail the job right after the platform is deployed to
+          prove the failure diagnostics and artifact retention work on a broken
+          deployment. Defaults to false.
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  # One manual run per branch at a time; a new dispatch waits for the previous
+  # one instead of cancelling it, so a branch's result is never ambiguous.
+  group: local-full-e2e-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CLUSTER_NAME: openlakeforge-e2e-${{ github.run_id }}
+  KUBE_CONTEXT: kind-openlakeforge-e2e-${{ github.run_id }}
+  LOCAL_KUBECONFIG_PATH: ${{ github.workspace }}/.tmp/kubeconfigs/local-e2e.yaml
+  KUBECONFIG: ${{ github.workspace }}/.tmp/kubeconfigs/local-e2e.yaml
+  PROJECT_CODE_IMAGE_TAG: local
+
+jobs:
+  e2e:
+    name: Deploy and validate local stack (${{ inputs.suite }})
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.timeout_minutes }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd
+        with:
+          terraform_version: 1.8.5
+
+      - name: Setup Helm
+        uses: azure/setup-helm@bf6a7d304bc2fdb57e0331155b7ebf2c504acf0a
+        with:
+          version: v3.18.6
+
+      - name: Setup Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@e58605a9b6da7c637471fab8847a5e5a6b8df081
+
+      - name: Install kind
+        uses: helm/kind-action@a1b0e391336a6ee6713a0583f8c6240d70863de3
+        with:
+          install_only: true
+          version: v0.26.0
+          kubectl_version: v1.31.4
+
+      - name: Deploy the local stack (fresh foundation)
+        run: |
+          set -euo pipefail
+          if [[ "${{ inputs.suite }}" == "smoke" ]]; then
+            make local-slim-up
+          else
+            make local-up
+          fi
+
+      - name: Negative-test failure injection
+        if: inputs.debug_fail_after_deploy == 'true'
+        run: |
+          echo "::error::debug_fail_after_deploy was set -- failing after deploy" \
+            "to prove diagnostics retention on a broken deployment."
+          exit 1
+
+      - name: Run the local e2e suite
+        run: |
+          set -euo pipefail
+          if [[ "${{ inputs.suite }}" == "smoke" ]]; then
+            make local-slim-e2e E2E_SUITE=smoke
+          else
+            make local-e2e E2E_SUITE=full
+          fi
+
+      - name: Write run summary
+        if: always()
+        run: |
+          {
+            echo "## Local ${{ inputs.suite }} e2e -- ${{ job.status }}"
+            echo ""
+            echo "- Ref: \`${{ github.ref }}\`"
+            echo "- Commit: \`${{ github.sha }}\`"
+            echo "- Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Comment the result on the branch's pull request
+        if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          pr_number="$(gh pr list --head "${{ github.ref_name }}" --json number --jq '.[0].number // empty')"
+          if [[ -n "${pr_number}" ]]; then
+            gh pr comment "${pr_number}" --body \
+              "Local ${{ inputs.suite }} e2e dispatch finished with status **${{ job.status }}** ([run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}))"
+          fi
+
+      - name: Collect kind diagnostics
+        if: failure()
+        run: scripts/ci/kind-diagnostics.sh .tmp/kind-e2e-diagnostics
+
+      - name: Upload kind diagnostics
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: kind-e2e-diagnostics-${{ github.run_id }}
+          path: .tmp/kind-e2e-diagnostics
+          if-no-files-found: error
+          retention-days: 14
