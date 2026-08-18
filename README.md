@@ -58,7 +58,7 @@ The easiest way to evaluate OpenLakeForge is with the local Kubernetes environme
 
 You need a working:
 
-**Docker engine · kind · kubectl · Terraform >= 1.7 · Helm · Python 3 · uv · Make**
+**Docker engine · kind · kubectl · Terraform >= 1.7 · Helm · Python >= 3.12 · uv · Make**
 
 Make sure Docker is available from your shell:
 
@@ -226,22 +226,21 @@ Read more about this design in [Provider Contracts](/docs/architecture/provider-
 
 ## Documentation
 
-The README is only the starting point. Detailed technical and operational documentation lives under [`docs/`](/docs/).
+New to OpenLakeForge?
 
-- 🏗️ [Architecture overview](/docs/architecture/overview.md)
-    
-- 📊 [Architecture diagrams](/docs/architecture/diagrams/README.md)
-    
-- 🔌 [Provider contracts](/docs/architecture/provider-contracts.md)
-    
+- 🚀 [Installation guide](/docs/setup/local.md)
+- 🧱 [Build your first data product](/docs/getting-started/first-data-product.md)
+- 📚 [Full documentation](/docs/README.md)
+
+Going deeper:
+
+- 🏗️ [Architecture overview](/docs/architecture/overview.md) 
+- 📊 [Architecture diagrams](/docs/architecture/diagrams/README.md)   
+- 🔌 [Provider contracts](/docs/architecture/provider-contracts.md)   
 - ☁️ [AWS & Azure deployment](/docs/setup/cloud-poc-setup.md)
-    
 - 🧠 [Architecture Decision Records](/docs/adr/README.md)
-    
 - 📦 [Release compatibility](/docs/release/compatibility-matrix.md)
-    
-- 🗺️ [Project roadmap](/docs/industrialization-roadmap.md)
-    
+- 🗺️ [Project roadmap](/docs/industrialization-roadmap.md) 
 - 📝 [Changelog](/CHANGELOG.md)
     
 
