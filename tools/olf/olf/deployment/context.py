@@ -1,0 +1,247 @@
+"""Typed deployment context: paths, provider identity, and scoped environment.
+
+This is deliberately separate from `olf.config` (the lightweight runtime
+contract/environment helper); `DeploymentContext` is the new-code home for
+provider/profile-scoped path and environment construction. It never executes
+subprocesses and never mutates `os.environ` — building it is pure data
+assembly, and command execution stays owned by `olf.tooling`.
+"""
+
+from __future__ import annotations
+
+import os
+from collections.abc import Mapping
+from dataclasses import dataclass
+from enum import StrEnum
+from pathlib import Path
+
+DEFAULT_NAMESPACE = "lakehouse"
+DEFAULT_LOCAL_CLUSTER_NAME = "openlakeforge-local"
+
+
+class Provider(StrEnum):
+    LOCAL = "local"
+    AWS = "aws"
+    AZURE = "azure"
+
+
+class Profile(StrEnum):
+    SLIM = "slim"
+    FULL = "full"
+
+
+@dataclass(frozen=True)
+class DeploymentPaths:
+    repo_root: Path
+    distribution_root: Path
+    work_root: Path
+    cache_root: Path
+    kubeconfig_path: Path
+    foundation_terraform_dir: Path
+    platform_terraform_dir: Path
+    foundation_state_path: Path
+    docker_config_dir: Path
+    helm_cache_dir: Path
+    helm_repository_config: Path
+    helm_repository_cache: Path
+    superset_report_work_dir: Path
+    port_forward_log_prefix: Path
+
+
+@dataclass(frozen=True)
+class DeploymentFeatures:
+    governance_enabled: bool
+    analytics_enabled: bool
+
+    @classmethod
+    def for_profile(cls, profile: Profile) -> DeploymentFeatures:
+        enabled = profile == Profile.FULL
+        return cls(governance_enabled=enabled, analytics_enabled=enabled)
+
+
+@dataclass(frozen=True)
+class DeploymentContext:
+    provider: Provider
+    profile: Profile
+    namespace: str
+    kube_context: str
+    paths: DeploymentPaths
+    features: DeploymentFeatures
+
+    @classmethod
+    def for_provider(cls, provider: Provider | str, *, repo_root: Path, **kwargs: object) -> DeploymentContext:
+        resolved = Provider(provider)
+        factory = {
+            Provider.LOCAL: cls.local,
+            Provider.AWS: cls.aws,
+            Provider.AZURE: cls.azure,
+        }[resolved]
+        return factory(repo_root=repo_root, **kwargs)  # type: ignore[arg-type]
+
+    @classmethod
+    def local(
+        cls,
+        *,
+        repo_root: Path,
+        profile: Profile = Profile.FULL,
+        distribution_root: Path | None = None,
+        namespace: str = DEFAULT_NAMESPACE,
+        cluster_name: str = DEFAULT_LOCAL_CLUSTER_NAME,
+    ) -> DeploymentContext:
+        return cls._build(
+            provider=Provider.LOCAL,
+            scope="local",
+            repo_root=repo_root,
+            distribution_root=distribution_root,
+            profile=profile,
+            namespace=namespace,
+            kube_context=f"kind-{cluster_name}",
+            foundation_terraform_dir=Path("infra/terraform/foundations/local-kind"),
+            platform_terraform_dir=Path("infra/terraform/environments/local"),
+        )
+
+    @classmethod
+    def aws(
+        cls,
+        *,
+        repo_root: Path,
+        profile: Profile = Profile.FULL,
+        distribution_root: Path | None = None,
+        namespace: str = DEFAULT_NAMESPACE,
+        kube_context: str = "",
+    ) -> DeploymentContext:
+        return cls._build(
+            provider=Provider.AWS,
+            scope="aws",
+            repo_root=repo_root,
+            distribution_root=distribution_root,
+            profile=profile,
+            namespace=namespace,
+            kube_context=kube_context,
+            foundation_terraform_dir=Path("infra/terraform/foundations/aws-eks"),
+            platform_terraform_dir=Path("infra/terraform/environments/aws-poc"),
+        )
+
+    @classmethod
+    def azure(
+        cls,
+        *,
+        repo_root: Path,
+        profile: Profile = Profile.FULL,
+        distribution_root: Path | None = None,
+        namespace: str = DEFAULT_NAMESPACE,
+        kube_context: str = "",
+    ) -> DeploymentContext:
+        return cls._build(
+            provider=Provider.AZURE,
+            scope="azure",
+            repo_root=repo_root,
+            distribution_root=distribution_root,
+            profile=profile,
+            namespace=namespace,
+            kube_context=kube_context,
+            foundation_terraform_dir=Path("infra/terraform/foundations/azure-aks"),
+            platform_terraform_dir=Path("infra/terraform/environments/azure-poc"),
+        )
+
+    @classmethod
+    def _build(
+        cls,
+        *,
+        provider: Provider,
+        scope: str,
+        repo_root: Path,
+        distribution_root: Path | None,
+        profile: Profile,
+        namespace: str,
+        kube_context: str,
+        foundation_terraform_dir: Path,
+        platform_terraform_dir: Path,
+    ) -> DeploymentContext:
+        resolved_repo_root = Path(repo_root).resolve()
+        resolved_distribution_root = (
+            Path(distribution_root).resolve() if distribution_root is not None else resolved_repo_root
+        )
+        work_root = resolved_repo_root / ".tmp"
+        helm_root = work_root / "helm" / scope
+
+        paths = DeploymentPaths(
+            repo_root=resolved_repo_root,
+            distribution_root=resolved_distribution_root,
+            work_root=work_root,
+            cache_root=work_root,
+            kubeconfig_path=work_root / "kubeconfigs" / f"{scope}.yaml",
+            foundation_terraform_dir=resolved_repo_root / foundation_terraform_dir,
+            platform_terraform_dir=resolved_repo_root / platform_terraform_dir,
+            foundation_state_path=resolved_repo_root / foundation_terraform_dir / "terraform.tfstate",
+            docker_config_dir=work_root / "docker" / scope,
+            helm_cache_dir=helm_root / "charts",
+            helm_repository_config=helm_root / "repositories.yaml",
+            helm_repository_cache=helm_root / "repository-cache",
+            superset_report_work_dir=work_root / "superset-reports" / scope,
+            port_forward_log_prefix=Path(f"/tmp/openlakeforge-{scope}"),
+        )
+        return cls(
+            provider=provider,
+            profile=profile,
+            namespace=namespace,
+            kube_context=kube_context,
+            paths=paths,
+            features=DeploymentFeatures.for_profile(profile),
+        )
+
+    def command_env(
+        self,
+        *,
+        base: Mapping[str, str] | None = None,
+        docker_host: str | None = None,
+    ) -> dict[str, str]:
+        """Build a command-scoped environment overlay.
+
+        Does not mutate `os.environ` or any mapping passed in as `base`;
+        returns a fresh dict a caller can pass to `ProcessRunner`/tool
+        adapters as `env`.
+        """
+        env: dict[str, str] = dict(base) if base is not None else {}
+        env["KUBECONFIG"] = str(self.paths.kubeconfig_path)
+        env["KUBE_CONTEXT"] = self.kube_context
+        env["DOCKER_CONFIG"] = str(self.paths.docker_config_dir)
+        env.setdefault("DOCKER_BUILDKIT", "1")
+        env.setdefault("BUILDKIT_PROGRESS", "plain")
+        env["HELM_REPOSITORY_CONFIG"] = str(self.paths.helm_repository_config)
+        env["HELM_REPOSITORY_CACHE"] = str(self.paths.helm_repository_cache)
+        env["SUPERSET_REPORT_WORK_DIR"] = str(self.paths.superset_report_work_dir)
+        env["OPENLAKEFORGE_PORT_FORWARD_LOG_PREFIX"] = str(self.paths.port_forward_log_prefix)
+        if docker_host:
+            env["DOCKER_HOST"] = docker_host
+        return env
+
+    def prepare_directories(self, *, docker_cli_plugins_source: Path | None = None) -> None:
+        """Create OpenLakeForge-owned working paths.
+
+        Also links `~/.docker/cli-plugins` (or `$DOCKER_CONFIG/cli-plugins`)
+        into the scoped Docker config directory, if present, so `docker build`
+        keeps using BuildKit without an existing destination being overwritten.
+        """
+        for directory in (
+            self.paths.kubeconfig_path.parent,
+            self.paths.docker_config_dir,
+            self.paths.helm_repository_config.parent,
+            self.paths.helm_repository_cache,
+            self.paths.helm_cache_dir,
+            self.paths.superset_report_work_dir,
+        ):
+            directory.mkdir(parents=True, exist_ok=True)
+
+        self._link_docker_cli_plugins(source=docker_cli_plugins_source)
+
+    def _link_docker_cli_plugins(self, *, source: Path | None) -> None:
+        if source is None:
+            docker_config_source = os.environ.get("DOCKER_CONFIG")
+            source = Path(docker_config_source) if docker_config_source else Path.home() / ".docker"
+        cli_plugins_source = source / "cli-plugins"
+        destination = self.paths.docker_config_dir / "cli-plugins"
+
+        if not cli_plugins_source.is_dir() or destination.exists():
+            return
+        destination.symlink_to(cli_plugins_source)
