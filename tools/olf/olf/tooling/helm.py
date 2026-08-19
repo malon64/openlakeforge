@@ -26,6 +26,7 @@ class Helm:
         self,
         args: Sequence[str],
         *,
+        kube_context: str | None = None,
         repository_config: Path | None = None,
         repository_cache: Path | None = None,
         env: Mapping[str, str] | None = None,
@@ -33,7 +34,10 @@ class Helm:
         retry_policy: RetryPolicy | None = None,
         retry_if: RetryPredicate | None = None,
     ) -> CommandResult:
-        argv = [str(self._executable()), *args]
+        argv = [str(self._executable())]
+        if kube_context is not None:
+            argv += ["--kube-context", kube_context]
+        argv.extend(args)
         merged_env: dict[str, str] = dict(env or {})
         if repository_config is not None:
             merged_env["HELM_REPOSITORY_CONFIG"] = str(repository_config)
@@ -45,6 +49,36 @@ class Helm:
             check=check,
             retry_policy=retry_policy,
             retry_if=retry_if,
+        )
+
+    def status(
+        self,
+        release: str,
+        *,
+        namespace: str,
+        kube_context: str | None = None,
+        env: Mapping[str, str] | None = None,
+        check: bool = False,
+    ) -> CommandResult:
+        return self._run(
+            ["status", release, "-n", namespace],
+            kube_context=kube_context,
+            env=env,
+            check=check,
+        )
+
+    def uninstall(
+        self,
+        release: str,
+        *,
+        namespace: str,
+        kube_context: str | None = None,
+        env: Mapping[str, str] | None = None,
+    ) -> CommandResult:
+        return self._run(
+            ["uninstall", release, "-n", namespace],
+            kube_context=kube_context,
+            env=env,
         )
 
     def repo_add(

@@ -25,12 +25,15 @@ class Command:
     env: Mapping[str, str] | None = None
     timeout_seconds: float | None = None
     input_text: str | None = None
+    stdin_path: Path | None = None
 
     def __post_init__(self) -> None:
         argv = tuple(str(part) for part in self.argv)
         if not argv:
             raise ValueError("Command.argv must not be empty")
         object.__setattr__(self, "argv", argv)
+        if self.input_text is not None and self.stdin_path is not None:
+            raise ValueError("Command.input_text and Command.stdin_path are mutually exclusive")
 
 
 @dataclass(frozen=True)
@@ -53,6 +56,7 @@ def _to_command(
     env: Mapping[str, str] | None,
     timeout_seconds: float | None,
     input_text: str | None,
+    stdin_path: Path | None,
 ) -> Command:
     if isinstance(command, Command):
         return command
@@ -62,6 +66,7 @@ def _to_command(
         env=env,
         timeout_seconds=timeout_seconds,
         input_text=input_text,
+        stdin_path=stdin_path,
     )
 
 
@@ -85,6 +90,7 @@ class ProcessRunner:
         env: Mapping[str, str] | None = None,
         timeout_seconds: float | None = None,
         input_text: str | None = None,
+        stdin_path: Path | None = None,
         check: bool = True,
         retry_policy: RetryPolicy | None = None,
         retry_if: RetryPredicate | None = None,
@@ -95,6 +101,7 @@ class ProcessRunner:
             env=env,
             timeout_seconds=timeout_seconds,
             input_text=input_text,
+            stdin_path=stdin_path,
         )
 
         def attempt() -> CommandResult:
@@ -115,6 +122,7 @@ class ProcessRunner:
             log.step(f"run: {sanitized}")
 
         started = time.perf_counter()
+        stdin_file = open(command.stdin_path, "rb") if command.stdin_path is not None else None  # noqa: SIM115
         try:
             completed = subprocess.run(  # noqa: S603 - argv is structured, shell=False
                 argv,
@@ -124,7 +132,9 @@ class ProcessRunner:
                 text=True,
                 timeout=command.timeout_seconds,
                 input=command.input_text,
-                stdin=None if command.input_text is not None else subprocess.DEVNULL,
+                stdin=(stdin_file if stdin_file is not None else subprocess.DEVNULL)
+                if command.input_text is None
+                else None,
                 check=False,
                 shell=False,
             )
@@ -132,6 +142,9 @@ class ProcessRunner:
             raise ExecutableNotFoundError(argv[0]) from exc
         except subprocess.TimeoutExpired as exc:
             raise CommandTimeoutError(tuple(argv), command.timeout_seconds or 0.0) from exc
+        finally:
+            if stdin_file is not None:
+                stdin_file.close()
 
         duration = time.perf_counter() - started
         result = CommandResult(

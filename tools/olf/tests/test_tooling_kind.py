@@ -47,6 +47,23 @@ def test_load_docker_image_builds_exact_argv() -> None:
     ]
 
 
+def test_get_nodes_builds_exact_argv_and_parses_output_lines() -> None:
+    kind, runner = _kind(
+        CommandResult(
+            argv=(),
+            returncode=0,
+            stdout="openlakeforge-local-control-plane\n",
+            stderr="",
+            duration_seconds=0.0,
+        )
+    )
+
+    nodes = kind.get_nodes("openlakeforge-local")
+
+    assert runner.last_call.argv == ["kind", "get", "nodes", "--name", "openlakeforge-local"]
+    assert nodes == ["openlakeforge-local-control-plane"]
+
+
 def test_get_clusters_parses_output_lines() -> None:
     kind, _runner = _kind(
         CommandResult(argv=(), returncode=0, stdout="openlakeforge-local\n", stderr="", duration_seconds=0.0)

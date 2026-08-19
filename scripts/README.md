@@ -45,12 +45,19 @@ Environment-neutral shell lives outside `scripts/local/`:
 `check-project-code.sh` installs project-code dependencies into a local cache and
 verifies that the domain Dagster definitions load.
 
-Local stack scripts under `scripts/local/` are grouped by lifecycle:
+The local (kind-based) deployment lifecycle - foundation, image prefetch,
+static platform apply, dynamic artifact deploy, status, port-forward, and
+teardown - is orchestrated by the Python deployment engine under
+`tools/olf/olf/deployment/{engine.py,local/}`, exposed through
+`olf deploy|destroy|status|forward --provider local`; see
+[ADR 0025](../docs/adr/0025-olf-owns-local-deployment-orchestration.md). The
+local `make` targets (`local-up`, `local-slim-up`, `local-down`,
+`local-foundation-*`, `local-platform-*`, `local-artifacts-deploy`,
+`local-prefetch`, `local-status`, `local-forward`) are thin delegates to that
+engine. `scripts/local/` now only holds the standalone image build/load
+helpers used by the `project-code-image`/`project-code-load`/
+`superset-image`/`superset-load` Make targets:
 
-- `stack/` contains the local orchestration entrypoints: platform up, dynamic
-  artifact deploy, and teardown.
-- `foundation/` contains Terraform wrappers for the local kind foundation.
-- `cluster/` contains kind image prefetch helpers.
 - `images/` contains local image build/load helpers for project-code and
   Superset.
 

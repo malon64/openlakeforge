@@ -1,0 +1,262 @@
+"""Typed local-provider configuration.
+
+Plain frozen dataclasses with `from_environment` classmethods, matching the
+existing `OpenMetadataConfig.from_environment` convention (no pydantic
+anywhere in `olf`). Each settings group is a straight port of the
+corresponding shell script's `${VAR:-default}` fallback chain.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Mapping
+from dataclasses import dataclass
+from pathlib import Path
+
+from olf.deployment.context import DeploymentContext, Profile
+from olf.deployment.retry import RetryPolicy
+
+
+def _env(environ: Mapping[str, str], name: str, default: str) -> str:
+    value = environ.get(name)
+    return default if value is None or value == "" else value
+
+
+def _truthy(value: str) -> bool:
+    return value.strip().lower() in {"1", "true", "yes", "y"}
+
+
+def _int_env(environ: Mapping[str, str], name: str, default: int) -> int:
+    return int(_env(environ, name, str(default)))
+
+
+def _float_env(environ: Mapping[str, str], name: str, default: float) -> float:
+    return float(_env(environ, name, str(default)))
+
+
+def _retry_policy(
+    environ: Mapping[str, str],
+    *,
+    specific_attempts: str,
+    specific_delay: str,
+    generic_attempts: str = "DOCKER_REGISTRY_ATTEMPTS",
+    generic_delay: str = "DOCKER_REGISTRY_RETRY_DELAY_SECONDS",
+    default_attempts: int = 3,
+    default_delay: float = 10.0,
+) -> RetryPolicy:
+    """Port of `scripts/lib/docker.sh`'s two-tier `SPECIFIC:-GENERIC:-default` fallback."""
+    attempts = _int_env(environ, specific_attempts, _int_env(environ, generic_attempts, default_attempts))
+    delay = _float_env(environ, specific_delay, _float_env(environ, generic_delay, default_delay))
+    return RetryPolicy(max_attempts=attempts, delay_seconds=delay)
+
+
+@dataclass(frozen=True)
+class ClusterSettings:
+    name: str
+    config_path: Path
+    wait_timeout: str
+    reset_existing: bool
+
+    @classmethod
+    def from_environment(cls, environ: Mapping[str, str], *, repo_root: Path, cluster_name: str) -> ClusterSettings:
+        config_path = Path(_env(environ, "CLUSTER_CONFIG", str(repo_root / "infra/kind/local/kind-cluster.yaml")))
+        return cls(
+            name=cluster_name,
+            config_path=config_path,
+            wait_timeout=_env(environ, "KIND_WAIT_TIMEOUT", "120s"),
+            reset_existing=_truthy(_env(environ, "LOCAL_FOUNDATION_RESET", "false")),
+        )
+
+
+@dataclass(frozen=True)
+class ImageSettings:
+    project_code_repository: str
+    project_code_tag: str
+    project_code_pull_policy: str
+    project_code_revision: str
+    project_code_python_base_image: str
+    project_code_dbt_profile_env: str
+    superset_repository: str
+    superset_tag: str
+    superset_pull_policy: str
+    superset_base_image: str
+    pull_retry: RetryPolicy
+    build_retry: RetryPolicy
+
+    @property
+    def project_code_image(self) -> str:
+        return f"{self.project_code_repository}:{self.project_code_tag}"
+
+    @property
+    def superset_image(self) -> str:
+        return f"{self.superset_repository}:{self.superset_tag}"
+
+    @classmethod
+    def from_environment(cls, environ: Mapping[str, str]) -> ImageSettings:
+        return cls(
+            project_code_repository=_env(
+                environ, "PROJECT_CODE_IMAGE_REPOSITORY", "ghcr.io/openlakeforge/project-code"
+            ),
+            project_code_tag=_env(environ, "PROJECT_CODE_IMAGE_TAG", "local"),
+            project_code_pull_policy=_env(environ, "PROJECT_CODE_IMAGE_PULL_POLICY", "Never"),
+            project_code_revision=_env(environ, "PROJECT_CODE_IMAGE_REVISION", "manual"),
+            project_code_python_base_image=_env(
+                environ,
+                "PROJECT_CODE_PYTHON_BASE_IMAGE",
+                "python:3.12-slim@sha256:57cd7c3a7a273101a6485ba99423ee568157882804b1124b4dd04266317710de",
+            ),
+            project_code_dbt_profile_env=_env(environ, "PROJECT_CODE_DBT_PROFILE_ENV", "local"),
+            superset_repository=_env(environ, "SUPERSET_IMAGE_REPOSITORY", "ghcr.io/openlakeforge/superset"),
+            superset_tag=_env(environ, "SUPERSET_IMAGE_TAG", "local"),
+            superset_pull_policy=_env(environ, "SUPERSET_IMAGE_PULL_POLICY", "Never"),
+            superset_base_image=_env(
+                environ,
+                "SUPERSET_BASE_IMAGE",
+                "apache/superset:6.1.0@sha256:fb3464528ec7076f91195f0ff7835755aa023e281f1bb78a84782ce7a36b3705",
+            ),
+            pull_retry=_retry_policy(
+                environ, specific_attempts="DOCKER_PULL_ATTEMPTS", specific_delay="DOCKER_PULL_RETRY_DELAY_SECONDS"
+            ),
+            build_retry=_retry_policy(
+                environ, specific_attempts="DOCKER_BUILD_ATTEMPTS", specific_delay="DOCKER_BUILD_RETRY_DELAY_SECONDS"
+            ),
+        )
+
+
+@dataclass(frozen=True)
+class ChartSettings:
+    trino_repository_url: str
+    trino_chart_ref: str
+    trino_version: str
+    trino_package_path: Path
+
+    @classmethod
+    def from_environment(cls, environ: Mapping[str, str], *, helm_cache_dir: Path) -> ChartSettings:
+        version = _env(environ, "TRINO_CHART_VERSION", "1.42.2")
+        default_package_path = helm_cache_dir / f"trino-{version}.tgz"
+        return cls(
+            trino_repository_url=_env(environ, "TRINO_CHART_REPOSITORY", "https://trinodb.github.io/charts"),
+            trino_chart_ref="trino/trino",
+            trino_version=version,
+            trino_package_path=Path(_env(environ, "TRINO_CHART_PACKAGE_PATH", str(default_package_path))),
+        )
+
+
+@dataclass(frozen=True)
+class TerraformSettings:
+    var_file: Path | None
+    apply_retry: RetryPolicy
+
+    @classmethod
+    def from_environment(
+        cls,
+        environ: Mapping[str, str],
+        *,
+        repo_root: Path,
+        profile: Profile,
+        var_file: Path | None = None,
+    ) -> TerraformSettings:
+        raw = str(var_file) if var_file is not None else environ.get("LOCAL_TFVARS_FILE", "")
+        if not raw and profile == Profile.SLIM:
+            raw = "infra/terraform/environments/local/slim.tfvars"
+        resolved: Path | None = None
+        if raw:
+            candidate = Path(raw)
+            resolved = candidate if candidate.is_absolute() else repo_root / candidate
+        return cls(
+            var_file=resolved,
+            apply_retry=RetryPolicy(
+                max_attempts=_int_env(environ, "LOCAL_UP_RETRY_ATTEMPTS", 4),
+                delay_seconds=_float_env(environ, "LOCAL_UP_RETRY_DELAY_SECONDS", 20.0),
+            ),
+        )
+
+
+@dataclass(frozen=True)
+class PrefetchSettings:
+    pull_retry: RetryPolicy
+
+    @classmethod
+    def from_environment(cls, environ: Mapping[str, str]) -> PrefetchSettings:
+        return cls(
+            pull_retry=_retry_policy(
+                environ,
+                specific_attempts="LOCAL_PREFETCH_PULL_ATTEMPTS",
+                specific_delay="LOCAL_PREFETCH_PULL_RETRY_DELAY_SECONDS",
+                generic_attempts="DOCKER_PULL_ATTEMPTS",
+                generic_delay="DOCKER_PULL_RETRY_DELAY_SECONDS",
+                default_attempts=5,
+                default_delay=20.0,
+            ),
+        )
+
+
+@dataclass(frozen=True)
+class FloeManifestSettings:
+    version: str
+    image: str
+    runtime: str
+    runtime_artifact_dir: Path
+    platform: str | None
+
+    @classmethod
+    def from_environment(cls, environ: Mapping[str, str], *, repo_root: Path) -> FloeManifestSettings:
+        version = _env(environ, "FLOE_VERSION", "0.6.11")
+        default_runtime_dir = repo_root / ".tmp/floe-runtime/local"
+        return cls(
+            version=version,
+            image=_env(environ, "FLOE_IMAGE", f"ghcr.io/malon64/floe:{version}"),
+            runtime=_env(environ, "FLOE_RUNTIME", "image"),
+            runtime_artifact_dir=Path(_env(environ, "FLOE_RUNTIME_ARTIFACT_DIR", str(default_runtime_dir))),
+            platform=environ.get("FLOE_PLATFORM") or None,
+        )
+
+
+@dataclass(frozen=True)
+class LocalDeploymentConfig:
+    context: DeploymentContext
+    cluster: ClusterSettings
+    images: ImageSettings
+    charts: ChartSettings
+    terraform: TerraformSettings
+    prefetch: PrefetchSettings
+    floe: FloeManifestSettings
+    force_foundation_down: bool
+
+    @property
+    def paths(self):  # noqa: ANN201 - DeploymentPaths, avoided import cycle noise
+        return self.context.paths
+
+    @property
+    def namespace(self) -> str:
+        return self.context.namespace
+
+    @property
+    def kube_context(self) -> str:
+        return self.context.kube_context
+
+    @property
+    def features(self):  # noqa: ANN201 - DeploymentFeatures
+        return self.context.features
+
+    @classmethod
+    def from_environment(
+        cls,
+        environ: Mapping[str, str],
+        *,
+        context: DeploymentContext,
+        var_file: Path | None = None,
+    ) -> LocalDeploymentConfig:
+        repo_root = context.paths.repo_root
+        cluster_name = context.kube_context.removeprefix("kind-") or context.kube_context
+        return cls(
+            context=context,
+            cluster=ClusterSettings.from_environment(environ, repo_root=repo_root, cluster_name=cluster_name),
+            images=ImageSettings.from_environment(environ),
+            charts=ChartSettings.from_environment(environ, helm_cache_dir=context.paths.helm_cache_dir),
+            terraform=TerraformSettings.from_environment(
+                environ, repo_root=repo_root, profile=context.profile, var_file=var_file
+            ),
+            prefetch=PrefetchSettings.from_environment(environ),
+            floe=FloeManifestSettings.from_environment(environ, repo_root=repo_root),
+            force_foundation_down=_truthy(_env(environ, "LOCAL_FOUNDATION_FORCE_DOWN", "false")),
+        )

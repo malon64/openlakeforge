@@ -81,3 +81,17 @@ class CommandTimeoutError(ToolingError):
         self.timeout_seconds = timeout_seconds
         sanitized_argv = " ".join(redact_argv(self.argv))
         super().__init__(f"command timed out after {timeout_seconds:g}s: {sanitized_argv}")
+
+
+class DeploymentPreconditionError(DeploymentError):
+    """Raised when a deployment lifecycle step's precondition/safety check fails.
+
+    Covers missing Terraform state, an unreachable Kubernetes context, and the
+    explicit "refuse to destroy" safety checks ported from the local shell
+    scripts (e.g. an adoptable-but-unmanaged kind cluster, or a namespace that
+    still has platform resources).
+    """
+
+
+class UnsupportedProviderError(DeploymentError):
+    """Raised when a `DeploymentProvider` has not been implemented yet."""

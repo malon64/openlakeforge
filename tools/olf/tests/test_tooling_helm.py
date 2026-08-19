@@ -92,6 +92,47 @@ def test_show_chart_defaults_to_check_false() -> None:
     assert runner.last_call.kwargs["check"] is False
 
 
+def test_status_defaults_to_check_false_and_builds_exact_argv() -> None:
+    helm, runner = _helm()
+
+    helm.status("trino", namespace="lakehouse", kube_context="kind-openlakeforge-local")
+
+    assert runner.last_call.argv == [
+        "helm",
+        "--kube-context",
+        "kind-openlakeforge-local",
+        "status",
+        "trino",
+        "-n",
+        "lakehouse",
+    ]
+    assert runner.last_call.kwargs["check"] is False
+
+
+def test_uninstall_builds_exact_argv() -> None:
+    helm, runner = _helm()
+
+    helm.uninstall("polaris", namespace="lakehouse", kube_context="kind-openlakeforge-local")
+
+    assert runner.last_call.argv == [
+        "helm",
+        "--kube-context",
+        "kind-openlakeforge-local",
+        "uninstall",
+        "polaris",
+        "-n",
+        "lakehouse",
+    ]
+
+
+def test_kube_context_is_omitted_when_not_given() -> None:
+    helm, runner = _helm()
+
+    helm.status("seaweedfs", namespace="lakehouse")
+
+    assert "--kube-context" not in runner.last_call.argv
+
+
 def test_package_builds_expected_argv() -> None:
     helm, runner = _helm()
 

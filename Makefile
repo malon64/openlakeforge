@@ -162,35 +162,41 @@ superset-reports-export:
 openmetadata-metadata-deploy:
 	@NAMESPACE=$(NAMESPACE) KUBE_CONTEXT=$(KUBE_CONTEXT) KUBECONFIG="$(LOCAL_KUBECONFIG_PATH)" bash scripts/artifacts/olf.sh openmetadata deploy-metadata
 
+# All local-* deployment lifecycle targets below are thin delegates to the
+# Python `olf` deployment engine (tools/olf/olf/deployment) - Make holds no
+# Terraform/Docker/kubectl/Helm orchestration logic itself. `--profile`
+# (full/slim) drives Full-vs-Slim behavior (image selection, governance/
+# analytics layers, and Terraform var-file selection) through typed
+# configuration; `LOCAL_TFVARS_FILE`, if set, still overrides the tfvars file.
+OLF_BIN ?= uv run --project tools/olf --locked olf
+LOCAL_PROFILE ?= full
+LOCAL_OLF_FLAGS = --provider local --namespace $(NAMESPACE) --cluster-name $(CLUSTER_NAME)
+LOCAL_VAR_FILE_FLAG = $(if $(LOCAL_TFVARS_FILE),--var-file $(LOCAL_TFVARS_FILE),)
+LOCAL_IMAGE_ENV = PROJECT_CODE_IMAGE_REPOSITORY=$(PROJECT_CODE_IMAGE_REPOSITORY) PROJECT_CODE_IMAGE_TAG=$(PROJECT_CODE_IMAGE_TAG) PROJECT_CODE_IMAGE_PULL_POLICY=$(PROJECT_CODE_IMAGE_PULL_POLICY) SUPERSET_IMAGE_REPOSITORY=$(SUPERSET_IMAGE_REPOSITORY) SUPERSET_IMAGE_TAG=$(SUPERSET_IMAGE_TAG) SUPERSET_IMAGE_PULL_POLICY=$(SUPERSET_IMAGE_PULL_POLICY)
+
 local-foundation-up:
-	@CLUSTER_NAME=$(CLUSTER_NAME) KUBECONFIG_PATH="$(LOCAL_KUBECONFIG_PATH)" bash scripts/local/foundation/up.sh
+	@$(OLF_BIN) deploy $(LOCAL_OLF_FLAGS) --profile $(LOCAL_PROFILE) --phase foundation
 
 local-foundation-down:
-	@NAMESPACE=$(NAMESPACE) CLUSTER_NAME=$(CLUSTER_NAME) KUBE_CONTEXT=$(KUBE_CONTEXT) KUBECONFIG_PATH="$(LOCAL_KUBECONFIG_PATH)" bash scripts/local/foundation/down.sh
+	@$(OLF_BIN) destroy $(LOCAL_OLF_FLAGS) --profile $(LOCAL_PROFILE) --phase foundation
 
 local-platform-up:
-	@NAMESPACE=$(NAMESPACE) CLUSTER_NAME=$(CLUSTER_NAME) KUBE_CONTEXT=$(KUBE_CONTEXT) KUBECONFIG_PATH="$(LOCAL_KUBECONFIG_PATH)" LOCAL_TFVARS_FILE="$(LOCAL_TFVARS_FILE)" DEPLOYMENT_SCOPE=local PROJECT_CODE_IMAGE_REPOSITORY=$(PROJECT_CODE_IMAGE_REPOSITORY) PROJECT_CODE_IMAGE_TAG=$(PROJECT_CODE_IMAGE_TAG) PROJECT_CODE_IMAGE_PULL_POLICY=$(PROJECT_CODE_IMAGE_PULL_POLICY) ENABLE_GOVERNANCE=$(ENABLE_GOVERNANCE) ENABLE_ANALYTICS=$(ENABLE_ANALYTICS) SUPERSET_IMAGE_REPOSITORY=$(SUPERSET_IMAGE_REPOSITORY) SUPERSET_IMAGE_TAG=$(SUPERSET_IMAGE_TAG) SUPERSET_IMAGE_PULL_POLICY=$(SUPERSET_IMAGE_PULL_POLICY) bash scripts/local/stack/platform-up.sh
+	@$(LOCAL_IMAGE_ENV) $(OLF_BIN) deploy $(LOCAL_OLF_FLAGS) --profile $(LOCAL_PROFILE) --phase platform $(LOCAL_VAR_FILE_FLAG)
 
 local-artifacts-deploy:
-	@NAMESPACE=$(NAMESPACE) CLUSTER_NAME=$(CLUSTER_NAME) KUBE_CONTEXT=$(KUBE_CONTEXT) KUBECONFIG_PATH="$(LOCAL_KUBECONFIG_PATH)" DEPLOYMENT_SCOPE=local PROJECT_CODE_IMAGE_REPOSITORY=$(PROJECT_CODE_IMAGE_REPOSITORY) PROJECT_CODE_IMAGE_TAG=$(PROJECT_CODE_IMAGE_TAG) bash scripts/local/stack/deploy-artifacts.sh
+	@$(LOCAL_IMAGE_ENV) $(OLF_BIN) deploy $(LOCAL_OLF_FLAGS) --profile $(LOCAL_PROFILE) --phase artifacts
 
 local-up:
-	@$(MAKE) local-foundation-up
-	@$(MAKE) local-prefetch
-	@$(MAKE) local-platform-up
-	@$(MAKE) local-artifacts-deploy
+	@$(LOCAL_IMAGE_ENV) $(OLF_BIN) deploy $(LOCAL_OLF_FLAGS) --profile full $(LOCAL_VAR_FILE_FLAG)
 
 local-slim-platform-up:
-	@$(MAKE) local-platform-up LOCAL_TFVARS_FILE=infra/terraform/environments/local/slim.tfvars ENABLE_GOVERNANCE=false ENABLE_ANALYTICS=false
+	@$(MAKE) local-platform-up LOCAL_PROFILE=slim
 
 local-slim-artifacts-deploy:
-	@$(MAKE) local-artifacts-deploy ENABLE_GOVERNANCE=false ENABLE_ANALYTICS=false
+	@$(MAKE) local-artifacts-deploy LOCAL_PROFILE=slim
 
 local-slim-up:
-	@$(MAKE) local-foundation-up
-	@$(MAKE) local-prefetch ENABLE_GOVERNANCE=false ENABLE_ANALYTICS=false
-	@$(MAKE) local-slim-platform-up
-	@$(MAKE) local-slim-artifacts-deploy
+	@$(LOCAL_IMAGE_ENV) $(OLF_BIN) deploy $(LOCAL_OLF_FLAGS) --profile slim $(LOCAL_VAR_FILE_FLAG)
 
 local-slim-e2e:
 	@$(MAKE) local-e2e ENABLE_GOVERNANCE=false ENABLE_ANALYTICS=false E2E_SUITE=$(E2E_SUITE)
@@ -199,55 +205,22 @@ local-slim-smoke:
 	@uv run --project tools/olf --locked olf smoke run --timeout-seconds $(SMOKE_TIMEOUT_SECONDS)
 
 local-slim-down:
-	@$(MAKE) local-down LOCAL_TFVARS_FILE=infra/terraform/environments/local/slim.tfvars
+	@$(MAKE) local-down LOCAL_PROFILE=slim
 
 local-down:
-	@$(MAKE) local-platform-down
-	@$(MAKE) local-foundation-down
+	@$(OLF_BIN) destroy $(LOCAL_OLF_FLAGS) --profile $(LOCAL_PROFILE) $(LOCAL_VAR_FILE_FLAG)
 
 local-platform-down:
-	@NAMESPACE=$(NAMESPACE) CLUSTER_NAME=$(CLUSTER_NAME) KUBE_CONTEXT=$(KUBE_CONTEXT) KUBECONFIG_PATH="$(LOCAL_KUBECONFIG_PATH)" LOCAL_TFVARS_FILE="$(LOCAL_TFVARS_FILE)" bash scripts/local/stack/teardown.sh
+	@$(OLF_BIN) destroy $(LOCAL_OLF_FLAGS) --profile $(LOCAL_PROFILE) --phase platform $(LOCAL_VAR_FILE_FLAG)
 
 local-status:
-	@echo "=== Pods ===" && KUBECONFIG="$(LOCAL_KUBECONFIG_PATH)" kubectl --context $(KUBE_CONTEXT) get pods -n $(NAMESPACE)
-	@echo "" && echo "=== Services ===" && KUBECONFIG="$(LOCAL_KUBECONFIG_PATH)" kubectl --context $(KUBE_CONTEXT) get svc -n $(NAMESPACE)
-	@echo "" && echo "=== PVCs ===" && KUBECONFIG="$(LOCAL_KUBECONFIG_PATH)" kubectl --context $(KUBE_CONTEXT) get pvc -n $(NAMESPACE)
+	@$(OLF_BIN) status $(LOCAL_OLF_FLAGS)
 
 local-prefetch:
-	@echo "Pre-pulling heavy images into kind to avoid Helm timeouts..."
-	@CLUSTER_NAME=$(CLUSTER_NAME) ENABLE_GOVERNANCE=$(ENABLE_GOVERNANCE) ENABLE_ANALYTICS=$(ENABLE_ANALYTICS) bash scripts/local/cluster/prefetch-images.sh
+	@$(OLF_BIN) deploy $(LOCAL_OLF_FLAGS) --profile $(LOCAL_PROFILE) --phase prefetch
 
 local-forward:
-	@echo "Starting port-forwards (Ctrl-C to stop all)..."
-	@echo "  Dagster UI:       http://localhost:3000"
-	@echo "  Superset UI:      http://localhost:8088  (admin / admin)"
-	@echo "  OpenMetadata UI:  http://localhost:8585  (admin@open-metadata.org / admin)"
-	@echo "  Trino UI:         http://localhost:8080"
-	@echo "  Polaris API:      http://localhost:8181"
-	@echo "  SeaweedFS S3:     http://localhost:9000"
-	@echo "  SeaweedFS Filer:  http://localhost:8888"
-	@echo "  SeaweedFS Master: http://localhost:9333"
-	@set -e; export KUBECONFIG="$(LOCAL_KUBECONFIG_PATH)"; \
-	context="$(KUBE_CONTEXT)"; \
-	dagster_pod="$$(kubectl --context $$context get pods -n $(NAMESPACE) -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' | grep 'dagster-webserver' | head -n 1)"; \
-	kubectl --context $$context port-forward svc/seaweedfs-s3 9000:8333 -n $(NAMESPACE) & \
-	seaweedfs_pid=$$!; \
-	kubectl --context $$context port-forward svc/polaris 8181:8181 -n $(NAMESPACE) & \
-	polaris_pid=$$!; \
-	kubectl --context $$context port-forward svc/trino 8080:8080 -n $(NAMESPACE) & \
-	trino_pid=$$!; \
-	kubectl --context $$context port-forward pod/$$dagster_pod 3000:80 -n $(NAMESPACE) & \
-	dagster_pid=$$!; \
-	kubectl --context $$context port-forward svc/superset 8088:8088 -n $(NAMESPACE) & \
-	superset_pid=$$!; \
-	kubectl --context $$context port-forward svc/openmetadata 8585:8585 -n $(NAMESPACE) & \
-	om_pid=$$!; \
-	kubectl --context $$context port-forward svc/seaweedfs-filer-client 8888:8888 -n $(NAMESPACE) & \
-	seaweedfs_filer_pid=$$!; \
-	kubectl --context $$context port-forward svc/seaweedfs-master 9333:9333 -n $(NAMESPACE) & \
-	seaweedfs_master_pid=$$!; \
-	trap 'kill $$seaweedfs_pid $$polaris_pid $$trino_pid $$dagster_pid $$superset_pid $$om_pid $$seaweedfs_filer_pid $$seaweedfs_master_pid 2>/dev/null || true' INT TERM EXIT; \
-	wait
+	@$(OLF_BIN) forward $(LOCAL_OLF_FLAGS) --profile $(LOCAL_PROFILE)
 
 local-e2e:
 	@NAMESPACE=$(NAMESPACE) CLUSTER_NAME=$(CLUSTER_NAME) KUBE_CONTEXT=$(KUBE_CONTEXT) KUBECONFIG="$(LOCAL_KUBECONFIG_PATH)" OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR=infra/terraform/environments/local bash scripts/artifacts/olf.sh e2e run --env local --suite $(E2E_SUITE)

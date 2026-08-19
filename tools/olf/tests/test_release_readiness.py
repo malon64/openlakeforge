@@ -262,7 +262,7 @@ def test_chart_versions_match_deployment_wrappers_flags_cached_chart_drift(tmp_p
         'variable "chart_version" {\n  default = "1.13.6"\n}\n'
     )
     for path, contents in {
-        "scripts/local/stack/platform-up.sh": 'TRINO_CHART_VERSION="${TRINO_CHART_VERSION:-9.9.9}"\n',
+        "tools/olf/olf/deployment/local/config.py": '_env(environ, "TRINO_CHART_VERSION", "9.9.9")\n',
         "scripts/azure/stack/platform-up.sh": (
             'TRINO_CHART_VERSION="${TRINO_CHART_VERSION:-1.42.2}"\n'
             'DAGSTER_CHART_VERSION="${DAGSTER_CHART_VERSION:-1.13.6}"\n'

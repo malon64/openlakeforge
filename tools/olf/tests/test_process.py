@@ -115,6 +115,27 @@ def test_input_text_reaches_child_and_is_not_recorded_on_result(tmp_path: Path) 
     assert "input_text" not in CommandResult.__dataclass_fields__
 
 
+def test_stdin_path_streams_binary_content_to_child(tmp_path: Path) -> None:
+    script = tmp_path / "reader.py"
+    script.write_text(
+        "#!/usr/bin/env python3\nimport sys\ndata = sys.stdin.buffer.read()\nprint(len(data), data.hex())\n"
+    )
+    script.chmod(0o755)
+    payload = tmp_path / "payload.bin"
+    content = b"\x00\x01binary-content\xff\xfe"
+    payload.write_bytes(content)
+    runner = ProcessRunner()
+
+    result = runner.run([str(script)], stdin_path=payload)
+
+    assert result.stdout.strip() == f"{len(content)} {content.hex()}"
+
+
+def test_stdin_path_and_input_text_are_mutually_exclusive() -> None:
+    with pytest.raises(ValueError):
+        Command(argv=("true",), input_text="a", stdin_path=Path("/tmp/x"))
+
+
 def test_command_normalizes_path_like_argv_entries(tmp_path: Path) -> None:
     script = write_fake_executable(tmp_path / "fake")
     command = Command(argv=(script, "arg"))  # type: ignore[arg-type]

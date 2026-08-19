@@ -434,8 +434,15 @@ def _check_helm_values_as_data(repo_root: Path) -> CheckResult:
 # variable-expanded recipe, so this catches a variable-name typo that would
 # still `grep` as present in the unexpanded Makefile source but resolve to
 # empty/wrong at expansion time.
+#
+# `local-forward` is deliberately absent: since #124 it delegates to
+# `olf forward --provider local`, which resolves KUBECONFIG/kube-context
+# internally through `DeploymentContext.local()` rather than embedding them
+# in the Make recipe text; that wiring is covered by
+# `tools/olf/tests/test_deployment_context.py`,
+# `tools/olf/tests/test_local_forward.py`, and
+# `tools/olf/tests/test_cli_deployment.py` instead.
 _KUBE_WIRED_TARGETS = (
-    "local-forward",
     "azure-forward",
     "aws-forward",
     "floe-manifest-upload",
