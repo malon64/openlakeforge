@@ -38,14 +38,14 @@ def test_descriptor_schema_conformance_passes_for_valid_lakehouse(tmp_path: Path
     assert result.ok, result.detail
 
 
-def test_descriptor_schema_conformance_rejects_missing_bronze(tmp_path: Path) -> None:
+def test_descriptor_schema_conformance_rejects_missing_source_mapping(tmp_path: Path) -> None:
     repo_root = _repo_with_schemas(tmp_path)
     _write_descriptor(repo_root, "invalid_lakehouse_missing_bronze.yaml")
 
     result = contracts_check._check_descriptor_schema_conformance(repo_root)
 
     assert not result.ok
-    assert "bronze" in result.detail
+    assert "source" in result.detail
 
 
 def test_descriptor_schema_conformance_rejects_physical_fqn(tmp_path: Path) -> None:
@@ -91,6 +91,16 @@ def test_descriptor_schema_conformance_rejects_provider_field_in_lakehouse_table
 def test_descriptor_schema_conformance_rejects_provider_field_at_lakehouse_root(tmp_path: Path) -> None:
     repo_root = _repo_with_schemas(tmp_path)
     _write_descriptor(repo_root, "invalid_lakehouse_provider_field_root.yaml")
+
+    result = contracts_check._check_descriptor_schema_conformance(repo_root)
+
+    assert not result.ok
+    assert "catalog" in result.detail.lower() or "provider-neutral" in result.detail.lower()
+
+
+def test_descriptor_schema_conformance_rejects_provider_field_on_table_group(tmp_path: Path) -> None:
+    repo_root = _repo_with_schemas(tmp_path)
+    _write_descriptor(repo_root, "invalid_lakehouse_table_group_field.yaml")
 
     result = contracts_check._check_descriptor_schema_conformance(repo_root)
 

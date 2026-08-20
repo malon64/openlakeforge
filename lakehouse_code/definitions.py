@@ -3,10 +3,20 @@
 from __future__ import annotations
 
 from importlib import import_module
+from pathlib import Path
 from pkgutil import iter_modules
 
 import lakehouse_code.pipelines.dagster as dagster_pipelines
 from dagster import Definitions
+from libs.product_dagster import (
+    DomainDefinitionSpec,
+    SourceDefinitionSpec,
+    build_domain_definitions,
+    build_source_definitions,
+)
+from openlakeforge_domain import LakehouseInventory, load_lakehouse_inventory
+
+_LAKEHOUSE_CODE_ROOT = Path(__file__).resolve().parent
 
 
 def _product_definitions() -> list[Definitions]:
@@ -22,4 +32,34 @@ def _product_definitions() -> list[Definitions]:
     return [import_module(module.name).defs for module in product_modules]
 
 
-defs = Definitions.merge(*_product_definitions())
+def _source_definitions(inventory: LakehouseInventory) -> list[Definitions]:
+    definitions: list[Definitions] = []
+    for source in inventory.sources:
+        module = import_module(f"lakehouse_code.bronze.{source.name}.dlt.{source.name}")
+        loader = getattr(module, f"load_{source.name}_entities_to_bronze")
+        definitions.append(
+            build_source_definitions(
+                SourceDefinitionSpec(
+                    source=source.name,
+                    resources=tuple(resource.name for resource in source.resources),
+                    bronze_loader=loader,
+                )
+            )
+        )
+    return definitions
+
+
+def _domain_definitions(inventory: LakehouseInventory) -> list[Definitions]:
+    return [
+        build_domain_definitions(
+            DomainDefinitionSpec(
+                domain=domain.name,
+                tables=tuple((table.name, table.source, table.resource) for table in domain.silver_tables),
+            )
+        )
+        for domain in inventory.domains
+    ]
+
+
+_inventory = load_lakehouse_inventory(_LAKEHOUSE_CODE_ROOT)
+defs = Definitions.merge(*_source_definitions(_inventory), *_domain_definitions(_inventory), *_product_definitions())

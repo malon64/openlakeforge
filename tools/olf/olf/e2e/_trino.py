@@ -75,7 +75,9 @@ def check_trino_product_tables_and_marts(cfg: E2EConfig, product: Product) -> No
             f"WHERE table_schema = '{product.silver_namespace}'",
         ).splitlines()
     )
-    missing_silver = sorted(table.name for table in product.silver_tables if table.name not in silver_tables)
+    missing_silver = sorted(
+        table.name for table in cfg.inventory.resolved_silver_tables(product) if table.name not in silver_tables
+    )
     if missing_silver:
         raise E2EError(
             f"{product.id}: missing Silver table(s) in {product.silver_namespace}: {', '.join(missing_silver)}"

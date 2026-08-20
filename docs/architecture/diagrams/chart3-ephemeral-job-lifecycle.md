@@ -127,7 +127,7 @@ run pod is still `Running`, then all of them disappear an hour after completion.
 ## Source of truth
 
 - [libs/product_dagster.py](../../../libs/product_dagster.py) — asset graph assembly, Floe manifest resolution
-- [lakehouse_code/silver/sales/contracts/floe/manifests/order_revenue.manifest.json](../../../lakehouse_code/silver/sales/contracts/floe/manifests/order_revenue.manifest.json) — runner spec (image, TTL, timeout, secrets), exit-code contract
+- [lakehouse_code/silver/sales/contracts/floe/manifests/sales.manifest.json](../../../lakehouse_code/silver/sales/contracts/floe/manifests/sales.manifest.json) — runner spec (image, TTL, timeout, secrets), exit-code contract
 - [infra/terraform/modules/orchestration/dagster/main.tf](../../../infra/terraform/modules/orchestration/dagster/main.tf) — `K8sRunLauncher`, `ttlSecondsAfterFinished`, runtime env
 - [libs/dbt/profiles/](../../../libs/dbt/profiles/) — dbt targets (`type: trino` since PR #62)
 - [ADR 0003](../../adr/0003-local-dagster-project-code-runtime.md), [ADR 0004](../../adr/0004-manifest-first-floe-sales-ingestion.md), [ADR 0005](../../adr/0005-dbt-duckdb-gold-on-dagster-kubernetes.md)

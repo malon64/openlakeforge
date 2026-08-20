@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from openlakeforge_domain import CatalogNamespace
 
 from olf import catalog
@@ -52,29 +53,29 @@ def test_plan_relocates_a_namespace_whose_location_drifted() -> None:
 
 def test_plan_reports_orphans_but_keeps_them_without_prune() -> None:
     existing = {
-        "retired_silver": catalog.NamespaceState(
-            "s3://silver/retired_silver/", {catalog.MANAGED_BY_KEY: catalog.MANAGED_BY_VALUE}
+        "retired_gold": catalog.NamespaceState(
+            "s3://gold/retired_gold/", {catalog.MANAGED_BY_KEY: catalog.MANAGED_BY_VALUE}
         )
     }
     plan = catalog.plan_namespace_sync(existing, [])
 
-    assert plan.orphans == ("retired_silver",)
+    assert plan.orphans == ("retired_gold",)
     assert plan.delete == ()
     assert plan.is_empty
-    assert "undeclared managed retired_silver" in catalog.render_plan(plan, prune=False)
+    assert "undeclared managed retired_gold" in catalog.render_plan(plan, prune=False)
 
 
 def test_plan_deletes_orphans_only_when_pruning() -> None:
     existing = {
-        "retired_silver": catalog.NamespaceState(
-            "s3://silver/retired_silver/", {catalog.MANAGED_BY_KEY: catalog.MANAGED_BY_VALUE}
+        "retired_gold": catalog.NamespaceState(
+            "s3://gold/retired_gold/", {catalog.MANAGED_BY_KEY: catalog.MANAGED_BY_VALUE}
         )
     }
     plan = catalog.plan_namespace_sync(existing, [], prune=True)
 
-    assert plan.delete == ("retired_silver",)
+    assert plan.delete == ("retired_gold",)
     assert not plan.is_empty
-    assert "- remove metadata retired_silver" in catalog.render_plan(plan, prune=True)
+    assert "- remove metadata retired_gold" in catalog.render_plan(plan, prune=True)
 
 
 def test_plan_never_prunes_a_foreign_undeclared_namespace() -> None:
@@ -92,11 +93,19 @@ def test_plan_adopts_only_location_matching_legacy_namespace() -> None:
 
 
 def test_plan_refuses_to_relocate_foreign_namespace() -> None:
-    import pytest
-
     with pytest.raises(catalog.NamespaceSyncError, match="not managed"):
         catalog.plan_namespace_sync(
             {"sales_silver": "s3://other/sales_silver/"}, [ns("sales_silver", "s3://silver/sales_silver/")]
+        )
+
+
+def test_plan_rejects_legacy_product_silver_namespace_with_reset_guidance() -> None:
+    desired = [ns("sales_silver", "s3://silver/sales_silver/")]
+
+    with pytest.raises(catalog.NamespaceSyncError, match="reset-only.*destroy and recreate"):
+        catalog.plan_namespace_sync(
+            {"order_revenue_silver": "s3://silver/order_revenue_silver/"},
+            desired,
         )
 
 

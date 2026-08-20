@@ -67,7 +67,7 @@ class OpenMetadataDeployer:
     def schema_fqn_for_product(self, product: dict, table_group_key: str) -> str | None:
         product_key = product_contract_key(product)
         if table_group_key == "silver_tables":
-            return self.config.catalog_silver_schema_fqns.get(product_key)
+            return self.config.catalog_silver_schema_fqns.get(product["domain"])
         if table_group_key == "gold_tables":
             return self.config.catalog_gold_schema_fqns.get(product_key)
         return None
@@ -85,6 +85,15 @@ class OpenMetadataDeployer:
                 )
             for table in spec.get("tables", []):
                 yield schema_fqn, table
+
+    def domain_silver_table_specs(self, domain: dict):
+        schema_fqn = self.config.catalog_silver_schema_fqns.get(domain["name"])
+        if not schema_fqn:
+            raise OpenMetadataError(
+                f"Domain {domain['name']!r} Silver tables are not covered by the provider contract schema FQNs."
+            )
+        for table in domain.get("silver_tables", {}).get("tables", []):
+            yield schema_fqn, table
 
     def validate_deployment_inputs(self, domain_specs: list[tuple[Path, dict]]) -> None:
         """Resolve every declared table and logical asset before metadata writes."""
@@ -252,17 +261,18 @@ class OpenMetadataDeployer:
         domain_specs: list[tuple[Path, dict]] = []
         for domain in lakehouse_document["domains"]:
             products = []
+            silver_tables = {table["name"]: table for table in domain["silver_tables"]["tables"]}
             for product in domain["products"]:
-                bronze_source = product["bronze"]["source"]
-                descriptions = resource_descriptions.get(bronze_source, {})
+                selected_silver = [silver_tables[name] for name in product["silver_inputs"]]
                 bronze_entries = [
                     {
-                        "name": resource,
-                        "path": f"s3://{bronze_bucket}/{bronze_source}/{resource}",
-                        "description": descriptions.get(resource, ""),
+                        "name": table["resource"],
+                        "path": f"s3://{bronze_bucket}/{table['source']}/{table['resource']}",
+                        "description": resource_descriptions.get(table["source"], {}).get(table["resource"], ""),
                     }
-                    for resource in product["bronze"]["resources"]
+                    for table in selected_silver
                 ]
+                bronze_entries = list({entry["path"]: entry for entry in bronze_entries}.values())
                 products.append(
                     {
                         "id": product["id"],
@@ -272,7 +282,12 @@ class OpenMetadataDeployer:
                         "status": product.get("status", ""),
                         "domain": domain["name"],
                         "bronze": bronze_entries,
-                        "silver_tables": product["silver_tables"],
+                        "silver_tables": {
+                            "tables": [
+                                {key: value for key, value in table.items() if key in {"name", "description"}}
+                                for table in selected_silver
+                            ]
+                        },
                         "gold_tables": product["gold_tables"],
                         "assets": [],
                     }
@@ -285,6 +300,12 @@ class OpenMetadataDeployer:
                         "displayName": domain["displayName"],
                         "description": domain.get("description", ""),
                         "status": domain.get("status", ""),
+                        "silver_tables": {
+                            "tables": [
+                                {key: value for key, value in table.items() if key in {"name", "description"}}
+                                for table in domain["silver_tables"]["tables"]
+                            ]
+                        },
                         "data_products": products,
                     },
                 )
@@ -348,8 +369,13 @@ class OpenMetadataDeployer:
 
         # Phase C: Pre-seed Iceberg table stubs before the Polaris crawler runs.
         for _, domain in domain_specs:
+            for schema_fqn, table in self.domain_silver_table_specs(domain):
+                self.ensure_database_schema(schema_fqn)
+                self.ensure_table_stub(schema_fqn, table["name"], table.get("description", ""))
             for product in product_entries(domain):
                 for schema_fqn, table in self.product_table_specs(product):
+                    if schema_fqn == self.config.catalog_silver_schema_fqns.get(domain["name"]):
+                        continue
                     self.ensure_database_schema(schema_fqn)
                     self.ensure_table_stub(schema_fqn, table["name"], table.get("description", ""))
         self.cleanup_legacy_default_database()

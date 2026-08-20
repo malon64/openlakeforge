@@ -23,11 +23,17 @@ def deploy_superset_reports() -> None:
     """Build and import source-controlled Superset report bundles."""
     from olf import superset
 
+    inventory = inventory_for(config.repo_root())
+    declared_report_dirs = tuple(dashboard.report_source_dir for dashboard in inventory.dashboards)
+    override = os.environ.get("SUPERSET_REPORT_SOURCE_DIR") or None
+    if override is not None and override not in declared_report_dirs:
+        raise typer.BadParameter(f"SUPERSET_REPORT_SOURCE_DIR {override!r} is not declared in lakehouse.yaml")
     superset.deploy_reports(
         config.repo_root(),
         config.namespace(),
         config.env("OPENLAKEFORGE_QUERY_SQLALCHEMY_URI"),
-        report_source_dir=os.environ.get("SUPERSET_REPORT_SOURCE_DIR") or None,
+        report_source_dir=override,
+        declared_report_dirs=declared_report_dirs,
         work_dir=Path(config.env("SUPERSET_REPORT_WORK_DIR", ".tmp/superset-reports")),
         reports_mount_path=config.env("SUPERSET_REPORTS_MOUNT_PATH", superset.REPORTS_MOUNT_PATH_DEFAULT),
         admin_username=config.env("SUPERSET_ADMIN_USERNAME", "admin"),
@@ -43,13 +49,11 @@ def superset_export_reports() -> None:
 
     repo_root = config.repo_root()
     inventory = inventory_for(repo_root)
-    default_product = inventory.default_product
-    default_dashboard = next(
-        (dashboard for dashboard in inventory.dashboards if dashboard.product == default_product.id), None
-    )
-    default_report_source_dir = (
-        default_dashboard.report_source_dir if default_dashboard else default_product.report_source_dir
-    )
+    if not inventory.dashboards:
+        raise typer.BadParameter("lakehouse.yaml declares no dashboard to export")
+    default_dashboard = inventory.dashboards[0]
+    default_product = next(product for product in inventory.products if product.id == default_dashboard.products[0])
+    default_report_source_dir = default_dashboard.report_source_dir
     report_source_dir = config.env("SUPERSET_REPORT_SOURCE_DIR", default_report_source_dir)
 
     def _default_dashboard_title() -> str:
@@ -69,7 +73,7 @@ def superset_export_reports() -> None:
         config.namespace(),
         report_source_dir=report_source_dir,
         bundle_name=config.env(
-            "SUPERSET_REPORT_EXPORT_BUNDLE_NAME", default_product.superset_export_bundle_name
+            "SUPERSET_REPORT_EXPORT_BUNDLE_NAME", default_dashboard.superset_export_bundle_name
         ),
         work_dir=Path(config.env("SUPERSET_REPORT_WORK_DIR", ".tmp/superset-reports")),
         reports_mount_path=config.env("SUPERSET_REPORTS_MOUNT_PATH", superset.REPORTS_MOUNT_PATH_DEFAULT),

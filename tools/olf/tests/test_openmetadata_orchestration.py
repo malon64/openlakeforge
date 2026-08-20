@@ -30,7 +30,7 @@ def test_product_assets_use_provider_schema_fqns_and_dedup() -> None:
     cfg = om.OpenMetadataConfig.from_environment(
         {
             "OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON": (
-                '{"sales_order_revenue": "aws_glue.lakehouse_dev.sales_order_revenue_silver"}'
+                '{"sales": "aws_glue.lakehouse_dev.sales_silver"}'
             ),
             "OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON": (
                 '{"sales_order_revenue": "aws_glue.lakehouse_dev.sales_order_revenue_gold"}'
@@ -49,6 +49,7 @@ def test_product_assets_use_provider_schema_fqns_and_dedup() -> None:
     deployer = om.OpenMetadataDeployer(cfg, om.OpenMetadataClient(cfg.base_url))
     product = {
         "name": "sales_order_revenue",
+        "domain": "sales",
         "silver_tables": {
             "schema": "polaris.lakehouse_dev.sales_order_revenue_silver",
             "tables": [{"name": "order_revenue_silver"}],
@@ -71,7 +72,7 @@ def test_product_assets_use_provider_schema_fqns_and_dedup() -> None:
     assert assets == [
         {
             "type": "table",
-            "fqn": "aws_glue.lakehouse_dev.sales_order_revenue_silver.order_revenue_silver",
+            "fqn": "aws_glue.lakehouse_dev.sales_silver.order_revenue_silver",
         },
         {
             "type": "table",
@@ -247,18 +248,17 @@ domains:
     displayName: Sales
     description: Sales domain
     status: active
+    silver_tables:
+      tables:
+        - name: raw_orders
+          source: crm
+          resource: orders
     products:
       - id: order_revenue
         displayName: Sales Order Revenue
         description: Revenue from orders.
         status: active
-        bronze:
-          source: crm
-          resources:
-            - orders
-        silver_tables:
-          tables:
-            - name: raw_orders
+        silver_inputs: [raw_orders]
         gold_tables:
           tables:
             - name: mart_order_revenue
@@ -348,19 +348,20 @@ domains:
     displayName: Sales
     description: Sales domain
     status: active
+    silver_tables:
+      tables:
+        - name: raw_orders
+          source: crm
+          resource: orders
+        - name: raw_order_lines
+          source: crm
+          resource: orders
     products:
       - id: order_revenue
         displayName: Sales Order Revenue
         description: Revenue from orders.
         status: active
-        bronze:
-          source: crm
-          resources:
-            - orders
-        silver_tables:
-          tables:
-            - name: raw_orders
-            - name: raw_order_lines
+        silver_inputs: [raw_orders, raw_order_lines]
         gold_tables:
           tables:
             - name: mart_order_revenue

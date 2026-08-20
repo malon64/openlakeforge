@@ -227,8 +227,8 @@ def _check_hcl_structured_contracts(repo_root: Path) -> CheckResult:
             continue
         main_document = _parse_hcl(main_path)
         main_locals = _merged_locals(main_document)
-        if main_locals.get("catalog_namespace_model") != "domain-layer":
-            errors.append(f"{env}/main.tf: local.catalog_namespace_model must be 'domain-layer'")
+        if main_locals.get("catalog_namespace_model") != "medallion-owner":
+            errors.append(f"{env}/main.tf: local.catalog_namespace_model must be 'medallion-owner'")
         for forbidden_field in _FORBIDDEN_PHASE_TWO_FIELDS:
             if forbidden_field in main_locals:
                 errors.append(f"{env}/main.tf: locals must not declare Phase-2-owned field {forbidden_field!r}")

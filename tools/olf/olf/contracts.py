@@ -162,7 +162,7 @@ def _apply_default_contract_env(env: _Env, base: Mapping[str, str], repo_root: P
     env.default("OPENLAKEFORGE_CATALOG_GLUE_REST_WAREHOUSE", env.get("OPENLAKEFORGE_CATALOG_GLUE_CATALOG_ID"))
     env.default("OPENLAKEFORGE_CATALOG_GLUE_DATABASE", "")
     env.default("OPENLAKEFORGE_CATALOG_GLUE_WAREHOUSE_PREFIX", "warehouse/iceberg")
-    env.default("OPENLAKEFORGE_CATALOG_NAMESPACE_MODEL", "domain-layer")
+    env.default("OPENLAKEFORGE_CATALOG_NAMESPACE_MODEL", "medallion-owner")
     default_catalog_namespaces_json, default_silver_namespaces_json, default_gold_namespaces_json = (
         _default_catalog_namespace_json(env, repo_root)
     )

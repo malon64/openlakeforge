@@ -22,9 +22,8 @@ def test_defaults_without_contracts_match_local_profile() -> None:
     assert exports["OPENLAKEFORGE_ARTIFACT_BASE_URI"] == "s3://openlakeforge-ops"
     assert exports["OPENLAKEFORGE_CATALOG_DATABASE_FQN"] == "polaris.lakehouse_dev"
     assert json.loads(exports["OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON"]) == {
-        "order_revenue": "polaris.lakehouse_dev.sales_silver",
-        "customer_health": "polaris.lakehouse_dev.sales_silver",
-        "inventory_reliability": "polaris.lakehouse_dev.supply_chain_silver",
+        "sales": "polaris.lakehouse_dev.sales_silver",
+        "supply_chain": "polaris.lakehouse_dev.supply_chain_silver",
     }
     assert json.loads(exports["OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON"]) == {
         "order_revenue": "polaris.lakehouse_dev.order_revenue_gold",
@@ -61,9 +60,8 @@ def test_local_contracts_apply_seaweedfs_values() -> None:
     assert exports["OPENLAKEFORGE_QUERY_TRINO_PORT"] == "8080"
     assert exports["OPENLAKEFORGE_CATALOG_DATABASE_FQN"] == "polaris.lakehouse_dev"
     assert json.loads(exports["OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON"]) == {
-        "order_revenue": "polaris.lakehouse_dev.sales_silver",
-        "customer_health": "polaris.lakehouse_dev.sales_silver",
-        "inventory_reliability": "polaris.lakehouse_dev.supply_chain_silver",
+        "sales": "polaris.lakehouse_dev.sales_silver",
+        "supply_chain": "polaris.lakehouse_dev.supply_chain_silver",
     }
     assert unsets == []
 
@@ -79,9 +77,8 @@ def test_polaris_contract_without_namespaces_falls_back_to_the_descriptors() -> 
     exports, _ = build_contract_env({}, contracts, repo_root=REPO_ROOT)
 
     assert json.loads(exports["OPENLAKEFORGE_CATALOG_SILVER_NAMESPACES_JSON"]) == {
-        "order_revenue": "sales_silver",
-        "customer_health": "sales_silver",
-        "inventory_reliability": "supply_chain_silver",
+        "sales": "sales_silver",
+        "supply_chain": "supply_chain_silver",
     }
     assert json.loads(exports["OPENLAKEFORGE_CATALOG_GOLD_NAMESPACES_JSON"]) == {
         "order_revenue": "order_revenue_gold",
@@ -151,7 +148,7 @@ def test_aws_contracts_blank_local_only_fields_and_derive_glue_fqns() -> None:
     # OpenMetadata mappings follow the Glue provider
     assert exports["OPENLAKEFORGE_CATALOG_DATABASE_FQN"] == "aws_glue.lakehouse_dev"
     assert json.loads(exports["OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON"]) == {
-        "order_revenue": "aws_glue.lakehouse_dev.sales_silver"
+        "sales": "aws_glue.lakehouse_dev.sales_silver"
     }
     assert json.loads(exports["OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON"]) == {
         "order_revenue": "aws_glue.lakehouse_dev.order_revenue_gold"
@@ -178,9 +175,8 @@ def test_aws_glue_contract_without_schema_fqns_falls_back_to_the_descriptors() -
     exports, _ = build_contract_env({}, contracts, repo_root=REPO_ROOT)
 
     assert json.loads(exports["OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON"]) == {
-        "order_revenue": "aws_glue.lakehouse_dev.sales_silver",
-        "customer_health": "aws_glue.lakehouse_dev.sales_silver",
-        "inventory_reliability": "aws_glue.lakehouse_dev.supply_chain_silver",
+        "sales": "aws_glue.lakehouse_dev.sales_silver",
+        "supply_chain": "aws_glue.lakehouse_dev.supply_chain_silver",
     }
     assert json.loads(exports["OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON"]) == {
         "order_revenue": "aws_glue.lakehouse_dev.order_revenue_gold",

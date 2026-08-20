@@ -72,10 +72,10 @@ The image contains:
 - shared OpenLakeForge libraries
 
 The project-code image does not install the Floe CLI. It includes generated
-product Floe manifests so the Dagster code server can load the asset graph from
-the image. Because Floe work runs in a separate manifest-declared
-the manifest-declared Floe Kubernetes runner image, local/CD artifact upload
-also publishes the generated product manifests to SeaweedFS for the runner pod.
+domain Floe manifests so the Dagster code server can load the asset graph from
+the image. Floe work runs in the manifest-declared Kubernetes runner image, so
+local/CD artifact upload also publishes the generated domain manifests to the
+ops bucket for the runner pod.
 
 The expected runtime flow is:
 

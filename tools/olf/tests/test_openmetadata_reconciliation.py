@@ -35,19 +35,16 @@ domains:
     displayName: Sales
     description: Sales domain
     status: active
+    silver_tables:
+      tables:
+        - {name: raw_orders, source: crm, resource: orders}
+        - {name: raw_order_lines, source: crm, resource: orders}
     products:
       - id: order_revenue
         displayName: Sales Order Revenue
         description: Revenue from orders.
         status: active
-        bronze:
-          source: crm
-          resources:
-            - orders
-        silver_tables:
-          tables:
-            - name: raw_orders
-            - name: raw_order_lines
+        silver_inputs: [raw_orders, raw_order_lines]
         gold_tables:
           tables:
             - name: mart_order_revenue

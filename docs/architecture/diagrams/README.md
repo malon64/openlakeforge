@@ -47,7 +47,7 @@ complement the product chart in
 this repo's own values.*
 
 Fifteen pods run at steady state: Dagster runs three (webserver, daemon, and the merged
-`openlakeforge-dagster` code server loading `domains.definitions`), SeaweedFS runs four
+`openlakeforge-dagster` code server loading `lakehouse_code.definitions`), SeaweedFS runs four
 (three StatefulSets and an S3-gateway Deployment), Superset runs three, OpenMetadata
 runs two, and PostgreSQL, Polaris, and Trino run one each. Trino is deliberately
 coordinator-only.
@@ -269,8 +269,8 @@ are deleted on TTL; their evidence is not:
 
 ```text
 s3://openlakeforge-ops/
-├── floe/manifests/{domain}/{product}/                      ← olf artifacts upload-manifests
-├── floe/reports/{domain}/{product}/                        ← ephemeral Floe runner Job
+├── floe/manifests/{domain}/{domain}.manifest.json          ← olf artifacts upload-manifests
+├── floe/reports/{domain}/                                  ← ephemeral Floe runner Job
 ├── logs/dagster/compute/                                   ← S3ComputeLogManager
 ├── logs/k8s/namespace={ns}/date={YYYY-MM-DD}/hour={HH}/    ← log-archive CronJob
 └── run-artifacts/dbt/{domain}/{product}/{dagster_run_id}/  ← run pod, post-dbt-build
@@ -278,8 +278,8 @@ s3://openlakeforge-ops/
 
 Only the dbt run-artifacts are keyed by Dagster run ID (`run-artifacts/dbt/{domain}/
 {product}/{dagster_run_id}/`), so those are isolable per run after the pod is gone. Floe's
-`report_base_uri` (set per manifest, e.g. `floe/reports/sales/order_revenue`) stops at
-domain and product — successive runs of the same product overwrite the same prefix, since
+`report_base_uri` (set per manifest, e.g. `floe/reports/sales`) stops at the domain —
+successive runs overwrite the same prefix, since
 the runner's `base_args` carry no `--run-id`. The archived Kubernetes pod logs are
 partitioned only by namespace / date / hour (`libs/k8s_log_archive.py`), so isolating a
 single run from raw pod logs or from prior Floe reports needs a timestamp, not just a
@@ -303,8 +303,8 @@ lakehouse_code/
 │   └── dlt/<source>.py                       ← extract:         raw source → Bronze                      → dlt
 ├── silver/<domain>/                          ← domain-owned
 │   └── contracts/floe/
-│       ├── <product>.yml                     ← contract:        Bronze→Silver schema · PK · reject policy → Floe
-│       └── manifests/<product>.manifest.json                    compiled, checksummed runner spec (baked + published)
+│       ├── <domain>.yml                      ← contract:        Bronze→Silver schema · PK · reject policy → Floe
+│       └── manifests/<domain>.manifest.json                     compiled, checksummed runner spec (baked + published)
 ├── gold/<product>/                           ← product-owned
 │   └── dbt/models/gold/*.sql · sources.yml · schema.yml         Silver→Gold SQL                            → dbt-trino → Trino
 ├── pipelines/dagster/<product>.py            ← pipeline:        asset graph wiring bronze→floe→dbt        → Dagster
@@ -313,9 +313,9 @@ lakehouse_code/
 └── bronze/<source>/examples/*.csv                                seed data for the local demo
 ```
 
-Two products can share one domain's Silver namespace without duplicating ingestion: `sales`
-(`order_revenue`, `customer_health`) both consume `crm` Bronze resources into the same
-`sales_silver` namespace (`crm.accounts` feeds both), while `supply_chain`
+Two products can share one source-owned Bronze asset and one domain-owned Silver asset
+without duplicating ingestion: `sales` (`order_revenue`, `customer_health`) uses one
+`crm/accounts` asset and one `sales/accounts` asset, while `supply_chain`
 (`inventory_reliability`) consumes `erp`. Adding a data product changes only its bronze,
 silver, gold, dashboard, and pipeline slices, then runs the artifact phase.
 `olf catalog sync-namespaces` derives the Bronze, Silver, and Gold namespaces from

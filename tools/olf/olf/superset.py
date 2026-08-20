@@ -12,6 +12,7 @@ from __future__ import annotations
 import re
 import shutil
 import subprocess
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from zipfile import ZIP_DEFLATED, ZipFile
@@ -191,6 +192,22 @@ def discover_report_dirs(repo_root: Path) -> list[str]:
     return sorted(dirs)
 
 
+def validate_report_registry(repo_root: Path, declared_report_dirs: Sequence[str]) -> list[str]:
+    """Require exact parity between descriptor-declared and mounted bundles."""
+    declared = set(declared_report_dirs)
+    discovered = set(discover_report_dirs(repo_root))
+    if declared != discovered:
+        missing = sorted(declared - discovered)
+        undeclared = sorted(discovered - declared)
+        details: list[str] = []
+        if missing:
+            details.append("declared but not mounted: " + ", ".join(missing))
+        if undeclared:
+            details.append("mounted but not declared: " + ", ".join(undeclared))
+        raise RuntimeError("Superset dashboard registry mismatch (" + "; ".join(details) + ")")
+    return sorted(declared)
+
+
 def _exec_pod_python(pod: str, namespace: str, script: str, args: list[str]) -> None:
     quoted = " ".join(f"'{arg}'" for arg in args)
     command = f". /app/pythonpath/superset_bootstrap.sh; python - {quoted}"
@@ -208,6 +225,7 @@ def deploy_reports(
     sqlalchemy_uri: str,
     *,
     report_source_dir: str | None,
+    declared_report_dirs: Sequence[str] | None = None,
     work_dir: Path,
     reports_mount_path: str,
     admin_username: str,
@@ -216,7 +234,13 @@ def deploy_reports(
     k8s.wait_for_rollout("deployment/superset", namespace)
     pod = _running_superset_pod(namespace)
 
-    report_dirs = [report_source_dir] if report_source_dir else discover_report_dirs(repo_root)
+    report_dirs = (
+        [report_source_dir]
+        if report_source_dir
+        else validate_report_registry(repo_root, declared_report_dirs)
+        if declared_report_dirs is not None
+        else discover_report_dirs(repo_root)
+    )
     if not report_dirs:
         raise RuntimeError("no product Superset report assets found.")
 

@@ -55,9 +55,8 @@ Silver  = domain-aligned    lakehouse_code/silver/<domain>/
 Gold    = product-aligned   lakehouse_code/gold/<product>/
 ```
 
-A domain's Silver namespace is shared by every product that belongs to it. A product
-declares which Bronze resources it consumes and from which source; it does not own
-ingestion or a Bronze path of its own.
+A domain declares each Silver table's Source resource mapping. Products select the
+domain Silver tables they consume; they do not own ingestion or Bronze paths.
 
 ---
 
@@ -93,19 +92,19 @@ domains:
     displayName: Marketing
     description: Marketing analytics data products.
     status: active
+    silver_tables:
+      tables:
+        - name: campaigns
+          source: marketing_platform
+          resource: campaigns
+          description: Validated campaign data.
     products:
       - id: campaign_performance
         displayName: Campaign Performance
         description: Campaign spend and conversion performance.
         status: active
-        bronze:
-          source: marketing_platform
-          resources:
-            - campaigns
-        silver_tables:
-          tables:
-            - name: campaigns
-              description: Validated campaign data.
+        silver_inputs:
+          - campaigns
         gold_tables:
           tables:
             - name: mart_campaign_performance
@@ -187,7 +186,23 @@ and every `source.yaml` found on disk must be declared here.
 
 - `name` (required, `^[a-z][a-z0-9_]*$`, unique across the lakehouse)
 - `displayName`, `description`, `status` (required, as above)
+- `silver_tables` (required domain-owned Source-to-Silver mappings)
 - `products` (required, non-empty array — see below)
+
+## `domains[].silver_tables`
+
+```yaml
+silver_tables:
+  tables:
+    - name: campaigns
+      source: marketing_platform
+      resource: campaigns
+      description: Validated campaign data.
+```
+
+**Required, non-empty.** Each unique `name` is a domain-owned Silver table.
+`source` must reference a declared Source and `resource` must reference one of that
+Source's resources. All three identities match `^[a-z][a-z0-9_]*$`.
 
 ## `domains[].products`
 
@@ -198,14 +213,8 @@ Each product entry is:
   displayName: Campaign Performance
   description: Campaign spend and conversion performance.
   status: active
-  bronze:
-    source: marketing_platform
-    resources:
-      - campaigns
-  silver_tables:
-    tables:
-      - name: campaigns
-        description: Validated campaign data.
+  silver_inputs:
+    - campaigns
   gold_tables:
     tables:
       - name: mart_campaign_performance
@@ -226,7 +235,7 @@ id: campaign_performance
 maps to:
 
 ```text
-lakehouse_code/silver/<domain>/contracts/floe/campaign_performance.yml
+lakehouse_code/silver/<domain>/contracts/floe/<domain>.yml
 lakehouse_code/gold/campaign_performance/dbt/
 lakehouse_code/pipelines/dagster/campaign_performance.py
 ```
@@ -235,42 +244,32 @@ lakehouse_code/pipelines/dagster/campaign_performance.py
 
 **Required.** Human-readable, as above.
 
-### `bronze`
+### `silver_inputs`
 
 ```yaml
-bronze:
-  source: marketing_platform
-  resources:
-    - campaigns
+silver_inputs:
+  - campaigns
 ```
 
-**Required object with `source` and `resources`.** `source` must reference a source
-declared in the lakehouse's top-level `sources` list, and every entry in `resources`
-must be a resource that source's `source.yaml` actually declares (validated against the
-discovered `Source` descriptors, with duplicates rejected). This is the domain-owned
-Bronze → Silver dependency declaration: it says which raw resources this product
-validates into its domain's Silver namespace — it does not declare or own the ingestion
-definition itself, which lives once under `bronze/<source>/`.
+**Required, non-empty, unique array.** Every entry references a table declared in the
+enclosing domain's `silver_tables`. The inventory resolves those tables back through
+their Source resources for product job selection and downstream publication.
 
-Two products can declare the same `bronze.resources` entry from the same source without
-duplicating ingestion or creating duplicate Bronze copies — see the real `sales` domain,
-where `order_revenue` and `customer_health` both consume `crm.accounts`.
+Two products can select the same Silver table without duplicating ingestion or creating
+duplicate assets — `order_revenue` and `customer_health` both select `sales.accounts`,
+which maps to `crm.accounts`.
 
-### `silver_tables` / `gold_tables`
+### `gold_tables`
 
 ```yaml
-silver_tables:
-  tables:
-    - name: campaigns
-      description: Validated campaign data.
 gold_tables:
   tables:
     - name: mart_campaign_performance
       description: Campaign performance aggregated by channel.
 ```
 
-**Required, non-empty `tables` array each.** Each table entry needs a non-empty `name`
-(unique within its own group for this product) and optional `description`. Table entries
+**Required, non-empty `tables` array.** Each table entry needs a non-empty `name`
+(unique within the product) and optional `description`. Table entries
 must **not** contain `fqn` or `fullyQualifiedName` — physical FQNs would couple the
 descriptor to a particular provider or environment — and the group itself must not
 contain a `schema` key (a deliberately-rejected place someone might be tempted to hardcode
@@ -283,16 +282,14 @@ a physical namespace).
 ```yaml
 dashboards:
   - name: sales_order_revenue
-    product: order_revenue
+    products: [order_revenue, customer_health]
 ```
 
 **Required array (may be empty).** Each entry needs `name` (unique, `^[a-z][a-z0-9_]*$`)
-and `product` (must reference a declared product `id`). A dashboard is not required to
-belong to exactly one product in principle — the schema only records one `product`
-reference today because that is what the current seed data needs, but the ownership
-model (dashboards are consumption-aligned, living under
+and `products` (a non-empty, unique array of declared product IDs). Dashboards are
+consumption-aligned, living under
 `lakehouse_code/dashboards/superset/<dashboard>/`, independent of any domain or product
-code directory) does not assume a 1:1 mapping.
+code directory.
 
 ---
 
@@ -309,8 +306,8 @@ seed data), OpenLakeForge derives:
 | Silver namespace (domain `sales`) | `sales_silver` — **shared by `order_revenue` and `customer_health`** |
 | Gold namespace (`order_revenue`) | `order_revenue_gold` |
 | Superset source directory (via its dashboard) | `lakehouse_code/dashboards/superset/sales_order_revenue` |
-| Floe manifest key | `floe/manifests/sales/order_revenue/order_revenue.manifest.json` |
-| Floe report prefix | `floe/reports/sales/order_revenue/` |
+| Floe manifest key | `floe/manifests/sales/sales.manifest.json` |
+| Floe report prefix | `floe/reports/sales/` |
 | dbt artifact prefix | `run-artifacts/dbt/sales/order_revenue/` |
 
 The catalog namespace contract is deliberately flat (single-level), so it works
@@ -381,9 +378,8 @@ The canonical inventory enforces, beyond basic YAML structure:
   domain — there is no per-domain product namespace in v1alpha3).
 - **Dashboard names** must be unique, and each `product` reference must resolve to a
   declared product ID.
-- Within one product: Bronze resource references, Silver table names, and Gold table
-  names must each be internally free of duplicates. A product's `bronze.resources` must
-  all be resources the referenced source actually declares.
+- Within one domain, Silver mappings are unique and resolve to declared Source resources.
+  Within one product, `silver_inputs` and Gold table names are unique.
 
 ---
 
@@ -404,34 +400,23 @@ domains:
     displayName: Sales
     description: Sales proof-of-concept domain.
     status: planned
+    silver_tables:
+      tables:
+        - {name: orders, source: crm, resource: orders}
+        - {name: order_lines, source: crm, resource: order_lines}
+        - {name: products, source: crm, resource: products}
+        - {name: channels, source: crm, resource: channels}
+        - {name: promotions, source: crm, resource: promotions}
+        - {name: accounts, source: crm, resource: accounts}
+        - {name: subscriptions, source: crm, resource: subscriptions}
+        - {name: support_tickets, source: crm, resource: support_tickets}
+        - {name: nps_responses, source: crm, resource: nps_responses}
     products:
       - id: order_revenue
         displayName: Sales Order Revenue
         description: Curated revenue, channel, discount, and product margin marts.
         status: planned
-        bronze:
-          source: crm
-          resources:
-            - orders
-            - order_lines
-            - products
-            - channels
-            - promotions
-            - accounts
-        silver_tables:
-          tables:
-            - name: orders
-              description: Validated sales order headers.
-            - name: order_lines
-              description: Validated sales order lines.
-            - name: products
-              description: Validated product dimension for revenue analytics.
-            - name: channels
-              description: Validated sales channel dimension.
-            - name: promotions
-              description: Validated promotion dimension.
-            - name: accounts
-              description: Validated account dimension.
+        silver_inputs: [orders, order_lines, products, channels, promotions, accounts]
         gold_tables:
           tables:
             - name: mart_order_revenue_by_day
@@ -446,23 +431,7 @@ domains:
         displayName: Sales Customer Health
         description: Curated customer health, churn risk, support SLA, and NPS marts.
         status: planned
-        bronze:
-          source: crm
-          resources:
-            - accounts
-            - subscriptions
-            - support_tickets
-            - nps_responses
-        silver_tables:
-          tables:
-            - name: accounts
-              description: Validated account dimension.
-            - name: subscriptions
-              description: Validated subscription records.
-            - name: support_tickets
-              description: Validated support ticket facts.
-            - name: nps_responses
-              description: Validated NPS response facts.
+        silver_inputs: [accounts, subscriptions, support_tickets, nps_responses]
         gold_tables:
           tables:
             - name: mart_customer_health_score
@@ -473,9 +442,9 @@ domains:
               description: Support volume, resolution hours, and SLA rate by customer and priority.
 dashboards:
   - name: sales_order_revenue
-    product: order_revenue
+    products: [order_revenue]
   - name: sales_customer_health
-    product: customer_health
+    products: [customer_health]
 ```
 
 `order_revenue` and `customer_health` both consume `crm.accounts` and both validate into
@@ -513,12 +482,12 @@ lakehouse_code/
 │   └── crm/
 │       ├── source.yaml
 │       ├── examples/*.csv
-│       └── dlt/order_revenue.py, customer_health.py-consuming loaders
+│       └── dlt/crm.py
 ├── silver/
 │   └── sales/
 │       └── contracts/floe/
-│           ├── order_revenue.yml
-│           └── customer_health.yml
+│           ├── sales.yml
+│           └── manifests/sales.manifest.json
 ├── gold/
 │   ├── order_revenue/dbt/
 │   └── customer_health/dbt/
@@ -597,15 +566,15 @@ Invalid: `id: campaign-performance`. Valid: `id: campaign_performance`.
 Two products cannot both declare `id: order_revenue`, even across different domains —
 product IDs are globally unique in v1alpha3.
 
-## Bronze resource not declared by its source
+## Silver mapping resource not declared by its source
 
-Invalid: a product declares `bronze: {source: crm, resources: [made_up_resource]}` when
+Invalid: a domain Silver table maps to `{source: crm, resource: made_up_resource}` when
 `crm/source.yaml` has no `made_up_resource` entry.
 
 ## Empty table groups
 
-Invalid: `silver_tables: {tables: []}`. Every product must expose at least one Silver
-table and one Gold table.
+Invalid: `silver_tables: {tables: []}`. Every domain must expose at least one Silver
+table, and every product must select at least one Silver input and declare one Gold table.
 
 ## Physical FQN in descriptor
 

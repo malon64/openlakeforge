@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Generate product Floe Dagster manifests from the provider runtime profile.
+# Generate domain Floe Dagster manifests from the provider runtime profile.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -179,37 +179,35 @@ discover_configs() {
   find lakehouse_code/silver -path "*/contracts/floe/*.yml" -type f | sort
 }
 
-silver_namespace_for_product() {
-  local product_key="$1"
+silver_namespace_for_domain() {
+  local domain_key="$1"
 
-  OPENLAKEFORGE_PRODUCT_KEY="${product_key}" python3 - <<'PY'
+  OPENLAKEFORGE_DOMAIN_KEY="${domain_key}" python3 - <<'PY'
 import json
 import os
 import sys
 
-product_key = os.environ["OPENLAKEFORGE_PRODUCT_KEY"]
+domain_key = os.environ["OPENLAKEFORGE_DOMAIN_KEY"]
 try:
     namespaces = json.loads(os.environ.get("OPENLAKEFORGE_CATALOG_SILVER_NAMESPACES_JSON", "{}"))
 except json.JSONDecodeError as exc:
     raise SystemExit(f"ERROR: invalid OPENLAKEFORGE_CATALOG_SILVER_NAMESPACES_JSON: {exc}") from exc
 
-namespace = namespaces.get(product_key)
+namespace = namespaces.get(domain_key)
 if not namespace:
-    raise SystemExit(f"ERROR: missing Silver catalog namespace for product {product_key}")
+    raise SystemExit(f"ERROR: missing Silver catalog namespace for domain {domain_key}")
 sys.stdout.write(namespace)
 PY
 }
 
 profile_for_config() {
   local domain="$1"
-  local product="$2"
-  local product_key="${product}"
   local profile_path="${GENERATED_PROFILE_PATH}"
   local silver_namespace
 
   if [[ -n "${PROFILE_PATH}" || "${IS_AWS_FLOE_PROFILE}" != "true" ]]; then
     if [[ "${PERSIST_RUNTIME_ARTIFACTS}" == "true" ]]; then
-      profile_path="${FLOE_RUNTIME_ARTIFACT_DIR}/profiles/${domain}/${product}/$(basename "${profile_path}")"
+      profile_path="${FLOE_RUNTIME_ARTIFACT_DIR}/profiles/${domain}/$(basename "${profile_path}")"
       mkdir -p "$(dirname "${profile_path}")"
       cp "${GENERATED_PROFILE_PATH}" "${profile_path}"
     fi
@@ -217,15 +215,15 @@ profile_for_config() {
     return
   fi
 
-  silver_namespace="$(silver_namespace_for_product "${product_key}")"
+  silver_namespace="$(silver_namespace_for_domain "${domain}")"
   if [[ "${PERSIST_RUNTIME_ARTIFACTS}" == "true" ]]; then
-    profile_path="${FLOE_RUNTIME_ARTIFACT_DIR}/profiles/${domain}/${product}/$(basename "${FLOE_RUNTIME_PROFILE_URI}")"
+    profile_path="${FLOE_RUNTIME_ARTIFACT_DIR}/profiles/${domain}/$(basename "${FLOE_RUNTIME_PROFILE_URI}")"
   else
-    profile_path="${PROFILE_TMP_DIR}/${domain}/${product}/$(basename "${FLOE_RUNTIME_PROFILE_URI}")"
+    profile_path="${PROFILE_TMP_DIR}/${domain}/$(basename "${FLOE_RUNTIME_PROFILE_URI}")"
   fi
 
   mkdir -p "$(dirname "${profile_path}")"
-  echo "==> Rendering AWS Floe profile for ${product_key} with Glue database ${silver_namespace}" >&2
+  echo "==> Rendering AWS Floe profile for ${domain} with Glue database ${silver_namespace}" >&2
   OPENLAKEFORGE_CATALOG_GLUE_DATABASE="${silver_namespace}" \
     olf_run floe render-profile > "${profile_path}"
 
@@ -235,7 +233,6 @@ profile_for_config() {
 config_for_manifest() {
   local config_path="$1"
   local domain="$2"
-  local product="$3"
   local runtime_config_path
 
   if [[ "${PERSIST_RUNTIME_ARTIFACTS}" != "true" ]]; then
@@ -243,7 +240,7 @@ config_for_manifest() {
     return
   fi
 
-  runtime_config_path="${FLOE_RUNTIME_ARTIFACT_DIR}/configs/${domain}/${product}/$(basename "${config_path}")"
+  runtime_config_path="${FLOE_RUNTIME_ARTIFACT_DIR}/configs/${domain}/$(basename "${config_path}")"
   mkdir -p "$(dirname "${runtime_config_path}")"
   cp "${config_path}" "${runtime_config_path}"
   printf '%s\n' "${runtime_config_path}"
@@ -252,25 +249,22 @@ config_for_manifest() {
 remote_runtime_uri() {
   local kind="$1"
   local domain="$2"
-  local product="$3"
-  local filename="$4"
+  local filename="$3"
 
   if [[ -z "${FLOE_REMOTE_RUNTIME_BASE_URI}" ]]; then
     return 1
   fi
 
-  printf '%s/%s/%s/%s/%s\n' \
+  printf '%s/%s/%s/%s\n' \
     "${FLOE_REMOTE_RUNTIME_BASE_URI%/}" \
     "${kind}" \
     "${domain}" \
-    "${product}" \
     "${filename}"
 }
 
 generate_manifest() {
   local config_path="$1"
   local domain_dir="${config_path%/contracts/floe/*}"
-  local product
   local domain
   local manifest_path
   local profile_path
@@ -278,12 +272,11 @@ generate_manifest() {
   local floe_config_path
   local floe_profile_path
   local floe_manifest_path
-  product="$(basename "${config_path}" .yml)"
   domain="$(basename "${domain_dir}")"
-  manifest_path="${FLOE_MANIFEST_PATH:-${domain_dir}/contracts/floe/manifests/${product}.manifest.json}"
+  manifest_path="${FLOE_MANIFEST_PATH:-${domain_dir}/contracts/floe/manifests/${domain}.manifest.json}"
 
   if [[ -z "${FLOE_MANIFEST_PATH:-}" && "${PERSIST_RUNTIME_ARTIFACTS}" == "true" ]]; then
-    manifest_path="${FLOE_RUNTIME_ARTIFACT_DIR}/manifests/${domain}/${product}/${product}.manifest.json"
+    manifest_path="${FLOE_RUNTIME_ARTIFACT_DIR}/manifests/${domain}/${domain}.manifest.json"
   fi
 
   mkdir -p "$(dirname "${manifest_path}")"
@@ -293,13 +286,13 @@ generate_manifest() {
   if [[ "${USING_DOCKER}" == "true" ]]; then
     chmod a+rwx "$(dirname "${manifest_path}")"
   fi
-  profile_path="$(profile_for_config "${domain}" "${product}")"
-  generation_config_path="$(config_for_manifest "${config_path}" "${domain}" "${product}")"
+  profile_path="$(profile_for_config "${domain}")"
+  generation_config_path="$(config_for_manifest "${config_path}" "${domain}")"
 
   echo "==> Validating Floe config: ${config_path}"
-  if floe_config_path="$(remote_runtime_uri "configs" "${domain}" "${product}" "$(basename "${generation_config_path}")")"; then
-    floe_profile_path="$(remote_runtime_uri "profiles" "${domain}" "${product}" "$(basename "${profile_path}")")"
-    floe_manifest_path="$(remote_runtime_uri "manifests" "${domain}" "${product}" "$(basename "${manifest_path}")")"
+  if floe_config_path="$(remote_runtime_uri "configs" "${domain}" "$(basename "${generation_config_path}")")"; then
+    floe_profile_path="$(remote_runtime_uri "profiles" "${domain}" "$(basename "${profile_path}")")"
+    floe_manifest_path="$(remote_runtime_uri "manifests" "${domain}" "$(basename "${manifest_path}")")"
   else
     floe_config_path="$(floe_path "${generation_config_path}")"
     floe_profile_path="$(floe_path "${profile_path}")"
@@ -312,8 +305,8 @@ generate_manifest() {
     -c "${floe_config_path}" \
     -p "${floe_profile_path}" \
     --deterministic \
-    --manifest-name "${product}.local" \
-    --default-domain "${product}" \
+    --manifest-name "${domain}.local" \
+    --default-domain "${domain}" \
     --manifest-path-mode resolved-uri \
     --runtime "${FLOE_RUNTIME}" \
     --output "${floe_manifest_path}"
@@ -326,7 +319,7 @@ while IFS= read -r config_path; do
   configs+=("${config_path}")
 done < <(discover_configs)
 if [[ "${#configs[@]}" -eq 0 ]]; then
-  echo "ERROR: no product Floe configs found." >&2
+  echo "ERROR: no domain Floe configs found." >&2
   exit 1
 fi
 

@@ -3,8 +3,8 @@ version: "0.2"
 metadata:
   project: "openlakeforge"
   owner: "supply-chain"
-  description: "Inventory Reliability Bronze to Silver Floe contracts."
-  tags: ["supply_chain", "inventory_reliability", "silver"]
+  description: "Supply Chain Bronze to Silver Floe contracts."
+  tags: ["supply_chain", "silver"]
 
 storages:
   default: "lakehouse_bronze"
@@ -23,7 +23,7 @@ storages:
       region: "{{OPENLAKEFORGE_STORAGE_REGION}}"
 
 report:
-  path: "floe/reports/supply_chain/inventory_reliability"
+  path: "floe/reports/supply_chain"
   storage: "openlakeforge_ops"
 
 entities:

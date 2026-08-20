@@ -94,33 +94,6 @@ def validate_source_descriptor(document: Mapping[str, Any], *, source: str = "so
         )
 
 
-def _validate_bronze_reference(product: Mapping[str, Any], *, source: str) -> None:
-    bronze = product.get("bronze")
-    if not isinstance(bronze, Mapping):
-        raise LakehouseDescriptorError(f"{source}: product {product.get('id')!r}: bronze must be an object")
-    if "source" not in bronze or "resources" not in bronze:
-        raise LakehouseDescriptorError(
-            f"{source}: product {product.get('id')!r}: bronze must declare 'source' and 'resources'"
-        )
-    _identifier(bronze["source"], field="bronze.source", source=source)
-    resources = bronze["resources"]
-    if not isinstance(resources, list) or not resources:
-        raise LakehouseDescriptorError(f"{source}: product {product.get('id')!r}: bronze.resources must be a non-empty array")
-    if len(resources) != len(set(resources)):
-        raise LakehouseDescriptorError(f"{source}: product {product.get('id')!r}: bronze.resources must not contain duplicates")
-    for resource in resources:
-        if not isinstance(resource, str) or not resource:
-            raise LakehouseDescriptorError(
-                f"{source}: product {product.get('id')!r}: bronze.resources must contain non-empty strings"
-            )
-    unexpected = set(bronze) - {"source", "resources"}
-    if unexpected:
-        raise LakehouseDescriptorError(
-            f"{source}: product {product.get('id')!r}: bronze must not contain {sorted(unexpected)!r} "
-            "(provider-neutral fields only)"
-        )
-
-
 def _validate_table_group(product: Mapping[str, Any], *, group: str, source: str) -> None:
     spec = product.get(group)
     if not isinstance(spec, Mapping):
@@ -151,6 +124,12 @@ def _validate_table_group(product: Mapping[str, Any], *, group: str, source: str
         raise LakehouseDescriptorError(
             f"{source}: product {product.get('id')!r}: {group}.schema must be derived from provider contracts"
         )
+    unexpected = set(spec) - {"tables"}
+    if unexpected:
+        raise LakehouseDescriptorError(
+            f"{source}: product {product.get('id')!r}: {group} must not contain {sorted(unexpected)!r} "
+            "(provider-neutral fields only)"
+        )
 
 
 def _validate_product(product: Mapping[str, Any], *, domain_name: str, source: str) -> None:
@@ -166,11 +145,18 @@ def _validate_product(product: Mapping[str, Any], *, domain_name: str, source: s
         raise LakehouseDescriptorError(
             f"{source}: product {label!r}: domain {product['domain']!r} must match enclosing domain {domain_name!r}"
         )
-    _validate_bronze_reference(product, source=source)
-    _validate_table_group(product, group="silver_tables", source=source)
+    silver_inputs = product.get("silver_inputs")
+    if not isinstance(silver_inputs, list) or not silver_inputs:
+        raise LakehouseDescriptorError(f"{source}: product {label!r}: silver_inputs must be a non-empty array")
+    if any(not isinstance(value, str) or not _IDENTIFIER_PATTERN.fullmatch(value) for value in silver_inputs):
+        raise LakehouseDescriptorError(
+            f"{source}: product {label!r}: silver_inputs must contain identifiers matching '^[a-z][a-z0-9_]*$'"
+        )
+    if len(silver_inputs) != len(set(silver_inputs)):
+        raise LakehouseDescriptorError(f"{source}: product {label!r}: silver_inputs must not contain duplicates")
     _validate_table_group(product, group="gold_tables", source=source)
     unexpected = set(product) - {
-        "id", "displayName", "description", "status", "domain", "bronze", "silver_tables", "gold_tables",
+        "id", "displayName", "description", "status", "domain", "silver_inputs", "gold_tables",
     }
     if unexpected:
         raise LakehouseDescriptorError(
@@ -179,34 +165,81 @@ def _validate_product(product: Mapping[str, Any], *, domain_name: str, source: s
 
 
 def _validate_domain(domain: Mapping[str, Any], *, source: str) -> None:
-    for field in ("name", "displayName", "description", "status", "products"):
+    required = ("name", "displayName", "description", "status", "silver_tables", "products")
+    for field in required:
         if field not in domain:
             raise LakehouseDescriptorError(f"{source}: domain: missing required field {field!r}")
     _identifier(domain["name"], field="domain.name", source=source)
     _non_empty_string(domain["displayName"], field="domain.displayName", source=source)
     _non_empty_string(domain["status"], field="domain.status", source=source)
     _optional_string(domain["description"], field="domain.description", source=source)
+    _validate_silver_table_group(domain, source=source)
     products = domain["products"]
     if not isinstance(products, list) or not products:
         raise LakehouseDescriptorError(f"{source}: domain {domain['name']!r}: products must be a non-empty array")
+    seen_products: set[str] = set()
+    silver_names = {table["name"] for table in domain["silver_tables"]["tables"]}
     for product in products:
         if not isinstance(product, Mapping):
             raise LakehouseDescriptorError(f"{source}: domain {domain['name']!r}: products must contain objects")
         _validate_product(product, domain_name=domain["name"], source=source)
-    unexpected = set(domain) - {"name", "displayName", "description", "status", "products"}
+        if product["id"] in seen_products:
+            raise LakehouseDescriptorError(
+                f"{source}: domain {domain['name']!r}: duplicate product id {product['id']!r}"
+            )
+        seen_products.add(product["id"])
+        unknown_inputs = sorted(set(product["silver_inputs"]) - silver_names)
+        if unknown_inputs:
+            raise LakehouseDescriptorError(
+                f"{source}: product {product['id']!r}: silver_inputs reference unknown domain Silver tables "
+                f"{unknown_inputs!r}"
+            )
+    unexpected = set(domain) - {"name", "displayName", "description", "status", "silver_tables", "products"}
     if unexpected:
         raise LakehouseDescriptorError(
             f"{source}: domain {domain['name']!r} must not contain {sorted(unexpected)!r} (provider-neutral fields only)"
         )
 
 
+def _validate_silver_table_group(domain: Mapping[str, Any], *, source: str) -> None:
+    spec = domain.get("silver_tables")
+    if not isinstance(spec, Mapping) or not isinstance(spec.get("tables"), list) or not spec["tables"]:
+        raise LakehouseDescriptorError(f"{source}: domain {domain.get('name')!r}: silver_tables.tables must be a non-empty array")
+    if set(spec) != {"tables"}:
+        unexpected = sorted(set(spec) - {"tables"})
+        raise LakehouseDescriptorError(
+            f"{source}: domain {domain.get('name')!r}: silver_tables must not contain {unexpected!r} "
+            "(provider-neutral fields only)"
+        )
+    seen: set[str] = set()
+    for index, table in enumerate(spec["tables"]):
+        if not isinstance(table, Mapping) or not _IDENTIFIER_PATTERN.fullmatch(table.get("name") or ""):
+            raise LakehouseDescriptorError(f"{source}: domain {domain.get('name')!r}: silver_tables.tables[{index}].name must be an identifier")
+        if table["name"] in seen:
+            raise LakehouseDescriptorError(f"{source}: domain {domain.get('name')!r}: silver_tables.tables must not contain duplicate names")
+        seen.add(table["name"])
+        if not _IDENTIFIER_PATTERN.fullmatch(table.get("source") or "") or not _IDENTIFIER_PATTERN.fullmatch(table.get("resource") or ""):
+            raise LakehouseDescriptorError(f"{source}: domain {domain.get('name')!r}: silver_tables.tables[{index}] must declare source and resource identifiers")
+        if "description" in table and not isinstance(table["description"], str):
+            raise LakehouseDescriptorError(f"{source}: domain {domain.get('name')!r}: silver_tables.tables[{index}].description must be a string")
+        unexpected = set(table) - {"name", "source", "resource", "description"}
+        if unexpected:
+            raise LakehouseDescriptorError(f"{source}: domain {domain.get('name')!r}: silver_tables.tables[{index}] must not contain {sorted(unexpected)!r}")
+
+
 def _validate_dashboard(dashboard: Mapping[str, Any], *, source: str) -> None:
-    for field in ("name", "product"):
+    for field in ("name", "products"):
         if field not in dashboard:
             raise LakehouseDescriptorError(f"{source}: dashboard: missing required field {field!r}")
     _identifier(dashboard["name"], field="dashboard.name", source=source)
-    _identifier(dashboard["product"], field="dashboard.product", source=source)
-    unexpected = set(dashboard) - {"name", "product"}
+    products = dashboard["products"]
+    if not isinstance(products, list) or not products:
+        raise LakehouseDescriptorError(f"{source}: dashboard {dashboard['name']!r}: products must be a non-empty array")
+    if any(not isinstance(product, str) or not _IDENTIFIER_PATTERN.fullmatch(product) for product in products):
+        raise LakehouseDescriptorError(f"{source}: dashboard {dashboard['name']!r}: products must contain identifiers")
+    if len(products) != len(set(products)):
+        raise LakehouseDescriptorError(f"{source}: dashboard {dashboard['name']!r}: products must not contain duplicates")
+    unexpected = set(dashboard) - {"name", "products"}
     if unexpected:
         raise LakehouseDescriptorError(
             f"{source}: dashboard {dashboard['name']!r} must not contain {sorted(unexpected)!r} "
@@ -233,24 +266,44 @@ def validate_lakehouse_descriptor(document: Mapping[str, Any], *, source: str = 
     if not isinstance(sources, list) or not sources:
         raise LakehouseDescriptorError(f"{source}: sources must be a non-empty array")
     for index, source_name in enumerate(sources):
-        if not isinstance(source_name, str) or not source_name:
-            raise LakehouseDescriptorError(f"{source}: sources[{index}] must be a non-empty string")
+        _identifier(source_name, field=f"sources[{index}]", source=source)
     if len(sources) != len(set(sources)):
         raise LakehouseDescriptorError(f"{source}: sources must not contain duplicates")
     domains = document["domains"]
     if not isinstance(domains, list) or not domains:
         raise LakehouseDescriptorError(f"{source}: domains must be a non-empty array")
+    seen_domains: set[str] = set()
+    seen_products: set[str] = set()
     for domain in domains:
         if not isinstance(domain, Mapping):
             raise LakehouseDescriptorError(f"{source}: domains must contain objects")
         _validate_domain(domain, source=source)
+        if domain["name"] in seen_domains:
+            raise LakehouseDescriptorError(f"{source}: duplicate domain name {domain['name']!r}")
+        seen_domains.add(domain["name"])
+        for product in domain["products"]:
+            if product["id"] in seen_products:
+                raise LakehouseDescriptorError(
+                    f"{source}: product id {product['id']!r} must be globally unique across domains"
+                )
+            seen_products.add(product["id"])
     dashboards = document["dashboards"]
     if not isinstance(dashboards, list):
         raise LakehouseDescriptorError(f"{source}: dashboards must be an array")
+    seen_dashboards: set[str] = set()
     for dashboard in dashboards:
         if not isinstance(dashboard, Mapping):
             raise LakehouseDescriptorError(f"{source}: dashboards must contain objects")
         _validate_dashboard(dashboard, source=source)
+        if dashboard["name"] in seen_dashboards:
+            raise LakehouseDescriptorError(f"{source}: duplicate dashboard name {dashboard['name']!r}")
+        seen_dashboards.add(dashboard["name"])
+        unknown_products = sorted(set(dashboard["products"]) - seen_products)
+        if unknown_products:
+            raise LakehouseDescriptorError(
+                f"{source}: dashboard {dashboard['name']!r}: products reference unknown product ids "
+                f"{unknown_products!r}"
+            )
     unexpected = set(document) - {
         "apiVersion", "kind", "name", "displayName", "description", "status", "sources", "domains", "dashboards",
     }

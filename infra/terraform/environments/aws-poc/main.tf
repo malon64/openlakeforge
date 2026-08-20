@@ -57,15 +57,14 @@ locals {
   floe_report_base_uri        = "${local.artifact_base_uri}/floe/reports"
   log_base_uri                = "${local.artifact_base_uri}/logs"
   run_artifact_base_uri       = "${local.artifact_base_uri}/run-artifacts"
-  product_floe_manifest_uris = {
-    order_revenue         = "${local.floe_manifest_base_uri}/sales/order_revenue/order_revenue.manifest.json"
-    customer_health       = "${local.floe_manifest_base_uri}/sales/customer_health/customer_health.manifest.json"
-    inventory_reliability = "${local.floe_manifest_base_uri}/supply_chain/inventory_reliability/inventory_reliability.manifest.json"
+  domain_floe_manifest_uris = {
+    sales        = "${local.floe_manifest_base_uri}/sales/sales.manifest.json"
+    supply_chain = "${local.floe_manifest_base_uri}/supply_chain/supply_chain.manifest.json"
   }
   # Databases themselves are not declared here. `olf catalog sync-namespaces`
   # reconciles them from the lakehouse inventory during artifacts-deploy (ADR
   # 0022); this root only records which naming model those databases follow.
-  catalog_namespace_model = "domain-layer"
+  catalog_namespace_model = "medallion-owner"
   # Service accounts bound to the lakehouse workload role via EKS Pod Identity
   # associations (not IRSA). No SA annotation is required with Pod Identity.
   workload_service_accounts = [

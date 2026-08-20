@@ -159,19 +159,19 @@ The orchestration module owns:
 
 - the Dagster Helm release
 - shared PostgreSQL credentials for Dagster metadata
-- the `openlakeforge-dagster` code location loading `domains.definitions`
+- the `openlakeforge-dagster` code location loading `lakehouse_code.definitions`
 - one user-code pod by default; a multi-entry `code_locations` configuration
   remains available when domains need isolated code-location loading and restarts
 - the Kubernetes run launcher
 - the local project-code image reference `ghcr.io/openlakeforge/project-code:local`
-- the product Floe manifest base URI `s3://openlakeforge-ops/floe/manifests`
+- the domain Floe manifest base URI `s3://openlakeforge-ops/floe/manifests`
 - S3-backed Dagster compute logs under `s3://openlakeforge-ops/logs/dagster/compute`
 
 Local development uses `make local-platform-up` for Terraform-managed platform
 resources and `make local-artifacts-deploy` for dynamic domain artifacts.
 Dagster loads the Floe asset graphs from manifests baked into the project-code
 image. Terraform provisions the ops bucket and passes remote artifact base URIs
-to Dagster; the artifact deploy phase publishes generated product Floe
+to Dagster; the artifact deploy phase publishes generated domain Floe
 manifests under `floe/manifests/` so the separate Floe runner pod can read them.
 Dagster launches Floe Kubernetes jobs from the image declared in the generated
 Floe manifests.

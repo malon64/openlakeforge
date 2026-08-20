@@ -1,3 +1,3 @@
 locals {
-  catalog_namespace_model = "domain-layer"
+  catalog_namespace_model = "medallion-owner"
 }

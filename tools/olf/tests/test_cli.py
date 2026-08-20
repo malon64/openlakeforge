@@ -41,7 +41,7 @@ def test_artifacts_deploy_optional_layers_skips_disabled_layers(monkeypatch: pyt
 
 
 def test_revision_compute_command_prints_runtime_artifact_revision(tmp_path: Path) -> None:
-    path = tmp_path / "manifests/sales/order_revenue/order_revenue.manifest.json"
+    path = tmp_path / "manifests/sales/sales.manifest.json"
     path.parent.mkdir(parents=True)
     path.write_text("{}")
 
@@ -51,16 +51,14 @@ def test_revision_compute_command_prints_runtime_artifact_revision(tmp_path: Pat
     assert result.output.startswith("sha256:")
 
 
-def test_superset_export_reports_defaults_come_from_the_default_product(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_superset_export_reports_defaults_come_from_the_first_dashboard(monkeypatch: pytest.MonkeyPatch) -> None:
     from openlakeforge_domain import inventory_for
 
     from olf import config
 
     inventory = inventory_for(config.repo_root())
-    default_product = inventory.default_product
-    default_dashboard = next(
-        dashboard for dashboard in inventory.dashboards if dashboard.product == default_product.id
-    )
+    default_dashboard = inventory.dashboards[0]
+    default_product = next(product for product in inventory.products if product.id == default_dashboard.products[0])
     calls: list[dict] = []
     monkeypatch.setattr(
         "olf.superset.export_report",
@@ -71,7 +69,7 @@ def test_superset_export_reports_defaults_come_from_the_default_product(monkeypa
 
     assert result.exit_code == 0
     assert calls[0]["report_source_dir"] == default_dashboard.report_source_dir
-    assert calls[0]["bundle_name"] == default_product.superset_export_bundle_name
+    assert calls[0]["bundle_name"] == default_dashboard.superset_export_bundle_name
     assert calls[0]["dashboard_title"] == default_product.display_name
 
 
@@ -108,22 +106,23 @@ domains:
     displayName: Sales
     description: Sales domain.
     status: planned
+    silver_tables:
+      tables:
+        - name: orders
+          source: crm
+          resource: orders
     products:
       - id: orders
         displayName: Sales Orders Product Metadata Name
         description: Sales orders.
         status: planned
-        bronze:
-          source: crm
-          resources:
-            - orders
-        silver_tables:
-          tables:
-            - name: orders
+        silver_inputs: [orders]
         gold_tables:
           tables:
             - name: mart_orders
-dashboards: []
+dashboards:
+  - name: orders
+    products: [orders]
 """,
         encoding="utf-8",
     )

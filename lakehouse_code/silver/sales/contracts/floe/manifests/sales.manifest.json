@@ -3,16 +3,16 @@
   "generated_at_ts_ms": 0,
   "floe_version": "0.6.11",
   "spec_version": "0.2",
-  "manifest_name": "order_revenue.local",
-  "manifest_id": "mfv1-3457a78f2f989ccc",
-  "manifest_revision": "sha256:9cca6b6291d65de733d9edf6eeb5faeb72de97460ba82bc1b6484892f63d9a59",
+  "manifest_name": "sales.local",
+  "manifest_id": "mfv1-5936f491b71864eb",
+  "manifest_revision": "sha256:4f9e2233ceafa3e3dc92f8ef4bd4735a38cf6fcec26226e1fd2a62ed72791d98",
   "runtime_env": "image",
   "work_root": "/work",
-  "config_uri": "local:///work/lakehouse_code/silver/sales/contracts/floe/order_revenue.yml",
-  "config_checksum": "sha256:e8eefc45e2735f8972d1aab39b8cee6836ebca442508eb98b8b640a0aa8e7eb7",
+  "config_uri": "local:///work/lakehouse_code/silver/sales/contracts/floe/sales.yml",
+  "config_checksum": "sha256:2d87dee34ad1e0b2f1d14fa0b4e265e95f0e195515683320b072e11b83c375a3",
   "profile_uri": "local:///work/libs/floe/profiles/local-k8s.yml",
   "profile_checksum": "sha256:aa752d0aa63e27e4292a5b2d9aa2c85d5c8646dd0bfa2885a46a3aa20cdc81cd",
-  "report_base_uri": "s3://openlakeforge-ops/floe/reports/sales/order_revenue",
+  "report_base_uri": "s3://openlakeforge-ops/floe/reports/sales",
   "domains": [],
   "execution": {
     "entrypoint": "floe",
@@ -109,10 +109,10 @@
   "entities": [
     {
       "name": "accounts",
-      "domain": "order_revenue",
-      "group_name": "order_revenue",
+      "domain": "sales",
+      "group_name": "sales",
       "asset_key": [
-        "order_revenue",
+        "sales",
         "accounts"
       ],
       "source_format": "csv",
@@ -216,10 +216,10 @@
     },
     {
       "name": "channels",
-      "domain": "order_revenue",
-      "group_name": "order_revenue",
+      "domain": "sales",
+      "group_name": "sales",
       "asset_key": [
-        "order_revenue",
+        "sales",
         "channels"
       ],
       "source_format": "csv",
@@ -307,11 +307,108 @@
       }
     },
     {
-      "name": "order_lines",
-      "domain": "order_revenue",
-      "group_name": "order_revenue",
+      "name": "nps_responses",
+      "domain": "sales",
+      "group_name": "sales",
       "asset_key": [
-        "order_revenue",
+        "sales",
+        "nps_responses"
+      ],
+      "source_format": "csv",
+      "accepted_sink_uri": "s3://lakehouse-silver/sales/nps_responses",
+      "rejected_sink_uri": "s3://lakehouse-silver/floe/rejected/sales/nps_responses",
+      "tags": null,
+      "source": {
+        "format": "csv",
+        "storage": "lakehouse_bronze",
+        "uri": "s3://lakehouse-bronze/crm/nps_responses",
+        "path": "s3://lakehouse-bronze/crm/nps_responses",
+        "resolved": true,
+        "cast_mode": "strict",
+        "options": {
+          "data_row": null,
+          "encoding": "utf-8",
+          "glob": "*.csv",
+          "header": true,
+          "header_row": 1,
+          "json_mode": null,
+          "namespace": null,
+          "null_values": [
+            ""
+          ],
+          "recursive": false,
+          "row_tag": null,
+          "separator": ",",
+          "sheet": null,
+          "value_tag": null
+        }
+      },
+      "sinks": {
+        "accepted": {
+          "format": "iceberg",
+          "storage": "lakehouse_silver",
+          "uri": "s3://lakehouse-silver/sales/nps_responses",
+          "path": "s3://lakehouse-silver/sales/nps_responses",
+          "resolved": true,
+          "iceberg": {
+            "catalog": "iceberg_catalog",
+            "location": null,
+            "namespace": "sales_silver",
+            "table": "nps_responses"
+          }
+        },
+        "rejected": {
+          "format": "csv",
+          "storage": "lakehouse_silver",
+          "uri": "s3://lakehouse-silver/floe/rejected/sales/nps_responses",
+          "path": "s3://lakehouse-silver/floe/rejected/sales/nps_responses",
+          "resolved": true
+        },
+        "archive": null
+      },
+      "runner": null,
+      "policy_severity": "reject",
+      "write_mode": "overwrite",
+      "incremental_mode": "none",
+      "schema": {
+        "columns": [
+          {
+            "name": "response_id",
+            "column_type": "string",
+            "nullable": false
+          },
+          {
+            "name": "account_id",
+            "column_type": "string",
+            "nullable": false
+          },
+          {
+            "name": "response_date",
+            "column_type": "date",
+            "nullable": false
+          },
+          {
+            "name": "score",
+            "column_type": "integer",
+            "nullable": false
+          }
+        ],
+        "primary_key": [
+          "response_id"
+        ],
+        "unique_keys": [],
+        "normalize_columns": {
+          "enabled": true,
+          "strategy": "snake_case"
+        }
+      }
+    },
+    {
+      "name": "order_lines",
+      "domain": "sales",
+      "group_name": "sales",
+      "asset_key": [
+        "sales",
         "order_lines"
       ],
       "source_format": "csv",
@@ -415,10 +512,10 @@
     },
     {
       "name": "orders",
-      "domain": "order_revenue",
-      "group_name": "order_revenue",
+      "domain": "sales",
+      "group_name": "sales",
       "asset_key": [
-        "order_revenue",
+        "sales",
         "orders"
       ],
       "source_format": "csv",
@@ -527,10 +624,10 @@
     },
     {
       "name": "products",
-      "domain": "order_revenue",
-      "group_name": "order_revenue",
+      "domain": "sales",
+      "group_name": "sales",
       "asset_key": [
-        "order_revenue",
+        "sales",
         "products"
       ],
       "source_format": "csv",
@@ -624,10 +721,10 @@
     },
     {
       "name": "promotions",
-      "domain": "order_revenue",
-      "group_name": "order_revenue",
+      "domain": "sales",
+      "group_name": "sales",
       "asset_key": [
-        "order_revenue",
+        "sales",
         "promotions"
       ],
       "source_format": "csv",
@@ -706,6 +803,225 @@
         ],
         "primary_key": [
           "promotion_id"
+        ],
+        "unique_keys": [],
+        "normalize_columns": {
+          "enabled": true,
+          "strategy": "snake_case"
+        }
+      }
+    },
+    {
+      "name": "subscriptions",
+      "domain": "sales",
+      "group_name": "sales",
+      "asset_key": [
+        "sales",
+        "subscriptions"
+      ],
+      "source_format": "csv",
+      "accepted_sink_uri": "s3://lakehouse-silver/sales/subscriptions",
+      "rejected_sink_uri": "s3://lakehouse-silver/floe/rejected/sales/subscriptions",
+      "tags": null,
+      "source": {
+        "format": "csv",
+        "storage": "lakehouse_bronze",
+        "uri": "s3://lakehouse-bronze/crm/subscriptions",
+        "path": "s3://lakehouse-bronze/crm/subscriptions",
+        "resolved": true,
+        "cast_mode": "strict",
+        "options": {
+          "data_row": null,
+          "encoding": "utf-8",
+          "glob": "*.csv",
+          "header": true,
+          "header_row": 1,
+          "json_mode": null,
+          "namespace": null,
+          "null_values": [
+            ""
+          ],
+          "recursive": false,
+          "row_tag": null,
+          "separator": ",",
+          "sheet": null,
+          "value_tag": null
+        }
+      },
+      "sinks": {
+        "accepted": {
+          "format": "iceberg",
+          "storage": "lakehouse_silver",
+          "uri": "s3://lakehouse-silver/sales/subscriptions",
+          "path": "s3://lakehouse-silver/sales/subscriptions",
+          "resolved": true,
+          "iceberg": {
+            "catalog": "iceberg_catalog",
+            "location": null,
+            "namespace": "sales_silver",
+            "table": "subscriptions"
+          }
+        },
+        "rejected": {
+          "format": "csv",
+          "storage": "lakehouse_silver",
+          "uri": "s3://lakehouse-silver/floe/rejected/sales/subscriptions",
+          "path": "s3://lakehouse-silver/floe/rejected/sales/subscriptions",
+          "resolved": true
+        },
+        "archive": null
+      },
+      "runner": null,
+      "policy_severity": "reject",
+      "write_mode": "overwrite",
+      "incremental_mode": "none",
+      "schema": {
+        "columns": [
+          {
+            "name": "subscription_id",
+            "column_type": "string",
+            "nullable": false
+          },
+          {
+            "name": "account_id",
+            "column_type": "string",
+            "nullable": false
+          },
+          {
+            "name": "plan_name",
+            "column_type": "string",
+            "nullable": false
+          },
+          {
+            "name": "status",
+            "column_type": "string",
+            "nullable": false
+          },
+          {
+            "name": "start_date",
+            "column_type": "date",
+            "nullable": false
+          },
+          {
+            "name": "renewal_date",
+            "column_type": "date",
+            "nullable": false
+          },
+          {
+            "name": "monthly_recurring_revenue",
+            "column_type": "number",
+            "nullable": false
+          }
+        ],
+        "primary_key": [
+          "subscription_id"
+        ],
+        "unique_keys": [],
+        "normalize_columns": {
+          "enabled": true,
+          "strategy": "snake_case"
+        }
+      }
+    },
+    {
+      "name": "support_tickets",
+      "domain": "sales",
+      "group_name": "sales",
+      "asset_key": [
+        "sales",
+        "support_tickets"
+      ],
+      "source_format": "csv",
+      "accepted_sink_uri": "s3://lakehouse-silver/sales/support_tickets",
+      "rejected_sink_uri": "s3://lakehouse-silver/floe/rejected/sales/support_tickets",
+      "tags": null,
+      "source": {
+        "format": "csv",
+        "storage": "lakehouse_bronze",
+        "uri": "s3://lakehouse-bronze/crm/support_tickets",
+        "path": "s3://lakehouse-bronze/crm/support_tickets",
+        "resolved": true,
+        "cast_mode": "strict",
+        "options": {
+          "data_row": null,
+          "encoding": "utf-8",
+          "glob": "*.csv",
+          "header": true,
+          "header_row": 1,
+          "json_mode": null,
+          "namespace": null,
+          "null_values": [
+            ""
+          ],
+          "recursive": false,
+          "row_tag": null,
+          "separator": ",",
+          "sheet": null,
+          "value_tag": null
+        }
+      },
+      "sinks": {
+        "accepted": {
+          "format": "iceberg",
+          "storage": "lakehouse_silver",
+          "uri": "s3://lakehouse-silver/sales/support_tickets",
+          "path": "s3://lakehouse-silver/sales/support_tickets",
+          "resolved": true,
+          "iceberg": {
+            "catalog": "iceberg_catalog",
+            "location": null,
+            "namespace": "sales_silver",
+            "table": "support_tickets"
+          }
+        },
+        "rejected": {
+          "format": "csv",
+          "storage": "lakehouse_silver",
+          "uri": "s3://lakehouse-silver/floe/rejected/sales/support_tickets",
+          "path": "s3://lakehouse-silver/floe/rejected/sales/support_tickets",
+          "resolved": true
+        },
+        "archive": null
+      },
+      "runner": null,
+      "policy_severity": "reject",
+      "write_mode": "overwrite",
+      "incremental_mode": "none",
+      "schema": {
+        "columns": [
+          {
+            "name": "ticket_id",
+            "column_type": "string",
+            "nullable": false
+          },
+          {
+            "name": "account_id",
+            "column_type": "string",
+            "nullable": false
+          },
+          {
+            "name": "opened_date",
+            "column_type": "date",
+            "nullable": false
+          },
+          {
+            "name": "priority",
+            "column_type": "string",
+            "nullable": false
+          },
+          {
+            "name": "resolution_hours",
+            "column_type": "integer",
+            "nullable": false
+          },
+          {
+            "name": "sla_met",
+            "column_type": "boolean",
+            "nullable": false
+          }
+        ],
+        "primary_key": [
+          "ticket_id"
         ],
         "unique_keys": [],
         "normalize_columns": {

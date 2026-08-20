@@ -69,7 +69,7 @@ source "${REPO_ROOT}/scripts/contracts/load-runtime-env.sh"
 echo "==> Reconciling Polaris namespaces from the domain descriptors..."
 olf_run catalog sync-namespaces
 
-echo "==> Generating product Floe manifests before baking the project-code image..."
+echo "==> Generating domain Floe manifests before baking the project-code image..."
 export FLOE_RUNTIME_ARTIFACT_DIR
 export FLOE_PERSIST_RUNTIME_ARTIFACTS="true"
 NAMESPACE="${NAMESPACE}" bash "${REPO_ROOT}/scripts/artifacts/floe-manifest.sh"
@@ -87,7 +87,7 @@ PROJECT_CODE_IMAGE_TAG="${PROJECT_CODE_IMAGE_TAG}" \
 FLOE_MANIFEST_REVISION="${FLOE_MANIFEST_REVISION}" \
   bash "${SCRIPT_DIR}/../images/build-push-project-code.sh"
 
-echo "==> Publishing product Floe manifests to the Azure POC SeaweedFS ops bucket..."
+echo "==> Publishing domain Floe manifests to the Azure POC SeaweedFS ops bucket..."
 olf_run artifacts upload-manifests --via port-forward --runtime-root "${FLOE_RUNTIME_ARTIFACT_DIR}"
 
 OPENMETADATA_ALLOW_MISSING_ASSETS="${OPENMETADATA_ALLOW_MISSING_ASSETS:-true}" \

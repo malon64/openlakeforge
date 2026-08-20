@@ -64,24 +64,23 @@ domains:
     displayName: {domain.title()}
     description: {domain} domain.
     status: planned
+    silver_tables:
+      tables:
+        - name: orders
+          source: {source}
+          resource: orders
     products:
       - id: {product_id}
         displayName: {product_id.replace('_', ' ').title()}
         description: {product_id} product.
         status: planned
-        bronze:
-          source: {source}
-          resources:
-            - orders
-        silver_tables:
-          tables:
-            - name: orders
+        silver_inputs: [orders]
         gold_tables:
           tables:
             - name: mart_{product_id}
 dashboards:
   - name: {product_id}_dashboard
-    product: {product_id}
+    products: [{product_id}]
 """
 
 
@@ -134,7 +133,7 @@ def test_seed_inventory_derives_every_product_expectation() -> None:
             "inventory_reliability_gold",
         }
     )
-    assert [table.name for table in inventory.products[0].silver_tables] == [
+    assert [table.name for table in inventory.resolved_silver_tables(inventory.products[0])] == [
         "orders",
         "order_lines",
         "products",
@@ -152,9 +151,7 @@ def test_seed_inventory_derives_every_product_expectation() -> None:
         "order_revenue",
         "sales.order_revenue",
     )
-    assert inventory.products[0].artifact_prefixes.manifest_key == (
-        "floe/manifests/sales/order_revenue/order_revenue.manifest.json"
-    )
+    assert inventory.domains[0].artifact_prefixes.manifest_key == "floe/manifests/sales/sales.manifest.json"
     assert inventory.domain_names == ("sales", "supply_chain")
     assert inventory.silver_table_count == 15  # crm.accounts counted once, shared by order_revenue+customer_health
     assert inventory.gold_table_count == 10
@@ -171,9 +168,8 @@ def test_seed_inventory_derives_every_product_expectation() -> None:
         "inventory_reliability_gold.mart_stockout_risk",
     )
     assert inventory.manifest_keys == (
-        "floe/manifests/sales/order_revenue/order_revenue.manifest.json",
-        "floe/manifests/sales/customer_health/customer_health.manifest.json",
-        "floe/manifests/supply_chain/inventory_reliability/inventory_reliability.manifest.json",
+        "floe/manifests/sales/sales.manifest.json",
+        "floe/manifests/supply_chain/supply_chain.manifest.json",
     )
     assert inventory.openmetadata_data_products == {
         "order_revenue": ("order_revenue", "sales.order_revenue"),
@@ -184,7 +180,7 @@ def test_seed_inventory_derives_every_product_expectation() -> None:
     assert inventory.gold_namespace_names == frozenset(
         {"order_revenue_gold", "customer_health_gold", "inventory_reliability_gold"}
     )
-    assert inventory.products[0].superset_export_bundle_name == "order_revenue_superset_assets_export.zip"
+    assert inventory.dashboards[0].report_source_dir == "lakehouse_code/dashboards/superset/sales_order_revenue"
 
 
 def test_inventory_for_caches_by_resolved_repo_root() -> None:
@@ -236,13 +232,11 @@ def test_inventory_resolves_provider_physical_names() -> None:
 
     assert names.catalog_namespaces[0].name == "sales_silver"
     assert names.catalog_namespaces[0].location == "s3://openlakeforge-poc-silver/sales_silver/"
-    assert names.silver_schema_fqns["order_revenue"] == "aws_glue.lakehouse_dev.sales_silver"
+    assert names.silver_schema_fqns["sales"] == "aws_glue.lakehouse_dev.sales_silver"
     assert names.gold_schema_fqns["inventory_reliability"] == (
         "aws_glue.lakehouse_dev.inventory_reliability_gold"
     )
-    assert names.products[0].manifest_uri == (
-        "s3://openlakeforge-poc-ops/floe/manifests/sales/order_revenue/order_revenue.manifest.json"
-    )
+    assert names.domains[0].manifest_uri == "s3://openlakeforge-poc-ops/floe/manifests/sales/sales.manifest.json"
     assert names.bronze_namespaces["crm"] == "crm_bronze"
     assert names.bronze_schema_fqns["crm"] == "aws_glue.lakehouse_dev.crm_bronze"
 
@@ -317,9 +311,9 @@ def test_renaming_descriptor_product_changes_discovered_work_without_shared_code
     assert product.job_name == "revenue_pipeline"
     assert product.silver_namespace == "sales_silver"
     assert product.openmetadata_data_product_fqns == ("revenue", "sales.revenue")
-    assert product.artifact_prefixes.manifest_key == "floe/manifests/sales/revenue/revenue.manifest.json"
+    assert inventory.domains[0].artifact_prefixes.manifest_key == "floe/manifests/sales/sales.manifest.json"
     assert product.definitions_module == "lakehouse_code.pipelines.dagster.revenue"
     assert inventory.job_names == ("revenue_pipeline",)
     assert inventory.gold_mart_names == ("revenue_gold.mart_revenue",)
-    assert inventory.manifest_keys == ("floe/manifests/sales/revenue/revenue.manifest.json",)
+    assert inventory.manifest_keys == ("floe/manifests/sales/sales.manifest.json",)
     assert inventory.silver_namespace_names == frozenset({"sales_silver"})

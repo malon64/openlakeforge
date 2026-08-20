@@ -23,24 +23,23 @@ domains:
     displayName: {domain.title()}
     description: {domain} domain.
     status: planned
+    silver_tables:
+      tables:
+        - name: source
+          source: crm
+          resource: source
     products:
       - id: {product_id}
         displayName: {product_id.replace('_', ' ').title()}
         description: {product_id} product.
         status: planned
-        bronze:
-          source: crm
-          resources:
-            - source
-        silver_tables:
-          tables:
-            - name: source
+        silver_inputs: [source]
         gold_tables:
           tables:
             - name: mart_{product_id}
 dashboards:
   - name: {product_id}_dashboard
-    product: {product_id}
+    products: [{product_id}]
 """,
         encoding="utf-8",
     )
@@ -114,7 +113,7 @@ def test_config_from_environment_defaults_seed_schema_fqns_for_direct_cli(tmp_pa
 
     assert cfg.catalog_service == "polaris"
     assert cfg.catalog_database == "lakehouse_dev"
-    assert cfg.catalog_silver_schema_fqns == {"widgets": "polaris.lakehouse_dev.sales_silver"}
+    assert cfg.catalog_silver_schema_fqns == {"sales": "polaris.lakehouse_dev.sales_silver"}
     assert cfg.catalog_gold_schema_fqns == {"widgets": "polaris.lakehouse_dev.widgets_gold"}
 
 
@@ -141,7 +140,7 @@ def test_config_from_environment_derives_defaults_from_metadata_source_dir_overr
         cleanup_legacy_default_database=False,
     )
 
-    assert cfg.catalog_silver_schema_fqns == {"widgets": "polaris.lakehouse_dev.sales_silver"}
+    assert cfg.catalog_silver_schema_fqns == {"sales": "polaris.lakehouse_dev.sales_silver"}
     assert cfg.catalog_gold_schema_fqns == {"widgets": "polaris.lakehouse_dev.widgets_gold"}
     deployer = om.OpenMetadataDeployer(cfg, om.OpenMetadataClient(cfg.base_url))
     assert deployer.domain_files() == [lakehouse_path, source_dir / "bronze" / "crm" / "source.yaml"]
@@ -172,7 +171,7 @@ def test_config_from_environment_accepts_a_standalone_lakehouse_directory_overri
         cleanup_legacy_default_database=False,
     )
 
-    assert cfg.catalog_silver_schema_fqns == {"widgets": "polaris.lakehouse_dev.sales_silver"}
+    assert cfg.catalog_silver_schema_fqns == {"sales": "polaris.lakehouse_dev.sales_silver"}
     deployer = om.OpenMetadataDeployer(cfg, om.OpenMetadataClient(cfg.base_url))
     assert deployer.domain_files() == [lakehouse_path, metadata_dir / "bronze" / "crm" / "source.yaml"]
 
@@ -201,7 +200,7 @@ def test_config_from_environment_accepts_a_standalone_lakehouse_file_override(tm
         cleanup_legacy_default_database=False,
     )
 
-    assert cfg.catalog_silver_schema_fqns == {"widgets": "polaris.lakehouse_dev.sales_silver"}
+    assert cfg.catalog_silver_schema_fqns == {"sales": "polaris.lakehouse_dev.sales_silver"}
     deployer = om.OpenMetadataDeployer(cfg, om.OpenMetadataClient(cfg.base_url))
     assert deployer.domain_files() == [lakehouse_path, metadata_dir / "bronze" / "crm" / "source.yaml"]
 

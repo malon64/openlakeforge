@@ -23,7 +23,7 @@ def test_smoke_product_table_check_fails_for_an_empty_gold_mart(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     product = E2E_INVENTORY.default_product
-    silver_table_names = "\n".join(table.name for table in product.silver_tables)
+    silver_table_names = "\n".join(table.name for table in E2E_INVENTORY.resolved_silver_tables(product))
     values = iter((str(len(product.gold_tables)), "0"))
     monkeypatch.setattr(_trino, "check_trino_catalog", lambda _cfg: None)
     monkeypatch.setattr(_trino, "trino_query", lambda _cfg, _sql: silver_table_names)

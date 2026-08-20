@@ -45,7 +45,7 @@ def artifacts_upload_manifests(
         help="Rendered Floe runtime artifact root containing configs/, profiles/, and manifests/.",
     ),
 ) -> None:
-    """Publish product Floe runtime artifacts to the operational artifact bucket."""
+    """Publish domain Floe runtime artifacts to the operational artifact bucket."""
     from olf import s3
 
     repo_root = config.repo_root()
@@ -70,7 +70,7 @@ def artifacts_upload_manifests(
         else:
             uploads = s3.discover_tracked_manifests(repo_root)
         if not uploads:
-            raise typer.Exit(code=fail("no generated product Floe artifacts found. Run 'make floe-manifest' first."))
+            raise typer.Exit(code=fail("no generated domain Floe artifacts found. Run 'make floe-manifest' first."))
         secret_name = config.env("OPENLAKEFORGE_STORAGE_CREDENTIALS_SECRET_NAME")
         service = config.env("OPENLAKEFORGE_STORAGE_S3_SERVICE_NAME", "seaweedfs-s3")
         remote_port = int(config.env("OPENLAKEFORGE_STORAGE_S3_SERVICE_PORT", "8333"))

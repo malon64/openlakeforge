@@ -168,7 +168,7 @@ lakehouse_code/
 │       ├── __init__.py
 │       └── contracts/
 │           └── floe/
-│               └── campaign_performance.yml
+│               └── marketing.yml
 │
 └── gold/
     └── campaign_performance/
@@ -232,19 +232,18 @@ domains:
     displayName: Marketing
     description: Marketing analytics data products.
     status: active
+    silver_tables:
+      tables:
+        - name: campaigns
+          source: marketing_platform
+          resource: campaigns
+          description: Validated marketing campaigns.
     products:
       - id: campaign_performance
         displayName: Campaign Performance
         description: Campaign spend and conversion performance by channel.
         status: active
-        bronze:
-          source: marketing_platform
-          resources:
-            - campaigns
-        silver_tables:
-          tables:
-            - name: campaigns
-              description: Validated marketing campaigns.
+        silver_inputs: [campaigns]
         gold_tables:
           tables:
             - name: mart_campaign_performance
@@ -254,8 +253,8 @@ domains:
 `lakehouse.yaml` tells OpenLakeForge:
 
 * which sources, domains, and products exist
-* which Bronze resources each product consumes, and from which source
-* which Silver tables the domain should produce
+* which Source resources map to domain Silver tables
+* which Silver tables each product consumes
 * which Gold tables the product should produce
 
 The descriptor must remain provider-neutral: no Polaris, Glue, SeaweedFS, S3 endpoints,
@@ -343,7 +342,7 @@ ingestion definition.
 Create:
 
 ```text
-lakehouse_code/silver/marketing/contracts/floe/campaign_performance.yml
+lakehouse_code/silver/marketing/contracts/floe/marketing.yml
 ```
 
 with:
@@ -354,8 +353,8 @@ version: "0.2"
 metadata:
   project: "openlakeforge"
   owner: "marketing"
-  description: "Campaign Performance Bronze to Silver Floe contracts."
-  tags: ["marketing", "campaign_performance", "silver"]
+  description: "Marketing Bronze to Silver Floe contracts."
+  tags: ["marketing", "silver"]
 
 storages:
   default: "lakehouse_bronze"
@@ -591,26 +590,17 @@ from __future__ import annotations
 
 from libs.product_dagster import ProductDefinitionSpec, build_product_definitions
 
-from lakehouse_code.bronze.marketing_platform.dlt.marketing_platform import (
-    MARKETING_PLATFORM_ENTITIES,
-    BronzeLoadResult,
-    load_marketing_platform_entities_to_bronze,
-)
-
+CAMPAIGN_PERFORMANCE_SILVER_INPUTS = ("campaigns",)
 CAMPAIGN_PERFORMANCE_GOLD_ASSETS = ("mart_campaign_performance",)
-
-
-def _load_campaign_performance_bronze() -> dict[str, BronzeLoadResult]:
-    return load_marketing_platform_entities_to_bronze(MARKETING_PLATFORM_ENTITIES)
 
 
 defs = build_product_definitions(
     ProductDefinitionSpec(
         domain="marketing",
         product="campaign_performance",
-        entities=MARKETING_PLATFORM_ENTITIES,
+        silver_inputs=CAMPAIGN_PERFORMANCE_SILVER_INPUTS,
+        bronze_inputs=(("marketing_platform", "campaigns"),),
         gold_assets=CAMPAIGN_PERFORMANCE_GOLD_ASSETS,
-        bronze_loader=_load_campaign_performance_bronze,
     )
 )
 ```
@@ -648,7 +638,7 @@ lakehouse_code/
 │       ├── __init__.py
 │       └── contracts/
 │           └── floe/
-│               └── campaign_performance.yml
+│               └── marketing.yml
 ├── gold/
 │   └── campaign_performance/
 │       ├── __init__.py
@@ -734,7 +724,7 @@ relations remain stable.
 
 # 14. Generate and validate the Floe manifest
 
-Floe manifests are generated from the product contract.
+Floe manifests are generated from each domain contract.
 
 Run:
 
@@ -751,7 +741,7 @@ lakehouse_code/silver/*/contracts/floe/*.yml
 automatically. For this product it generates:
 
 ```text
-lakehouse_code/silver/marketing/contracts/floe/manifests/campaign_performance.manifest.json
+lakehouse_code/silver/marketing/contracts/floe/manifests/marketing.manifest.json
 ```
 
 Do not hand-author the generated manifest. The artifact deployment workflow also
@@ -915,11 +905,12 @@ sources:
 
 domains:
   - name: marketing
+    silver_tables:
+      tables:
+        - {name: campaigns, source: marketing_platform, resource: campaigns}
     products:
       - id: campaign_performance
-        bronze:
-          source: marketing_platform
-          resources: [campaigns]
+        silver_inputs: [campaigns]
 ```
 
 OpenLakeForge can derive:
@@ -931,8 +922,8 @@ OpenLakeForge can derive:
 | Bronze namespace  | `marketing_platform_bronze`                                                |
 | Silver namespace  | `marketing_silver` (domain-owned — shared by every `marketing` product)    |
 | Gold namespace    | `campaign_performance_gold` (product-owned)                                |
-| Floe manifest      | `marketing/campaign_performance/campaign_performance.manifest.json`        |
-| Floe reports        | `marketing/campaign_performance/`                                          |
+| Floe manifest      | `marketing/marketing.manifest.json`                                        |
+| Floe reports        | `marketing/`                                                               |
 | dbt runtime artifacts | `marketing/campaign_performance/`                                       |
 
 Provider contracts then resolve those logical identities into the physical storage and
@@ -962,20 +953,17 @@ resources:
   - name: ad_events
 ```
 
-Reference them from the product in `lakehouse.yaml`:
+Map them in the domain and select them from the product in `lakehouse.yaml`:
 
 ```yaml
-bronze:
-  source: marketing_platform
-  resources:
-    - campaigns
-    - ad_groups
-    - ad_events
 silver_tables:
   tables:
-    - name: campaigns
-    - name: ad_groups
-    - name: ad_events
+    - {name: campaigns, source: marketing_platform, resource: campaigns}
+    - {name: ad_groups, source: marketing_platform, resource: ad_groups}
+    - {name: ad_events, source: marketing_platform, resource: ad_events}
+products:
+  - id: campaign_performance
+    silver_inputs: [campaigns, ad_groups, ad_events]
 ```
 
 Then update the entity tuple in
@@ -986,7 +974,7 @@ MARKETING_PLATFORM_ENTITIES = ("campaigns", "ad_groups", "ad_events")
 ```
 
 and define each entity in the Floe contract. The Dagster product definition
-automatically creates the Bronze/Floe asset selection from that entity list.
+aggregator automatically creates the source Bronze and domain Floe definitions.
 
 ---
 
@@ -1056,35 +1044,34 @@ in `lakehouse_code/lakehouse.yaml`, referencing whichever source it needs — th
 
 ```text
 gold/<product>/dbt/
-silver/marketing/contracts/floe/<product>.yml
 pipelines/dagster/<product>.py
 ```
 
-Its `bronze.resources` can overlap with an existing product's — the Bronze source is
-loaded once and consumed by both, and both validate into the same `marketing_silver`
+Its `silver_inputs` can overlap with an existing product's — the Bronze source and
+domain Silver definitions are loaded once and consumed by both in `marketing_silver`
 namespace. `lakehouse_code/definitions.py` does not need to change.
 
 ---
 
-# The product contract
+# Ownership identities
 
 When adding a product, keep these identities aligned:
 
 ```text
 lakehouse.yaml product id
         │
-        ├── Floe contract filename (under silver/<domain>/contracts/floe/)
-        │
         ├── dbt project directory name (under gold/<product>/)
-        │
         └── Dagster module filename (under pipelines/dagster/)
+
+lakehouse.yaml domain name
+        └── Floe contract filename (under silver/<domain>/contracts/floe/)
 ```
 
 For this tutorial, `campaign_performance` is consistently used in:
 
 ```text
 lakehouse.yaml (product id)
-silver/marketing/contracts/floe/campaign_performance.yml
+silver/marketing/contracts/floe/marketing.yml
 gold/campaign_performance/
 pipelines/dagster/campaign_performance.py
 ```

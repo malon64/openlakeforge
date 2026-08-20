@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Any
 
 import yaml
@@ -39,7 +40,7 @@ def check_superset_dashboards(cfg: E2EConfig) -> None:
 
 
 def discovered_dashboards(cfg: E2EConfig) -> dict[str, str]:
-    """Read the slug/title of every dashboard each product actually exports.
+    """Read the slug/title of every dashboard actually exported.
 
     A product's descriptor cannot say what its dashboard is titled or slugged
     as, or how many it exports — that identity lives only in the
@@ -50,35 +51,54 @@ def discovered_dashboards(cfg: E2EConfig) -> dict[str, str]:
     id/displayName) is what lets a product export a differently named or
     multiple dashboards without failing this check.
     """
+    if hasattr(cfg.inventory, "dashboards"):
+        return _discovered_dashboards_canonical(cfg)
+    return _discovered_dashboards_legacy(cfg)
+
+
+def _discovered_dashboards_canonical(cfg: E2EConfig) -> dict[str, str]:
+    """Validate the descriptor registry and every bundle deployment imports."""
+    dashboards_by_dir = {dashboard.report_source_dir: dashboard for dashboard in cfg.inventory.dashboards}
+    discovered_dirs = set(superset.discover_report_dirs(cfg.repo_root))
+    declared_dirs = set(dashboards_by_dir)
+    if discovered_dirs != declared_dirs:
+        missing = declared_dirs - discovered_dirs
+        undeclared = discovered_dirs - declared_dirs
+        raise E2EError(
+            "Superset descriptor/filesystem mismatch: "
+            f"declared but not mounted={sorted(missing)}, mounted but not declared={sorted(undeclared)}"
+        )
     expected: dict[str, str] = {}
-    has_dashboard_registry = hasattr(cfg.inventory, "dashboards")
-    dashboards = cfg.inventory.dashboards if has_dashboard_registry else ()
-    for product in cfg.inventory.products:
-        product_dashboards = [candidate for candidate in dashboards if candidate.product == product.id]
-        if product_dashboards:
-            report_source_dirs = [dashboard.report_source_dir for dashboard in product_dashboards]
-        elif has_dashboard_registry:
-            # Canonical inventory: this product legitimately has no declared
-            # dashboard (the schema does not require one) — nothing to check.
-            continue
-        else:
-            # Legacy inventory predates the Dashboard concept entirely.
-            report_source_dirs = [product.report_source_dir]
-        for report_source_dir in report_source_dirs:
-            report_dir = cfg.repo_root / report_source_dir
-            dashboard_files = superset.discover_dashboard_files(report_dir)
-            if not dashboard_files:
-                raise E2EError(
-                    f"{report_dir / 'dashboards'}: product {product.id!r} exports no Superset dashboards"
-                )
-            for dashboard_file in dashboard_files:
-                document = yaml.safe_load(dashboard_file.read_text())
-                slug = document.get("slug") if isinstance(document, Mapping) else None
-                title = document.get("dashboard_title") if isinstance(document, Mapping) else None
-                if not slug or not title:
-                    raise E2EError(f"{dashboard_file}: missing slug or dashboard_title")
-                expected[slug] = title
+    for report_source_dir, dashboard in sorted(dashboards_by_dir.items()):
+        report_dir = cfg.repo_root / report_source_dir
+        dashboard_files = superset.discover_dashboard_files(report_dir)
+        if not dashboard_files:
+            raise E2EError(f"{report_dir / 'dashboards'}: dashboard {dashboard.name!r} exports no Superset dashboards")
+        for dashboard_file in dashboard_files:
+            expected.update(_read_dashboard_slug_title(dashboard_file))
     return expected
+
+
+def _discovered_dashboards_legacy(cfg: E2EConfig) -> dict[str, str]:
+    """Legacy v1alpha2 inventory: predates the Dashboard/lakehouse_code concept entirely."""
+    expected: dict[str, str] = {}
+    for product in cfg.inventory.products:
+        report_dir = cfg.repo_root / product.report_source_dir
+        dashboard_files = superset.discover_dashboard_files(report_dir)
+        if not dashboard_files:
+            raise E2EError(f"{report_dir / 'dashboards'}: product {product.id!r} exports no Superset dashboards")
+        for dashboard_file in dashboard_files:
+            expected.update(_read_dashboard_slug_title(dashboard_file))
+    return expected
+
+
+def _read_dashboard_slug_title(dashboard_file: Path) -> dict[str, str]:
+    document = yaml.safe_load(dashboard_file.read_text())
+    slug = document.get("slug") if isinstance(document, Mapping) else None
+    title = document.get("dashboard_title") if isinstance(document, Mapping) else None
+    if not slug or not title:
+        raise E2EError(f"{dashboard_file}: missing slug or dashboard_title")
+    return {slug: title}
 
 
 def assert_superset_dashboards(dashboards: list[Mapping[str, Any]], expected: Mapping[str, str]) -> None:

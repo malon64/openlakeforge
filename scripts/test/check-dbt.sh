@@ -90,6 +90,10 @@ import os
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path("packages/domain-model").resolve()))
+
+from openlakeforge_domain import load_lakehouse_inventory
+
 project_dir = Path(sys.argv[1])
 manifest_path = project_dir / "target" / "manifest.json"
 expected_database = os.environ["OPENLAKEFORGE_CATALOG_NAME"]
@@ -99,12 +103,13 @@ try:
 except (ValueError, IndexError) as exc:
     raise SystemExit(f"Cannot derive product from dbt project path: {project_dir}") from exc
 
-# Gold paths are product-scoped (lakehouse_code/gold/<product>/dbt); the domain
-# is not part of them. Resolve it from the product's Silver Floe contract.
-silver_contracts = sorted(Path("lakehouse_code/silver").glob(f"*/contracts/floe/{product}.yml"))
-if len(silver_contracts) != 1:
-    raise SystemExit(f"Cannot derive domain for product {product} from Silver contracts")
-domain = silver_contracts[0].parts[2]  # lakehouse_code/silver/<domain>/contracts/floe/<product>.yml
+# Gold paths are product-scoped (lakehouse_code/gold/<product>/dbt); resolve
+# their domain-owned Silver source schema from the canonical inventory.
+inventory = load_lakehouse_inventory("lakehouse_code")
+matching_products = [candidate for candidate in inventory.products if candidate.id == product]
+if len(matching_products) != 1:
+    raise SystemExit(f"Cannot resolve product {product} from lakehouse_code/lakehouse.yaml")
+domain = matching_products[0].domain_name
 expected_schema = f"{product}_gold"
 expected_source_schema = f"{domain}_silver"
 

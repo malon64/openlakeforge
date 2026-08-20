@@ -45,7 +45,7 @@ replacing `domains/` as the ownership boundary:
 ```text
 lakehouse_code/
 ├── bronze/<source>/           source-aligned: source.yaml + dlt/
-├── silver/<domain>/           domain-aligned: contracts/floe/ (one file per product, shared namespace)
+├── silver/<domain>/           domain-aligned: one Floe contract and manifest
 ├── gold/<product>/            product-aligned: dbt/
 ├── dashboards/superset/<dashboard>/   consumption-aligned
 ├── pipelines/dagster/         user-maintained orchestration, discovered flat (no per-domain nesting)
@@ -57,9 +57,10 @@ replace the domain-scoped inventory:
 
 - `Source` (`lakehouse_code/bronze/<source>/source.yaml`) declares the resources one
   Bronze source exposes, with no physical path.
-- `Lakehouse` (`lakehouse_code/lakehouse.yaml`, one per repository) declares every domain
-  and the products it owns. A product's `bronze` field is `{source, resources}` —
-  a reference into a `Source` descriptor's resource list, not an inline path. A product
+- `Lakehouse` (`lakehouse_code/lakehouse.yaml`, one per repository) declares every
+  domain and the products it owns. `domains[].silver_tables.tables[]` maps each
+  domain table to one `{source, resource}` pair. Products select those tables through
+  `silver_inputs`; dashboards select one or more products through `products`. A product
   no longer carries an `asset_prefix`; its `id` is its only identity, and `id` is unique
   across the whole lakehouse rather than per-domain.
 
@@ -75,10 +76,10 @@ Domain  -> <domain>_silver
 Product -> <product>_gold
 ```
 
-`Product.silver_namespace` now derives from `self.domain_name`, not from the product's
-own identity — `f"{domain_name}_silver"` — so `order_revenue` and `customer_health`
-correctly resolve to the same `sales_silver` namespace. `Product.gold_namespace` stays
-`f"{id}_gold"`, product-owned as before. Both are computed once in
+`Domain.silver_namespace` derives as `f"{name}_silver"`, so `order_revenue` and
+`customer_health` correctly resolve to the same `sales_silver` namespace through their
+domain. `Product.gold_namespace` stays `f"{id}_gold"`, product-owned as before. The
+physical names are computed once in
 `packages/domain-model/openlakeforge_domain/inventory.py` and consumed everywhere else
 (catalog reconciliation, Floe contract validation, dbt/Trino resolution, OpenMetadata
 publication) rather than re-derived per consumer.
@@ -100,12 +101,15 @@ entries; `tools/olf/olf/catalog.py`'s reconciliation core (ADR 0022) needed no l
 change to pick up Bronze namespace sync — it already operated generically over
 `CatalogNamespace` values.
 
+The physical contract identifies Bronze maps by source, Silver maps by domain, and Gold
+maps by product. Its namespace model marker is `medallion-owner`. Floe manifests and
+report prefixes are domain-owned; dbt artifact prefixes remain product-owned.
+
 **Sample data.** The `sales` domain demonstrates the shared-Bronze pattern for real:
-`order_revenue` and `customer_health` both declare `crm.accounts` in their `bronze`
-resources and both validate an `accounts` entity into `sales_silver.accounts` from
-independent Floe contract files (`silver/sales/contracts/floe/{order_revenue,customer_health}.yml`).
-Running either product's job re-materializes the same table idempotently; no consumer
-owns a second copy of it.
+`order_revenue` and `customer_health` both select `sales.accounts`, which maps to
+`crm.accounts`. One source-owned Dagster multi-asset exposes `[crm, accounts]`; one
+domain-owned Floe definition exposes `[sales, accounts]`. Both product jobs select those
+same executable definitions and physical tables, so there is no competing producer.
 
 ## Consequences
 
@@ -116,39 +120,25 @@ in the derived namespace values, not just as convention.
 
 `libs/domain_definitions.py`'s `definitions_for_domain` adapter — which ADR 0024 recorded
 as the Dagster-only per-domain aggregator — has no caller left and was deleted.
-`lakehouse_code/definitions.py` replaces it: a flat aggregator that scans
-`lakehouse_code/pipelines/dagster/` for every product module and merges their
-`Definitions`, with no domain-level grouping step. Adding a domain no longer means adding
-a `definitions.py` that delegates to a per-domain adapter.
+`lakehouse_code/definitions.py` replaces it: the root aggregator creates one subsettable
+Bronze multi-asset per Source, loads one Floe manifest per Domain, scans
+`lakehouse_code/pipelines/dagster/` for product jobs and dbt Gold assets, and merges the
+three ownership groups. Floe source dependencies are remapped through Dagster's public
+`AssetsDefinition.with_attributes(asset_key_replacements=...)` API. Repository validation
+loads all definitions and resolves all jobs eagerly, matching the gRPC code server.
 
-**Known limitation, not resolved by this ADR.** `libs/product_dagster.py` still keys
-Bronze-loading Dagster assets as `AssetKey([product, f"{entity}_source"])` —
-product-scoped, not source-scoped. Two products sharing a Bronze resource (`order_revenue`
-and `customer_health` both loading `crm.accounts`) each materialize it under their own
-asset key rather than one shared asset both depend on; each run just re-writes the same
-Bronze data idempotently under a different key. The OpenMetadata/catalog layer does not
-have this problem — `bronze_container_specs()` dedupes by physical path regardless of how
-many products reference it. Making the Dagster asset graph itself represent one shared
-Bronze asset needs a per-source `Definitions` group products declare `deps=` on, which is
-a real design change Dagster's single-writer-per-`AssetKey` constraint makes non-trivial;
-it is left as explicit follow-up work, not silently claimed as done.
-
-Existing physical catalog namespaces created under the old product-driven Silver naming
-(`<asset_prefix>_silver`) are not migrated by this ADR. An environment with data already
-materialized under the old naming needs an explicit reconciliation/backfill step before
-`olf catalog sync-namespaces` is run against the new contract, or it will create a second,
-empty `<domain>_silver` namespace alongside the old one rather than continuing to write to
-it.
+Existing physical catalog namespaces created under product-driven Silver naming are not
+migrated. This alpha change is reset-only: namespace reconciliation aborts when it sees a
+noncanonical `*_silver` namespace and tells the operator to destroy and recreate the
+environment. No namespace rename, data backfill, or in-place Polaris allowlist update is
+part of this change.
 
 Bronze becoming a real Polaris namespace also means Polaris's catalog-level
 `storageConfigInfo.allowedLocations` allowlist (`infra/terraform/modules/catalog/polaris/templates/bootstrap.sh.tftpl`)
 had to grow a third entry for the bronze bucket, alongside the pre-existing silver/gold
 entries — Polaris refuses to create a namespace whose location isn't in that list. The
-bootstrap job only creates the Polaris catalog once (its create call is idempotent via
-HTTP 409, with no corresponding update call), so this change takes effect on fresh
-clusters automatically but an already-bootstrapped long-lived environment needs its
-Polaris catalog's `allowedLocations` updated out-of-band via the Polaris management API
-before `olf catalog sync-namespaces` can create `<source>_bronze` namespaces there.
+bootstrap job only creates the Polaris catalog once, which is another reason existing
+alpha installations must be destroyed and recreated.
 
 `docs/schema/domain.schema.json` and `docs/schema/domain.v1alpha1.schema.json` are kept,
 unreferenced by any default `contracts_check.py` path, for the same migration-diagnostic

@@ -45,8 +45,34 @@ class Table:
 
 
 @dataclass(frozen=True)
+class SourceResource:
+    """A source-owned Bronze resource."""
+
+    source: str
+    name: str
+
+
+@dataclass(frozen=True)
+class SilverTable:
+    """A domain-owned Silver table and its source resource."""
+
+    domain: str
+    name: str
+    source: str
+    resource: str
+
+
+@dataclass(frozen=True)
+class GoldTable:
+    """A product-owned Gold table."""
+
+    product: str
+    name: str
+
+
+@dataclass(frozen=True)
 class ArtifactPrefixes:
-    """Object-store locations derived from one product's logical identity."""
+    """Object-store locations derived from an owner's logical identity."""
 
     manifest_key: str
     floe_report_prefix: str
@@ -80,9 +106,7 @@ class Product:
     domain_name: str
     id: str
     display_name: str
-    source_name: str
-    bronze_resources: tuple[Table, ...]
-    silver_tables: tuple[Table, ...]
+    silver_inputs: tuple[str, ...]
     gold_tables: tuple[Table, ...]
 
     @property
@@ -106,36 +130,16 @@ class Product:
         return f"lakehouse_code.pipelines.dagster.{self.id}"
 
     @property
-    def report_source_dir(self) -> str:
-        return f"lakehouse_code/dashboards/superset/{self.id}"
+    def dbt_artifact_prefix(self) -> str:
+        return f"run-artifacts/dbt/{self.domain_name}/{self.id}/"
 
     @property
     def dbt_project_dir(self) -> str:
         return f"lakehouse_code/gold/{self.id}/dbt"
 
     @property
-    def floe_contracts_dir(self) -> str:
-        return f"lakehouse_code/silver/{self.domain_name}/contracts/floe"
-
-    @property
-    def bronze_object_prefix(self) -> str:
-        return self.source_name
-
-    @property
     def openmetadata_data_product_fqns(self) -> tuple[str, str]:
         return self.id, f"{self.domain_name}.{self.id}"
-
-    @property
-    def artifact_prefixes(self) -> ArtifactPrefixes:
-        return ArtifactPrefixes(
-            manifest_key=f"floe/manifests/{self.domain_name}/{self.id}/{self.id}.manifest.json",
-            floe_report_prefix=f"floe/reports/{self.domain_name}/{self.id}/",
-            dbt_artifact_prefix=f"run-artifacts/dbt/{self.domain_name}/{self.id}/",
-        )
-
-    @property
-    def superset_export_bundle_name(self) -> str:
-        return f"{self.id}_superset_assets_export.zip"
 
     @property
     def gold_mart_names(self) -> tuple[str, ...]:
@@ -149,7 +153,16 @@ class Domain:
     descriptor_path: Path
     name: str
     display_name: str
+    silver_tables: tuple[SilverTable, ...]
     products: tuple[Product, ...]
+
+    @property
+    def artifact_prefixes(self) -> ArtifactPrefixes:
+        return ArtifactPrefixes(
+            manifest_key=f"floe/manifests/{self.name}/{self.name}.manifest.json",
+            floe_report_prefix=f"floe/reports/{self.name}/",
+            dbt_artifact_prefix="",
+        )
 
     @property
     def silver_namespace(self) -> str:
@@ -158,14 +171,18 @@ class Domain:
 
 @dataclass(frozen=True)
 class Dashboard:
-    """A consumption-aligned dashboard bound to one product."""
+    """A consumption-aligned dashboard bound to one or more products."""
 
     name: str
-    product: str
+    products: tuple[str, ...]
 
     @property
     def report_source_dir(self) -> str:
         return f"lakehouse_code/dashboards/superset/{self.name}"
+
+    @property
+    def superset_export_bundle_name(self) -> str:
+        return f"{self.name}_superset_assets_export.zip"
 
 
 @dataclass(frozen=True)
@@ -181,10 +198,17 @@ class PhysicalProductNames:
     """Provider-specific names resolved for one logical product."""
 
     product: str
-    silver_namespace: str
     gold_namespace: str
-    silver_schema_fqn: str
     gold_schema_fqn: str
+
+
+@dataclass(frozen=True)
+class PhysicalDomainNames:
+    """Provider-specific names resolved for one logical Silver domain."""
+
+    domain: str
+    silver_namespace: str
+    silver_schema_fqn: str
     manifest_uri: str
 
 
@@ -203,11 +227,12 @@ class PhysicalInventory:
 
     catalog_namespaces: tuple[CatalogNamespace, ...]
     products: tuple[PhysicalProductNames, ...]
+    domains: tuple[PhysicalDomainNames, ...] = ()
     sources: tuple[PhysicalSourceNames, ...] = ()
 
     @property
     def silver_namespaces(self) -> dict[str, str]:
-        return {product.product: product.silver_namespace for product in self.products}
+        return {domain.domain: domain.silver_namespace for domain in self.domains}
 
     @property
     def gold_namespaces(self) -> dict[str, str]:
@@ -215,7 +240,7 @@ class PhysicalInventory:
 
     @property
     def silver_schema_fqns(self) -> dict[str, str]:
-        return {product.product: product.silver_schema_fqn for product in self.products}
+        return {domain.domain: domain.silver_schema_fqn for domain in self.domains}
 
     @property
     def gold_schema_fqns(self) -> dict[str, str]:
@@ -228,6 +253,10 @@ class PhysicalInventory:
     @property
     def bronze_schema_fqns(self) -> dict[str, str]:
         return {source.source: source.bronze_schema_fqn for source in self.sources}
+
+    @property
+    def domain_floe_manifest_uris(self) -> dict[str, str]:
+        return {domain.domain: domain.manifest_uri for domain in self.domains}
 
 
 @dataclass(frozen=True)
@@ -263,7 +292,7 @@ class LakehouseInventory:
 
     @property
     def artifact_prefixes(self) -> tuple[ArtifactPrefixes, ...]:
-        return tuple(product.artifact_prefixes for product in self.products)
+        return tuple(domain.artifact_prefixes for domain in self.domains)
 
     @property
     def domain_names(self) -> tuple[str, ...]:
@@ -282,13 +311,7 @@ class LakehouseInventory:
         ``(silver_namespace, table)`` pairs rather than summing per-product
         declarations, which would double-count a shared table.
         """
-        return len(
-            {
-                (product.silver_namespace, table.name)
-                for product in self.products
-                for table in product.silver_tables
-            }
-        )
+        return sum(len(domain.silver_tables) for domain in self.domains)
 
     @property
     def gold_table_count(self) -> int:
@@ -300,7 +323,7 @@ class LakehouseInventory:
 
     @property
     def manifest_keys(self) -> tuple[str, ...]:
-        return tuple(product.artifact_prefixes.manifest_key for product in self.products)
+        return tuple(domain.artifact_prefixes.manifest_key for domain in self.domains)
 
     @property
     def openmetadata_data_products(self) -> dict[str, tuple[str, str]]:
@@ -313,6 +336,17 @@ class LakehouseInventory:
     @property
     def silver_namespace_names(self) -> frozenset[str]:
         return frozenset(domain.silver_namespace for domain in self.domains)
+
+    def domain_for_product(self, product: Product) -> Domain:
+        return next(domain for domain in self.domains if domain.name == product.domain_name)
+
+    def resolved_silver_tables(self, product: Product) -> tuple[SilverTable, ...]:
+        domain = self.domain_for_product(product)
+        by_name = {table.name: table for table in domain.silver_tables}
+        return tuple(by_name[name] for name in product.silver_inputs)
+
+    def bronze_resources_for_product(self, product: Product) -> tuple[SourceResource, ...]:
+        return tuple(SourceResource(table.source, table.resource) for table in self.resolved_silver_tables(product))
 
     @property
     def gold_namespace_names(self) -> frozenset[str]:
@@ -330,10 +364,19 @@ class LakehouseInventory:
         """Resolve physical names from provider-contract values."""
         namespaces: list[CatalogNamespace] = []
         products: list[PhysicalProductNames] = []
+        domains: list[PhysicalDomainNames] = []
         sources: list[PhysicalSourceNames] = []
         for domain in self.domains:
             namespaces.append(
                 CatalogNamespace(domain.silver_namespace, f"s3://{silver_bucket}/{domain.silver_namespace}/")
+            )
+            domains.append(
+                PhysicalDomainNames(
+                    domain=domain.name,
+                    silver_namespace=domain.silver_namespace,
+                    silver_schema_fqn=f"{catalog_database_fqn}.{domain.silver_namespace}",
+                    manifest_uri=f"{manifest_base_uri.rstrip('/')}/{domain.name}/{domain.name}.manifest.json",
+                )
             )
         for product in self.products:
             namespaces.append(
@@ -342,13 +385,8 @@ class LakehouseInventory:
             products.append(
                 PhysicalProductNames(
                     product=product.name,
-                    silver_namespace=product.silver_namespace,
                     gold_namespace=product.gold_namespace,
-                    silver_schema_fqn=f"{catalog_database_fqn}.{product.silver_namespace}",
                     gold_schema_fqn=f"{catalog_database_fqn}.{product.gold_namespace}",
-                    manifest_uri=(
-                        f"{manifest_base_uri.rstrip('/')}/{product.domain_name}/{product.id}/{product.id}.manifest.json"
-                    ),
                 )
             )
         for source in self.sources:
@@ -362,7 +400,9 @@ class LakehouseInventory:
                     bronze_schema_fqn=f"{catalog_database_fqn}.{source.bronze_namespace}",
                 )
             )
-        return PhysicalInventory(catalog_namespaces=tuple(namespaces), products=tuple(products), sources=tuple(sources))
+        return PhysicalInventory(
+            catalog_namespaces=tuple(namespaces), products=tuple(products), domains=tuple(domains), sources=tuple(sources)
+        )
 
 
 def _lakehouse_root(path: Path) -> Path:
@@ -377,7 +417,9 @@ def _source_table_names(source: Mapping[str, Any]) -> set[str]:
     return {resource["name"] for resource in resources if isinstance(resource, Mapping) and "name" in resource}
 
 
-def _product(path: Path, domain_name: str, product: Mapping[str, Any], index: int, source_names: set[str]) -> Product:
+def _product(
+    path: Path, domain_name: str, product: Mapping[str, Any], index: int, silver_tables: tuple[SilverTable, ...]
+) -> Product:
     label = product.get("id") or f"products[{index}]"
     product_id = product.get("id")
     if not isinstance(product_id, str) or not _IDENTIFIER_PATTERN.fullmatch(product_id):
@@ -385,30 +427,23 @@ def _product(path: Path, domain_name: str, product: Mapping[str, Any], index: in
     display_name = product.get("displayName")
     if not isinstance(display_name, str) or not display_name:
         raise LakehouseDescriptorError(f"{path}: product {label!r}: displayName is required and must be a non-empty string")
-    bronze = product.get("bronze")
-    if not isinstance(bronze, Mapping):
-        raise LakehouseDescriptorError(f"{path}: product {label!r}: bronze must be an object with 'source' and 'resources'")
-    source_name = bronze.get("source")
-    if not isinstance(source_name, str) or source_name not in source_names:
-        raise LakehouseDescriptorError(
-            f"{path}: product {label!r}: bronze.source {source_name!r} must reference a declared source"
-        )
-    resources = bronze.get("resources")
-    if not isinstance(resources, list) or not resources:
-        raise LakehouseDescriptorError(f"{path}: product {label!r}: bronze.resources must be a non-empty array")
-    bronze_resources = tuple(
-        Table(name=resource) for resource in resources if isinstance(resource, str) and resource
-    )
-    if len(bronze_resources) != len(resources):
-        raise LakehouseDescriptorError(f"{path}: product {label!r}: bronze.resources must contain non-empty string names")
+    inputs = product.get("silver_inputs")
+    if not isinstance(inputs, list) or not inputs:
+        raise LakehouseDescriptorError(f"{path}: product {label!r}: silver_inputs must be a non-empty array")
     return Product(
         domain_name=domain_name,
         id=product_id,
         display_name=display_name,
-        source_name=source_name,
-        bronze_resources=bronze_resources,
-        silver_tables=_table_group(path, product, "silver_tables", label),
+        silver_inputs=tuple(inputs),
         gold_tables=_table_group(path, product, "gold_tables", label),
+    )
+
+
+def _silver_tables(path: Path, domain_name: str, domain: Mapping[str, Any]) -> tuple[SilverTable, ...]:
+    tables = domain["silver_tables"]["tables"]
+    return tuple(
+        SilverTable(domain=domain_name, name=table["name"], source=table["source"], resource=table["resource"])
+        for table in tables
     )
 
 
@@ -444,27 +479,38 @@ def _validate_inventory_identities(
         if domain.name in seen_domains:
             raise LakehouseDescriptorError(f"{domain.descriptor_path}: duplicate domain name {domain.name!r}")
         seen_domains.add(domain.name)
+        silver_by_name = {table.name: table for table in domain.silver_tables}
+        for table in domain.silver_tables:
+            source = next((candidate for candidate in sources if candidate.name == table.source), None)
+            if source is None:
+                raise LakehouseDescriptorError(
+                    f"{domain.descriptor_path}: domain {domain.name!r}: Silver table {table.name!r} references unknown source {table.source!r}"
+                )
+            if table.resource not in {resource.name for resource in source.resources}:
+                raise LakehouseDescriptorError(
+                    f"{domain.descriptor_path}: domain {domain.name!r}: Silver table {table.name!r} references unknown "
+                    f"resource {table.resource!r} of source {table.source!r}"
+                )
         for product in domain.products:
             if product.id in seen_product_ids:
                 raise LakehouseDescriptorError(
                     f"{domain.descriptor_path}: product {product.id!r}: id must be globally unique across the lakehouse"
                 )
             seen_product_ids.add(product.id)
-            source_tables = {table.name for source in sources if source.name == product.source_name for table in source.resources}
-            unknown = [table.name for table in product.bronze_resources if table.name not in source_tables]
+            unknown = [name for name in product.silver_inputs if name not in silver_by_name]
             if unknown:
                 raise LakehouseDescriptorError(
-                    f"{domain.descriptor_path}: product {product.id!r}: bronze.resources reference unknown resources "
-                    f"{unknown!r} of source {product.source_name!r}"
+                    f"{domain.descriptor_path}: product {product.id!r}: silver_inputs reference unknown domain Silver tables {unknown!r}"
                 )
     seen_dashboards: set[str] = set()
     for dashboard in dashboards:
         if dashboard.name in seen_dashboards:
             raise LakehouseDescriptorError(f"{lakehouse_root}: duplicate dashboard name {dashboard.name!r}")
         seen_dashboards.add(dashboard.name)
-        if dashboard.product not in seen_product_ids:
+        unknown_products = sorted(set(dashboard.products) - seen_product_ids)
+        if unknown_products:
             raise LakehouseDescriptorError(
-                f"{lakehouse_root}: dashboard {dashboard.name!r}: product {dashboard.product!r} must reference a declared product"
+                f"{lakehouse_root}: dashboard {dashboard.name!r}: products {unknown_products!r} must reference declared products"
             )
 
 
@@ -505,13 +551,13 @@ def load_lakehouse_inventory_from_descriptors(
             f"source descriptors {sorted(discovered_sources)!r} under lakehouse_code/bronze/*/source.yaml"
         )
     domains: list[Domain] = []
-    source_names = {source.name for source in sources}
     for index, domain in enumerate(lakehouse_document["domains"]):
         if not isinstance(domain, Mapping):
             raise LakehouseDescriptorError(f"{lakehouse_path}: domains[{index}] must be an object")
         domain_name = domain["name"]
+        silver_tables = _silver_tables(lakehouse_path, domain_name, domain)
         products = tuple(
-            _product(lakehouse_path, domain_name, product, product_index, source_names)
+            _product(lakehouse_path, domain_name, product, product_index, silver_tables)
             for product_index, product in enumerate(domain["products"])
             if isinstance(product, Mapping)
         )
@@ -520,11 +566,15 @@ def load_lakehouse_inventory_from_descriptors(
                 descriptor_path=Path(lakehouse_path),
                 name=domain_name,
                 display_name=domain["displayName"],
+                silver_tables=silver_tables,
                 products=products,
             )
         )
     dashboards = tuple(
-        Dashboard(name=dashboard["name"], product=dashboard["product"])
+        Dashboard(
+            name=dashboard["name"],
+            products=tuple(dashboard["products"]),
+        )
         for dashboard in lakehouse_document["dashboards"]
         if isinstance(dashboard, Mapping)
     )
