@@ -125,6 +125,22 @@ def test_generate_local_manifests_runs_validate_then_generate_via_docker(tmp_pat
     assert "orders.orders.local" in generate_call.argv
 
 
+def test_generate_local_manifests_makes_manifest_dir_writable_by_the_container_user(tmp_path: Path) -> None:
+    import stat
+
+    repo_root = _make_repo(tmp_path)
+    settings = _settings(repo_root)
+    tools = _toolkit(RecordingRunner(CommandResult(argv=(), returncode=0, stdout="", stderr="", duration_seconds=0.0)))
+
+    floe_manifests.generate_local_manifests(
+        settings, tools, repo_root=repo_root, namespace="lakehouse", governance_enabled=True, environ={}, env={}
+    )
+
+    manifest_dir = settings.runtime_artifact_dir / "manifests/orders/orders"
+    mode = stat.S_IMODE(manifest_dir.stat().st_mode)
+    assert mode == 0o777
+
+
 def test_generate_local_manifests_raises_when_no_configs_found(tmp_path: Path) -> None:
     from olf.deployment.errors import DeploymentPreconditionError
 

@@ -122,6 +122,10 @@ def generate_local_manifests(
 
         manifest_dir = runtime_root / "manifests" / domain / product
         manifest_dir.mkdir(parents=True, exist_ok=True)
+        # The Floe image runs as its own non-root user. Give that user
+        # access to the bind-mounted output directory, or manifest
+        # generation fails with EACCES on hosted CI runners.
+        manifest_dir.chmod(0o777)
         manifest_path = manifest_dir / f"{product}.manifest.json"
 
         floe_config_path = _container_path(repo_root, runtime_config_path)
