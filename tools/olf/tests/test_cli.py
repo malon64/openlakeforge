@@ -56,7 +56,11 @@ def test_superset_export_reports_defaults_come_from_the_default_product(monkeypa
 
     from olf import config
 
-    default_product = inventory_for(config.repo_root()).default_product
+    inventory = inventory_for(config.repo_root())
+    default_product = inventory.default_product
+    default_dashboard = next(
+        dashboard for dashboard in inventory.dashboards if dashboard.product == default_product.id
+    )
     calls: list[dict] = []
     monkeypatch.setattr(
         "olf.superset.export_report",
@@ -66,7 +70,7 @@ def test_superset_export_reports_defaults_come_from_the_default_product(monkeypa
     result = runner.invoke(app, ["superset", "export-reports"])
 
     assert result.exit_code == 0
-    assert calls[0]["report_source_dir"] == default_product.report_source_dir
+    assert calls[0]["report_source_dir"] == default_dashboard.report_source_dir
     assert calls[0]["bundle_name"] == default_product.superset_export_bundle_name
     assert calls[0]["dashboard_title"] == default_product.display_name
 

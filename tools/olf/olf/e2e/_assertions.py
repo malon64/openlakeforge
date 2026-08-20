@@ -51,8 +51,11 @@ def discovered_dashboards(cfg: E2EConfig) -> dict[str, str]:
     multiple dashboards without failing this check.
     """
     expected: dict[str, str] = {}
+    dashboards = getattr(cfg.inventory, "dashboards", ())
     for product in cfg.inventory.products:
-        report_dir = cfg.repo_root / product.report_source_dir
+        dashboard = next((candidate for candidate in dashboards if candidate.product == product.id), None)
+        report_source_dir = dashboard.report_source_dir if dashboard else product.report_source_dir
+        report_dir = cfg.repo_root / report_source_dir
         dashboard_files = superset.discover_dashboard_files(report_dir)
         if not dashboard_files:
             raise E2EError(

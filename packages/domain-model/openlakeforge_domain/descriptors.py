@@ -82,6 +82,10 @@ def validate_source_descriptor(document: Mapping[str, Any], *, source: str = "so
         seen.add(name)
         if "description" in resource and not isinstance(resource["description"], str):
             raise LakehouseDescriptorError(f"{source}: resources[{index}].description must be a string")
+        if "path" in resource or "fqn" in resource or "fullyQualifiedName" in resource:
+            raise LakehouseDescriptorError(
+                f"{source}: resources[{index}] must not contain a physical path or FQN"
+            )
 
 
 def _validate_bronze_reference(product: Mapping[str, Any], *, source: str) -> None:

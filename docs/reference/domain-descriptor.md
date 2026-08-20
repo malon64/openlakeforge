@@ -308,7 +308,7 @@ seed data), OpenLakeForge derives:
 | Bronze namespace (source `crm`) | `crm_bronze` |
 | Silver namespace (domain `sales`) | `sales_silver` — **shared by `order_revenue` and `customer_health`** |
 | Gold namespace (`order_revenue`) | `order_revenue_gold` |
-| Superset source directory | `lakehouse_code/dashboards/superset/order_revenue` |
+| Superset source directory (via its dashboard) | `lakehouse_code/dashboards/superset/sales_order_revenue` |
 | Floe manifest key | `floe/manifests/sales/order_revenue/order_revenue.manifest.json` |
 | Floe report prefix | `floe/reports/sales/order_revenue/` |
 | dbt artifact prefix | `run-artifacts/dbt/sales/order_revenue/` |

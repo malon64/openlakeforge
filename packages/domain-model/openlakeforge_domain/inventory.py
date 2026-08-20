@@ -163,6 +163,10 @@ class Dashboard:
     name: str
     product: str
 
+    @property
+    def report_source_dir(self) -> str:
+        return f"lakehouse_code/dashboards/superset/{self.name}"
+
 
 @dataclass(frozen=True)
 class CatalogNamespace:

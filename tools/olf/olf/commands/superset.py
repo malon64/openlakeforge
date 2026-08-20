@@ -42,8 +42,15 @@ def superset_export_reports() -> None:
     from olf import superset
 
     repo_root = config.repo_root()
-    default_product = inventory_for(repo_root).default_product
-    report_source_dir = config.env("SUPERSET_REPORT_SOURCE_DIR", default_product.report_source_dir)
+    inventory = inventory_for(repo_root)
+    default_product = inventory.default_product
+    default_dashboard = next(
+        (dashboard for dashboard in inventory.dashboards if dashboard.product == default_product.id), None
+    )
+    default_report_source_dir = (
+        default_dashboard.report_source_dir if default_dashboard else default_product.report_source_dir
+    )
+    report_source_dir = config.env("SUPERSET_REPORT_SOURCE_DIR", default_report_source_dir)
 
     def _default_dashboard_title() -> str:
         # Dashboard identity can differ from product metadata (see
