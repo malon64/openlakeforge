@@ -373,7 +373,7 @@ storages:
       region: "{{OPENLAKEFORGE_STORAGE_REGION}}"
 
 report:
-  path: "floe/reports/marketing/campaign_performance"
+  path: "floe/reports/marketing"
   storage: "openlakeforge_ops"
 
 entities:
@@ -412,12 +412,15 @@ the contract are written to:
 marketing_silver.campaigns
 ```
 
-Notice the namespace is `marketing_silver` — the **domain**, not the product. Adding a
-second `marketing` product later means adding another `.yml` file to this same
-`contracts/floe/` directory, sinking into the same `marketing_silver` namespace, not a
-new namespace of its own.
+Notice the namespace is `marketing_silver` — the **domain**, not the
+product. A domain has exactly one Floe configuration and one generated
+manifest. When a second `marketing` product needs another Silver table, add
+that entity to this existing `marketing.yml`; do not create a product-specific
+Floe configuration. Both products then consume tables from the same
+`marketing_silver` namespace.
 
-Rejected rows are written to the product's rejection path instead of silently entering Silver.
+Rejected rows are written to the domain's rejection path instead of silently
+entering Silver.
 
 ---
 
@@ -1021,15 +1024,10 @@ lakehouse_code/dashboards/superset/<dashboard>/
 ```
 
 and is not required for the Slim tutorial. A dashboard is not required to belong to
-exactly one product — one dashboard can consume several Gold products.
-
-> **Current alpha limitation**
->
-> The Full E2E suite currently expects each discovered product to provide
-> source-controlled Superset dashboard assets when the analytics layer is enabled.
->
-> If you want this product to participate in `make local-e2e`, add its Superset report
-> bundle before running the Full validation suite.
+exactly one product — one dashboard can consume several Gold products. If you add a
+bundle, also declare that dashboard and its non-empty `products` list in
+`lakehouse.yaml`; Full deployment and E2E require exact parity between the descriptor
+registry and the mounted bundle directories.
 
 The core product pipeline itself does not depend on Superset.
 
@@ -1049,7 +1047,11 @@ pipelines/dagster/<product>.py
 
 Its `silver_inputs` can overlap with an existing product's — the Bronze source and
 domain Silver definitions are loaded once and consumed by both in `marketing_silver`
-namespace. `lakehouse_code/definitions.py` does not need to change.
+namespace. If the new product needs a new Silver table, add its mapping to the
+`marketing` domain's `silver_tables` and add the corresponding entity to the existing
+`silver/marketing/contracts/floe/marketing.yml`. Every domain has one Floe
+configuration and one `<domain>.manifest.json`; never add a product-specific Floe file
+under the same domain. `lakehouse_code/definitions.py` does not need to change.
 
 ---
 
