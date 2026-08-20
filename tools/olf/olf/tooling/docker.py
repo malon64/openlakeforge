@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
-from olf.deployment.errors import CommandExecutionError
+from olf.deployment.errors import CommandExecutionError, ExecutableNotFoundError
 from olf.deployment.retry import RetryPolicy, RetryPredicate
 from olf.tooling.process import CommandResult, ProcessRunner
 from olf.tooling.resolver import ExecutableResolver
@@ -142,13 +142,16 @@ class Docker:
         """Resolve `.Endpoints.docker.Host` for the currently selected context.
 
         Returns None (rather than raising) when Docker isn't usable, mirroring
-        the shell helper's `|| true` fallback — callers keep any explicit
-        DOCKER_HOST override in that case.
+        the shell helper's `command -v docker &>/dev/null` guard plus `|| true`
+        fallback — callers keep any explicit DOCKER_HOST override in that
+        case. This must tolerate Docker being entirely absent (not just a
+        failing command), since Docker-independent operations (status,
+        platform/foundation teardown) also resolve a command environment.
         """
         try:
             current = self.context_show(env=env)
             endpoint = self.context_inspect(current, format_template="{{.Endpoints.docker.Host}}", env=env)
-        except CommandExecutionError:
+        except (CommandExecutionError, ExecutableNotFoundError):
             return None
         return endpoint or None
 

@@ -230,3 +230,17 @@ def test_resolve_current_engine_endpoint_returns_none_on_failure() -> None:
     docker = Docker(runner, resolver)
 
     assert docker.resolve_current_engine_endpoint() is None
+
+
+def test_resolve_current_engine_endpoint_returns_none_when_docker_is_not_installed() -> None:
+    from olf.deployment.errors import ExecutableNotFoundError
+
+    class MissingDockerRunner(RecordingRunner):
+        def run(self, command, **kwargs):  # type: ignore[override]
+            raise ExecutableNotFoundError("docker")
+
+    runner = MissingDockerRunner()
+    resolver = PathExecutableResolver(overrides={"docker": Path("docker")})
+    docker = Docker(runner, resolver)
+
+    assert docker.resolve_current_engine_endpoint() is None

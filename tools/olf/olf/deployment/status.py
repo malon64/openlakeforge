@@ -10,6 +10,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from olf.deployment.errors import DeploymentPreconditionError
 from olf.tooling.kubectl import Kubectl
 
 DEFAULT_RESOURCES: tuple[tuple[str, str], ...] = (
@@ -53,6 +54,9 @@ def collect_status(
             env=env,
             check=False,
         )
+        if not result.ok:
+            detail = result.stderr.strip() or f"kubectl exited {result.returncode}"
+            raise DeploymentPreconditionError(f"failed to query {title} in namespace '{namespace}': {detail}")
         output = result.stdout.strip() or result.stderr.strip()
         sections.append(StatusSection(title=title, output=output))
     return StatusReport(sections=tuple(sections))
