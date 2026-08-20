@@ -76,6 +76,50 @@ def test_delete_defaults_to_ignore_not_found() -> None:
     ]
 
 
+def test_delete_forwards_extra_args() -> None:
+    kubectl, runner = _kubectl()
+
+    kubectl.delete("job", "superset-init-db", namespace="lakehouse", extra_args=["--wait=true"])
+
+    assert runner.last_call.argv == [
+        "kubectl",
+        "delete",
+        "job",
+        "superset-init-db",
+        "-n",
+        "lakehouse",
+        "--ignore-not-found",
+        "--wait=true",
+    ]
+
+
+def test_port_forward_argv_builds_exact_argv() -> None:
+    kubectl, _runner = _kubectl()
+
+    argv = kubectl.port_forward_argv(
+        "svc/trino", ["8080:8080"], namespace="lakehouse", context="kind-openlakeforge-local"
+    )
+
+    assert argv == [
+        "kubectl",
+        "--context",
+        "kind-openlakeforge-local",
+        "port-forward",
+        "svc/trino",
+        "8080:8080",
+        "-n",
+        "lakehouse",
+    ]
+
+
+def test_port_forward_argv_omits_context_when_absent() -> None:
+    kubectl, _runner = _kubectl()
+
+    argv = kubectl.port_forward_argv("pod/dagster-webserver-abc", ["3000:80"])
+
+    assert "--context" not in argv
+
+
 def test_config_get_contexts_parses_output_lines() -> None:
     kubectl, _runner = _kubectl(
         CommandResult(

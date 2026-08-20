@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import StrEnum
 from pathlib import Path
 
@@ -87,8 +87,18 @@ class DeploymentContext:
         distribution_root: Path | None = None,
         namespace: str = DEFAULT_NAMESPACE,
         cluster_name: str = DEFAULT_LOCAL_CLUSTER_NAME,
+        kubeconfig_path: Path | None = None,
     ) -> DeploymentContext:
-        return cls._build(
+        """Build the local `DeploymentContext`.
+
+        `kubeconfig_path`, when given, overrides the default
+        `<repo_root>/.tmp/kubeconfigs/local.yaml` - CI runs multiple local
+        kind deployments in parallel (e.g. a slim smoke job alongside a full
+        deployment) and isolates each with its own kubeconfig file via
+        `LOCAL_KUBECONFIG_PATH`; the shell scripts this replaces honored the
+        same override.
+        """
+        context = cls._build(
             provider=Provider.LOCAL,
             scope="local",
             repo_root=repo_root,
@@ -99,6 +109,9 @@ class DeploymentContext:
             foundation_terraform_dir=Path("infra/terraform/foundations/local-kind"),
             platform_terraform_dir=Path("infra/terraform/environments/local"),
         )
+        if kubeconfig_path is not None:
+            context = replace(context, paths=replace(context.paths, kubeconfig_path=Path(kubeconfig_path).resolve()))
+        return context
 
     @classmethod
     def aws(

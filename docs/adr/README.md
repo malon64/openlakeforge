@@ -89,3 +89,11 @@ the Dagster connector remains deferred.
 `0024-canonical-domain-model-package.md` establishes one lightweight,
 provider-neutral descriptor and inventory package shared by `olf` and
 project-code. Dagster-specific definition discovery remains a runtime adapter.
+
+`0025-olf-owns-local-deployment-orchestration.md` supersedes ADR 0017's
+shell-orchestration decision for the local (kind-based) lifecycle: `olf`'s
+`DeploymentEngine`/`DeploymentProvider` now sequences foundation, image
+prefetch, static platform apply, dynamic artifact deploy, status, forward,
+and teardown directly, invoking Terraform/Helm/kubectl/Docker/kind as
+managed external processes. AWS/Azure remain on the shell-orchestration path
+until #125.

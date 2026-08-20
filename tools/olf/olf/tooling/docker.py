@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
-from olf.deployment.errors import CommandExecutionError
+from olf.deployment.errors import CommandExecutionError, ExecutableNotFoundError
 from olf.deployment.retry import RetryPolicy, RetryPredicate
 from olf.tooling.process import CommandResult, ProcessRunner
 from olf.tooling.resolver import ExecutableResolver
@@ -32,6 +32,7 @@ class Docker:
         env: Mapping[str, str] | None = None,
         check: bool = True,
         input_text: str | None = None,
+        stdin_path: Path | None = None,
         retry_policy: RetryPolicy | None = None,
         retry_if: RetryPredicate | None = None,
     ) -> CommandResult:
@@ -41,9 +42,86 @@ class Docker:
             env=env,
             check=check,
             input_text=input_text,
+            stdin_path=stdin_path,
             retry_policy=retry_policy,
             retry_if=retry_if,
         )
+
+    def version(self, *, format_template: str | None = None, env: Mapping[str, str] | None = None) -> CommandResult:
+        args = ["version"]
+        if format_template is not None:
+            args += ["--format", format_template]
+        return self._run(args, env=env, check=True)
+
+    def server_arch(self, *, env: Mapping[str, str] | None = None) -> str:
+        try:
+            result = self.version(format_template="{{.Server.Arch}}", env=env)
+        except CommandExecutionError:
+            return ""
+        return result.stdout.strip()
+
+    def image_inspect(
+        self,
+        image: str,
+        *,
+        env: Mapping[str, str] | None = None,
+        check: bool = False,
+    ) -> CommandResult:
+        return self._run(["image", "inspect", image], env=env, check=check)
+
+    def image_exists(self, image: str, *, env: Mapping[str, str] | None = None) -> bool:
+        return self.image_inspect(image, env=env, check=False).ok
+
+    def save(self, image: str, *, output_path: Path, env: Mapping[str, str] | None = None) -> CommandResult:
+        return self._run(["save", image, "-o", str(output_path)], env=env)
+
+    def exec_(
+        self,
+        container: str,
+        args: Sequence[str],
+        *,
+        privileged: bool = False,
+        interactive: bool = False,
+        stdin_path: Path | None = None,
+        env: Mapping[str, str] | None = None,
+        check: bool = True,
+    ) -> CommandResult:
+        exec_args = ["exec"]
+        if privileged:
+            exec_args.append("--privileged")
+        if interactive:
+            exec_args.append("-i")
+        exec_args.append(container)
+        exec_args.extend(args)
+        return self._run(exec_args, env=env, check=check, stdin_path=stdin_path)
+
+    def run_container(
+        self,
+        image: str,
+        args: Sequence[str],
+        *,
+        remove: bool = True,
+        platform: str | None = None,
+        env_names: Sequence[str] = (),
+        volumes: Sequence[str] = (),
+        workdir: str | None = None,
+        env: Mapping[str, str] | None = None,
+        retry_policy: RetryPolicy | None = None,
+    ) -> CommandResult:
+        run_args = ["run"]
+        if remove:
+            run_args.append("--rm")
+        if platform is not None:
+            run_args += ["--platform", platform]
+        for name in env_names:
+            run_args += ["-e", name]
+        for volume in volumes:
+            run_args += ["-v", volume]
+        if workdir is not None:
+            run_args += ["-w", workdir]
+        run_args.append(image)
+        run_args.extend(args)
+        return self._run(run_args, env=env, retry_policy=retry_policy)
 
     def context_show(self, *, env: Mapping[str, str] | None = None) -> str:
         return self._run(["context", "show"], env=env).stdout.strip()
@@ -64,13 +142,16 @@ class Docker:
         """Resolve `.Endpoints.docker.Host` for the currently selected context.
 
         Returns None (rather than raising) when Docker isn't usable, mirroring
-        the shell helper's `|| true` fallback — callers keep any explicit
-        DOCKER_HOST override in that case.
+        the shell helper's `command -v docker &>/dev/null` guard plus `|| true`
+        fallback — callers keep any explicit DOCKER_HOST override in that
+        case. This must tolerate Docker being entirely absent (not just a
+        failing command), since Docker-independent operations (status,
+        platform/foundation teardown) also resolve a command environment.
         """
         try:
             current = self.context_show(env=env)
             endpoint = self.context_inspect(current, format_template="{{.Endpoints.docker.Host}}", env=env)
-        except CommandExecutionError:
+        except (CommandExecutionError, ExecutableNotFoundError):
             return None
         return endpoint or None
 

@@ -111,6 +111,7 @@ class Kubectl:
         context: str | None = None,
         kubeconfig: Path | None = None,
         ignore_not_found: bool = True,
+        extra_args: Sequence[str] = (),
         env: Mapping[str, str] | None = None,
     ) -> CommandResult:
         args = ["delete", resource, name]
@@ -118,6 +119,7 @@ class Kubectl:
             args += ["-n", namespace]
         if ignore_not_found:
             args.append("--ignore-not-found")
+        args.extend(extra_args)
         return self._run(args, context=context, kubeconfig=kubeconfig, env=env)
 
     def rollout_status(
@@ -154,6 +156,29 @@ class Kubectl:
         if timeout is not None:
             args += ["--timeout", timeout]
         return self._run(args, context=context, kubeconfig=kubeconfig, env=env)
+
+    def port_forward_argv(
+        self,
+        resource: str,
+        ports: Sequence[str],
+        *,
+        namespace: str | None = None,
+        context: str | None = None,
+    ) -> list[str]:
+        """Build the full `kubectl [--context ...] port-forward ...` argv.
+
+        Exposed separately from `port_forward` so callers that need a
+        long-lived, backgrounded child process (see
+        `olf.deployment.portforward.PortForwardSupervisor`) can build the
+        exact argv without going through this adapter's blocking call.
+        """
+        argv = [str(self._executable())]
+        if context is not None:
+            argv += ["--context", context]
+        argv += ["port-forward", resource, *ports]
+        if namespace is not None:
+            argv += ["-n", namespace]
+        return argv
 
     def port_forward(
         self,

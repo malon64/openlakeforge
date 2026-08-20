@@ -24,6 +24,10 @@ class Kind:
         result = self._run(["get", "clusters"], env=env)
         return [line for line in result.stdout.splitlines() if line]
 
+    def get_nodes(self, cluster_name: str, *, env: Mapping[str, str] | None = None) -> list[str]:
+        result = self._run(["get", "nodes", "--name", cluster_name], env=env)
+        return [line for line in result.stdout.splitlines() if line]
+
     def export_kubeconfig(
         self,
         cluster_name: str,

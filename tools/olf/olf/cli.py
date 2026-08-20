@@ -13,6 +13,7 @@ from olf.commands import (
     artifacts,
     catalog,
     contracts,
+    deployment,
     e2e,
     floe,
     k8s,
@@ -43,6 +44,11 @@ app.add_typer(k8s.app, name="k8s")
 app.add_typer(e2e.app, name="e2e")
 app.add_typer(smoke.app, name="smoke")
 app.add_typer(release.app, name="release")
+
+app.command("deploy")(deployment.deploy)
+app.command("destroy")(deployment.destroy)
+app.command("status")(deployment.status)
+app.command("forward")(deployment.forward)
 
 
 @app.callback()

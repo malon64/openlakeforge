@@ -102,6 +102,122 @@ def test_resolve_current_engine_endpoint_chains_show_and_inspect() -> None:
     ]
 
 
+def test_server_arch_returns_stripped_output() -> None:
+    docker, _runner = _docker(CommandResult(argv=(), returncode=0, stdout="arm64\n", stderr="", duration_seconds=0.0))
+
+    assert docker.server_arch() == "arm64"
+
+
+def test_server_arch_returns_empty_string_on_failure() -> None:
+    from olf.deployment.errors import CommandExecutionError
+
+    class FailingRunner(RecordingRunner):
+        def run(self, command, **kwargs):  # type: ignore[override]
+            raise CommandExecutionError(["docker", "version"], 1, stderr="daemon not running")
+
+    docker = Docker(FailingRunner(), PathExecutableResolver(overrides={"docker": Path("docker")}))
+
+    assert docker.server_arch() == ""
+
+
+def test_image_exists_reflects_inspect_exit_code() -> None:
+    result = CommandResult(argv=(), returncode=1, stdout="", stderr="no such image", duration_seconds=0.0)
+    docker, _runner = _docker(result)
+
+    assert docker.image_exists("apache/polaris:1.4.0") is False
+
+
+def test_image_inspect_defaults_to_check_false() -> None:
+    docker, runner = _docker()
+
+    docker.image_inspect("apache/polaris:1.4.0")
+
+    assert runner.last_call.kwargs["check"] is False
+    assert runner.last_call.argv == ["docker", "image", "inspect", "apache/polaris:1.4.0"]
+
+
+def test_save_builds_exact_argv() -> None:
+    docker, runner = _docker()
+
+    docker.save("apache/polaris:1.4.0", output_path=Path("/tmp/work/polaris.tar"))
+
+    assert runner.last_call.argv == ["docker", "save", "apache/polaris:1.4.0", "-o", "/tmp/work/polaris.tar"]
+
+
+def test_exec_builds_privileged_interactive_argv_with_stdin_path() -> None:
+    docker, runner = _docker()
+
+    docker.exec_(
+        "openlakeforge-local-control-plane",
+        ["ctr", "--namespace=k8s.io", "images", "import", "--snapshotter=overlayfs", "-"],
+        privileged=True,
+        interactive=True,
+        stdin_path=Path("/tmp/work/polaris.tar"),
+    )
+
+    assert runner.last_call.argv == [
+        "docker",
+        "exec",
+        "--privileged",
+        "-i",
+        "openlakeforge-local-control-plane",
+        "ctr",
+        "--namespace=k8s.io",
+        "images",
+        "import",
+        "--snapshotter=overlayfs",
+        "-",
+    ]
+    assert runner.last_call.kwargs["stdin_path"] == Path("/tmp/work/polaris.tar")
+
+
+def test_exec_without_privileged_or_interactive() -> None:
+    docker, runner = _docker()
+
+    docker.exec_("node", ["crictl", "inspecti", "apache/polaris:1.4.0"])
+
+    assert runner.last_call.argv == ["docker", "exec", "node", "crictl", "inspecti", "apache/polaris:1.4.0"]
+
+
+def test_run_container_builds_expected_argv() -> None:
+    docker, runner = _docker()
+
+    docker.run_container(
+        "ghcr.io/malon64/floe:0.6.11",
+        [
+            "validate",
+            "-c",
+            "/work/domains/orders/contracts/floe/orders.yml",
+            "-p",
+            "/work/libs/floe/profiles/local-k8s.yml",
+        ],
+        platform="linux/amd64",
+        env_names=["AWS_REGION"],
+        volumes=["/repo:/work"],
+        workdir="/",
+    )
+
+    assert runner.last_call.argv == [
+        "docker",
+        "run",
+        "--rm",
+        "--platform",
+        "linux/amd64",
+        "-e",
+        "AWS_REGION",
+        "-v",
+        "/repo:/work",
+        "-w",
+        "/",
+        "ghcr.io/malon64/floe:0.6.11",
+        "validate",
+        "-c",
+        "/work/domains/orders/contracts/floe/orders.yml",
+        "-p",
+        "/work/libs/floe/profiles/local-k8s.yml",
+    ]
+
+
 def test_resolve_current_engine_endpoint_returns_none_on_failure() -> None:
     from olf.deployment.errors import CommandExecutionError
 
@@ -110,6 +226,20 @@ def test_resolve_current_engine_endpoint_returns_none_on_failure() -> None:
             raise CommandExecutionError(["docker", "context", "show"], 1, stderr="no docker")
 
     runner = FailingRunner()
+    resolver = PathExecutableResolver(overrides={"docker": Path("docker")})
+    docker = Docker(runner, resolver)
+
+    assert docker.resolve_current_engine_endpoint() is None
+
+
+def test_resolve_current_engine_endpoint_returns_none_when_docker_is_not_installed() -> None:
+    from olf.deployment.errors import ExecutableNotFoundError
+
+    class MissingDockerRunner(RecordingRunner):
+        def run(self, command, **kwargs):  # type: ignore[override]
+            raise ExecutableNotFoundError("docker")
+
+    runner = MissingDockerRunner()
     resolver = PathExecutableResolver(overrides={"docker": Path("docker")})
     docker = Docker(runner, resolver)
 
