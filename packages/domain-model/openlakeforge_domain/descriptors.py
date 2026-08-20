@@ -127,9 +127,9 @@ def _validate_table_group(product: Mapping[str, Any], *, group: str, source: str
                 f"{source}: product {product.get('id')!r}: {group}.tables must not contain duplicate names"
             )
         seen.add(table["name"])
-        if "fqn" in table or "fullyQualifiedName" in table:
+        if "path" in table or "fqn" in table or "fullyQualifiedName" in table:
             raise LakehouseDescriptorError(
-                f"{source}: product {product.get('id')!r}: {group}.tables[{index}] must not contain physical FQNs"
+                f"{source}: product {product.get('id')!r}: {group}.tables[{index}] must not contain a physical path or FQN"
             )
         if "description" in table and not isinstance(table["description"], str):
             raise LakehouseDescriptorError(f"{source}: product {product.get('id')!r}: {group}.tables[{index}].description must be a string")

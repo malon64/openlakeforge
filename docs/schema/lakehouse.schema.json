@@ -108,6 +108,7 @@
             },
             "not": {
               "anyOf": [
+                {"required": ["path"]},
                 {"required": ["fqn"]},
                 {"required": ["fullyQualifiedName"]}
               ]

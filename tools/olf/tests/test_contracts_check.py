@@ -58,6 +58,16 @@ def test_descriptor_schema_conformance_rejects_physical_fqn(tmp_path: Path) -> N
     assert "fqn" in result.detail.lower() or "physical" in result.detail.lower()
 
 
+def test_descriptor_schema_conformance_rejects_physical_path_in_lakehouse_table(tmp_path: Path) -> None:
+    repo_root = _repo_with_schemas(tmp_path)
+    _write_descriptor(repo_root, "invalid_lakehouse_physical_path.yaml")
+
+    result = contracts_check._check_descriptor_schema_conformance(repo_root)
+
+    assert not result.ok
+    assert "path" in result.detail.lower() or "physical" in result.detail.lower()
+
+
 def test_descriptor_schema_conformance_rejects_physical_path_in_source(tmp_path: Path) -> None:
     repo_root = _repo_with_schemas(tmp_path)
     _write_descriptor(repo_root, "valid_lakehouse.yaml", source_fixture="invalid_source_physical_path.yaml")
