@@ -118,9 +118,9 @@ def _validate_table_group(product: Mapping[str, Any], *, group: str, source: str
         raise LakehouseDescriptorError(f"{source}: product {product.get('id')!r}: {group}.tables must be a non-empty array")
     seen: set[str] = set()
     for index, table in enumerate(tables):
-        if not isinstance(table, Mapping) or not isinstance(table.get("name"), str) or not table["name"]:
+        if not isinstance(table, Mapping) or not _IDENTIFIER_PATTERN.fullmatch(table.get("name") or ""):
             raise LakehouseDescriptorError(
-                f"{source}: product {product.get('id')!r}: {group}.tables[{index}] must have a non-empty string name"
+                f"{source}: product {product.get('id')!r}: {group}.tables[{index}].name must match '^[a-z][a-z0-9_]*$'"
             )
         if table["name"] in seen:
             raise LakehouseDescriptorError(

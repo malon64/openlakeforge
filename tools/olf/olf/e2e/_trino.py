@@ -22,7 +22,11 @@ def check_catalog_namespaces(cfg: E2EConfig) -> None:
     """Verify Polaris exposes every descriptor-derived namespace through Trino."""
     log.step("Checking Polaris namespaces through Trino...")
     namespaces = set(trino_query(cfg, "SHOW SCHEMAS FROM iceberg").splitlines())
-    expected = cfg.inventory.silver_namespace_names | cfg.inventory.gold_namespace_names
+    expected = (
+        cfg.inventory.bronze_namespace_names
+        | cfg.inventory.silver_namespace_names
+        | cfg.inventory.gold_namespace_names
+    )
     missing = sorted(expected - namespaces)
     if missing:
         raise E2EError("Polaris is missing descriptor-derived namespaces: " + ", ".join(missing))

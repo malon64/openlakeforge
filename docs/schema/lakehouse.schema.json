@@ -103,7 +103,7 @@
             "type": "object",
             "required": ["name"],
             "properties": {
-              "name": {"type": "string", "minLength": 1},
+              "name": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
               "description": {"type": "string"}
             },
             "not": {
