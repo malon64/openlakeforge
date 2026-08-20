@@ -101,17 +101,11 @@
           "minItems": 1,
           "items": {
             "type": "object",
+            "additionalProperties": false,
             "required": ["name"],
             "properties": {
               "name": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
               "description": {"type": "string"}
-            },
-            "not": {
-              "anyOf": [
-                {"required": ["path"]},
-                {"required": ["fqn"]},
-                {"required": ["fullyQualifiedName"]}
-              ]
             }
           }
         }

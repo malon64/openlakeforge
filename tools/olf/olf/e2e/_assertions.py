@@ -51,14 +51,19 @@ def discovered_dashboards(cfg: E2EConfig) -> dict[str, str]:
     multiple dashboards without failing this check.
     """
     expected: dict[str, str] = {}
-    dashboards = getattr(cfg.inventory, "dashboards", ())
+    has_dashboard_registry = hasattr(cfg.inventory, "dashboards")
+    dashboards = cfg.inventory.dashboards if has_dashboard_registry else ()
     for product in cfg.inventory.products:
         product_dashboards = [candidate for candidate in dashboards if candidate.product == product.id]
-        report_source_dirs = (
-            [dashboard.report_source_dir for dashboard in product_dashboards]
-            if product_dashboards
-            else [product.report_source_dir]
-        )
+        if product_dashboards:
+            report_source_dirs = [dashboard.report_source_dir for dashboard in product_dashboards]
+        elif has_dashboard_registry:
+            # Canonical inventory: this product legitimately has no declared
+            # dashboard (the schema does not require one) — nothing to check.
+            continue
+        else:
+            # Legacy inventory predates the Dashboard concept entirely.
+            report_source_dirs = [product.report_source_dir]
         for report_source_dir in report_source_dirs:
             report_dir = cfg.repo_root / report_source_dir
             dashboard_files = superset.discover_dashboard_files(report_dir)
