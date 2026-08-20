@@ -160,3 +160,90 @@ def test_discovered_dashboards_accepts_yml_suffixed_exports(tmp_path: Path) -> N
         "widgets-alpha-overview": "Widgets Alpha Overview Board",
         "widgets-beta-main": "Widgets Beta",
     }
+
+
+def test_discovered_dashboards_checks_every_dashboard_declared_for_a_product(tmp_path: Path) -> None:
+    """Two dashboards on one product must both be checked, not just the first found."""
+    from openlakeforge_domain import load_lakehouse_inventory
+
+    lakehouse_dir = tmp_path / "lakehouse_code"
+    source_dir = lakehouse_dir / "bronze" / "crm"
+    source_dir.mkdir(parents=True)
+    (source_dir / "source.yaml").write_text(
+        """apiVersion: openlakeforge.io/v1alpha3
+kind: Source
+name: crm
+displayName: CRM
+description: CRM source.
+status: planned
+resources:
+  - name: orders
+""",
+        encoding="utf-8",
+    )
+    (lakehouse_dir / "lakehouse.yaml").write_text(
+        """apiVersion: openlakeforge.io/v1alpha3
+kind: Lakehouse
+name: test
+displayName: Test
+description: Test lakehouse.
+status: planned
+sources:
+  - crm
+domains:
+  - name: sales
+    displayName: Sales
+    description: Sales domain.
+    status: planned
+    products:
+      - id: orders
+        displayName: Orders
+        description: Orders product.
+        status: planned
+        bronze:
+          source: crm
+          resources:
+            - orders
+        silver_tables:
+          tables:
+            - name: orders
+        gold_tables:
+          tables:
+            - name: mart_orders
+dashboards:
+  - name: orders_overview
+    product: orders
+  - name: orders_detail
+    product: orders
+""",
+        encoding="utf-8",
+    )
+    inventory = load_lakehouse_inventory(tmp_path)
+    fixture_cfg = E2EConfig(
+        env="local",
+        suite="full",
+        namespace="lakehouse",
+        kube_context="kind-openlakeforge-local",
+        repo_root=tmp_path,
+        foundation_terraform_dir=tmp_path / "foundation",
+        contract_terraform_dir=tmp_path / "contract",
+        inventory=inventory,
+    )
+    overview = next(dashboard for dashboard in inventory.dashboards if dashboard.name == "orders_overview")
+    detail = next(dashboard for dashboard in inventory.dashboards if dashboard.name == "orders_detail")
+    write_dashboard_fixture(
+        tmp_path, overview.report_source_dir, "Overview_1.yaml", slug="orders-overview", title="Orders Overview"
+    )
+
+    # Only orders_overview exports a dashboard; orders_detail has none yet.
+    with pytest.raises(E2EError, match="exports no Superset dashboards"):
+        _assertions.discovered_dashboards(fixture_cfg)
+
+    write_dashboard_fixture(
+        tmp_path, detail.report_source_dir, "Detail_1.yaml", slug="orders-detail", title="Orders Detail"
+    )
+
+    assert _assertions.discovered_dashboards(fixture_cfg) == {
+        "orders-overview": "Orders Overview",
+        "orders-detail": "Orders Detail",
+    }

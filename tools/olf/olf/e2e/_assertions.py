@@ -53,21 +53,26 @@ def discovered_dashboards(cfg: E2EConfig) -> dict[str, str]:
     expected: dict[str, str] = {}
     dashboards = getattr(cfg.inventory, "dashboards", ())
     for product in cfg.inventory.products:
-        dashboard = next((candidate for candidate in dashboards if candidate.product == product.id), None)
-        report_source_dir = dashboard.report_source_dir if dashboard else product.report_source_dir
-        report_dir = cfg.repo_root / report_source_dir
-        dashboard_files = superset.discover_dashboard_files(report_dir)
-        if not dashboard_files:
-            raise E2EError(
-                f"{report_dir / 'dashboards'}: product {product.id!r} exports no Superset dashboards"
-            )
-        for dashboard_file in dashboard_files:
-            document = yaml.safe_load(dashboard_file.read_text())
-            slug = document.get("slug") if isinstance(document, Mapping) else None
-            title = document.get("dashboard_title") if isinstance(document, Mapping) else None
-            if not slug or not title:
-                raise E2EError(f"{dashboard_file}: missing slug or dashboard_title")
-            expected[slug] = title
+        product_dashboards = [candidate for candidate in dashboards if candidate.product == product.id]
+        report_source_dirs = (
+            [dashboard.report_source_dir for dashboard in product_dashboards]
+            if product_dashboards
+            else [product.report_source_dir]
+        )
+        for report_source_dir in report_source_dirs:
+            report_dir = cfg.repo_root / report_source_dir
+            dashboard_files = superset.discover_dashboard_files(report_dir)
+            if not dashboard_files:
+                raise E2EError(
+                    f"{report_dir / 'dashboards'}: product {product.id!r} exports no Superset dashboards"
+                )
+            for dashboard_file in dashboard_files:
+                document = yaml.safe_load(dashboard_file.read_text())
+                slug = document.get("slug") if isinstance(document, Mapping) else None
+                title = document.get("dashboard_title") if isinstance(document, Mapping) else None
+                if not slug or not title:
+                    raise E2EError(f"{dashboard_file}: missing slug or dashboard_title")
+                expected[slug] = title
     return expected
 
 
