@@ -3,7 +3,7 @@
   "$id": "https://openlakeforge.io/schemas/source/v1alpha3",
   "title": "OpenLakeForge Source",
   "type": "object",
-  "additionalProperties": true,
+  "additionalProperties": false,
   "required": ["apiVersion", "kind", "name", "displayName", "description", "status", "resources"],
   "properties": {
     "apiVersion": {"const": "openlakeforge.io/v1alpha3"},

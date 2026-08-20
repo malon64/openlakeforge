@@ -87,6 +87,11 @@ def validate_source_descriptor(document: Mapping[str, Any], *, source: str = "so
             raise LakehouseDescriptorError(
                 f"{source}: resources[{index}] must not contain {sorted(unexpected)!r} (provider-neutral fields only)"
             )
+    unexpected = set(document) - {"apiVersion", "kind", "name", "displayName", "description", "status", "resources"}
+    if unexpected:
+        raise LakehouseDescriptorError(
+            f"{source}: must not contain {sorted(unexpected)!r} (provider-neutral fields only)"
+        )
 
 
 def _validate_bronze_reference(product: Mapping[str, Any], *, source: str) -> None:
@@ -108,6 +113,12 @@ def _validate_bronze_reference(product: Mapping[str, Any], *, source: str) -> No
             raise LakehouseDescriptorError(
                 f"{source}: product {product.get('id')!r}: bronze.resources must contain non-empty strings"
             )
+    unexpected = set(bronze) - {"source", "resources"}
+    if unexpected:
+        raise LakehouseDescriptorError(
+            f"{source}: product {product.get('id')!r}: bronze must not contain {sorted(unexpected)!r} "
+            "(provider-neutral fields only)"
+        )
 
 
 def _validate_table_group(product: Mapping[str, Any], *, group: str, source: str) -> None:
@@ -158,6 +169,13 @@ def _validate_product(product: Mapping[str, Any], *, domain_name: str, source: s
     _validate_bronze_reference(product, source=source)
     _validate_table_group(product, group="silver_tables", source=source)
     _validate_table_group(product, group="gold_tables", source=source)
+    unexpected = set(product) - {
+        "id", "displayName", "description", "status", "domain", "bronze", "silver_tables", "gold_tables",
+    }
+    if unexpected:
+        raise LakehouseDescriptorError(
+            f"{source}: product {label!r} must not contain {sorted(unexpected)!r} (provider-neutral fields only)"
+        )
 
 
 def _validate_domain(domain: Mapping[str, Any], *, source: str) -> None:
@@ -175,6 +193,11 @@ def _validate_domain(domain: Mapping[str, Any], *, source: str) -> None:
         if not isinstance(product, Mapping):
             raise LakehouseDescriptorError(f"{source}: domain {domain['name']!r}: products must contain objects")
         _validate_product(product, domain_name=domain["name"], source=source)
+    unexpected = set(domain) - {"name", "displayName", "description", "status", "products"}
+    if unexpected:
+        raise LakehouseDescriptorError(
+            f"{source}: domain {domain['name']!r} must not contain {sorted(unexpected)!r} (provider-neutral fields only)"
+        )
 
 
 def _validate_dashboard(dashboard: Mapping[str, Any], *, source: str) -> None:
@@ -183,6 +206,12 @@ def _validate_dashboard(dashboard: Mapping[str, Any], *, source: str) -> None:
             raise LakehouseDescriptorError(f"{source}: dashboard: missing required field {field!r}")
     _identifier(dashboard["name"], field="dashboard.name", source=source)
     _identifier(dashboard["product"], field="dashboard.product", source=source)
+    unexpected = set(dashboard) - {"name", "product"}
+    if unexpected:
+        raise LakehouseDescriptorError(
+            f"{source}: dashboard {dashboard['name']!r} must not contain {sorted(unexpected)!r} "
+            "(provider-neutral fields only)"
+        )
 
 
 def validate_lakehouse_descriptor(document: Mapping[str, Any], *, source: str = "lakehouse.yaml") -> None:
@@ -222,6 +251,13 @@ def validate_lakehouse_descriptor(document: Mapping[str, Any], *, source: str = 
         if not isinstance(dashboard, Mapping):
             raise LakehouseDescriptorError(f"{source}: dashboards must contain objects")
         _validate_dashboard(dashboard, source=source)
+    unexpected = set(document) - {
+        "apiVersion", "kind", "name", "displayName", "description", "status", "sources", "domains", "dashboards",
+    }
+    if unexpected:
+        raise LakehouseDescriptorError(
+            f"{source}: must not contain {sorted(unexpected)!r} (provider-neutral fields only)"
+        )
 
 
 def load_lakehouse_descriptor(path: str | Path) -> dict[str, Any]:

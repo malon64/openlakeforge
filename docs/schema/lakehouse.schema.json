@@ -3,7 +3,7 @@
   "$id": "https://openlakeforge.io/schemas/lakehouse/v1alpha3",
   "title": "OpenLakeForge Lakehouse",
   "type": "object",
-  "additionalProperties": true,
+  "additionalProperties": false,
   "required": [
     "apiVersion",
     "kind",
@@ -32,6 +32,7 @@
       "minItems": 1,
       "items": {
         "type": "object",
+        "additionalProperties": false,
         "required": ["name", "displayName", "description", "status", "products"],
         "properties": {
           "name": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
@@ -43,6 +44,7 @@
             "minItems": 1,
             "items": {
               "type": "object",
+              "additionalProperties": false,
               "required": [
                 "id",
                 "displayName",
@@ -71,6 +73,7 @@
       "type": "array",
       "items": {
         "type": "object",
+        "additionalProperties": false,
         "required": ["name", "product"],
         "properties": {
           "name": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
@@ -82,6 +85,7 @@
   "$defs": {
     "bronzeSpec": {
       "type": "object",
+      "additionalProperties": false,
       "required": ["source", "resources"],
       "properties": {
         "source": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
@@ -94,6 +98,7 @@
     },
     "tableGroup": {
       "type": "object",
+      "additionalProperties": false,
       "required": ["tables"],
       "properties": {
         "tables": {
