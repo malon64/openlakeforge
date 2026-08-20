@@ -218,6 +218,76 @@ def test_deployment_input_validation_rejects_malformed_bronze_before_writes() ->
         deployer.validate_deployment_inputs(domain_specs)
 
 
+def test_domain_specs_validate_composite_inventory_with_provider_schema_fqns(tmp_path: Path) -> None:
+    (tmp_path / "bronze" / "crm").mkdir(parents=True)
+    (tmp_path / "bronze" / "crm" / "source.yaml").write_text(
+        """apiVersion: openlakeforge.io/v1alpha3
+kind: Source
+name: crm
+displayName: CRM
+description: CRM source.
+status: active
+resources:
+  - name: customers
+"""
+    )
+    (tmp_path / "lakehouse.yaml").write_text(
+        """apiVersion: openlakeforge.io/v1alpha3
+kind: Lakehouse
+name: test
+displayName: Test
+description: Test lakehouse.
+status: active
+sources: [crm]
+domains:
+  - name: sales
+    displayName: Sales
+    description: Sales domain.
+    status: active
+    silver_tables:
+      tables:
+        - name: accounts
+          source: crm
+          resource: accounts
+    products:
+      - id: customer_health
+        displayName: Customer Health
+        description: Customer health product.
+        status: active
+        silver_inputs: [accounts]
+        gold_tables:
+          tables:
+            - name: mart_customer_health
+dashboards: []
+"""
+    )
+    cfg = om.OpenMetadataConfig.from_environment(
+        {
+            "OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON": (
+                '{"sales": "polaris.lakehouse_dev.sales_silver"}'
+            ),
+            "OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON": (
+                '{"customer_health": "polaris.lakehouse_dev.customer_health_gold"}'
+            ),
+        },
+        base_url="http://x",
+        admin_email="a",
+        admin_password="p",
+        metadata_root=str(tmp_path),
+        metadata_source_dir="",
+        allow_missing_assets=False,
+        catalog_service="polaris",
+        catalog_database="lakehouse_dev",
+        cleanup_legacy_default_database=False,
+    )
+
+    with pytest.raises(
+        om.OpenMetadataError,
+        match="Silver table 'accounts' references unknown resource 'accounts' of source 'crm'",
+    ):
+        om.OpenMetadataDeployer(cfg, om.OpenMetadataClient(cfg.base_url))._domain_specs()
+
+
 def test_deploy_seeds_medallion_buckets_and_bronze_source_hierarchy(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -14,7 +14,12 @@ import urllib.parse
 from collections.abc import Iterator
 from pathlib import Path
 
-from openlakeforge_domain import load_lakehouse_descriptor, load_source_descriptor
+from openlakeforge_domain import (
+    LakehouseDescriptorError,
+    load_lakehouse_descriptor,
+    load_lakehouse_inventory_from_descriptors,
+    load_source_descriptor,
+)
 
 from olf.clients.openmetadata import OpenMetadataClient, OpenMetadataError
 from olf.openmetadata._config import OpenMetadataConfig, resolve_metadata_descriptor_paths
@@ -240,6 +245,16 @@ class OpenMetadataDeployer:
         bronze entries are derived from the source name plus each resource,
         and physical s3 paths are resolved from the provider contract at deploy
         time -- never stored in the descriptor.
+
+        The two files are also loaded independently below (as raw dicts, to
+        keep every cosmetic ``description``/``status`` field the deployer
+        payloads need). ``load_lakehouse_inventory_from_descriptors`` runs
+        first purely for its cross-descriptor validation: it is the same
+        check every other consumer of these descriptors relies on to catch a
+        Silver table naming a source/resource no Source descriptor declares.
+        Without it, a bad reference would still build an
+        ``s3://.../<source>/<resource>`` Bronze path below and publish a
+        phantom asset to OpenMetadata instead of failing before any writes.
         """
         descriptor_paths = self.domain_files()
         if not descriptor_paths:
@@ -248,6 +263,10 @@ class OpenMetadataDeployer:
             )
         lakehouse_path = descriptor_paths[0]
         source_paths = descriptor_paths[1:]
+        try:
+            load_lakehouse_inventory_from_descriptors(lakehouse_path, source_paths)
+        except LakehouseDescriptorError as exc:
+            raise OpenMetadataError(str(exc)) from exc
         lakehouse_document = load_lakehouse_descriptor(lakehouse_path)
         resource_descriptions: dict[str, dict[str, str]] = {}
         for source_path in source_paths:
