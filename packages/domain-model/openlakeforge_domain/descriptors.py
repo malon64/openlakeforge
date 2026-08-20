@@ -179,6 +179,7 @@ def _validate_domain(domain: Mapping[str, Any], *, source: str) -> None:
         raise LakehouseDescriptorError(f"{source}: domain {domain['name']!r}: products must be a non-empty array")
     seen_products: set[str] = set()
     silver_names = {table["name"] for table in domain["silver_tables"]["tables"]}
+    consumed_silver_names: set[str] = set()
     for product in products:
         if not isinstance(product, Mapping):
             raise LakehouseDescriptorError(f"{source}: domain {domain['name']!r}: products must contain objects")
@@ -194,6 +195,13 @@ def _validate_domain(domain: Mapping[str, Any], *, source: str) -> None:
                 f"{source}: product {product['id']!r}: silver_inputs reference unknown domain Silver tables "
                 f"{unknown_inputs!r}"
             )
+        consumed_silver_names.update(product["silver_inputs"])
+    unconsumed_tables = sorted(silver_names - consumed_silver_names)
+    if unconsumed_tables:
+        raise LakehouseDescriptorError(
+            f"{source}: domain {domain['name']!r}: Silver tables {unconsumed_tables!r} are not consumed by "
+            "any product; add them to a product's silver_inputs or remove them from silver_tables"
+        )
     unexpected = set(domain) - {"name", "displayName", "description", "status", "silver_tables", "products"}
     if unexpected:
         raise LakehouseDescriptorError(

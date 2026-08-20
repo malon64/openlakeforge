@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 from openlakeforge_domain import (
     DomainDescriptorError,
+    LakehouseDescriptorError,
     inventory_for,
     load_domain_inventory,
     load_domain_inventory_from_descriptors,
@@ -317,3 +318,24 @@ def test_renaming_descriptor_product_changes_discovered_work_without_shared_code
     assert inventory.gold_mart_names == ("revenue_gold.mart_revenue",)
     assert inventory.manifest_keys == ("floe/manifests/sales/sales.manifest.json",)
     assert inventory.silver_namespace_names == frozenset({"sales_silver"})
+
+
+def test_inventory_rejects_domain_silver_table_without_a_product_consumer(tmp_path: Path) -> None:
+    lakehouse_path = _write_lakehouse(tmp_path)
+    descriptor = lakehouse_path.read_text(encoding="utf-8")
+    descriptor = descriptor.replace(
+        "        - name: orders\n          source: crm\n          resource: orders\n",
+        "        - name: orders\n"
+        "          source: crm\n"
+        "          resource: orders\n"
+        "        - name: unconsumed_orders\n"
+        "          source: crm\n"
+        "          resource: orders\n",
+    )
+    lakehouse_path.write_text(descriptor, encoding="utf-8")
+
+    with pytest.raises(
+        LakehouseDescriptorError,
+        match=r"domain 'sales': Silver tables \['unconsumed_orders'\] are not consumed by any product",
+    ):
+        load_lakehouse_inventory(tmp_path)
