@@ -28,6 +28,7 @@ required_paths=(
   "docs/adr/0022-phase-two-catalog-namespace-reconciliation.md"
   "docs/adr/0023-native-openlineage-emission-restored.md"
   "docs/adr/0024-canonical-domain-model-package.md"
+  "docs/adr/0025-medallion-ownership-and-catalog-namespace-contract.md"
   "docs/adr/0015-aws-eks-managed-services-poc.md"
   "infra/README.md"
   "infra/terraform/README.md"

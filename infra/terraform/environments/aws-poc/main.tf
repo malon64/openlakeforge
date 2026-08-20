@@ -58,9 +58,9 @@ locals {
   log_base_uri                = "${local.artifact_base_uri}/logs"
   run_artifact_base_uri       = "${local.artifact_base_uri}/run-artifacts"
   product_floe_manifest_uris = {
-    sales_order_revenue                = "${local.floe_manifest_base_uri}/sales/order_revenue/order_revenue.manifest.json"
-    sales_customer_health              = "${local.floe_manifest_base_uri}/sales/customer_health/customer_health.manifest.json"
-    supply_chain_inventory_reliability = "${local.floe_manifest_base_uri}/supply_chain/inventory_reliability/inventory_reliability.manifest.json"
+    order_revenue         = "${local.floe_manifest_base_uri}/sales/order_revenue/order_revenue.manifest.json"
+    customer_health       = "${local.floe_manifest_base_uri}/sales/customer_health/customer_health.manifest.json"
+    inventory_reliability = "${local.floe_manifest_base_uri}/supply_chain/inventory_reliability/inventory_reliability.manifest.json"
   }
   # Databases themselves are not declared here. `olf catalog sync-namespaces`
   # reconciles them from the lakehouse inventory during artifacts-deploy (ADR
