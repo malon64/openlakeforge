@@ -20,6 +20,23 @@ def test_local_defaults(tmp_path: Path) -> None:
     assert ctx.paths.helm_repository_cache == tmp_path / ".tmp" / "helm" / "local" / "repository-cache"
 
 
+def test_local_kubeconfig_path_override(tmp_path: Path) -> None:
+    override = tmp_path / "custom" / "kind-smoke.yaml"
+
+    ctx = DeploymentContext.local(repo_root=tmp_path, kubeconfig_path=override)
+
+    assert ctx.paths.kubeconfig_path == override
+    # Only the kubeconfig path changes; every other derived path is untouched.
+    assert ctx.paths.docker_config_dir == tmp_path / ".tmp" / "docker" / "local"
+    assert ctx.paths.helm_repository_config == tmp_path / ".tmp" / "helm" / "local" / "repositories.yaml"
+
+
+def test_local_kubeconfig_path_override_is_resolved_to_an_absolute_path(tmp_path: Path) -> None:
+    ctx = DeploymentContext.local(repo_root=tmp_path, kubeconfig_path=Path("relative/kubeconfig.yaml"))
+
+    assert ctx.paths.kubeconfig_path.is_absolute()
+
+
 def test_aws_and_azure_produce_independent_scoped_paths(tmp_path: Path) -> None:
     aws_ctx = DeploymentContext.aws(repo_root=tmp_path)
     azure_ctx = DeploymentContext.azure(repo_root=tmp_path)

@@ -40,6 +40,23 @@ def fake_engine(monkeypatch: pytest.MonkeyPatch) -> _FakeEngine:
     return engine
 
 
+def test_deploy_forwards_kubeconfig_path_to_build_context(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[dict] = []
+
+    def _capture_build_context(*args, **kwargs):  # noqa: ANN002, ANN003
+        calls.append(kwargs)
+        return object()
+
+    engine = _FakeEngine()
+    monkeypatch.setattr("olf.commands.deployment._build_context", _capture_build_context)
+    monkeypatch.setattr("olf.commands.deployment._build_engine", lambda *a, **k: engine)
+
+    result = runner.invoke(app, ["deploy", "--kubeconfig-path", "/tmp/custom/kind-smoke.yaml"])
+
+    assert result.exit_code == 0
+    assert calls[0]["kubeconfig_path"] == "/tmp/custom/kind-smoke.yaml"
+
+
 def test_deploy_defaults_to_all_phases(fake_engine: _FakeEngine) -> None:
     from olf.deployment.engine import DeploymentPhase
 
