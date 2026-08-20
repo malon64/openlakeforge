@@ -15,13 +15,16 @@ from __future__ import annotations
 
 import signal
 import subprocess
+import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
+from olf.deployment.errors import DeploymentPreconditionError
 from olf.tooling.kubectl import Kubectl
 
 _TERMINATE_TIMEOUT_SECONDS = 10.0
+_DEFAULT_POLL_INTERVAL_SECONDS = 0.5
 
 
 @dataclass(frozen=True)
@@ -52,12 +55,18 @@ class PortForwardSupervisor:
         *,
         log_prefix: Path,
         popen: Callable[..., subprocess.Popen] = subprocess.Popen,
+        sleep: Callable[[float], None] = time.sleep,
+        poll_interval_seconds: float = _DEFAULT_POLL_INTERVAL_SECONDS,
     ) -> None:
         self._kubectl = kubectl
         self._log_prefix = log_prefix
         self._popen = popen
+        self._sleep = sleep
+        self._poll_interval_seconds = poll_interval_seconds
         self._processes: list[subprocess.Popen] = []
         self._log_files: list = []
+        self._targets: list[ForwardTarget] = []
+        self._log_paths: list[Path] = []
 
     def start(
         self, target: ForwardTarget, spec: ForwardSpec, *, env: Mapping[str, str] | None = None
@@ -68,7 +77,29 @@ class PortForwardSupervisor:
         process = self._popen(argv, stdout=log_file, stderr=subprocess.STDOUT, env=dict(env) if env else None)
         self._processes.append(process)
         self._log_files.append(log_file)
+        self._targets.append(target)
+        self._log_paths.append(log_path)
         return process
+
+    def _wait_for_any_failure(self) -> None:
+        """Block until a signal arrives, or raise as soon as any child exits.
+
+        A healthy `kubectl port-forward` never exits on its own, so any exit
+        - regardless of code - means that target stopped forwarding; block
+        indefinitely on the first (and normally only) `wait()` target is not
+        enough to catch a later target dying (e.g. a port already in use).
+        """
+        if not self._processes:
+            return
+        while True:
+            for target, process, log_path in zip(self._targets, self._processes, self._log_paths, strict=True):
+                code = process.poll()
+                if code is not None:
+                    raise DeploymentPreconditionError(
+                        f"port-forward '{target.label}' ({target.resource}) exited unexpectedly "
+                        f"(exit code {code}); see {log_path}"
+                    )
+            self._sleep(self._poll_interval_seconds)
 
     def _kubectl_argv(self, target: ForwardTarget, spec: ForwardSpec) -> list[str]:
         argv = self._kubectl.port_forward_argv(
@@ -93,6 +124,8 @@ class PortForwardSupervisor:
                 pass
         self._processes = []
         self._log_files = []
+        self._targets = []
+        self._log_paths = []
 
     def run(
         self,
@@ -117,8 +150,8 @@ class PortForwardSupervisor:
 
             if wait is not None:
                 wait()
-            elif self._processes:
-                self._processes[0].wait()
+            else:
+                self._wait_for_any_failure()
         finally:
             self.stop_all()
             for sig, previous in installed:

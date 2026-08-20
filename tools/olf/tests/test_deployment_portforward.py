@@ -115,6 +115,48 @@ def test_run_stops_all_children_when_the_wait_callable_raises(tmp_path: Path) ->
     assert all(p.terminated for p in popens)
 
 
+def test_run_default_wait_raises_when_a_later_target_dies(tmp_path: Path) -> None:
+    import pytest
+
+    from olf.deployment.errors import DeploymentPreconditionError
+
+    class _DiesAfterOnePoll(_FakePopen):
+        """Simulates a healthy start followed by an early, unattended exit."""
+
+        def __init__(self, argv, **kwargs) -> None:  # noqa: ANN001
+            super().__init__(argv, **kwargs)
+            self._polls = 0
+
+        def poll(self):
+            self._polls += 1
+            if self._polls >= 2:
+                self._returncode = 1
+            return self._returncode
+
+    popens: list[_FakePopen] = []
+
+    def fake_popen(argv, **kwargs):  # noqa: ANN001
+        # Only the second target ("polaris" - port 8181) is flaky.
+        cls = _DiesAfterOnePoll if "8181:8181" in argv else _FakePopen
+        popen = cls(argv, **kwargs)
+        popens.append(popen)
+        return popen
+
+    sleeps: list[float] = []
+    supervisor = PortForwardSupervisor(
+        _kubectl(), log_prefix=tmp_path / "openlakeforge-local", popen=fake_popen, sleep=sleeps.append
+    )
+    spec = _spec()
+
+    with pytest.raises(DeploymentPreconditionError, match="polaris"):
+        supervisor.run(spec)
+
+    # The still-healthy target was cleaned up too, not just the dead one.
+    assert popens[0].terminated
+    assert popens[1]._returncode == 1
+    assert sleeps  # the default wait actually polled at least once
+
+
 def test_stop_all_is_idempotent(tmp_path: Path) -> None:
     def fake_popen(argv, **kwargs):  # noqa: ANN001
         return _FakePopen(argv, **kwargs)
