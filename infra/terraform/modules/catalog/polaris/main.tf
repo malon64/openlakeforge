@@ -10,6 +10,11 @@ locals {
   rest_uri       = "http://${var.release_name}:8181/api/catalog"
   token_uri      = "http://${var.release_name}:8181/api/catalog/v1/oauth/tokens"
   oauth_scope    = "PRINCIPAL_ROLE:ALL"
+  bronze_bucket_name = (
+    var.storage_contract.bronze_bucket_name != null
+    ? var.storage_contract.bronze_bucket_name
+    : var.storage_contract.bucket_name
+  )
   silver_bucket_name = (
     var.storage_contract.silver_bucket_name != null
     ? var.storage_contract.silver_bucket_name

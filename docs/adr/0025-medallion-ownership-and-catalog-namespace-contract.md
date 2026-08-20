@@ -140,6 +140,16 @@ materialized under the old naming needs an explicit reconciliation/backfill step
 empty `<domain>_silver` namespace alongside the old one rather than continuing to write to
 it.
 
+Bronze becoming a real Polaris namespace also means Polaris's catalog-level
+`storageConfigInfo.allowedLocations` allowlist (`infra/terraform/modules/catalog/polaris/templates/bootstrap.sh.tftpl`)
+had to grow a third entry for the bronze bucket, alongside the pre-existing silver/gold
+entries — Polaris refuses to create a namespace whose location isn't in that list. The
+bootstrap job only creates the Polaris catalog once (its create call is idempotent via
+HTTP 409, with no corresponding update call), so this change takes effect on fresh
+clusters automatically but an already-bootstrapped long-lived environment needs its
+Polaris catalog's `allowedLocations` updated out-of-band via the Polaris management API
+before `olf catalog sync-namespaces` can create `<source>_bronze` namespaces there.
+
 `docs/schema/domain.schema.json` and `docs/schema/domain.v1alpha1.schema.json` are kept,
 unreferenced by any default `contracts_check.py` path, for the same migration-diagnostic
 reason `_LegacyDomainInventory` is kept.

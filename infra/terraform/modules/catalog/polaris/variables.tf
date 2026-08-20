@@ -74,6 +74,7 @@ variable "storage_contract" {
     credentials_secret_name = string
     access_key_id_key       = string
     secret_access_key_key   = string
+    bronze_bucket_name      = optional(string)
     silver_bucket_name      = optional(string)
     gold_bucket_name        = optional(string)
     provider                = optional(string)

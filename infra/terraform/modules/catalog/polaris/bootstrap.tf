@@ -154,6 +154,7 @@ resource "kubernetes_job_v1" "bootstrap" {
           args = [templatefile("${path.module}/templates/bootstrap.sh.tftpl", {
             release_name                     = var.release_name
             oauth_scope                      = local.oauth_scope
+            bronze_bucket_name               = local.bronze_bucket_name
             silver_bucket_name               = local.silver_bucket_name
             gold_bucket_name                 = local.gold_bucket_name
             catalog_name                     = var.catalog_name
