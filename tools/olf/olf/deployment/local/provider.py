@@ -51,12 +51,20 @@ class LocalProvider:
         endpoint (only when `DOCKER_HOST` isn't already set) before scoping
         `DOCKER_CONFIG`, so an isolated config can't silently fall back to
         `/var/run/docker.sock`.
+
+        Deliberately built without `self._environ` as `base`: this dict is
+        what `ProcessRunner` stores verbatim on `CommandExecutionError` for
+        diagnostics, and `ProcessRunner._run_once` already layers it over a
+        full `os.environ` snapshot for actual execution - so carrying the
+        ambient environment forward here too would only leak arbitrary
+        inherited secrets (e.g. `DATABASE_URL`) into failure output without
+        changing what a subprocess actually sees.
         """
         docker_host = None
         if not self._environ.get("DOCKER_HOST"):
             docker_host = self.tools.docker.resolve_current_engine_endpoint(env=dict(self._environ))
         self.context.prepare_directories()
-        return self.context.command_env(base=self._environ, docker_host=docker_host)
+        return self.context.command_env(docker_host=docker_host)
 
     def foundation_up(self) -> None:
         from olf.deployment.local import foundation
