@@ -104,8 +104,9 @@ class ReportBundle:
 
 def bundle_identity(report_source_dir: str) -> ReportBundle:
     """Derive the bundle root/name from the report source directory path."""
-    root = re.sub(r"^domains/", "", report_source_dir)
-    root = root.replace("/reports/superset/", "_").replace("/", "_")
+    root = re.sub(r"^lakehouse_code/dashboards/superset/", "", report_source_dir)
+    root = re.sub(r"/metadata\.ya?ml$", "", root)
+    root = root.replace("/", "_")
     root = f"{root}_superset_bundle"
     return ReportBundle(root=root, name=f"{root}.zip")
 
@@ -185,8 +186,8 @@ def _running_superset_pod(namespace: str) -> str:
 
 
 def discover_report_dirs(repo_root: Path) -> list[str]:
-    root = repo_root / "domains"
-    dirs = {str(path.parent.relative_to(repo_root)) for path in root.glob("*/reports/superset/*/metadata.yaml")}
+    root = repo_root / "lakehouse_code" / "dashboards" / "superset"
+    dirs = {str(path.parent.relative_to(repo_root)) for path in root.glob("*/metadata.yaml")}
     return sorted(dirs)
 
 

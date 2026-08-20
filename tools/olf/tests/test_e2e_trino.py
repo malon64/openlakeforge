@@ -11,11 +11,11 @@ def test_check_catalog_namespaces_reports_missing_descriptor_namespace(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     available = E2E_INVENTORY.silver_namespace_names | (
-        E2E_INVENTORY.gold_namespace_names - {"sales_order_revenue_gold"}
+        E2E_INVENTORY.gold_namespace_names - {"order_revenue_gold"}
     )
     monkeypatch.setattr(_trino, "trino_query", lambda _cfg, _sql: "\n".join(sorted(available)))
 
-    with pytest.raises(E2EError, match="sales_order_revenue_gold"):
+    with pytest.raises(E2EError, match="order_revenue_gold"):
         _trino.check_catalog_namespaces(e2e_cfg(tmp_path))
 
 

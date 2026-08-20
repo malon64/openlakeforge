@@ -176,7 +176,7 @@ discover_configs() {
     return
   fi
 
-  find domains -path "*/contracts/floe/*.yml" -type f | sort
+  find lakehouse_code/silver -path "*/contracts/floe/*.yml" -type f | sort
 }
 
 silver_namespace_for_product() {
@@ -203,7 +203,7 @@ PY
 profile_for_config() {
   local domain="$1"
   local product="$2"
-  local product_key="${domain}_${product}"
+  local product_key="${product}"
   local profile_path="${GENERATED_PROFILE_PATH}"
   local silver_namespace
 
@@ -312,8 +312,8 @@ generate_manifest() {
     -c "${floe_config_path}" \
     -p "${floe_profile_path}" \
     --deterministic \
-    --manifest-name "${domain}.${product}.local" \
-    --default-domain "${domain}_${product}" \
+    --manifest-name "${product}.local" \
+    --default-domain "${product}" \
     --manifest-path-mode resolved-uri \
     --runtime "${FLOE_RUNTIME}" \
     --output "${floe_manifest_path}"

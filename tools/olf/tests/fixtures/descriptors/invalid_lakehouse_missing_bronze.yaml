@@ -1,0 +1,27 @@
+apiVersion: openlakeforge.io/v1alpha3
+kind: Lakehouse
+name: openlakeforge
+displayName: OpenLakeForge
+description: Fixture lakehouse missing a required product bronze block.
+status: planned
+sources:
+  - crm
+domains:
+  - name: sales
+    displayName: Sales
+    description: Sales domain fixture.
+    status: planned
+    products:
+      - id: order_revenue
+        displayName: Order Revenue
+        description: Revenue per order.
+        status: planned
+        silver_tables:
+          tables:
+            - name: orders
+        gold_tables:
+          tables:
+            - name: order_revenue_daily
+dashboards:
+  - name: sales_order_revenue
+    product: order_revenue

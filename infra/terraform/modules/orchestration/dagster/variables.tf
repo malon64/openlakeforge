@@ -65,7 +65,7 @@ variable "code_locations" {
   default = [
     {
       name               = "openlakeforge-dagster"
-      definitions_module = "domains.definitions"
+      definitions_module = "lakehouse_code.definitions"
     },
   ]
 }

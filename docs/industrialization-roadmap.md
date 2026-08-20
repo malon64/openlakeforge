@@ -341,8 +341,8 @@ private networking, ingress/TLS, and restore validation.
   targets as those capabilities are delivered.
 - Add `schema_version` to `provider_contracts`. Minor releases may add compatible
   fields; removal or rename requires a major release.
-- Version `domain.yaml` independently and provide validation and migration tools
-  for schema changes.
+- Version the lakehouse descriptor schemas (`lakehouse.yaml` / `source.yaml`)
+  independently and provide validation and migration tools for schema changes.
 - Publish a compatibility matrix for OpenLakeForge, Kubernetes, Terraform,
   charts, cloud services, and supported upgrade paths.
 

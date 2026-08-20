@@ -1,2 +1,0 @@
-packages:
-  - local: ../../../../../libs/dbt/openlakeforge_dbt

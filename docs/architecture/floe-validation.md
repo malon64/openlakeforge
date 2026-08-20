@@ -14,9 +14,10 @@ uses those Silver tables to build Gold marts.
 
 ## The product contract
 
-Each data product owns a Floe YAML contract under
-`domains/<domain>/contracts/floe/`. It describes the technical boundary between
-its Bronze inputs and Silver outputs; it is not a dbt model or a Dagster job.
+Each domain owns its Floe YAML contracts under
+`lakehouse_code/silver/<domain>/contracts/floe/` — one file per product, sharing
+the domain's Silver namespace. It describes the technical boundary between
+Bronze inputs and Silver outputs; it is not a dbt model or a Dagster job.
 
 | Contract section | What it declares |
 | --- | --- |
@@ -30,9 +31,9 @@ Start with the contracts that the seed products actually use:
 
 | Product | Contract | Generated runner manifest |
 | --- | --- | --- |
-| Sales order revenue | [order_revenue.yml](../../domains/sales/contracts/floe/order_revenue.yml) | [order_revenue.manifest.json](../../domains/sales/contracts/floe/manifests/order_revenue.manifest.json) |
-| Sales customer health | [customer_health.yml](../../domains/sales/contracts/floe/customer_health.yml) | [customer_health.manifest.json](../../domains/sales/contracts/floe/manifests/customer_health.manifest.json) |
-| Supply chain inventory reliability | [inventory_reliability.yml](../../domains/supply_chain/contracts/floe/inventory_reliability.yml) | [inventory_reliability.manifest.json](../../domains/supply_chain/contracts/floe/manifests/inventory_reliability.manifest.json) |
+| Sales order revenue | [order_revenue.yml](../../lakehouse_code/silver/sales/contracts/floe/order_revenue.yml) | [order_revenue.manifest.json](../../lakehouse_code/silver/sales/contracts/floe/manifests/order_revenue.manifest.json) |
+| Sales customer health | [customer_health.yml](../../lakehouse_code/silver/sales/contracts/floe/customer_health.yml) | [customer_health.manifest.json](../../lakehouse_code/silver/sales/contracts/floe/manifests/customer_health.manifest.json) |
+| Supply chain inventory reliability | [inventory_reliability.yml](../../lakehouse_code/silver/supply_chain/contracts/floe/inventory_reliability.yml) | [inventory_reliability.manifest.json](../../lakehouse_code/silver/supply_chain/contracts/floe/manifests/inventory_reliability.manifest.json) |
 
 For example, `order_revenue.yml` defines CSV Bronze sources with strict casts,
 column types, nullability, primary keys, and snake-case normalization. Each

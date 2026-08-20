@@ -61,7 +61,7 @@ projects=()
 while IFS= read -r project_dir; do
   projects+=("${project_dir}")
 done < <(
-  find domains -path "*/transformations/dbt/*/dbt_project.yml" -type f \
+  find lakehouse_code/gold -path "*/dbt/dbt_project.yml" -type f \
     -exec dirname {} \; | sort
 )
 
@@ -95,11 +95,18 @@ manifest_path = project_dir / "target" / "manifest.json"
 expected_database = os.environ["OPENLAKEFORGE_CATALOG_NAME"]
 parts = project_dir.parts
 try:
-    domain = parts[parts.index("domains") + 1]
+    product = parts[parts.index("gold") + 1]
 except (ValueError, IndexError) as exc:
-    raise SystemExit(f"Cannot derive domain from dbt project path: {project_dir}") from exc
-expected_schema = f"{domain}_{project_dir.name}_gold"
-expected_source_schema = f"{domain}_{project_dir.name}_silver"
+    raise SystemExit(f"Cannot derive product from dbt project path: {project_dir}") from exc
+
+# Gold paths are product-scoped (lakehouse_code/gold/<product>/dbt); the domain
+# is not part of them. Resolve it from the product's Silver Floe contract.
+silver_contracts = sorted(Path("lakehouse_code/silver").glob(f"*/contracts/floe/{product}.yml"))
+if len(silver_contracts) != 1:
+    raise SystemExit(f"Cannot derive domain for product {product} from Silver contracts")
+domain = silver_contracts[0].parts[2]  # lakehouse_code/silver/<domain>/contracts/floe/<product>.yml
+expected_schema = f"{product}_gold"
+expected_source_schema = f"{domain}_silver"
 
 manifest = json.loads(manifest_path.read_text())
 violations = []

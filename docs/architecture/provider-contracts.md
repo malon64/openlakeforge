@@ -87,22 +87,23 @@ Product-owned runtime assets use logical aliases. Local and Azure resolve
 AWS resolves them to S3 buckets. Local and Azure resolve `iceberg_catalog` to
 Polaris; AWS resolves it to Glue.
 
-Domain descriptors use `apiVersion: openlakeforge.io/v1alpha2` and
-`kind: Domain`; the machine-readable schema is
-[`docs/schema/domain.schema.json`](../schema/domain.schema.json). Descriptors
+Lakehouse descriptors use `apiVersion: openlakeforge.io/v1alpha3` with
+`kind: Lakehouse` (one `lakehouse_code/lakehouse.yaml`) plus one `kind: Source`
+descriptor per bronze source at `lakehouse_code/bronze/<source>/source.yaml`;
+the machine-readable schemas are
+[`docs/schema/lakehouse.schema.json`](../schema/lakehouse.schema.json) and
+[`docs/schema/source.schema.json`](../schema/source.schema.json). Descriptors
 contain logical product and table names only. Provider contracts derive the
 physical catalog/database/schema FQNs at runtime, so changing catalog adapters
 does not require editing business metadata.
 
 ### Compatibility and migration
 
-The `v1alpha1` descriptor and provider contract versions are strict. The
-descriptor inventory introduced `v1alpha2`, which makes the product identity,
-Bronze, Silver, and Gold declarations required. Follow the
-[`v1alpha1` to `v1alpha2` migration guide](../migrations/domain-v1alpha1-to-v1alpha2.md)
-before deploying inventory consumers. A future incompatible shape must publish
-a new API/version and migration guide; deployments fail closed when either
-version is unknown.
+The `v1alpha1` and `v1alpha2` domain descriptors are legacy: their loaders are
+retained in the domain-model package for migration diagnostics only. The
+current shape is the v1alpha3 Lakehouse/Source descriptor pair. A future
+incompatible shape must publish a new API/version and migration guide;
+deployments fail closed when either version is unknown.
 
 ## Catalog Contract
 
@@ -133,9 +134,9 @@ Other consumers that support more than one Iceberg catalog implementation
 branch on `catalog_type`. AWS keeps the same three-part SQL hierarchy as local
 and Azure, but maps it onto Glue's two-level physical model: the first SQL
 segment (`lakehouse_dev` by default) is the engine catalog alias for the AWS Glue
-Data Catalog, while product layers such as `sales_order_revenue_silver` are Glue
+Data Catalog, while product layers such as `sales_silver` are Glue
 databases/namespaces. A table resolves in SQL as
-`lakehouse_dev.sales_order_revenue_silver.sales_order_score`.
+`lakehouse_dev.sales_silver.orders`.
 
 ## Local Defaults
 

@@ -102,20 +102,28 @@ def test_plan_refuses_to_relocate_foreign_namespace() -> None:
 
 def test_desired_namespaces_follow_the_repository_descriptors() -> None:
     namespaces = catalog.desired_namespaces(
-        REPO_ROOT, silver_bucket="lakehouse-silver", gold_bucket="lakehouse-gold"
+        REPO_ROOT, bronze_bucket="lakehouse-bronze", silver_bucket="lakehouse-silver", gold_bucket="lakehouse-gold"
     )
 
     by_name = {namespace.name: namespace.location for namespace in namespaces}
-    assert by_name["sales_order_revenue_silver"] == "s3://lakehouse-silver/sales_order_revenue_silver/"
-    assert by_name["sales_order_revenue_gold"] == "s3://lakehouse-gold/sales_order_revenue_gold/"
-    assert "supply_chain_inventory_reliability_silver" in by_name
+    assert by_name["crm_bronze"] == "s3://lakehouse-bronze/crm_bronze/"
+    assert by_name["erp_bronze"] == "s3://lakehouse-bronze/erp_bronze/"
+    assert by_name["sales_silver"] == "s3://lakehouse-silver/sales_silver/"
+    assert by_name["supply_chain_silver"] == "s3://lakehouse-silver/supply_chain_silver/"
+    assert by_name["order_revenue_gold"] == "s3://lakehouse-gold/order_revenue_gold/"
+    assert "customer_health_gold" in by_name
+    assert "inventory_reliability_gold" in by_name
 
 
 def test_desired_namespaces_honour_custom_buckets() -> None:
-    namespaces = catalog.desired_namespaces(REPO_ROOT, silver_bucket="poc-silver", gold_bucket="poc-gold")
+    namespaces = catalog.desired_namespaces(
+        REPO_ROOT, bronze_bucket="poc-bronze", silver_bucket="poc-silver", gold_bucket="poc-gold"
+    )
 
     locations = {namespace.location for namespace in namespaces}
-    assert all(location.startswith(("s3://poc-silver/", "s3://poc-gold/")) for location in locations)
+    assert all(
+        location.startswith(("s3://poc-bronze/", "s3://poc-silver/", "s3://poc-gold/")) for location in locations
+    )
 
 
 class FakeClient:

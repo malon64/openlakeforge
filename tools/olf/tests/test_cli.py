@@ -75,35 +75,55 @@ def test_superset_export_reports_dashboard_title_prefers_the_bundles_own_title(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The bundle's own dashboard_title must win over displayName when they differ."""
-    descriptor = tmp_path / "domains" / "sales" / "domain.yaml"
-    descriptor.parent.mkdir(parents=True)
-    descriptor.write_text(
-        """apiVersion: openlakeforge.io/v1alpha2
-kind: Domain
-name: sales
-displayName: Sales
-description: Sales domain.
+    lakehouse_dir = tmp_path / "lakehouse_code"
+    source_dir = lakehouse_dir / "bronze" / "crm"
+    source_dir.mkdir(parents=True)
+    (source_dir / "source.yaml").write_text(
+        """apiVersion: openlakeforge.io/v1alpha3
+kind: Source
+name: crm
+displayName: CRM
+description: CRM source.
 status: planned
-data_products:
-  - id: orders
-    name: sales_orders
-    displayName: Sales Orders Product Metadata Name
-    description: Sales orders.
-    status: planned
-    asset_prefix: sales_orders
-    bronze:
-      - name: orders
-        path: s3://lakehouse-bronze/sales/orders/orders
-    silver_tables:
-      tables:
-        - name: orders
-    gold_tables:
-      tables:
-        - name: mart_orders
+resources:
+  - name: orders
 """,
         encoding="utf-8",
     )
-    dashboards_dir = tmp_path / "domains" / "sales" / "reports" / "superset" / "orders" / "dashboards"
+    (lakehouse_dir / "lakehouse.yaml").write_text(
+        """apiVersion: openlakeforge.io/v1alpha3
+kind: Lakehouse
+name: test
+displayName: Test
+description: Test lakehouse.
+status: planned
+sources:
+  - crm
+domains:
+  - name: sales
+    displayName: Sales
+    description: Sales domain.
+    status: planned
+    products:
+      - id: orders
+        displayName: Sales Orders Product Metadata Name
+        description: Sales orders.
+        status: planned
+        bronze:
+          source: crm
+          resources:
+            - orders
+        silver_tables:
+          tables:
+            - name: orders
+        gold_tables:
+          tables:
+            - name: mart_orders
+dashboards: []
+""",
+        encoding="utf-8",
+    )
+    dashboards_dir = lakehouse_dir / "dashboards" / "superset" / "orders" / "dashboards"
     dashboards_dir.mkdir(parents=True)
     (dashboards_dir / "Live_1.yaml").write_text(
         "dashboard_title: The Actual Live Dashboard Title\nslug: sales-orders-live\n", encoding="utf-8"

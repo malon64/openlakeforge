@@ -92,15 +92,16 @@ Dagster webserver / daemon / code server
 The local stack loads `ghcr.io/openlakeforge/project-code:local` into the local
 kind cluster and uses it for the `openlakeforge-dagster` Dagster code location
 and isolated Dagster run pods. The default code location loads
-`domains.definitions`, which composes the domain definitions. Durable product jobs are
-`sales_order_revenue_pipeline`, `sales_customer_health_pipeline`, and
-`supply_chain_inventory_reliability_pipeline`. Each job materializes product
+`lakehouse_code.definitions`, which aggregates every product's Dagster
+definitions under `lakehouse_code/pipelines/dagster/`. Durable product jobs are
+`order_revenue_pipeline`, `customer_health_pipeline`, and
+`inventory_reliability_pipeline`. Each job materializes product
 Bronze source assets, executes manifest-loaded Floe assets, then runs
 dbt-trino Gold marts in product Gold Polaris namespaces of the `lakehouse_dev`
 warehouse.
 
 Superset is deployed as a BI consumer of those Gold marts through Trino.
-Superset reports are dynamic product artifacts under each
-`domains/<domain>/reports/superset/<product>/` folder and are
+Superset reports are dynamic, consumption-owned artifacts under each
+`lakehouse_code/dashboards/superset/<dashboard>/` folder and are
 deployed separately from Terraform bootstrap so UI edits can be exported back to
 source control when they become durable report changes.

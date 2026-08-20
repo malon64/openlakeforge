@@ -14,7 +14,7 @@ import urllib.parse
 from collections.abc import Iterator
 from pathlib import Path
 
-from openlakeforge_domain import load_domain_descriptor
+from openlakeforge_domain import load_lakehouse_descriptor, load_source_descriptor
 
 from olf.clients.openmetadata import OpenMetadataClient, OpenMetadataError
 from olf.openmetadata._config import OpenMetadataConfig, resolve_metadata_descriptor_paths
@@ -221,6 +221,76 @@ class OpenMetadataDeployer:
         )
         return descriptor_paths
 
+    def _domain_specs(self) -> list[tuple[Path, dict]]:
+        """Transform the canonical lakehouse descriptor into deployer domain specs.
+
+        The v1alpha3 Lakehouse descriptor nests domains with products whose
+        bronze references are provider-neutral ``{source, resources}`` pairs.
+        The deployer machinery consumes v1alpha2-shaped dicts (``data_products``
+        with explicit bronze container entries), so this maps between the two:
+        bronze entries are derived from the source name plus each resource,
+        and physical s3 paths are resolved from the provider contract at deploy
+        time -- never stored in the descriptor.
+        """
+        descriptor_paths = self.domain_files()
+        if not descriptor_paths:
+            raise OpenMetadataError(
+                f"No OpenMetadata lakehouse descriptor found under {self.config.metadata_root}/lakehouse.yaml"
+            )
+        lakehouse_path = descriptor_paths[0]
+        source_paths = descriptor_paths[1:]
+        lakehouse_document = load_lakehouse_descriptor(lakehouse_path)
+        resource_descriptions: dict[str, dict[str, str]] = {}
+        for source_path in source_paths:
+            source_document = load_source_descriptor(source_path)
+            resource_descriptions[source_document["name"]] = {
+                resource["name"]: resource.get("description", "")
+                for resource in source_document["resources"]
+                if isinstance(resource, dict) and "name" in resource
+            }
+        bronze_bucket = self.config.storage_bronze_bucket
+        domain_specs: list[tuple[Path, dict]] = []
+        for domain in lakehouse_document["domains"]:
+            products = []
+            for product in domain["products"]:
+                bronze_source = product["bronze"]["source"]
+                descriptions = resource_descriptions.get(bronze_source, {})
+                bronze_entries = [
+                    {
+                        "name": resource,
+                        "path": f"s3://{bronze_bucket}/{bronze_source}/{resource}",
+                        "description": descriptions.get(resource, ""),
+                    }
+                    for resource in product["bronze"]["resources"]
+                ]
+                products.append(
+                    {
+                        "id": product["id"],
+                        "name": product["id"],
+                        "displayName": product["displayName"],
+                        "description": product.get("description", ""),
+                        "status": product.get("status", ""),
+                        "domain": domain["name"],
+                        "bronze": bronze_entries,
+                        "silver_tables": product["silver_tables"],
+                        "gold_tables": product["gold_tables"],
+                        "assets": [],
+                    }
+                )
+            domain_specs.append(
+                (
+                    lakehouse_path,
+                    {
+                        "name": domain["name"],
+                        "displayName": domain["displayName"],
+                        "description": domain.get("description", ""),
+                        "status": domain.get("status", ""),
+                        "data_products": products,
+                    },
+                )
+            )
+        return domain_specs
+
     def validate_bronze_entries(self, domain_specs) -> None:
         for _, domain in domain_specs:
             for product in product_entries(domain):
@@ -261,11 +331,7 @@ class OpenMetadataDeployer:
         self.wait_for_openmetadata()
         self.login()
 
-        domain_specs = [(path, load_domain_descriptor(path)) for path in self.domain_files()]
-        if not domain_specs:
-            raise OpenMetadataError(
-                f"No OpenMetadata domain metadata files found under {self.config.metadata_root}/<domain>/domain.yaml"
-            )
+        domain_specs = self._domain_specs()
         self.validate_deployment_inputs(domain_specs)
 
         # Phase A+B: Object Store service and medallion bucket containers.

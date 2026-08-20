@@ -8,6 +8,7 @@ from openlakeforge_domain import (
     inventory_for,
     load_domain_inventory,
     load_domain_inventory_from_descriptors,
+    load_lakehouse_inventory,
 )
 
 ROOT = Path(__file__).parents[3]
@@ -48,27 +49,90 @@ def _write_descriptor(root: Path, domain: str, content: str) -> Path:
     return path
 
 
+def _lakehouse(product_id: str = "revenue", domain: str = "sales", source: str = "crm") -> str:
+    return f"""\
+apiVersion: openlakeforge.io/v1alpha3
+kind: Lakehouse
+name: test
+displayName: Test
+description: Test lakehouse.
+status: planned
+sources:
+  - {source}
+domains:
+  - name: {domain}
+    displayName: {domain.title()}
+    description: {domain} domain.
+    status: planned
+    products:
+      - id: {product_id}
+        displayName: {product_id.replace('_', ' ').title()}
+        description: {product_id} product.
+        status: planned
+        bronze:
+          source: {source}
+          resources:
+            - orders
+        silver_tables:
+          tables:
+            - name: orders
+        gold_tables:
+          tables:
+            - name: mart_{product_id}
+dashboards:
+  - name: {product_id}_dashboard
+    product: {product_id}
+"""
+
+
+def _source(source: str = "crm", resource: str = "orders") -> str:
+    return f"""\
+apiVersion: openlakeforge.io/v1alpha3
+kind: Source
+name: {source}
+displayName: {source.title()}
+description: {source} source.
+status: planned
+resources:
+  - name: {resource}
+"""
+
+
+def _write_lakehouse(root: Path, product_id: str = "revenue", domain: str = "sales", source: str = "crm") -> Path:
+    lakehouse_dir = root / "lakehouse_code"
+    lakehouse_dir.mkdir(parents=True, exist_ok=True)
+    lakehouse_path = lakehouse_dir / "lakehouse.yaml"
+    lakehouse_path.write_text(_lakehouse(product_id=product_id, domain=domain, source=source), encoding="utf-8")
+    source_path = lakehouse_dir / "bronze" / source / "source.yaml"
+    source_path.parent.mkdir(parents=True, exist_ok=True)
+    source_path.write_text(_source(source=source), encoding="utf-8")
+    return lakehouse_path
+
+
 def test_seed_inventory_derives_every_product_expectation() -> None:
-    inventory = load_domain_inventory(ROOT)
+    inventory = load_lakehouse_inventory(ROOT)
 
     assert [domain.name for domain in inventory.domains] == ["sales", "supply_chain"]
-    assert [product.asset_prefix for product in inventory.products] == [
-        "sales_order_revenue",
-        "sales_customer_health",
-        "supply_chain_inventory_reliability",
+    assert [product.name for product in inventory.products] == [
+        "order_revenue",
+        "customer_health",
+        "inventory_reliability",
     ]
     assert [product.job_name for product in inventory.products] == [
-        "sales_order_revenue_pipeline",
-        "sales_customer_health_pipeline",
-        "supply_chain_inventory_reliability_pipeline",
+        "order_revenue_pipeline",
+        "customer_health_pipeline",
+        "inventory_reliability_pipeline",
     ]
-    assert inventory.catalog_namespaces == (
-        "sales_order_revenue_silver",
-        "sales_order_revenue_gold",
-        "sales_customer_health_silver",
-        "sales_customer_health_gold",
-        "supply_chain_inventory_reliability_silver",
-        "supply_chain_inventory_reliability_gold",
+    assert sorted(inventory.catalog_namespaces) == sorted(
+        {
+            "crm_bronze",
+            "erp_bronze",
+            "sales_silver",
+            "supply_chain_silver",
+            "order_revenue_gold",
+            "customer_health_gold",
+            "inventory_reliability_gold",
+        }
     )
     assert [table.name for table in inventory.products[0].silver_tables] == [
         "orders",
@@ -76,32 +140,35 @@ def test_seed_inventory_derives_every_product_expectation() -> None:
         "products",
         "channels",
         "promotions",
+        "accounts",
     ]
     assert [table.name for table in inventory.products[0].gold_tables] == [
         "mart_order_revenue_by_day",
         "mart_order_revenue_by_channel",
         "mart_order_revenue_margin_by_product",
+        "mart_order_revenue_by_account_segment",
     ]
     assert inventory.products[0].openmetadata_data_product_fqns == (
-        "sales_order_revenue",
-        "sales.sales_order_revenue",
+        "order_revenue",
+        "sales.order_revenue",
     )
     assert inventory.products[0].artifact_prefixes.manifest_key == (
         "floe/manifests/sales/order_revenue/order_revenue.manifest.json"
     )
     assert inventory.domain_names == ("sales", "supply_chain")
-    assert inventory.silver_table_count == 15
-    assert inventory.gold_table_count == 9
+    assert inventory.silver_table_count == 16
+    assert inventory.gold_table_count == 10
     assert inventory.gold_mart_names == (
-        "sales_order_revenue_gold.mart_order_revenue_by_day",
-        "sales_order_revenue_gold.mart_order_revenue_by_channel",
-        "sales_order_revenue_gold.mart_order_revenue_margin_by_product",
-        "sales_customer_health_gold.mart_customer_health_score",
-        "sales_customer_health_gold.mart_churn_risk_by_segment",
-        "sales_customer_health_gold.mart_support_sla_by_customer",
-        "supply_chain_inventory_reliability_gold.mart_inventory_position",
-        "supply_chain_inventory_reliability_gold.mart_supplier_delivery_reliability",
-        "supply_chain_inventory_reliability_gold.mart_stockout_risk",
+        "order_revenue_gold.mart_order_revenue_by_day",
+        "order_revenue_gold.mart_order_revenue_by_channel",
+        "order_revenue_gold.mart_order_revenue_margin_by_product",
+        "order_revenue_gold.mart_order_revenue_by_account_segment",
+        "customer_health_gold.mart_customer_health_score",
+        "customer_health_gold.mart_churn_risk_by_segment",
+        "customer_health_gold.mart_support_sla_by_customer",
+        "inventory_reliability_gold.mart_inventory_position",
+        "inventory_reliability_gold.mart_supplier_delivery_reliability",
+        "inventory_reliability_gold.mart_stockout_risk",
     )
     assert inventory.manifest_keys == (
         "floe/manifests/sales/order_revenue/order_revenue.manifest.json",
@@ -109,20 +176,15 @@ def test_seed_inventory_derives_every_product_expectation() -> None:
         "floe/manifests/supply_chain/inventory_reliability/inventory_reliability.manifest.json",
     )
     assert inventory.openmetadata_data_products == {
-        "sales_order_revenue": ("sales_order_revenue", "sales.sales_order_revenue"),
-        "sales_customer_health": ("sales_customer_health", "sales.sales_customer_health"),
-        "supply_chain_inventory_reliability": (
-            "supply_chain_inventory_reliability",
-            "supply_chain.supply_chain_inventory_reliability",
-        ),
+        "order_revenue": ("order_revenue", "sales.order_revenue"),
+        "customer_health": ("customer_health", "sales.customer_health"),
+        "inventory_reliability": ("inventory_reliability", "supply_chain.inventory_reliability"),
     }
-    assert inventory.silver_namespace_names == frozenset(
-        {"sales_order_revenue_silver", "sales_customer_health_silver", "supply_chain_inventory_reliability_silver"}
-    )
+    assert inventory.silver_namespace_names == frozenset({"sales_silver", "supply_chain_silver"})
     assert inventory.gold_namespace_names == frozenset(
-        {"sales_order_revenue_gold", "sales_customer_health_gold", "supply_chain_inventory_reliability_gold"}
+        {"order_revenue_gold", "customer_health_gold", "inventory_reliability_gold"}
     )
-    assert inventory.products[0].superset_export_bundle_name == "sales_order_revenue_superset_assets_export.zip"
+    assert inventory.products[0].superset_export_bundle_name == "order_revenue_superset_assets_export.zip"
 
 
 def test_inventory_for_caches_by_resolved_repo_root() -> None:
@@ -163,23 +225,26 @@ def test_load_domain_inventory_from_descriptors_allows_a_mismatched_directory_wh
 
 
 def test_inventory_resolves_provider_physical_names() -> None:
-    inventory = load_domain_inventory(ROOT)
+    inventory = load_lakehouse_inventory(ROOT)
     names = inventory.resolve_physical_names(
         catalog_database_fqn="aws_glue.lakehouse_dev",
+        bronze_bucket="openlakeforge-poc-bronze",
         silver_bucket="openlakeforge-poc-silver",
         gold_bucket="openlakeforge-poc-gold",
         manifest_base_uri="s3://openlakeforge-poc-ops/floe/manifests",
     )
 
-    assert names.catalog_namespaces[0].name == "sales_order_revenue_silver"
-    assert names.catalog_namespaces[0].location == "s3://openlakeforge-poc-silver/sales_order_revenue_silver/"
-    assert names.silver_schema_fqns["sales_order_revenue"] == "aws_glue.lakehouse_dev.sales_order_revenue_silver"
-    assert names.gold_schema_fqns["supply_chain_inventory_reliability"] == (
-        "aws_glue.lakehouse_dev.supply_chain_inventory_reliability_gold"
+    assert names.catalog_namespaces[0].name == "sales_silver"
+    assert names.catalog_namespaces[0].location == "s3://openlakeforge-poc-silver/sales_silver/"
+    assert names.silver_schema_fqns["order_revenue"] == "aws_glue.lakehouse_dev.sales_silver"
+    assert names.gold_schema_fqns["inventory_reliability"] == (
+        "aws_glue.lakehouse_dev.inventory_reliability_gold"
     )
     assert names.products[0].manifest_uri == (
         "s3://openlakeforge-poc-ops/floe/manifests/sales/order_revenue/order_revenue.manifest.json"
     )
+    assert names.bronze_namespaces["crm"] == "crm_bronze"
+    assert names.bronze_schema_fqns["crm"] == "aws_glue.lakehouse_dev.crm_bronze"
 
 
 def test_inventory_reports_descriptor_product_and_missing_field(tmp_path: Path) -> None:
@@ -244,18 +309,17 @@ def test_inventory_requires_v1alpha2_with_migration_guidance(tmp_path: Path) -> 
 
 
 def test_renaming_descriptor_product_changes_discovered_work_without_shared_code(tmp_path: Path) -> None:
-    descriptor = _descriptor("sales", product_id="revenue", asset_prefix="sales_revenue")
-    _write_descriptor(tmp_path, "sales", descriptor)
+    _write_lakehouse(tmp_path, product_id="revenue")
 
-    inventory = load_domain_inventory(tmp_path)
+    inventory = load_lakehouse_inventory(tmp_path)
     product = inventory.default_product
 
-    assert product.job_name == "sales_revenue_pipeline"
-    assert product.silver_namespace == "sales_revenue_silver"
-    assert product.openmetadata_data_product_fqns == ("sales_revenue", "sales.sales_revenue")
+    assert product.job_name == "revenue_pipeline"
+    assert product.silver_namespace == "sales_silver"
+    assert product.openmetadata_data_product_fqns == ("revenue", "sales.revenue")
     assert product.artifact_prefixes.manifest_key == "floe/manifests/sales/revenue/revenue.manifest.json"
-    assert product.definitions_module == "domains.sales.pipelines.dagster.revenue"
-    assert inventory.job_names == ("sales_revenue_pipeline",)
-    assert inventory.gold_mart_names == ("sales_revenue_gold.mart_revenue",)
+    assert product.definitions_module == "lakehouse_code.pipelines.dagster.revenue"
+    assert inventory.job_names == ("revenue_pipeline",)
+    assert inventory.gold_mart_names == ("revenue_gold.mart_revenue",)
     assert inventory.manifest_keys == ("floe/manifests/sales/revenue/revenue.manifest.json",)
-    assert inventory.silver_namespace_names == frozenset({"sales_revenue_silver"})
+    assert inventory.silver_namespace_names == frozenset({"sales_silver"})

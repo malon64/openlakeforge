@@ -47,8 +47,8 @@ def discovered_dashboards(cfg: E2EConfig) -> dict[str, str]:
     ``<report_source_dir>/dashboards/*.yaml`` (or ``.yml``, both of which
     ``superset.build_report_bundle`` packages), which is what actually gets
     imported. Reading it here (rather than inventing slug/title from
-    asset_prefix/displayName) is what lets a product export a differently
-    named or multiple dashboards without failing this check.
+    id/displayName) is what lets a product export a differently named or
+    multiple dashboards without failing this check.
     """
     expected: dict[str, str] = {}
     for product in cfg.inventory.products:
@@ -56,7 +56,7 @@ def discovered_dashboards(cfg: E2EConfig) -> dict[str, str]:
         dashboard_files = superset.discover_dashboard_files(report_dir)
         if not dashboard_files:
             raise E2EError(
-                f"{report_dir / 'dashboards'}: product {product.asset_prefix!r} exports no Superset dashboards"
+                f"{report_dir / 'dashboards'}: product {product.id!r} exports no Superset dashboards"
             )
         for dashboard_file in dashboard_files:
             document = yaml.safe_load(dashboard_file.read_text())

@@ -4,7 +4,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_ROOT))
-PROJECTS = sorted(REPO_ROOT.glob("domains/*/transformations/dbt/*"))
+PROJECTS = sorted(REPO_ROOT.glob("lakehouse_code/gold/*/dbt"))
 LINEAGE_DATABASE_ENV = "OPENLAKEFORGE_CATALOG_NAME"
 LINEAGE_DATABASE_DEFAULT = "lakehouse_dev"
 

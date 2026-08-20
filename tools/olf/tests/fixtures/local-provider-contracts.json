@@ -31,7 +31,7 @@
     "token_uri": "http://polaris:8181/api/catalog/v1/oauth/tokens",
     "oauth_scope": "PRINCIPAL_ROLE:ALL",
     "warehouse": "lakehouse_dev",
-    "catalog_namespace_model": "product-layer",
+    "catalog_namespace_model": "domain-layer",
     "floe_credentials_secret_name": "polaris-floe-creds",
     "floe_client_id_key": "POLARIS_FLOE_CLIENT_ID",
     "floe_client_secret_key": "POLARIS_FLOE_CLIENT_SECRET",

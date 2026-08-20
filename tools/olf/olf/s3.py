@@ -42,9 +42,9 @@ def profile_key(domain: str, product: str, filename: str) -> str:
 
 
 def discover_tracked_manifests(repo_root: Path) -> list[ManifestUpload]:
-    """Source-controlled manifests under domains/*/contracts/floe/manifests/."""
+    """Source-controlled manifests under lakehouse_code/silver/*/contracts/floe/manifests/."""
     uploads: list[ManifestUpload] = []
-    root = repo_root / "domains"
+    root = repo_root / "lakehouse_code" / "silver"
     for manifest_path in sorted(root.glob("*/contracts/floe/manifests/*.manifest.json")):
         domain = manifest_path.parents[3].name
         product = manifest_path.name[: -len(".manifest.json")]

@@ -8,32 +8,50 @@ from olf.openmetadata._reconciliation import OpenMetadataReconciler
 
 
 def _single_product_reconciler(tmp_path: Path) -> OpenMetadataReconciler:
-    (tmp_path / "sales").mkdir()
-    (tmp_path / "sales" / "domain.yaml").write_text(
-        """apiVersion: openlakeforge.io/v1alpha2
-kind: Domain
-name: sales
-displayName: Sales
-description: Sales domain
+    (tmp_path / "bronze" / "crm").mkdir(parents=True)
+    (tmp_path / "bronze" / "crm" / "source.yaml").write_text(
+        """apiVersion: openlakeforge.io/v1alpha3
+kind: Source
+name: crm
+displayName: CRM
+description: crm source.
 status: active
-data_products:
-  - id: sales_order_revenue
-    name: sales_order_revenue
-    displayName: Sales Order Revenue
-    description: Revenue from orders.
+resources:
+  - name: orders
+    description: Raw sales orders.
+"""
+    )
+    (tmp_path / "lakehouse.yaml").write_text(
+        """apiVersion: openlakeforge.io/v1alpha3
+kind: Lakehouse
+name: test
+displayName: Test
+description: Test lakehouse.
+status: active
+sources:
+  - crm
+domains:
+  - name: sales
+    displayName: Sales
+    description: Sales domain
     status: active
-    asset_prefix: sales_order_revenue
-    bronze:
-      - name: raw_orders
-        path: s3://lakehouse-bronze/sales/order_revenue/orders
-        description: Raw sales orders.
-    silver_tables:
-      tables:
-        - name: raw_orders
-        - name: raw_order_lines
-    gold_tables:
-      tables:
-        - name: mart_order_revenue
+    products:
+      - id: order_revenue
+        displayName: Sales Order Revenue
+        description: Revenue from orders.
+        status: active
+        bronze:
+          source: crm
+          resources:
+            - orders
+        silver_tables:
+          tables:
+            - name: raw_orders
+            - name: raw_order_lines
+        gold_tables:
+          tables:
+            - name: mart_order_revenue
+dashboards: []
 """
     )
     cfg = OpenMetadataConfig.from_environment(

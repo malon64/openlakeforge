@@ -1,0 +1,9 @@
+apiVersion: openlakeforge.io/v1alpha3
+kind: Source
+name: crm
+displayName: CRM
+description: CRM source fixture.
+status: planned
+resources:
+  - name: orders
+    description: Raw orders.

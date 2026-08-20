@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openlakeforge.io/schemas/lakehouse/v1alpha3",
+  "title": "OpenLakeForge Lakehouse",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "apiVersion",
+    "kind",
+    "name",
+    "displayName",
+    "description",
+    "status",
+    "sources",
+    "domains",
+    "dashboards"
+  ],
+  "properties": {
+    "apiVersion": {"const": "openlakeforge.io/v1alpha3"},
+    "kind": {"const": "Lakehouse"},
+    "name": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+    "displayName": {"type": "string", "minLength": 1},
+    "description": {"type": "string"},
+    "status": {"type": "string", "minLength": 1},
+    "sources": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"}
+    },
+    "domains": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["name", "displayName", "description", "status", "products"],
+        "properties": {
+          "name": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+          "displayName": {"type": "string", "minLength": 1},
+          "description": {"type": "string"},
+          "status": {"type": "string", "minLength": 1},
+          "products": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "displayName",
+                "description",
+                "status",
+                "bronze",
+                "silver_tables",
+                "gold_tables"
+              ],
+              "properties": {
+                "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+                "displayName": {"type": "string", "minLength": 1},
+                "description": {"type": "string"},
+                "status": {"type": "string", "minLength": 1},
+                "domain": {"type": "string", "minLength": 1},
+                "bronze": {"$ref": "#/$defs/bronzeSpec"},
+                "silver_tables": {"$ref": "#/$defs/tableGroup"},
+                "gold_tables": {"$ref": "#/$defs/tableGroup"}
+              }
+            }
+          }
+        }
+      }
+    },
+    "dashboards": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "product"],
+        "properties": {
+          "name": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+          "product": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"}
+        }
+      }
+    }
+  },
+  "$defs": {
+    "bronzeSpec": {
+      "type": "object",
+      "required": ["source", "resources"],
+      "properties": {
+        "source": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+        "resources": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "tableGroup": {
+      "type": "object",
+      "required": ["tables"],
+      "properties": {
+        "tables": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["name"],
+            "properties": {
+              "name": {"type": "string", "minLength": 1},
+              "description": {"type": "string"}
+            },
+            "not": {
+              "anyOf": [
+                {"required": ["fqn"]},
+                {"required": ["fullyQualifiedName"]}
+              ]
+            }
+          }
+        }
+      },
+      "not": {"required": ["schema"]}
+    }
+  }
+}

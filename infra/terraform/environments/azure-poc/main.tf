@@ -47,9 +47,9 @@ locals {
     supply_chain_inventory_reliability = "${local.floe_manifest_base_uri}/supply_chain/inventory_reliability/inventory_reliability.manifest.json"
   }
   # Namespaces themselves are not declared here. `olf catalog sync-namespaces`
-  # reconciles them from domains/*/domain.yaml during artifacts-deploy (ADR
+  # reconciles them from the lakehouse inventory during artifacts-deploy (ADR
   # 0022); this root only records which naming model those namespaces follow.
-  catalog_namespace_model = "product-layer"
+  catalog_namespace_model = "domain-layer"
   polaris_bootstrap_hash = sha256(join("", [
     for f in sort(fileset("${path.root}/../../modules/catalog/polaris", "**/*.{tf,tftpl}")) :
     filesha256("${path.root}/../../modules/catalog/polaris/${f}")

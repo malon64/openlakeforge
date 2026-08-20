@@ -52,8 +52,8 @@ def normalize_environment(environment: str) -> str:
 
 
 def discover_project_dirs(root: Path | None = None) -> list[Path]:
-    search_root = root or REPO_ROOT / "domains"
-    return sorted(path.parent for path in search_root.glob("*/transformations/dbt/*/dbt_project.yml"))
+    search_root = root or REPO_ROOT / "lakehouse_code" / "gold"
+    return sorted(path.parent for path in search_root.glob("*/dbt/dbt_project.yml"))
 
 
 def render_profile(project_dir: Path, environment: str | None = None, env: Mapping[str, str] | None = None) -> str:
@@ -69,11 +69,10 @@ def render_profile(project_dir: Path, environment: str | None = None, env: Mappi
     if not profile_name:
         raise ValueError(f"Cannot determine dbt profile name from {project_dir / 'dbt_project.yml'}")
 
-    domain = _domain_name(project_dir)
-    product = project_dir.name
+    product = project_dir.parent.name
     replacements = {
         "{{PROFILE_NAME}}": profile_name,
-        "{{GOLD_SCHEMA}}": f"{domain}_{product}_gold",
+        "{{GOLD_SCHEMA}}": f"{product}_gold",
     }
 
     rendered = template_path.read_text(encoding="utf-8")
@@ -116,14 +115,6 @@ def _read_dbt_project_field(path: Path, field: str) -> str | None:
         if match:
             return match.group(1).strip()
     return None
-
-
-def _domain_name(project_dir: Path) -> str:
-    parts = project_dir.parts
-    try:
-        return parts[parts.index("domains") + 1]
-    except (ValueError, IndexError) as exc:
-        raise ValueError(f"Cannot derive domain name from dbt project path: {project_dir}") from exc
 
 
 def main() -> None:

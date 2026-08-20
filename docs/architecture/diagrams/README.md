@@ -163,7 +163,7 @@ never to raw paths. Rejected rows are quarantined as CSV; exit code 0 covers
 
 ![Medallion and Catalog Data Path](chart4-medallion-catalog.svg)
 
-<sub>environments/local/main.tf · catalog/polaris/main.tf · domains/sales/domain.yaml · ADR 0011, 0013</sub>
+<sub>environments/local/main.tf · catalog/polaris/main.tf · lakehouse_code/lakehouse.yaml · ADR 0011, 0013, 0025</sub>
 
 ## Chart 5 — Provider Contracts
 
@@ -285,37 +285,44 @@ partitioned only by namespace / date / hour (`libs/k8s_log_archive.py`), so isol
 single run from raw pod logs or from prior Floe reports needs a timestamp, not just a
 prefix.
 
-## Domain-oriented code structure — the dynamic code
+## Medallion-oriented code structure — the dynamic code
 
-Everything in Phase ③ is **domain code**: a domain owns one self-contained vertical slice
-per data product — extract, contract, transformations, pipeline, dashboards, and
-governance — and nothing about the platform changes when a product is added. This is the
-"dynamic" half of the platform (the artifacts phase); the charts above are the static
-half. Each concern maps to exactly one engine:
+Everything in Phase ③ is **user code under `lakehouse_code/`**, and nothing about the
+platform changes when a source, domain, or product is added. This is the "dynamic" half
+of the platform (the artifacts phase); the charts above are the static half. Unlike the
+pre-ADR-0025 layout, ownership is no longer domain-vertical: Bronze is source-owned,
+Silver is domain-owned, Gold is product-owned, dashboards are consumption-owned, and each
+concern still maps to exactly one engine:
 
 ```text
-domains/<domain>/
-├── domain.yaml                         ← governance:      domain · data-product · medallion metadata → OpenMetadata
-├── definitions.py                      ← pipeline entry:   the Dagster Definitions the code server loads
-├── contracts/floe/
-│   ├── <product>.yml                   ← contract:         Bronze→Silver schema · PK · reject policy    → Floe
-│   └── manifests/<product>.manifest.json                   compiled, checksummed runner spec (baked + published)
-├── extract/dlt/<product>.py            ← extract:          raw source → Bronze                          → dlt
-├── transformations/dbt/<product>/      ← transformations:  Silver→Gold SQL                              → dbt-trino → Trino
-│   └── models/gold/*.sql · sources.yml · schema.yml
-├── pipelines/dagster/<product>.py      ← pipeline:         asset graph wiring bronze→floe→dbt           → Dagster
-├── reports/superset/<product>/         ← dashboards:       charts · dashboards · datasets · databases   → Superset
-│   └── metadata.yaml
-└── examples/raw/<product>/*.csv                            seed data for the local demo
+lakehouse_code/
+├── lakehouse.yaml                            ← governance:      domain · data-product metadata           → OpenMetadata
+├── definitions.py                            ← pipeline entry:  the Dagster Definitions the code server loads
+├── bronze/<source>/                          ← source-owned
+│   ├── source.yaml                                              resource inventory
+│   └── dlt/<source>.py                       ← extract:         raw source → Bronze                      → dlt
+├── silver/<domain>/                          ← domain-owned
+│   └── contracts/floe/
+│       ├── <product>.yml                     ← contract:        Bronze→Silver schema · PK · reject policy → Floe
+│       └── manifests/<product>.manifest.json                    compiled, checksummed runner spec (baked + published)
+├── gold/<product>/                           ← product-owned
+│   └── dbt/models/gold/*.sql · sources.yml · schema.yml         Silver→Gold SQL                            → dbt-trino → Trino
+├── pipelines/dagster/<product>.py            ← pipeline:        asset graph wiring bronze→floe→dbt        → Dagster
+├── dashboards/superset/<dashboard>/          ← consumption-owned
+│   └── metadata.yaml                                             charts · dashboards · datasets · databases → Superset
+└── bronze/<source>/examples/*.csv                                seed data for the local demo
 ```
 
-Both domains fill the identical shape — `sales` (`order_revenue`, `customer_health`) and
-`supply_chain` (`inventory_reliability`). Adding a data product changes only its domain
-slice, then runs the artifact phase. `olf catalog sync-namespaces` derives the Silver and
-Gold namespaces from `domain.yaml` and reconciles them before Floe, dbt, or OpenMetadata
-use them. A new product or domain therefore needs no environment Terraform edit or
-platform apply; see ADR 0022. A domain's `README.md` and `domain.yaml` are the human- and
-machine-readable descriptors of that slice.
+Two products can share one domain's Silver namespace without duplicating ingestion: `sales`
+(`order_revenue`, `customer_health`) both consume `crm` Bronze resources into the same
+`sales_silver` namespace (`crm.accounts` feeds both), while `supply_chain`
+(`inventory_reliability`) consumes `erp`. Adding a data product changes only its bronze,
+silver, gold, dashboard, and pipeline slices, then runs the artifact phase.
+`olf catalog sync-namespaces` derives the Bronze, Silver, and Gold namespaces from
+`lakehouse.yaml` plus every `bronze/*/source.yaml` and reconciles them before Floe, dbt, or
+OpenMetadata use them. A new product, domain, or source therefore needs no environment
+Terraform edit or platform apply; see ADR 0022 and ADR 0025. `lakehouse_code/lakehouse.yaml`
+is the canonical, human- and machine-readable descriptor of every domain and product.
 
 ---
 

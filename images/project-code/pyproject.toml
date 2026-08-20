@@ -29,4 +29,4 @@ dependencies = [
 ]
 
 [tool.setuptools.packages.find]
-include = ["domains*", "libs*"]
+include = ["lakehouse_code*", "libs*"]

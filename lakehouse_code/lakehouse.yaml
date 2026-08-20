@@ -1,0 +1,128 @@
+apiVersion: openlakeforge.io/v1alpha3
+kind: Lakehouse
+name: openlakeforge
+displayName: OpenLakeForge
+description: Seed lakehouse for the OpenLakeForge v1 proof-of-concept data path.
+status: planned
+sources:
+  - crm
+  - erp
+domains:
+  - name: sales
+    displayName: Sales
+    description: Sales proof-of-concept domain for the OpenLakeForge v1 lakehouse path.
+    status: planned
+    products:
+      - id: order_revenue
+        displayName: Sales Order Revenue
+        description: Curated revenue, channel, discount, and product margin marts for Sales.
+        status: planned
+        bronze:
+          source: crm
+          resources:
+            - orders
+            - order_lines
+            - products
+            - channels
+            - promotions
+            - accounts
+        silver_tables:
+          tables:
+            - name: orders
+              description: Validated sales order headers.
+            - name: order_lines
+              description: Validated sales order lines.
+            - name: products
+              description: Validated product dimension for revenue analytics.
+            - name: channels
+              description: Validated sales channel dimension.
+            - name: promotions
+              description: Validated promotion dimension.
+            - name: accounts
+              description: Validated account dimension.
+        gold_tables:
+          tables:
+            - name: mart_order_revenue_by_day
+              description: Daily order revenue, units, and discount amount by region.
+            - name: mart_order_revenue_by_channel
+              description: Net revenue and discount amount by sales channel and promotion type.
+            - name: mart_order_revenue_margin_by_product
+              description: Product revenue, cost, and gross margin for fulfilled order lines.
+            - name: mart_order_revenue_by_account_segment
+              description: Net revenue and order count by account segment and region.
+      - id: customer_health
+        displayName: Sales Customer Health
+        description: Curated customer health, churn risk, support SLA, and NPS marts for Sales.
+        status: planned
+        bronze:
+          source: crm
+          resources:
+            - accounts
+            - subscriptions
+            - support_tickets
+            - nps_responses
+        silver_tables:
+          tables:
+            - name: accounts
+              description: Validated account dimension.
+            - name: subscriptions
+              description: Validated subscription records.
+            - name: support_tickets
+              description: Validated support ticket facts.
+            - name: nps_responses
+              description: Validated NPS response facts.
+        gold_tables:
+          tables:
+            - name: mart_customer_health_score
+              description: Account-level health score using subscription, support, and NPS signals.
+            - name: mart_churn_risk_by_segment
+              description: Churn risk and ARR exposure grouped by account segment and region.
+            - name: mart_support_sla_by_customer
+              description: Support volume, resolution hours, and SLA rate by customer and priority.
+  - name: supply_chain
+    displayName: Supply Chain
+    description: Supply Chain proof-of-concept domain for inventory and supplier reliability analytics.
+    status: planned
+    products:
+      - id: inventory_reliability
+        displayName: Supply Chain Inventory Reliability
+        description: Curated inventory position, supplier delivery, and stockout risk marts for Supply Chain.
+        status: planned
+        bronze:
+          source: erp
+          resources:
+            - warehouses
+            - suppliers
+            - inventory_snapshots
+            - purchase_orders
+            - shipments
+            - stockout_events
+        silver_tables:
+          tables:
+            - name: warehouses
+              description: Validated warehouse dimension.
+            - name: suppliers
+              description: Validated supplier dimension.
+            - name: inventory_snapshots
+              description: Validated inventory snapshot facts.
+            - name: purchase_orders
+              description: Validated purchase order facts.
+            - name: shipments
+              description: Validated shipment facts.
+            - name: stockout_events
+              description: Validated stockout event facts.
+        gold_tables:
+          tables:
+            - name: mart_inventory_position
+              description: Latest inventory position and reorder status by product and warehouse.
+            - name: mart_supplier_delivery_reliability
+              description: Supplier delivery lateness, fill rate, and on-time performance.
+            - name: mart_stockout_risk
+              description: Stockout risk by product and warehouse using current inventory and stockout history.
+dashboards:
+  - name: sales_order_revenue
+    product: order_revenue
+  - name: sales_customer_health
+    product: customer_health
+  - name: supply_chain_inventory_reliability
+    product: inventory_reliability

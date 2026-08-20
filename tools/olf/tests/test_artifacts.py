@@ -10,7 +10,7 @@ def test_manifest_key_layout() -> None:
 
 
 def test_discover_tracked_manifests(tmp_path: Path) -> None:
-    manifest = tmp_path / "domains/sales/contracts/floe/manifests/order_revenue.manifest.json"
+    manifest = tmp_path / "lakehouse_code/silver/sales/contracts/floe/manifests/order_revenue.manifest.json"
     manifest.parent.mkdir(parents=True)
     manifest.write_text("{}")
     uploads = s3.discover_tracked_manifests(tmp_path)

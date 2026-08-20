@@ -29,6 +29,8 @@ from libs.dbt.render_profiles import ensure_runtime_profile_dir
 from libs.openlakeforge_logging import log_event
 from libs.s3_artifacts import is_s3_uri, read_json_uri, read_text_uri, upload_file_to_base_uri
 
+_LAKEHOUSE_CODE_ROOT = Path(__file__).resolve().parents[1] / "lakehouse_code"
+
 _FLOE_MANIFEST_ACCESS_MODE_ENV = "OPENLAKEFORGE_FLOE_MANIFEST_ACCESS_MODE"
 _FLOE_MANIFEST_ACCESS_MODE_REMOTE = "remote"
 _FLOE_MANIFEST_ACCESS_MODE_LOCAL = "local"
@@ -45,20 +47,20 @@ class ArtifactRevisionError(RuntimeError):
 class ProductDefinitionSpec:
     domain: str
     product: str
-    asset_prefix: str
     entities: tuple[str, ...]
     gold_assets: tuple[str, ...]
-    domain_dir: Path
     bronze_loader: Callable[[], dict[str, BronzeLoadResult]]
 
     @property
     def job_name(self) -> str:
-        return f"{self.asset_prefix}_pipeline"
+        return f"{self.product}_pipeline"
 
     @property
     def manifest_path(self) -> Path:
         return (
-            self.domain_dir
+            _LAKEHOUSE_CODE_ROOT
+            / "silver"
+            / self.domain
             / "contracts"
             / "floe"
             / "manifests"
@@ -67,11 +69,11 @@ class ProductDefinitionSpec:
 
     @property
     def dbt_project_dir(self) -> Path:
-        return self.domain_dir / "transformations" / "dbt" / self.product
+        return _LAKEHOUSE_CODE_ROOT / "gold" / self.product / "dbt"
 
     @property
     def env_key(self) -> str:
-        return self.asset_prefix.upper()
+        return self.product.upper()
 
 
 def build_product_definitions(spec: ProductDefinitionSpec) -> Definitions:
@@ -81,21 +83,21 @@ def build_product_definitions(spec: ProductDefinitionSpec) -> Definitions:
 
     class ProductDbtTranslator(DagsterDbtTranslator):
         def get_asset_key(self, dbt_resource_props) -> AssetKey:
-            return AssetKey([spec.asset_prefix, dbt_resource_props["name"]])
+            return AssetKey([spec.product, dbt_resource_props["name"]])
 
         def get_group_name(self, dbt_resource_props) -> str:
-            return spec.asset_prefix
+            return spec.product
 
     @multi_asset(
-        name=f"{spec.asset_prefix}_bronze_sources",
+        name=f"{spec.product}_bronze_sources",
         outs={
             f"{entity}_source": AssetOut(
-                key=AssetKey([spec.asset_prefix, f"{entity}_source"]),
+                key=AssetKey([spec.product, f"{entity}_source"]),
                 is_required=True,
             )
             for entity in spec.entities
         },
-        group_name=spec.asset_prefix,
+        group_name=spec.product,
     )
     def bronze_sources(context):
         previous_run_id = os.environ.get("DAGSTER_RUN_ID")
@@ -117,7 +119,7 @@ def build_product_definitions(spec: ProductDefinitionSpec) -> Definitions:
                 product=spec.product,
                 dagster_run_id=context.run_id,
                 entity=entity,
-                asset_key=f"{spec.asset_prefix}/{entity}_source",
+                asset_key=f"{spec.product}/{entity}_source",
                 rows=result.rows,
                 uri=result.uri,
             )
@@ -151,7 +153,7 @@ def build_product_definitions(spec: ProductDefinitionSpec) -> Definitions:
                 os.environ["OPENLINEAGE_DBT_JOB_NAME"] = previous_job_name
         _upload_dbt_artifacts(context, spec)
 
-    _dbt_gold_assets.__name__ = f"{spec.asset_prefix}_dbt_gold_assets"
+    _dbt_gold_assets.__name__ = f"{spec.product}_dbt_gold_assets"
     dbt_gold_assets = dbt_assets(
         manifest=_ensure_dbt_manifest(spec),
         dagster_dbt_translator=ProductDbtTranslator(),
@@ -161,9 +163,9 @@ def build_product_definitions(spec: ProductDefinitionSpec) -> Definitions:
         name=spec.job_name,
         selection=(
             AssetSelection.assets(
-                *[AssetKey([spec.asset_prefix, f"{entity}_source"]) for entity in spec.entities],
-                *[AssetKey([spec.asset_prefix, entity]) for entity in spec.entities],
-                *[AssetKey([spec.asset_prefix, asset_name]) for asset_name in spec.gold_assets],
+                *[AssetKey([spec.product, f"{entity}_source"]) for entity in spec.entities],
+                *[AssetKey([spec.product, entity]) for entity in spec.entities],
+                *[AssetKey([spec.product, asset_name]) for asset_name in spec.gold_assets],
             ).required_multi_asset_neighbors()
         ),
         config=build_job_run_config_from_manifest(floe_manifest_path),
@@ -248,7 +250,7 @@ def _upload_dbt_artifacts(context, spec: ProductDefinitionSpec) -> None:
             domain=spec.domain,
             product=spec.product,
             dagster_run_id=run_id,
-            asset_key=f"{spec.asset_prefix}/dbt_gold_assets",
+            asset_key=f"{spec.product}/dbt_gold_assets",
             artifact=str(artifact_path.relative_to(spec.dbt_project_dir)),
             uri=uri,
         )
@@ -316,7 +318,7 @@ def _manifest_path_for_dagster(spec: ProductDefinitionSpec) -> str:
         manifest_uri = _remote_manifest_uri(spec)
         if manifest_uri is None:
             raise RuntimeError(
-                f"{_FLOE_MANIFEST_ACCESS_MODE_ENV}=remote for {spec.asset_prefix}, "
+                f"{_FLOE_MANIFEST_ACCESS_MODE_ENV}=remote for {spec.product}, "
                 "but no remote Floe manifest URI could be resolved for Dagster definitions."
             )
         try:
@@ -382,7 +384,7 @@ def _manifest_uri_for_floe_runner(
         manifest_uri = _remote_manifest_uri(spec)
         if manifest_uri is None:
             raise RuntimeError(
-                f"{_FLOE_MANIFEST_ACCESS_MODE_ENV}=remote for {spec.asset_prefix}, "
+                f"{_FLOE_MANIFEST_ACCESS_MODE_ENV}=remote for {spec.product}, "
                 "but no remote Floe manifest URI could be resolved. Set "
                 f"OPENLAKEFORGE_FLOE_MANIFEST_URI_{spec.env_key} or "
                 "OPENLAKEFORGE_FLOE_MANIFEST_BASE_URI."
@@ -431,7 +433,7 @@ def _validate_local_floe_manifest_access(
     )
     if non_local_runner_types:
         raise RuntimeError(
-            f"{_FLOE_MANIFEST_ACCESS_MODE_ENV}=local for {spec.asset_prefix}, "
+            f"{_FLOE_MANIFEST_ACCESS_MODE_ENV}=local for {spec.product}, "
             f"but {manifest_path} uses runner type(s): {', '.join(non_local_runner_types)}. "
             "Local manifest access only works when Floe executes in the same container "
             "as Dagster. Use OPENLAKEFORGE_FLOE_MANIFEST_ACCESS_MODE=remote for "

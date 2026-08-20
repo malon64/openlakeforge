@@ -1,974 +1,539 @@
-# Domain descriptor reference
+# Lakehouse and Source descriptor reference
 
-Every OpenLakeForge domain is declared through a versioned:
+OpenLakeForge's business metadata is declared through two versioned descriptor kinds:
 
 ```text
-domains/<domain>/domain.yaml
+lakehouse_code/lakehouse.yaml              one per repository — domains, products, dashboards
+lakehouse_code/bronze/<source>/source.yaml  one per Bronze source — the resources it exposes
 ```
 
-The descriptor is the **provider-neutral source of truth for domain and data-product identity**.
+Together they are the **provider-neutral source of truth for source, domain, and
+data-product identity**. OpenLakeForge uses them to discover:
 
-OpenLakeForge uses it to discover:
-
-* domains
-* data products
-* Bronze entities
-* Silver tables
-* Gold tables
+* sources and the Bronze resources they expose
+* domains and the products they own
+* Bronze resources, Silver tables, and Gold tables
 * Dagster job identities
 * catalog namespaces
 * runtime artifact locations
 * governance metadata
 
-Infrastructure-specific values such as Kubernetes resources, catalog implementations, storage endpoints, and physical credentials do **not** belong in the descriptor.
+Infrastructure-specific values such as Kubernetes resources, catalog implementations,
+storage endpoints, and physical credentials do **not** belong in either descriptor. Those
+are resolved separately through OpenLakeForge provider contracts.
 
-Those are resolved separately through OpenLakeForge provider contracts.
+See [ADR 0025](../adr/0025-medallion-ownership-and-catalog-namespace-contract.md) for the
+architectural reasoning behind this ownership split.
 
 ---
 
 ## Current API version
 
-The current descriptor version is:
-
 ```yaml
-apiVersion: openlakeforge.io/v1alpha2
-kind: Domain
+apiVersion: openlakeforge.io/v1alpha3
+kind: Lakehouse
 ```
 
-`v1alpha2` is required by the canonical OpenLakeForge domain inventory.
+```yaml
+apiVersion: openlakeforge.io/v1alpha3
+kind: Source
+```
 
-Descriptors using the legacy `v1alpha1` format can still be parsed for migration purposes, but they cannot be used by current inventory consumers.
+`v1alpha3` is required by the canonical OpenLakeForge lakehouse inventory. Descriptors
+using the legacy `v1alpha1`/`v1alpha2` `Domain` format can still be parsed for migration
+diagnostics only — they are no longer discovered by any default runtime path. See
+[v1alpha1 → v1alpha2 migration](../migrations/domain-v1alpha1-to-v1alpha2.md) for that
+earlier, now-historical migration.
 
-See:
+---
 
-➡️ [v1alpha1 → v1alpha2 migration](../migrations/domain-v1alpha1-to-v1alpha2.md)
+## Ownership model
+
+```text
+Bronze  = source-aligned    lakehouse_code/bronze/<source>/
+Silver  = domain-aligned    lakehouse_code/silver/<domain>/
+Gold    = product-aligned   lakehouse_code/gold/<product>/
+```
+
+A domain's Silver namespace is shared by every product that belongs to it. A product
+declares which Bronze resources it consumes and from which source; it does not own
+ingestion or a Bronze path of its own.
 
 ---
 
 # Minimal example
 
-A domain containing a single data product looks like:
+A `Source` with one resource:
 
 ```yaml
-apiVersion: openlakeforge.io/v1alpha2
-kind: Domain
-
-name: marketing
-displayName: Marketing
-description: Marketing analytics data products.
+apiVersion: openlakeforge.io/v1alpha3
+kind: Source
+name: marketing_platform
+displayName: Marketing Platform
+description: Marketing campaign performance source system.
 status: active
+resources:
+  - name: campaigns
+    description: Raw CSV marketing campaign performance data.
+```
 
-data_products:
-  - id: campaign_performance
-    name: marketing_campaign_performance
-    displayName: Campaign Performance
-    description: Campaign spend and conversion performance.
+A `Lakehouse` with one domain and one product consuming it:
+
+```yaml
+apiVersion: openlakeforge.io/v1alpha3
+kind: Lakehouse
+name: openlakeforge
+displayName: OpenLakeForge
+description: Example lakehouse.
+status: active
+sources:
+  - marketing_platform
+domains:
+  - name: marketing
+    displayName: Marketing
+    description: Marketing analytics data products.
     status: active
-
-    asset_prefix: marketing_campaign_performance
-
-    bronze:
-      - name: campaigns
-        path: s3://lakehouse-bronze/marketing/campaign_performance/campaigns
-        description: Raw campaign data.
-
-    silver_tables:
-      tables:
-        - name: campaigns
-          description: Validated campaign data.
-
-    gold_tables:
-      tables:
-        - name: mart_campaign_performance
-          description: Campaign performance aggregated by channel.
+    products:
+      - id: campaign_performance
+        displayName: Campaign Performance
+        description: Campaign spend and conversion performance.
+        status: active
+        bronze:
+          source: marketing_platform
+          resources:
+            - campaigns
+        silver_tables:
+          tables:
+            - name: campaigns
+              description: Validated campaign data.
+        gold_tables:
+          tables:
+            - name: mart_campaign_performance
+              description: Campaign performance aggregated by channel.
+dashboards: []
 ```
 
-This descriptor is enough for OpenLakeForge to discover the logical product and derive its runtime identities.
+This pair is enough for OpenLakeForge to discover the logical source, domain, and
+product, and derive their runtime identities.
 
 ---
 
-# Domain fields
+# `Source` fields
 
-## `apiVersion`
+## `apiVersion` / `kind`
 
-```yaml
-apiVersion: openlakeforge.io/v1alpha2
-```
-
-**Required.**
-
-Identifies the descriptor contract version.
-
-Current value:
-
-```text
-openlakeforge.io/v1alpha2
-```
-
----
-
-## `kind`
-
-```yaml
-kind: Domain
-```
-
-**Required.**
-
-Must be exactly:
-
-```text
-Domain
-```
-
----
+**Required.** Must be `openlakeforge.io/v1alpha3` / `Source`.
 
 ## `name`
 
 ```yaml
-name: marketing
+name: marketing_platform
 ```
 
-**Required.**
+**Required.** The stable machine-readable source identifier. Must match
+`^[a-z][a-z0-9_]*$`, and must match the directory containing the descriptor: for
+`lakehouse_code/bronze/marketing_platform/source.yaml`, `name` must be
+`marketing_platform`. Source names must be unique across the lakehouse.
 
-The stable machine-readable domain identifier.
+## `displayName`, `description`, `status`
 
-It must match:
+**Required.** Human-readable name, description (may be empty), and lifecycle status
+string (no fixed enum; typical values are `planned`, `active`, `deprecated`).
 
-```text
-^[a-z][a-z0-9_]*$
-```
-
-Valid examples:
-
-```text
-marketing
-supply_chain
-customer_success
-```
-
-Invalid examples:
-
-```text
-Marketing
-supply-chain
-123_sales
-```
-
-The value must also match the directory containing the descriptor.
-
-For:
-
-```text
-domains/marketing/domain.yaml
-```
-
-the descriptor must contain:
+## `resources`
 
 ```yaml
-name: marketing
+resources:
+  - name: campaigns
+    description: Raw CSV marketing campaign performance data.
 ```
+
+**Required, non-empty.** The Bronze resources this source exposes. Each entry needs a
+non-empty `name` (unique within the source, matching `^[a-z][a-z0-9_]*$`) and an
+optional `description`. The descriptor does not define the resource's schema — that
+belongs to the Floe contract of whichever domain(s) consume it. It also does not contain
+a physical path: provider-specific storage paths such as `s3://...` must not be required
+in the Source descriptor.
 
 ---
 
-## `displayName`
+# `Lakehouse` fields
+
+## `apiVersion` / `kind`
+
+**Required.** Must be `openlakeforge.io/v1alpha3` / `Lakehouse`.
+
+## `name`, `displayName`, `description`, `status`
+
+**Required.** `name` matches `^[a-z][a-z0-9_]*$`; the others are human-readable, with
+`status` an unrestricted lifecycle string as above.
+
+## `sources`
 
 ```yaml
-displayName: Marketing
+sources:
+  - crm
+  - erp
 ```
 
-**Required.**
+**Required, non-empty, no duplicates.** The set of Bronze source names discovered under
+`lakehouse_code/bronze/*/source.yaml`. This list must exactly match the set of
+discovered source descriptors — every declared source needs a matching `source.yaml`,
+and every `source.yaml` found on disk must be declared here.
 
-Human-readable domain name.
+## `domains`
 
-Unlike `name`, this field does not need to follow identifier naming rules.
+**Required, non-empty array.** Each domain owns:
 
----
+- `name` (required, `^[a-z][a-z0-9_]*$`, unique across the lakehouse)
+- `displayName`, `description`, `status` (required, as above)
+- `products` (required, non-empty array — see below)
 
-## `description`
+## `domains[].products`
+
+Each product entry is:
 
 ```yaml
-description: Marketing analytics data products.
-```
-
-**Required.**
-
-Human-readable description of the domain.
-
-The value must be a string, but it may be empty.
-
-A meaningful description is strongly recommended because the same metadata can later be surfaced through governance tooling.
-
----
-
-## `status`
-
-```yaml
-status: active
-```
-
-**Required.**
-
-Human-readable lifecycle status.
-
-The current schema does not restrict this field to a fixed enum.
-
-Typical values might include:
-
-```text
-planned
-active
-deprecated
-```
-
-Projects should use a consistent status vocabulary across domains.
-
----
-
-## `data_products`
-
-```yaml
-data_products:
-  - ...
-```
-
-**Required.**
-
-Contains the products owned by the domain.
-
-Each product must conform to the product contract described below.
-
-Although the schema represents this as an array, the OpenLakeForge inventory requires at least one discoverable product.
-
----
-
-# Data product fields
-
-A typical product entry is:
-
-```yaml
-data_products:
-  - id: campaign_performance
-    name: marketing_campaign_performance
-    displayName: Campaign Performance
-    description: Campaign spend and conversion performance.
-    status: active
-    asset_prefix: marketing_campaign_performance
-
-    bronze:
+- id: campaign_performance
+  displayName: Campaign Performance
+  description: Campaign spend and conversion performance.
+  status: active
+  bronze:
+    source: marketing_platform
+    resources:
+      - campaigns
+  silver_tables:
+    tables:
       - name: campaigns
-        path: s3://lakehouse-bronze/marketing/campaign_performance/campaigns
-
-    silver_tables:
-      tables:
-        - name: campaigns
-
-    gold_tables:
-      tables:
-        - name: mart_campaign_performance
+        description: Validated campaign data.
+  gold_tables:
+    tables:
+      - name: mart_campaign_performance
+        description: Campaign performance aggregated by channel.
 ```
 
----
+### `id`
 
-## `id`
-
-```yaml
-id: campaign_performance
-```
-
-**Required.**
-
-Stable product identifier within the domain.
-
-It must match:
-
-```text
-^[a-z][a-z0-9_]*$
-```
-
-The ID is used to discover product implementation files.
-
-For example:
+**Required.** Stable product identifier, matching `^[a-z][a-z0-9_]*$`, **globally unique
+across the whole lakehouse** (not just within its domain — this is the product's only
+identity; there is no separate `name`/`asset_prefix` field in v1alpha3). It is used to
+discover product implementation files:
 
 ```text
 id: campaign_performance
 ```
 
-maps naturally to:
+maps to:
 
 ```text
-contracts/floe/campaign_performance.yml
-extract/dlt/campaign_performance.py
-transformations/dbt/campaign_performance/
-pipelines/dagster/campaign_performance.py
+lakehouse_code/silver/<domain>/contracts/floe/campaign_performance.yml
+lakehouse_code/gold/campaign_performance/dbt/
+lakehouse_code/pipelines/dagster/campaign_performance.py
 ```
 
-Product IDs must be unique inside a domain.
+### `displayName`, `description`, `status`
 
----
+**Required.** Human-readable, as above.
 
-## `name`
-
-```yaml
-name: marketing_campaign_performance
-```
-
-**Required.**
-
-Logical name of the data product.
-
-Unlike `id`, the current schema only requires this to be a non-empty string.
-
-However, using a stable identifier-style name is recommended.
-
-A useful convention is:
-
-```text
-<domain>_<product>
-```
-
-For example:
-
-```text
-marketing_campaign_performance
-sales_order_revenue
-supply_chain_inventory_reliability
-```
-
-Product names must be globally unique across the OpenLakeForge inventory.
-
----
-
-## `displayName`
-
-```yaml
-displayName: Campaign Performance
-```
-
-**Required.**
-
-Human-readable product name.
-
----
-
-## `description`
-
-```yaml
-description: Campaign spend and conversion performance.
-```
-
-**Required.**
-
-Human-readable description of the product.
-
----
-
-## `status`
-
-```yaml
-status: active
-```
-
-**Required.**
-
-Lifecycle status of the data product.
-
-As with domain status, OpenLakeForge currently requires a non-empty string but does not enforce an enum.
-
----
-
-# `asset_prefix`
-
-```yaml
-asset_prefix: marketing_campaign_performance
-```
-
-**Required.**
-
-The globally unique runtime identity for the product.
-
-It must match:
-
-```text
-^[a-z][a-z0-9_]*$
-```
-
-OpenLakeForge derives several runtime names from this value.
-
-For:
-
-```yaml
-asset_prefix: marketing_campaign_performance
-```
-
-the inventory derives:
-
-| Resource         | Derived value                             |
-| ---------------- | ----------------------------------------- |
-| Dagster job      | `marketing_campaign_performance_pipeline` |
-| Silver namespace | `marketing_campaign_performance_silver`   |
-| Gold namespace   | `marketing_campaign_performance_gold`     |
-
-`asset_prefix` values must be globally unique across all domains.
-
-A recommended convention is:
-
-```text
-<domain>_<product>
-```
-
-This makes collisions unlikely and makes runtime resources easy to identify.
-
----
-
-# Bronze entities
-
-Each product must declare at least one Bronze entity.
+### `bronze`
 
 ```yaml
 bronze:
-  - name: campaigns
-    path: s3://lakehouse-bronze/marketing/campaign_performance/campaigns
-    description: Raw campaign data.
+  source: marketing_platform
+  resources:
+    - campaigns
 ```
 
-Bronze represents the raw landing layer owned by ingestion.
+**Required object with `source` and `resources`.** `source` must reference a source
+declared in the lakehouse's top-level `sources` list, and every entry in `resources`
+must be a resource that source's `source.yaml` actually declares (validated against the
+discovered `Source` descriptors, with duplicates rejected). This is the domain-owned
+Bronze → Silver dependency declaration: it says which raw resources this product
+validates into its domain's Silver namespace — it does not declare or own the ingestion
+definition itself, which lives once under `bronze/<source>/`.
 
----
+Two products can declare the same `bronze.resources` entry from the same source without
+duplicating ingestion or creating duplicate Bronze copies — see the real `sales` domain,
+where `order_revenue` and `customer_health` both consume `crm.accounts`.
 
-## `bronze[].name`
-
-```yaml
-name: campaigns
-```
-
-**Required.**
-
-Logical entity name.
-
-Bronze entity names must be unique inside the product.
-
-The descriptor does not define the entity's schema. Technical validation belongs to the Floe contract.
-
----
-
-## `bronze[].path`
-
-```yaml
-path: s3://lakehouse-bronze/marketing/campaign_performance/campaigns
-```
-
-**Required.**
-
-Declared Bronze location for the entity.
-
-The descriptor requires a non-empty string.
-
-Keep this value logical and portable. Do not embed credentials, provider-specific endpoints, account IDs, or environment-specific connection information.
-
-Runtime ingestion and Floe configuration determine how the path is resolved in a particular environment.
-
----
-
-## `bronze[].description`
-
-```yaml
-description: Raw campaign data.
-```
-
-Optional human-readable description.
-
----
-
-# Silver tables
-
-Each product must declare at least one Silver table:
+### `silver_tables` / `gold_tables`
 
 ```yaml
 silver_tables:
   tables:
     - name: campaigns
       description: Validated campaign data.
-```
-
-Silver tables represent technically validated Iceberg tables produced by Floe.
-
----
-
-## `silver_tables.tables[].name`
-
-```yaml
-name: campaigns
-```
-
-**Required.**
-
-Logical Silver table name.
-
-Names must be unique inside the product's Silver table list.
-
----
-
-## `silver_tables.tables[].description`
-
-```yaml
-description: Validated campaign data.
-```
-
-Optional human-readable description.
-
----
-
-## Do not specify physical schemas
-
-This is deliberately invalid:
-
-```yaml
-silver_tables:
-  schema: lakehouse_dev.marketing_campaign_performance_silver
-  tables:
-    - name: campaigns
-```
-
-OpenLakeForge derives the Silver namespace from:
-
-```text
-<asset_prefix>_silver
-```
-
-The catalog/database component is supplied by the active provider contract.
-
-Similarly, table entries must not contain:
-
-```yaml
-fqn:
-```
-
-or:
-
-```yaml
-fullyQualifiedName:
-```
-
-Physical FQNs would couple the product descriptor to a particular provider or environment.
-
----
-
-# Gold tables
-
-Each product must declare at least one Gold table:
-
-```yaml
 gold_tables:
   tables:
     - name: mart_campaign_performance
-      description: Campaign performance by channel.
+      description: Campaign performance aggregated by channel.
 ```
 
-Gold represents business-ready Iceberg tables produced by dbt.
+**Required, non-empty `tables` array each.** Each table entry needs a non-empty `name`
+(unique within its own group for this product) and optional `description`. Table entries
+must **not** contain `fqn` or `fullyQualifiedName` — physical FQNs would couple the
+descriptor to a particular provider or environment — and the group itself must not
+contain a `schema` key (a deliberately-rejected place someone might be tempted to hardcode
+a physical namespace).
 
 ---
 
-## `gold_tables.tables[].name`
+## `dashboards`
 
 ```yaml
-name: mart_campaign_performance
+dashboards:
+  - name: sales_order_revenue
+    product: order_revenue
 ```
 
-**Required.**
-
-Logical Gold model/table name.
-
-Names must be unique within the product's Gold table list.
-
-The name should correspond to the dbt model materialized by the product.
-
-For example:
-
-```text
-models/gold/mart_campaign_performance.sql
-```
-
-corresponds to:
-
-```yaml
-gold_tables:
-  tables:
-    - name: mart_campaign_performance
-```
+**Required array (may be empty).** Each entry needs `name` (unique, `^[a-z][a-z0-9_]*$`)
+and `product` (must reference a declared product `id`). A dashboard is not required to
+belong to exactly one product in principle — the schema only records one `product`
+reference today because that is what the current seed data needs, but the ownership
+model (dashboards are consumption-aligned, living under
+`lakehouse_code/dashboards/superset/<dashboard>/`, independent of any domain or product
+code directory) does not assume a 1:1 mapping.
 
 ---
 
-## Derived Gold relation
+# Derived namespaces and identities
 
-With:
+Given the `sales` domain with `order_revenue` and `customer_health` products (the real
+seed data), OpenLakeForge derives:
 
-```yaml
-asset_prefix: marketing_campaign_performance
+| Resource | Value |
+| --- | --- |
+| Dagster job (order_revenue) | `order_revenue_pipeline` |
+| Dagster module | `lakehouse_code.pipelines.dagster.order_revenue` |
+| Bronze namespace (source `crm`) | `crm_bronze` |
+| Silver namespace (domain `sales`) | `sales_silver` — **shared by `order_revenue` and `customer_health`** |
+| Gold namespace (`order_revenue`) | `order_revenue_gold` |
+| Superset source directory | `lakehouse_code/dashboards/superset/order_revenue` |
+| Floe manifest key | `floe/manifests/sales/order_revenue/order_revenue.manifest.json` |
+| Floe report prefix | `floe/reports/sales/order_revenue/` |
+| dbt artifact prefix | `run-artifacts/dbt/sales/order_revenue/` |
 
-gold_tables:
-  tables:
-    - name: mart_campaign_performance
-```
-
-OpenLakeForge derives:
-
-```text
-marketing_campaign_performance_gold.mart_campaign_performance
-```
-
-The physical catalog/database is resolved separately.
-
-For example, a local deployment may expose it through Trino as:
+The catalog namespace contract is deliberately flat (single-level), so it works
+identically for Polaris and AWS Glue:
 
 ```text
-iceberg.marketing_campaign_performance_gold.mart_campaign_performance
+<stage_catalog>.<source>_bronze.<resource>
+<stage_catalog>.<domain>_silver.<table>
+<stage_catalog>.<product>_gold.<table>
 ```
 
-while the underlying catalog implementation can differ between providers.
+For example, in the `dev` stage:
 
----
-
-# Derived product identities
-
-The descriptor deliberately contains logical identities rather than all runtime names.
-
-Consider:
-
-```yaml
-name: marketing
-
-data_products:
-  - id: campaign_performance
-    name: marketing_campaign_performance
-    asset_prefix: marketing_campaign_performance
+```text
+lakehouse_dev.crm_bronze.orders
+lakehouse_dev.sales_silver.orders
+lakehouse_dev.order_revenue_gold.mart_order_revenue_by_day
 ```
 
-OpenLakeForge derives:
+Ownership follows the medallion layer, not one blanket identity:
 
-| Resource                      | Value                                                                              |
-| ----------------------------- | ---------------------------------------------------------------------------------- |
-| Product implementation module | `domains.marketing.pipelines.dagster.campaign_performance`                         |
-| Dagster job                   | `marketing_campaign_performance_pipeline`                                          |
-| Silver namespace              | `marketing_campaign_performance_silver`                                            |
-| Gold namespace                | `marketing_campaign_performance_gold`                                              |
-| Superset source directory     | `domains/marketing/reports/superset/campaign_performance`                          |
-| Floe manifest key             | `floe/manifests/marketing/campaign_performance/campaign_performance.manifest.json` |
-| Floe report prefix            | `floe/reports/marketing/campaign_performance/`                                     |
-| dbt artifact prefix           | `run-artifacts/dbt/marketing/campaign_performance/`                                |
+```text
+Source  -> <source>_bronze
+Domain  -> <domain>_silver
+Product -> <product>_gold
+```
 
-The inventory then combines those identities with the active provider contract to resolve physical storage and catalog locations.
+**Silver namespaces are never derived from a product identity.** This is the core fix
+this descriptor version makes over v1alpha2, where every product got its own
+`<asset_prefix>_silver` namespace even when two products logically belonged to the same
+domain.
+
+The inventory then combines these logical identities with the active provider contract
+to resolve physical storage and catalog locations. See
+[Provider contracts](../architecture/provider-contracts.md).
 
 ---
 
 # Provider-neutrality rules
 
-`domain.yaml` describes **what the data product is**, not where OpenLakeForge is deployed.
-
-Do not encode environment-specific values such as:
-
-```text
-EKS cluster names
-AKS resource groups
-Kubernetes namespaces
-AWS account IDs
-Azure subscription IDs
-S3 endpoints
-SeaweedFS endpoints
-Polaris URLs
-Glue database FQNs
-PostgreSQL hosts
-credentials
-secrets
-```
+Neither `lakehouse.yaml` nor any `source.yaml` describes *where* OpenLakeForge is
+deployed. Do not encode environment-specific values such as EKS cluster names, AKS
+resource groups, Kubernetes namespaces, AWS/Azure account or subscription IDs, S3 or
+SeaweedFS endpoints, Polaris URLs, Glue database FQNs, PostgreSQL hosts, credentials, or
+secrets.
 
 For example, do not write:
 
 ```yaml
 gold_tables:
-  schema: glue.production.marketing_campaign_performance_gold
+  schema: glue.production.order_revenue_gold
 ```
 
-Instead declare:
-
-```yaml
-gold_tables:
-  tables:
-    - name: mart_campaign_performance
-```
-
-and let OpenLakeForge derive the physical relation from the active provider contract.
-
-This separation is what allows the same data-product definition to be deployed locally, to AWS, or to Azure.
-
-See:
-
-➡️ [Provider contracts](../architecture/provider-contracts.md)
+Instead declare only the logical table name and let OpenLakeForge derive the physical
+relation from the active provider contract. This separation is what allows the same
+lakehouse definition to be deployed locally, to AWS, or to Azure.
 
 ---
 
 # Identity constraints
 
-The canonical inventory enforces additional constraints beyond basic YAML structure.
+The canonical inventory enforces, beyond basic YAML structure:
 
-## Domain names
-
-Domain names must be unique and must match their containing directory.
-
-```text
-domains/sales/domain.yaml
-        │
-        └── name: sales
-```
-
----
-
-## Product IDs
-
-A product `id` must be unique within its domain.
-
-This is valid:
-
-```text
-sales/order_revenue
-marketing/order_revenue
-```
-
-because the IDs belong to different domains.
-
----
-
-## Product names
-
-`name` must be globally unique across the complete domain inventory.
-
-Avoid:
-
-```yaml
-# domains/sales/domain.yaml
-name: revenue
-
-# domains/marketing/domain.yaml
-name: revenue
-```
-
----
-
-## Asset prefixes
-
-`asset_prefix` must also be globally unique.
-
-This prevents collisions between:
-
-* Dagster jobs
-* Silver namespaces
-* Gold namespaces
-* runtime artifacts
-
----
-
-## Table names
-
-Within a single product:
-
-* Bronze entity names must not contain duplicates.
-* Silver table names must not contain duplicates.
-* Gold table names must not contain duplicates.
-
----
-
-# Optional metadata and extensions
-
-The `v1alpha2` schema intentionally allows additional fields.
-
-For example, existing descriptors may contain metadata such as:
-
-```yaml
-domainType: Source-aligned
-owners: []
-
-medallion:
-  bronze:
-    owner: ingestion
-  silver:
-    owner: floe
-  gold:
-    owner: dbt
-```
-
-These fields can enrich domain documentation and governance metadata.
-
-However, they are **not part of the minimum canonical inventory contract** unless explicitly documented elsewhere.
-
-Consumers should not assume that arbitrary extension fields affect runtime behavior.
-
-The stable inventory contract is centered on:
-
-```text
-domain identity
-product identity
-asset_prefix
-Bronze entities
-Silver tables
-Gold tables
-```
-
----
-
-# Optional product metadata
-
-The schema also accepts optional product fields such as:
-
-```yaml
-domain:
-domains:
-assets:
-```
-
-These may be used for additional logical metadata.
-
-When using `assets`, each item must be a logical asset object:
-
-```yaml
-assets:
-  - name: customer
-    type: table
-```
-
-Do not specify physical FQNs:
-
-```yaml
-assets:
-  - name: customer
-    fqn: production.catalog.customer
-```
-
-`type`, when provided, is currently limited to:
-
-```text
-table
-```
-
-These optional fields are not required for normal `v1alpha2` product discovery.
+- **Source names** must be unique and must match their `source.yaml`'s containing
+  directory; the lakehouse's `sources` list must exactly match discovered descriptors.
+- **Domain names** must be unique across the lakehouse.
+- **Product IDs** must be unique across the *entire* lakehouse (not just within their
+  domain — there is no per-domain product namespace in v1alpha3).
+- **Dashboard names** must be unique, and each `product` reference must resolve to a
+  declared product ID.
+- Within one product: Bronze resource references, Silver table names, and Gold table
+  names must each be internally free of duplicates. A product's `bronze.resources` must
+  all be resources the referenced source actually declares.
 
 ---
 
 # Complete example
 
 ```yaml
-apiVersion: openlakeforge.io/v1alpha2
-kind: Domain
+apiVersion: openlakeforge.io/v1alpha3
+kind: Lakehouse
+name: openlakeforge
+displayName: OpenLakeForge
+description: Seed lakehouse for the OpenLakeForge v1 proof-of-concept data path.
+status: planned
+sources:
+  - crm
+  - erp
+domains:
+  - name: sales
+    displayName: Sales
+    description: Sales proof-of-concept domain.
+    status: planned
+    products:
+      - id: order_revenue
+        displayName: Sales Order Revenue
+        description: Curated revenue, channel, discount, and product margin marts.
+        status: planned
+        bronze:
+          source: crm
+          resources:
+            - orders
+            - order_lines
+            - products
+            - channels
+            - promotions
+            - accounts
+        silver_tables:
+          tables:
+            - name: orders
+              description: Validated sales order headers.
+            - name: order_lines
+              description: Validated sales order lines.
+            - name: products
+              description: Validated product dimension for revenue analytics.
+            - name: channels
+              description: Validated sales channel dimension.
+            - name: promotions
+              description: Validated promotion dimension.
+            - name: accounts
+              description: Validated account dimension.
+        gold_tables:
+          tables:
+            - name: mart_order_revenue_by_day
+              description: Daily order revenue, units, and discount amount by region.
+            - name: mart_order_revenue_by_channel
+              description: Net revenue and discount amount by sales channel and promotion type.
+            - name: mart_order_revenue_margin_by_product
+              description: Product revenue, cost, and gross margin for fulfilled order lines.
+            - name: mart_order_revenue_by_account_segment
+              description: Net revenue and order count by account segment and region.
+      - id: customer_health
+        displayName: Sales Customer Health
+        description: Curated customer health, churn risk, support SLA, and NPS marts.
+        status: planned
+        bronze:
+          source: crm
+          resources:
+            - accounts
+            - subscriptions
+            - support_tickets
+            - nps_responses
+        silver_tables:
+          tables:
+            - name: accounts
+              description: Validated account dimension.
+            - name: subscriptions
+              description: Validated subscription records.
+            - name: support_tickets
+              description: Validated support ticket facts.
+            - name: nps_responses
+              description: Validated NPS response facts.
+        gold_tables:
+          tables:
+            - name: mart_customer_health_score
+              description: Account-level health score using subscription, support, and NPS signals.
+            - name: mart_churn_risk_by_segment
+              description: Churn risk and ARR exposure grouped by account segment and region.
+            - name: mart_support_sla_by_customer
+              description: Support volume, resolution hours, and SLA rate by customer and priority.
+dashboards:
+  - name: sales_order_revenue
+    product: order_revenue
+  - name: sales_customer_health
+    product: customer_health
+```
 
-name: sales
-displayName: Sales
-description: Data products owned by the Sales domain.
-status: active
+`order_revenue` and `customer_health` both consume `crm.accounts` and both validate into
+the same `sales_silver` namespace — that is the shared-Bronze, domain-owned-Silver
+pattern this descriptor version exists to make possible.
 
-domainType: Source-aligned
-owners: []
+Its companion `lakehouse_code/bronze/crm/source.yaml`:
 
-medallion:
-  bronze:
-    owner: ingestion
-    description: Raw immutable landing zone.
-  silver:
-    owner: floe
-    description: Technically validated Iceberg tables.
-  gold:
-    owner: dbt
-    description: Business-ready marts.
-
-data_products:
-  - id: order_revenue
-    name: sales_order_revenue
-    displayName: Sales Order Revenue
-    description: Revenue and margin analytics for sales orders.
-    status: active
-
-    asset_prefix: sales_order_revenue
-
-    bronze:
-      - name: orders
-        path: s3://lakehouse-bronze/sales/order_revenue/orders
-        description: Raw order headers.
-
-      - name: order_lines
-        path: s3://lakehouse-bronze/sales/order_revenue/order_lines
-        description: Raw order lines.
-
-      - name: products
-        path: s3://lakehouse-bronze/sales/order_revenue/products
-        description: Raw product catalog.
-
-    silver_tables:
-      tables:
-        - name: orders
-          description: Validated order headers.
-
-        - name: order_lines
-          description: Validated order lines.
-
-        - name: products
-          description: Validated product dimension.
-
-    gold_tables:
-      tables:
-        - name: mart_order_revenue_by_day
-          description: Daily sales revenue.
-
-        - name: mart_order_revenue_margin_by_product
-          description: Revenue and gross margin by product.
+```yaml
+apiVersion: openlakeforge.io/v1alpha3
+kind: Source
+name: crm
+displayName: CRM
+description: Customer relationship management source system shared by the Sales data products.
+status: planned
+resources:
+  - name: accounts
+    description: Raw CSV customer accounts.
+  - name: channels
+    description: Raw CSV sales channel dimension.
+  # ...one entry per resource any Sales product consumes...
 ```
 
 ---
 
-# Relationship with product files
+# Relationship with implementation files
 
-The descriptor defines the inventory, while the product implementation remains under the domain capability directories.
-
-For:
-
-```yaml
-name: sales
-
-data_products:
-  - id: order_revenue
-```
-
-the expected implementation is typically:
+The descriptors define the inventory; implementation lives under the medallion-owned
+directories, not nested under a domain:
 
 ```text
-domains/sales/
-├── domain.yaml
-│
-├── examples/
-│   └── raw/
-│       └── order_revenue/
-│
-├── extract/
-│   └── dlt/
-│       └── order_revenue.py
-│
-├── contracts/
-│   └── floe/
-│       └── order_revenue.yml
-│
-├── transformations/
-│   └── dbt/
-│       └── order_revenue/
-│
-├── pipelines/
-│   └── dagster/
-│       └── order_revenue.py
-│
-└── reports/
-    └── superset/
-        └── order_revenue/
+lakehouse_code/
+├── lakehouse.yaml
+├── bronze/
+│   └── crm/
+│       ├── source.yaml
+│       ├── examples/*.csv
+│       └── dlt/order_revenue.py, customer_health.py-consuming loaders
+├── silver/
+│   └── sales/
+│       └── contracts/floe/
+│           ├── order_revenue.yml
+│           └── customer_health.yml
+├── gold/
+│   ├── order_revenue/dbt/
+│   └── customer_health/dbt/
+├── dashboards/
+│   └── superset/
+│       ├── order_revenue/
+│       └── customer_health/
+└── pipelines/
+    └── dagster/
+        ├── order_revenue.py
+        └── customer_health.py
 ```
 
-The descriptor does not replace those implementation files.
-
-It provides the common logical inventory they share.
+The descriptors do not replace those implementation files — they provide the common
+logical inventory the files share.
 
 ---
 
@@ -980,15 +545,13 @@ Run descriptor and provider-contract validation from the repository root:
 make check-contracts
 ```
 
-This checks the descriptors through both:
-
-1. the canonical OpenLakeForge domain model
-2. the versioned JSON Schema
-
-The JSON Schema is available at:
+This checks `lakehouse_code/lakehouse.yaml` and every
+`lakehouse_code/bronze/*/source.yaml` through both the canonical OpenLakeForge model and
+their versioned JSON Schemas:
 
 ```text
-docs/schema/domain.schema.json
+docs/schema/lakehouse.schema.json
+docs/schema/source.schema.json
 ```
 
 For broader repository validation:
@@ -1009,70 +572,40 @@ make release-check
 
 # Common validation errors
 
-## Domain does not match directory
+## Source list doesn't match discovered descriptors
 
-Given:
+Invalid: `lakehouse.yaml` declares `sources: [crm, erp]` but only
+`lakehouse_code/bronze/crm/source.yaml` exists on disk (or vice versa — an undeclared
+`source.yaml` exists). Both sides must match exactly.
 
-```text
-domains/marketing/domain.yaml
-```
+## Source directory mismatch
 
-this is invalid:
-
-```yaml
-name: sales
-```
-
-Use:
+Given `lakehouse_code/bronze/marketing_platform/source.yaml`, this is invalid:
 
 ```yaml
 name: marketing
 ```
 
----
+Use `name: marketing_platform`.
 
 ## Invalid identifier
 
-Invalid:
+Invalid: `id: campaign-performance`. Valid: `id: campaign_performance`.
 
-```yaml
-id: campaign-performance
-```
+## Duplicate product ID
 
-Valid:
+Two products cannot both declare `id: order_revenue`, even across different domains —
+product IDs are globally unique in v1alpha3.
 
-```yaml
-id: campaign_performance
-```
+## Bronze resource not declared by its source
 
----
-
-## Duplicate asset prefix
-
-Two products cannot declare:
-
-```yaml
-asset_prefix: sales_revenue
-```
-
-even when they belong to different domains.
-
-`asset_prefix` is globally unique.
-
----
+Invalid: a product declares `bronze: {source: crm, resources: [made_up_resource]}` when
+`crm/source.yaml` has no `made_up_resource` entry.
 
 ## Empty table groups
 
-Invalid:
-
-```yaml
-silver_tables:
-  tables: []
-```
-
-Every `v1alpha2` product must expose at least one Silver table and one Gold table.
-
----
+Invalid: `silver_tables: {tables: []}`. Every product must expose at least one Silver
+table and one Gold table.
 
 ## Physical FQN in descriptor
 
@@ -1085,59 +618,39 @@ gold_tables:
       fullyQualifiedName: glue.production.revenue
 ```
 
-Use only the logical name:
-
-```yaml
-gold_tables:
-  tables:
-    - name: revenue
-```
+Use only the logical name.
 
 ---
 
 # Changing a descriptor
 
-Some descriptor changes affect runtime identity and should be treated as migrations rather than cosmetic edits.
-
-In particular, be careful when changing:
+Some descriptor changes affect runtime identity and should be treated as migrations
+rather than cosmetic edits. Be careful when changing:
 
 ```text
+source name
 domain name
 product id
-product name
-asset_prefix
 Silver table names
 Gold table names
 ```
 
-Changing `asset_prefix`, for example, changes derived:
+Changing a domain `name`, for example, changes the derived Silver namespace for every
+product in that domain. Changing a product `id` changes its Gold namespace and every
+derived artifact path. For deployed environments, plan these changes as data/catalog
+migrations rather than simple metadata updates.
 
-```text
-Dagster job names
-Silver namespaces
-Gold namespaces
-runtime artifact paths
-```
-
-For deployed environments, plan these changes as data/catalog migrations rather than simple metadata updates.
-
-Changes to:
-
-```text
-displayName
-description
-status
-```
-
-are generally metadata-only.
+Changes to `displayName`, `description`, and `status` are generally metadata-only.
 
 ---
 
 # Related documentation
 
 * [Build your first data product](../getting-started/first-data-product.md)
-* [Domain JSON Schema](../schema/domain.schema.json)
-* [v1alpha1 → v1alpha2 migration](../migrations/domain-v1alpha1-to-v1alpha2.md)
+* [ADR 0025 — medallion ownership and catalog namespace contract](../adr/0025-medallion-ownership-and-catalog-namespace-contract.md)
+* [Lakehouse JSON Schema](../schema/lakehouse.schema.json)
+* [Source JSON Schema](../schema/source.schema.json)
+* [v1alpha1 → v1alpha2 migration (historical)](../migrations/domain-v1alpha1-to-v1alpha2.md)
 * [Provider contracts](../architecture/provider-contracts.md)
 * [Architecture overview](../architecture/overview.md)
 * [`olf` CLI documentation](../../tools/olf/README.md)

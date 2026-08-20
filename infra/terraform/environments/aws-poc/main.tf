@@ -63,9 +63,9 @@ locals {
     supply_chain_inventory_reliability = "${local.floe_manifest_base_uri}/supply_chain/inventory_reliability/inventory_reliability.manifest.json"
   }
   # Databases themselves are not declared here. `olf catalog sync-namespaces`
-  # reconciles them from domains/*/domain.yaml during artifacts-deploy (ADR
+  # reconciles them from the lakehouse inventory during artifacts-deploy (ADR
   # 0022); this root only records which naming model those databases follow.
-  catalog_namespace_model = "product-layer"
+  catalog_namespace_model = "domain-layer"
   # Service accounts bound to the lakehouse workload role via EKS Pod Identity
   # associations (not IRSA). No SA annotation is required with Pod Identity.
   workload_service_accounts = [

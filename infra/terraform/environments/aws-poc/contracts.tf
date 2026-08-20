@@ -154,7 +154,7 @@ locals {
     code_locations = [
       {
         name               = "openlakeforge-dagster"
-        definitions_module = "domains.definitions"
+        definitions_module = "lakehouse_code.definitions"
       },
     ]
     runner                    = "kubernetes-run-launcher"

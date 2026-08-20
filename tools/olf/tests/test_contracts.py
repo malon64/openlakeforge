@@ -22,18 +22,14 @@ def test_defaults_without_contracts_match_local_profile() -> None:
     assert exports["OPENLAKEFORGE_ARTIFACT_BASE_URI"] == "s3://openlakeforge-ops"
     assert exports["OPENLAKEFORGE_CATALOG_DATABASE_FQN"] == "polaris.lakehouse_dev"
     assert json.loads(exports["OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON"]) == {
-        "sales_order_revenue": "polaris.lakehouse_dev.sales_order_revenue_silver",
-        "sales_customer_health": "polaris.lakehouse_dev.sales_customer_health_silver",
-        "supply_chain_inventory_reliability": (
-            "polaris.lakehouse_dev.supply_chain_inventory_reliability_silver"
-        ),
+        "order_revenue": "polaris.lakehouse_dev.sales_silver",
+        "customer_health": "polaris.lakehouse_dev.sales_silver",
+        "inventory_reliability": "polaris.lakehouse_dev.supply_chain_silver",
     }
     assert json.loads(exports["OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON"]) == {
-        "sales_order_revenue": "polaris.lakehouse_dev.sales_order_revenue_gold",
-        "sales_customer_health": "polaris.lakehouse_dev.sales_customer_health_gold",
-        "supply_chain_inventory_reliability": (
-            "polaris.lakehouse_dev.supply_chain_inventory_reliability_gold"
-        ),
+        "order_revenue": "polaris.lakehouse_dev.order_revenue_gold",
+        "customer_health": "polaris.lakehouse_dev.customer_health_gold",
+        "inventory_reliability": "polaris.lakehouse_dev.inventory_reliability_gold",
     }
     assert exports["OPENMETADATA_CATALOG_SERVICE"] == "polaris"
     assert exports["OPENLAKEFORGE_STORAGE_OM_SERVICE"] == "seaweedfs"
@@ -65,11 +61,9 @@ def test_local_contracts_apply_seaweedfs_values() -> None:
     assert exports["OPENLAKEFORGE_QUERY_TRINO_PORT"] == "8080"
     assert exports["OPENLAKEFORGE_CATALOG_DATABASE_FQN"] == "polaris.lakehouse_dev"
     assert json.loads(exports["OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON"]) == {
-        "sales_order_revenue": "polaris.lakehouse_dev.sales_order_revenue_silver",
-        "sales_customer_health": "polaris.lakehouse_dev.sales_customer_health_silver",
-        "supply_chain_inventory_reliability": (
-            "polaris.lakehouse_dev.supply_chain_inventory_reliability_silver"
-        ),
+        "order_revenue": "polaris.lakehouse_dev.sales_silver",
+        "customer_health": "polaris.lakehouse_dev.sales_silver",
+        "inventory_reliability": "polaris.lakehouse_dev.supply_chain_silver",
     }
     assert unsets == []
 
@@ -85,23 +79,24 @@ def test_polaris_contract_without_namespaces_falls_back_to_the_descriptors() -> 
     exports, _ = build_contract_env({}, contracts, repo_root=REPO_ROOT)
 
     assert json.loads(exports["OPENLAKEFORGE_CATALOG_SILVER_NAMESPACES_JSON"]) == {
-        "sales_order_revenue": "sales_order_revenue_silver",
-        "sales_customer_health": "sales_customer_health_silver",
-        "supply_chain_inventory_reliability": "supply_chain_inventory_reliability_silver",
+        "order_revenue": "sales_silver",
+        "customer_health": "sales_silver",
+        "inventory_reliability": "supply_chain_silver",
     }
     assert json.loads(exports["OPENLAKEFORGE_CATALOG_GOLD_NAMESPACES_JSON"]) == {
-        "sales_order_revenue": "sales_order_revenue_gold",
-        "sales_customer_health": "sales_customer_health_gold",
-        "supply_chain_inventory_reliability": "supply_chain_inventory_reliability_gold",
+        "order_revenue": "order_revenue_gold",
+        "customer_health": "customer_health_gold",
+        "inventory_reliability": "inventory_reliability_gold",
     }
     namespaces = json.loads(exports["OPENLAKEFORGE_CATALOG_NAMESPACES_JSON"])
     assert {entry["name"] for entry in namespaces} == {
-        "sales_order_revenue_silver",
-        "sales_order_revenue_gold",
-        "sales_customer_health_silver",
-        "sales_customer_health_gold",
-        "supply_chain_inventory_reliability_silver",
-        "supply_chain_inventory_reliability_gold",
+        "crm_bronze",
+        "erp_bronze",
+        "sales_silver",
+        "supply_chain_silver",
+        "order_revenue_gold",
+        "customer_health_gold",
+        "inventory_reliability_gold",
     }
 
 
@@ -156,10 +151,10 @@ def test_aws_contracts_blank_local_only_fields_and_derive_glue_fqns() -> None:
     # OpenMetadata mappings follow the Glue provider
     assert exports["OPENLAKEFORGE_CATALOG_DATABASE_FQN"] == "aws_glue.lakehouse_dev"
     assert json.loads(exports["OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON"]) == {
-        "sales_order_revenue": "aws_glue.lakehouse_dev.sales_order_revenue_silver"
+        "order_revenue": "aws_glue.lakehouse_dev.sales_silver"
     }
     assert json.loads(exports["OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON"]) == {
-        "sales_order_revenue": "aws_glue.lakehouse_dev.sales_order_revenue_gold"
+        "order_revenue": "aws_glue.lakehouse_dev.order_revenue_gold"
     }
     assert exports["OPENMETADATA_CATALOG_SERVICE"] == "aws_glue"
     assert exports["OPENLAKEFORGE_STORAGE_OM_SERVICE"] == "aws_s3"
@@ -183,14 +178,14 @@ def test_aws_glue_contract_without_schema_fqns_falls_back_to_the_descriptors() -
     exports, _ = build_contract_env({}, contracts, repo_root=REPO_ROOT)
 
     assert json.loads(exports["OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON"]) == {
-        "sales_order_revenue": "aws_glue.lakehouse_dev.sales_order_revenue_silver",
-        "sales_customer_health": "aws_glue.lakehouse_dev.sales_customer_health_silver",
-        "supply_chain_inventory_reliability": "aws_glue.lakehouse_dev.supply_chain_inventory_reliability_silver",
+        "order_revenue": "aws_glue.lakehouse_dev.sales_silver",
+        "customer_health": "aws_glue.lakehouse_dev.sales_silver",
+        "inventory_reliability": "aws_glue.lakehouse_dev.supply_chain_silver",
     }
     assert json.loads(exports["OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON"]) == {
-        "sales_order_revenue": "aws_glue.lakehouse_dev.sales_order_revenue_gold",
-        "sales_customer_health": "aws_glue.lakehouse_dev.sales_customer_health_gold",
-        "supply_chain_inventory_reliability": "aws_glue.lakehouse_dev.supply_chain_inventory_reliability_gold",
+        "order_revenue": "aws_glue.lakehouse_dev.order_revenue_gold",
+        "customer_health": "aws_glue.lakehouse_dev.customer_health_gold",
+        "inventory_reliability": "aws_glue.lakehouse_dev.inventory_reliability_gold",
     }
 
 

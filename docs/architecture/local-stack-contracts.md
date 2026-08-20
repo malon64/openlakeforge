@@ -87,9 +87,9 @@ The catalog module owns:
 - local catalog provider `polaris`
 - root bootstrap credentials in `polaris-bootstrap-credentials`
 - the `lakehouse_dev` warehouse with `default-base-location: s3://lakehouse-silver/`
-- product Silver namespaces such as `sales_order_revenue_silver` with storage
+- product Silver namespaces such as `sales_silver` with storage
   locations under `s3://lakehouse-silver/<namespace>/`
-- product Gold namespaces such as `sales_order_revenue_gold` with storage
+- product Gold namespaces such as `order_revenue_gold` with storage
   locations under `s3://lakehouse-gold/<namespace>/`
 - allowed S3 locations `s3://lakehouse-silver/` and `s3://lakehouse-gold/`
 - the Trino service principal and role grants
@@ -131,9 +131,9 @@ http://superset:8088
 ```
 
 Superset uses the shared PostgreSQL service for metadata and chart-managed Redis
-for local cache and worker support. Product report assets are not seeded by
+for local cache and worker support. Report assets are not seeded by
 Terraform bootstrap. They are source-controlled under
-`domains/<domain>/reports/superset/<product>/`, copied into the
+`lakehouse_code/dashboards/superset/<dashboard>/`, copied into the
 Superset ephemeral staging volume at `/app/openlakeforge/reports`, and imported by the
 local/CD report deployment step.
 
