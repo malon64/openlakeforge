@@ -323,6 +323,23 @@ if [[ "${#configs[@]}" -eq 0 ]]; then
   exit 1
 fi
 
+# A domain owns exactly one Floe configuration and one generated manifest
+# (docs/getting-started/first-data-product.md). generate_manifest derives its
+# output path from the domain alone, so two configs under the same domain
+# would silently overwrite one another's manifest instead of failing loudly.
+domains=()
+for config_path in "${configs[@]}"; do
+  domain_dir="${config_path%/contracts/floe/*}"
+  domains+=("$(basename "${domain_dir}")")
+done
+duplicate_domains="$(printf '%s\n' "${domains[@]}" | sort | uniq -d)"
+if [[ -n "${duplicate_domains}" ]]; then
+  echo "ERROR: each domain must have exactly one Floe configuration under lakehouse_code/silver/<domain>/contracts/floe/." >&2
+  echo "       Duplicate configs found for: $(tr '\n' ' ' <<<"${duplicate_domains}")" >&2
+  echo "       Add the new entity to the domain's existing *.yml file instead of creating a second one." >&2
+  exit 1
+fi
+
 for config_path in "${configs[@]}"; do
   generate_manifest "${config_path}"
 done
