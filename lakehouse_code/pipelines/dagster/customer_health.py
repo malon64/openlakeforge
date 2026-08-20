@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from libs.product_dagster import ProductDefinitionSpec, build_product_definitions
 
-CUSTOMER_HEALTH_ENTITIES = ("accounts", "subscriptions", "support_tickets", "nps_responses")
+CUSTOMER_HEALTH_SILVER_INPUTS = ("accounts", "subscriptions", "support_tickets", "nps_responses")
 
 CUSTOMER_HEALTH_GOLD_ASSETS = (
     "mart_customer_health_score",
@@ -15,8 +15,8 @@ defs = build_product_definitions(
     ProductDefinitionSpec(
         domain="sales",
         product="customer_health",
-        silver_inputs=CUSTOMER_HEALTH_ENTITIES,
-        bronze_inputs=tuple(("crm", entity) for entity in CUSTOMER_HEALTH_ENTITIES),
+        silver_inputs=CUSTOMER_HEALTH_SILVER_INPUTS,
+        bronze_inputs=tuple(("crm", entity) for entity in CUSTOMER_HEALTH_SILVER_INPUTS),
         gold_assets=CUSTOMER_HEALTH_GOLD_ASSETS,
     )
 )

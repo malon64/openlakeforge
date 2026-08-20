@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from libs.product_dagster import ProductDefinitionSpec, build_product_definitions
 
-INVENTORY_RELIABILITY_ENTITIES = (
+INVENTORY_RELIABILITY_SILVER_INPUTS = (
     "warehouses",
     "suppliers",
     "inventory_snapshots",
@@ -22,8 +22,8 @@ defs = build_product_definitions(
     ProductDefinitionSpec(
         domain="supply_chain",
         product="inventory_reliability",
-        silver_inputs=INVENTORY_RELIABILITY_ENTITIES,
-        bronze_inputs=tuple(("erp", entity) for entity in INVENTORY_RELIABILITY_ENTITIES),
+        silver_inputs=INVENTORY_RELIABILITY_SILVER_INPUTS,
+        bronze_inputs=tuple(("erp", entity) for entity in INVENTORY_RELIABILITY_SILVER_INPUTS),
         gold_assets=INVENTORY_RELIABILITY_GOLD_ASSETS,
     )
 )

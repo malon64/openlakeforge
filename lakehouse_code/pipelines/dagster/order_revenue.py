@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from libs.product_dagster import ProductDefinitionSpec, build_product_definitions
 
-ORDER_REVENUE_ENTITIES = ("orders", "order_lines", "products", "channels", "promotions", "accounts")
+ORDER_REVENUE_SILVER_INPUTS = ("orders", "order_lines", "products", "channels", "promotions", "accounts")
 
 ORDER_REVENUE_GOLD_ASSETS = (
     "mart_order_revenue_by_day",
@@ -15,8 +15,8 @@ defs = build_product_definitions(
     ProductDefinitionSpec(
         domain="sales",
         product="order_revenue",
-        silver_inputs=ORDER_REVENUE_ENTITIES,
-        bronze_inputs=tuple(("crm", entity) for entity in ORDER_REVENUE_ENTITIES),
+        silver_inputs=ORDER_REVENUE_SILVER_INPUTS,
+        bronze_inputs=tuple(("crm", entity) for entity in ORDER_REVENUE_SILVER_INPUTS),
         gold_assets=ORDER_REVENUE_GOLD_ASSETS,
     )
 )

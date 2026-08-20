@@ -91,6 +91,7 @@ echo "==> Loading domain Dagster product definitions"
 PATH="${site_dir}/bin:${PATH}" PYTHONPATH="${site_dir}:${PWD}" "${PYTHON_BIN}" - <<'PY'
 import json
 import os
+from collections import Counter
 from hashlib import sha256
 from pathlib import Path
 
@@ -115,25 +116,21 @@ import libs.product_dagster as product_dagster_lib
 from openlakeforge_domain import load_lakehouse_inventory
 
 
-def _defined_entities(descriptor_product) -> tuple[str, ...]:
-    """Read the *_ENTITIES tuple the product's Dagster pipeline module declares.
+def _silver_inputs(descriptor_product) -> tuple[str, ...]:
+    """Read the Silver inputs selected by a product job.
 
-    This is a code fact, not descriptor data, so it stays a plain module
-    lookup by naming convention rather than something lakehouse.yaml carries.
+    ``*_SILVER_INPUTS`` is the documented contract. ``*_ENTITIES`` remains a
+    fallback for seed modules created before that name was documented.
     """
     module = import_module(f"lakehouse_code.pipelines.dagster.{descriptor_product.id}")
-    const_name = f"{descriptor_product.id.upper()}_ENTITIES"
-    entities = getattr(module, const_name, None)
-    if entities is None:
-        raise SystemExit(f"{module.__name__} does not define {const_name}")
-    return tuple(entities)
-
-
-def _silver_inputs(descriptor_product) -> tuple[str, ...]:
-    """Read the Silver inputs selected by a product job."""
-    module = import_module(f"lakehouse_code.pipelines.dagster.{descriptor_product.id}")
     const_name = f"{descriptor_product.id.upper()}_SILVER_INPUTS"
-    return tuple(getattr(module, const_name, _defined_entities(descriptor_product)))
+    inputs = getattr(module, const_name, None)
+    if inputs is None:
+        legacy_name = f"{descriptor_product.id.upper()}_ENTITIES"
+        inputs = getattr(module, legacy_name, None)
+    if inputs is None:
+        raise SystemExit(f"{module.__name__} does not define {const_name}")
+    return tuple(inputs)
 
 
 def _source_entities(source_name: str) -> tuple[str, ...]:
@@ -153,15 +150,15 @@ def _source_entities(source_name: str) -> tuple[str, ...]:
 INVENTORY = load_lakehouse_inventory("lakehouse_code")
 PRODUCTS = []
 for _descriptor_product in INVENTORY.products:
-    _entities = _defined_entities(_descriptor_product)
     _inputs = _silver_inputs(_descriptor_product)
-    bronze_resources = INVENTORY.bronze_resources_for_product(_descriptor_product)
-    bronze_names = {table.name for table in bronze_resources}
-    if bronze_names != set(_inputs):
+    resolved_silver_tables = INVENTORY.resolved_silver_tables(_descriptor_product)
+    expected_silver_inputs = {table.name for table in resolved_silver_tables}
+    if set(_inputs) != expected_silver_inputs:
         raise SystemExit(
-            f"lakehouse_code/lakehouse.yaml: product {_descriptor_product.id!r} bronze names "
-            f"{sorted(bronze_names)} do not match pipeline Silver inputs {sorted(_inputs)}"
+            f"lakehouse_code/lakehouse.yaml: product {_descriptor_product.id!r} Silver inputs "
+            f"{sorted(expected_silver_inputs)} do not match pipeline Silver inputs {sorted(_inputs)}"
         )
+    bronze_resources = INVENTORY.bronze_resources_for_product(_descriptor_product)
     for source_name in {table.source for table in bronze_resources}:
         source_resources = {table.name for table in bronze_resources if table.source == source_name}
         missing_in_source = source_resources - set(_source_entities(source_name))
@@ -181,7 +178,6 @@ for _descriptor_product in INVENTORY.products:
                 f"lakehouse_code/silver/{_descriptor_product.domain_name}/contracts/floe/manifests/"
                 f"{_descriptor_product.domain_name}.manifest.json"
             ),
-            "entities": _entities,
             "silver_inputs": _inputs,
             "domain_entities": {
                 table.name for table in INVENTORY.domain_for_product(_descriptor_product).silver_tables
@@ -290,6 +286,31 @@ for product in PRODUCTS:
     if job.run_config["execution"]["config"]["multiprocess"]["max_concurrent"] != 1:
         raise SystemExit(f"{product['job']} did not inherit Floe orchestration concurrency")
 
+    selected_asset_keys = {tuple(key.path) for key in job.asset_layer.selected_asset_keys}
+    canonical_bronze_keys = {
+        (source.name, resource.name)
+        for source in INVENTORY.sources
+        for resource in source.resources
+    }
+    selected_bronze_keys = selected_asset_keys & canonical_bronze_keys
+    if selected_bronze_keys != product["bronze_inputs"]:
+        raise SystemExit(
+            f"{product['job']} selected Bronze assets {sorted(selected_bronze_keys)}; "
+            f"expected {sorted(product['bronze_inputs'])}"
+        )
+    canonical_silver_keys = {
+        (domain.name, table.name)
+        for domain in INVENTORY.domains
+        for table in domain.silver_tables
+    }
+    selected_silver_keys = selected_asset_keys & canonical_silver_keys
+    expected_silver_keys = {(product["domain"], entity) for entity in product["silver_inputs"]}
+    if selected_silver_keys != expected_silver_keys:
+        raise SystemExit(
+            f"{product['job']} selected Silver assets {sorted(selected_silver_keys)}; "
+            f"expected {sorted(expected_silver_keys)}"
+        )
+
     for source, resource in product["bronze_inputs"]:
         if (source, resource) not in asset_keys:
             raise SystemExit(f"missing Bronze source asset for {source}/{resource}")
@@ -297,8 +318,7 @@ for product in PRODUCTS:
         if (product["domain"], entity) not in asset_keys:
             raise SystemExit(f"missing Floe Silver asset for {product['domain']}/{entity}")
 
-    for entity in product["entities"]:
-
+    for entity in product["silver_inputs"]:
         matching_entities = [item for item in manifest.entities if item.name == entity]
         if not matching_entities:
             raise SystemExit(f"missing Floe manifest entity for {prefix}/{entity}")
@@ -406,7 +426,23 @@ if len(asset_key_list) != len(asset_keys):
 if not product_asset_keys_all.issubset(merged_asset_keys):
     raise SystemExit("merged Dagster definitions do not contain every product Gold asset")
 
-for shared_key in (("crm", "accounts"), ("sales", "accounts")):
+bronze_reference_counts = Counter(
+    (resource.source, resource.name)
+    for descriptor_product in INVENTORY.products
+    for resource in INVENTORY.bronze_resources_for_product(descriptor_product)
+)
+silver_reference_counts = Counter(
+    (table.domain, table.name)
+    for descriptor_product in INVENTORY.products
+    for table in INVENTORY.resolved_silver_tables(descriptor_product)
+)
+shared_asset_keys = {
+    key
+    for reference_counts in (bronze_reference_counts, silver_reference_counts)
+    for key, count in reference_counts.items()
+    if count > 1
+}
+for shared_key in shared_asset_keys:
     if asset_key_list.count(shared_key) != 1:
         raise SystemExit(f"shared asset {shared_key[0]}/{shared_key[1]} must have exactly one definition")
 
