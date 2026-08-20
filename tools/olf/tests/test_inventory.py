@@ -156,7 +156,7 @@ def test_seed_inventory_derives_every_product_expectation() -> None:
         "floe/manifests/sales/order_revenue/order_revenue.manifest.json"
     )
     assert inventory.domain_names == ("sales", "supply_chain")
-    assert inventory.silver_table_count == 16
+    assert inventory.silver_table_count == 15  # crm.accounts counted once, shared by order_revenue+customer_health
     assert inventory.gold_table_count == 10
     assert inventory.gold_mart_names == (
         "order_revenue_gold.mart_order_revenue_by_day",

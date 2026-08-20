@@ -271,7 +271,20 @@ class LakehouseInventory:
 
     @property
     def silver_table_count(self) -> int:
-        return sum(len(product.silver_tables) for product in self.products)
+        """Count of distinct physical Silver relations.
+
+        Two products in the same domain can declare the same table (they
+        share the domain's Silver namespace), so this counts unique
+        ``(silver_namespace, table)`` pairs rather than summing per-product
+        declarations, which would double-count a shared table.
+        """
+        return len(
+            {
+                (product.silver_namespace, table.name)
+                for product in self.products
+                for table in product.silver_tables
+            }
+        )
 
     @property
     def gold_table_count(self) -> int:

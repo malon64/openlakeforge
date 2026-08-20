@@ -55,20 +55,32 @@ def check_trino_tables_and_marts(cfg: E2EConfig) -> None:
 
 
 def check_trino_product_tables_and_marts(cfg: E2EConfig, product: Product) -> None:
-    """Verify the selected smoke product reached populated Silver and Gold tables."""
+    """Verify the selected smoke product reached populated Silver and Gold tables.
+
+    Silver is checked by table name, not by namespace row count: two products
+    in the same domain share one Silver namespace, so another product's
+    tables (or a sibling's earlier smoke run) can already be present there.
+    Gold stays product-exclusive, so a namespace-wide count is still valid.
+    """
     check_trino_catalog(cfg)
     log.step(f"Checking Silver and Gold tables for {product.id}...")
-    silver_count = trino_scalar(
-        cfg,
-        "SELECT count(*) FROM iceberg.information_schema.tables "
-        f"WHERE table_schema = '{product.silver_namespace}'",
+    silver_tables = set(
+        trino_query(
+            cfg,
+            "SELECT table_name FROM iceberg.information_schema.tables "
+            f"WHERE table_schema = '{product.silver_namespace}'",
+        ).splitlines()
     )
+    missing_silver = sorted(table.name for table in product.silver_tables if table.name not in silver_tables)
+    if missing_silver:
+        raise E2EError(
+            f"{product.id}: missing Silver table(s) in {product.silver_namespace}: {', '.join(missing_silver)}"
+        )
     gold_count = trino_scalar(
         cfg,
         "SELECT count(*) FROM iceberg.information_schema.tables "
         f"WHERE table_schema = '{product.gold_namespace}'",
     )
-    assert_scalar_equals(silver_count, str(len(product.silver_tables)), f"{product.id} Silver table count")
     assert_scalar_equals(gold_count, str(len(product.gold_tables)), f"{product.id} Gold mart count")
     for mart in product.gold_mart_names:
         count = trino_scalar(cfg, f"SELECT count(*) FROM iceberg.{mart}")

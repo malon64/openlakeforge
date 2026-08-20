@@ -125,7 +125,7 @@ def resolve_metadata_descriptor_paths(
         if not path.exists():
             raise OpenMetadataError(f"OpenMetadata metadata source does not exist: {path}")
         if path.is_file():
-            return [path], path, False
+            return _lakehouse_descriptor_paths(path), path, False
         lakehouse_path = path / "lakehouse.yaml"
         if lakehouse_path.is_file():
             return _lakehouse_descriptor_paths(lakehouse_path), path, False

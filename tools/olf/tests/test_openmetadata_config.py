@@ -177,6 +177,35 @@ def test_config_from_environment_accepts_a_standalone_lakehouse_directory_overri
     assert deployer.domain_files() == [lakehouse_path, metadata_dir / "bronze" / "crm" / "source.yaml"]
 
 
+def test_config_from_environment_accepts_a_standalone_lakehouse_file_override(tmp_path: Path) -> None:
+    """A metadata_source_dir naming lakehouse.yaml directly must still resolve its sibling sources.
+
+    Mirrors a mounted single-file override like /metadata/lakehouse.yaml. The
+    schema-FQN defaults need the bronze/*/source.yaml descriptors next to it,
+    not just the lakehouse.yaml itself.
+    """
+    metadata_dir = tmp_path / "metadata"
+    metadata_dir.mkdir()
+    lakehouse_path = _write_lakehouse(metadata_dir, name="sales")
+
+    cfg = OpenMetadataConfig.from_environment(
+        {},
+        base_url="http://x",
+        admin_email="a",
+        admin_password="p",
+        metadata_root=str(tmp_path / "does-not-exist"),
+        metadata_source_dir=str(lakehouse_path),
+        allow_missing_assets=False,
+        catalog_service="polaris",
+        catalog_database="lakehouse_dev",
+        cleanup_legacy_default_database=False,
+    )
+
+    assert cfg.catalog_silver_schema_fqns == {"widgets": "polaris.lakehouse_dev.sales_silver"}
+    deployer = om.OpenMetadataDeployer(cfg, om.OpenMetadataClient(cfg.base_url))
+    assert deployer.domain_files() == [lakehouse_path, metadata_dir / "bronze" / "crm" / "source.yaml"]
+
+
 def test_config_from_environment_preserves_explicit_empty_schema_contract() -> None:
     cfg = OpenMetadataConfig.from_environment(
         {
