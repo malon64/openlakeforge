@@ -38,7 +38,7 @@ def deploy_openmetadata_metadata() -> None:
             base_url=f"http://127.0.0.1:{local_port}",
             admin_email=config.env("OPENMETADATA_ADMIN_EMAIL", "admin@open-metadata.org"),
             admin_password=config.env("OPENMETADATA_ADMIN_PASSWORD", "admin"),
-            metadata_root=config.env("OPENMETADATA_METADATA_ROOT", "domains"),
+            metadata_root=config.env("OPENMETADATA_METADATA_ROOT", "lakehouse_code"),
             metadata_source_dir=os.environ.get("OPENMETADATA_METADATA_SOURCE_DIR", ""),
             allow_missing_assets=config.truthy(config.env("OPENMETADATA_ALLOW_MISSING_ASSETS", "false")),
             catalog_service=config.env("OPENMETADATA_CATALOG_SERVICE") or config.env("OPENLAKEFORGE_CATALOG_PROVIDER"),

@@ -65,13 +65,13 @@ variable "code_locations" {
   default = [
     {
       name               = "openlakeforge-dagster"
-      definitions_module = "domains.definitions"
+      definitions_module = "lakehouse_code.definitions"
     },
   ]
 }
 
 variable "floe_manifest_base_uri" {
-  description = "S3 base URI containing generated product Floe manifests loaded by Dagster."
+  description = "S3 base URI containing generated domain Floe manifests loaded by Dagster."
   type        = string
 }
 
@@ -87,7 +87,7 @@ variable "floe_manifest_access_mode" {
 }
 
 variable "floe_manifest_revision" {
-  description = "Content revision of generated product Floe manifests used to force Dagster code-server rollouts."
+  description = "Content revision of generated domain Floe manifests used to force Dagster code-server rollouts."
   type        = string
   default     = "manual"
 }

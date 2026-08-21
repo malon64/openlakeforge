@@ -24,13 +24,14 @@ Trino
 
 with the complete pipeline orchestrated by Dagster.
 
-The example creates a new `marketing` domain containing one data product:
+The example adds a new `marketing` domain and a new `marketing_platform` Bronze source,
+containing one data product:
 
 ```text
 campaign_performance
 ```
 
-with one source entity:
+with one source resource:
 
 ```text
 campaigns.csv
@@ -44,9 +45,11 @@ mart_campaign_performance
 
 > **Alpha note**
 >
-> Product onboarding is currently source-driven: you create a small set of files under `domains/`.
+> Product onboarding is currently source-driven: you create a small set of files under
+> `lakehouse_code/`.
 >
-> A product scaffold is planned to automate this workflow. Until then, this tutorial documents the current golden path explicitly.
+> A product scaffold is planned to automate this workflow. Until then, this tutorial
+> documents the current golden path explicitly.
 
 ---
 
@@ -68,43 +71,45 @@ Slim is recommended for this tutorial because it contains the entire data-engine
 
 # How OpenLakeForge organizes data products
 
-Business and data-product code lives under:
+User code lives under:
 
 ```text
-domains/
+lakehouse_code/
 ```
 
-A domain groups one or more related data products.
-
-For example:
+Ownership follows the medallion layer, not one vertical per domain (see
+[ADR 0026](../adr/0026-medallion-ownership-and-catalog-namespace-contract.md)):
 
 ```text
-domains/
-├── sales/
-│   ├── order_revenue
-│   └── customer_health
-│
-└── supply_chain/
-    └── inventory_reliability
+Bronze = source-aligned    lakehouse_code/bronze/<source>/
+Silver = domain-aligned    lakehouse_code/silver/<domain>/
+Gold   = product-aligned   lakehouse_code/gold/<product>/
+Dashboards = consumption-aligned  lakehouse_code/dashboards/superset/<dashboard>/
+Pipelines  = user-maintained orchestration  lakehouse_code/pipelines/dagster/
 ```
 
-The implementation is organized by **capability**, while each product keeps the same identity across those capabilities:
+For example, the seed data already shows two products sharing one domain's Silver
+namespace:
 
 ```text
-domains/<domain>/
-├── domain.yaml
-│
-├── examples/raw/<product>/
-├── extract/dlt/<product>.py
-├── contracts/floe/<product>.yml
-├── transformations/dbt/<product>/
-├── pipelines/dagster/<product>.py
-└── reports/superset/<product>/       # optional analytics layer
+lakehouse_code/
+├── bronze/
+│   ├── crm/            ← source: shared by both Sales products
+│   └── erp/
+├── silver/
+│   ├── sales/           ← domain: order_revenue AND customer_health both validate into here
+│   └── supply_chain/
+├── gold/
+│   ├── order_revenue/
+│   ├── customer_health/
+│   └── inventory_reliability/
+└── lakehouse.yaml
 ```
 
 For this tutorial:
 
 ```text
+source  = marketing_platform
 domain  = marketing
 product = campaign_performance
 ```
@@ -113,162 +118,148 @@ OpenLakeForge derives platform identities from those logical names:
 
 ```text
 Dagster job
-marketing_campaign_performance_pipeline
+campaign_performance_pipeline
+
+Bronze namespace
+marketing_platform_bronze
 
 Silver namespace
-marketing_campaign_performance_silver
+marketing_silver
 
 Gold namespace
-marketing_campaign_performance_gold
+campaign_performance_gold
 ```
 
-You do **not** create those namespaces manually and you do **not** modify Terraform to register a product.
+Silver is domain-owned: if you later add a second `marketing` product, it shares
+`marketing_silver` rather than getting its own namespace. You do **not** create those
+namespaces manually and you do **not** modify Terraform to register a product.
 
 ---
 
-# 1. Create the domain structure
+# 1. Create the source, domain, and product directories
 
 From the repository root:
 
 ```bash
-mkdir -p domains/marketing/examples/raw/campaign_performance
-mkdir -p domains/marketing/extract/dlt
-mkdir -p domains/marketing/contracts/floe
-mkdir -p domains/marketing/transformations/dbt/campaign_performance/models/gold
-mkdir -p domains/marketing/pipelines/dagster
+mkdir -p lakehouse_code/bronze/marketing_platform/dlt
+mkdir -p lakehouse_code/silver/marketing/contracts/floe
+mkdir -p lakehouse_code/gold/campaign_performance/dbt/models/gold
 
-touch domains/marketing/__init__.py
-touch domains/marketing/extract/__init__.py
-touch domains/marketing/extract/dlt/__init__.py
-touch domains/marketing/pipelines/__init__.py
-touch domains/marketing/pipelines/dagster/__init__.py
+touch lakehouse_code/bronze/marketing_platform/dlt/__init__.py
+touch lakehouse_code/silver/marketing/__init__.py
+touch lakehouse_code/gold/campaign_performance/__init__.py
 ```
 
-Your domain should now look like:
+Your new code should now look like:
 
 ```text
-domains/marketing/
-├── __init__.py
-├── domain.yaml
+lakehouse_code/
+├── bronze/
+│   └── marketing_platform/
+│       ├── source.yaml
+│       ├── examples/
+│       │   └── campaigns.csv
+│       └── dlt/
+│           ├── __init__.py
+│           └── marketing_platform.py
 │
-├── examples/
-│   └── raw/
-│       └── campaign_performance/
+├── silver/
+│   └── marketing/
+│       ├── __init__.py
+│       └── contracts/
+│           └── floe/
+│               └── marketing.yml
 │
-├── extract/
-│   ├── __init__.py
-│   └── dlt/
-│       └── __init__.py
-│
-├── contracts/
-│   └── floe/
-│
-├── transformations/
-│   └── dbt/
-│       └── campaign_performance/
-│           └── models/
-│               └── gold/
-│
-└── pipelines/
-    ├── __init__.py
-    └── dagster/
-        └── __init__.py
+└── gold/
+    └── campaign_performance/
+        ├── __init__.py
+        └── dbt/
+            └── models/
+                └── gold/
 ```
 
 ---
 
-# 2. Declare the domain and product
+# 2. Declare the Bronze source
 
 Create:
 
 ```text
-domains/marketing/domain.yaml
+lakehouse_code/bronze/marketing_platform/source.yaml
 ```
 
 with:
 
 ```yaml
-apiVersion: openlakeforge.io/v1alpha2
-kind: Domain
-
-name: marketing
-displayName: Marketing
-description: Marketing analytics data products.
+apiVersion: openlakeforge.io/v1alpha3
+kind: Source
+name: marketing_platform
+displayName: Marketing Platform
+description: Marketing campaign performance source system.
 status: active
-
-data_products:
-  - id: campaign_performance
-    name: marketing_campaign_performance
-    displayName: Campaign Performance
-    description: Campaign spend and conversion performance by channel.
-    status: active
-
-    asset_prefix: marketing_campaign_performance
-
-    bronze:
-      - name: campaigns
-        path: s3://lakehouse-bronze/marketing/campaign_performance/campaigns
-        description: Raw marketing campaign performance data.
-
-    silver_tables:
-      tables:
-        - name: campaigns
-          description: Validated marketing campaigns.
-
-    gold_tables:
-      tables:
-        - name: mart_campaign_performance
-          description: Aggregated campaign performance by channel.
+resources:
+  - name: campaigns
+    description: Raw CSV marketing campaign performance data.
 ```
 
-`domain.yaml` is the **logical source of truth** for the domain inventory.
-
-It tells OpenLakeForge:
-
-* which domains exist
-* which products exist
-* which Bronze entities belong to the product
-* which Silver tables should exist
-* which Gold tables should exist
-* how the product is identified across the platform
-
-The descriptor must remain provider-neutral.
-
-You should not put Polaris, Glue, SeaweedFS, S3 endpoints, Kubernetes names, or other environment-specific infrastructure into it.
-
-Those values are resolved by OpenLakeForge provider contracts.
+`source.yaml` is the **logical source of truth** for one Bronze source: it declares
+which resources the source exposes, without naming Polaris, Glue, S3, or any other
+provider-specific infrastructure. Its `name` must match the directory it lives in
+(`marketing_platform`).
 
 ---
 
-# 3. Register the domain with Dagster
+# 3. Declare the domain and product in `lakehouse.yaml`
 
-Create:
-
-```text
-domains/marketing/definitions.py
-```
-
-with:
-
-```python
-from __future__ import annotations
-
-from libs.domain_definitions import definitions_for_domain
-
-defs = definitions_for_domain("marketing", __file__)
-```
-
-That is all the domain-level Dagster configuration required.
-
-The root `domains.definitions` module discovers domain Python packages automatically, and this adapter loads the products declared by the domain inventory.
-
-You do **not** need to edit:
+Edit the repository-wide:
 
 ```text
-domains/definitions.py
+lakehouse_code/lakehouse.yaml
 ```
 
-when adding the domain.
+Add `marketing_platform` to `sources`, and a new `marketing` domain with the
+`campaign_performance` product:
+
+```yaml
+sources:
+  - crm
+  - erp
+  - marketing_platform
+
+domains:
+  # ...existing sales, supply_chain domains...
+  - name: marketing
+    displayName: Marketing
+    description: Marketing analytics data products.
+    status: active
+    silver_tables:
+      tables:
+        - name: campaigns
+          source: marketing_platform
+          resource: campaigns
+          description: Validated marketing campaigns.
+    products:
+      - id: campaign_performance
+        displayName: Campaign Performance
+        description: Campaign spend and conversion performance by channel.
+        status: active
+        silver_inputs: [campaigns]
+        gold_tables:
+          tables:
+            - name: mart_campaign_performance
+              description: Aggregated campaign performance by channel.
+```
+
+`lakehouse.yaml` tells OpenLakeForge:
+
+* which sources, domains, and products exist
+* which Source resources map to domain Silver tables
+* which Silver tables each product consumes
+* which Gold tables the product should produce
+
+The descriptor must remain provider-neutral: no Polaris, Glue, SeaweedFS, S3 endpoints,
+Kubernetes names, or other environment-specific infrastructure. Those values are
+resolved by OpenLakeForge provider contracts.
 
 ---
 
@@ -277,7 +268,7 @@ when adding the domain.
 Create:
 
 ```text
-domains/marketing/examples/raw/campaign_performance/campaigns.csv
+lakehouse_code/bronze/marketing_platform/examples/campaigns.csv
 ```
 
 with:
@@ -291,9 +282,9 @@ cmp_004,2026-08-02,email,30.00,12
 cmp_005,2026-08-03,social,95.50,11
 ```
 
-The repository's current golden-path ingestion helper uses local CSV examples.
-
-The same OpenLakeForge product model can support other dlt sources, but this tutorial deliberately uses the simplest existing ingestion path.
+The repository's current golden-path ingestion helper uses local CSV examples. The same
+OpenLakeForge product model can support other dlt sources, but this tutorial
+deliberately uses the simplest existing ingestion path.
 
 ---
 
@@ -302,7 +293,7 @@ The same OpenLakeForge product model can support other dlt sources, but this tut
 Create:
 
 ```text
-domains/marketing/extract/dlt/campaign_performance.py
+lakehouse_code/bronze/marketing_platform/dlt/marketing_platform.py
 ```
 
 with:
@@ -314,39 +305,35 @@ from pathlib import Path
 
 from libs.bronze_csv import BronzeLoadResult, load_entities_to_bronze
 
+MARKETING_PLATFORM_ENTITIES = ("campaigns",)
 
-CAMPAIGN_PERFORMANCE_ENTITIES = ("campaigns",)
-
-_DOMAIN_DIR = Path(__file__).resolve().parents[2]
-_RAW_DIR = _DOMAIN_DIR / "examples" / "raw" / "campaign_performance"
-_BRONZE_PREFIX = "marketing/campaign_performance"
+_SOURCE_DIR = Path(__file__).resolve().parents[1]
+_RAW_DIR = _SOURCE_DIR / "examples"
+_BRONZE_PREFIX = "marketing_platform"
 
 
-def load_all_entities_to_bronze(
+def load_marketing_platform_entities_to_bronze(
+    entities: tuple[str, ...],
     raw_dir: Path | None = None,
 ) -> dict[str, BronzeLoadResult]:
+    """Load a subset of Marketing Platform resources into Bronze under the ``marketing_platform`` prefix."""
     return load_entities_to_bronze(
-        entities=CAMPAIGN_PERFORMANCE_ENTITIES,
+        entities=entities,
         raw_dir=raw_dir or _RAW_DIR,
         bronze_prefix=_BRONZE_PREFIX,
     )
+
+
+def load_all_entities_to_bronze(raw_dir: Path | None = None) -> dict[str, BronzeLoadResult]:
+    """Load every resource declared in ``bronze/marketing_platform/source.yaml``."""
+    return load_marketing_platform_entities_to_bronze(MARKETING_PLATFORM_ENTITIES, raw_dir=raw_dir)
 ```
 
-The loader:
-
-1. reads `campaigns.csv` through dlt
-2. writes it to the configured Bronze object store
-3. returns metadata about the loaded entity to Dagster
-
-The physical object store depends on the environment.
-
-The logical Bronze path remains:
-
-```text
-marketing/campaign_performance/campaigns
-```
-
-whether the backend is local S3-compatible storage or a cloud provider.
+The loader reads `campaigns.csv` through dlt, writes it to the configured Bronze object
+store under the source's own prefix, and returns metadata about the loaded entity to
+Dagster. Because loading is keyed by *source*, a second product that also needs
+`marketing_platform.campaigns` calls the same function instead of duplicating the
+ingestion definition.
 
 ---
 
@@ -355,7 +342,7 @@ whether the backend is local S3-compatible storage or a cloud provider.
 Create:
 
 ```text
-domains/marketing/contracts/floe/campaign_performance.yml
+lakehouse_code/silver/marketing/contracts/floe/marketing.yml
 ```
 
 with:
@@ -366,118 +353,74 @@ version: "0.2"
 metadata:
   project: "openlakeforge"
   owner: "marketing"
-  description: "Campaign Performance Bronze to Silver contract."
-  tags: ["marketing", "campaign_performance", "silver"]
+  description: "Marketing Bronze to Silver Floe contracts."
+  tags: ["marketing", "silver"]
 
 storages:
   default: "lakehouse_bronze"
-
   definitions:
     - name: "lakehouse_bronze"
       type: "s3"
       bucket: "{{OPENLAKEFORGE_STORAGE_BRONZE_BUCKET}}"
       region: "{{OPENLAKEFORGE_STORAGE_REGION}}"
-
     - name: "lakehouse_silver"
       type: "s3"
       bucket: "{{OPENLAKEFORGE_STORAGE_SILVER_BUCKET}}"
       region: "{{OPENLAKEFORGE_STORAGE_REGION}}"
-
     - name: "openlakeforge_ops"
       type: "s3"
       bucket: "{{OPENLAKEFORGE_OPS_BUCKET_NAME}}"
       region: "{{OPENLAKEFORGE_STORAGE_REGION}}"
 
 report:
-  path: "floe/reports/marketing/campaign_performance"
+  path: "floe/reports/marketing"
   storage: "openlakeforge_ops"
 
 entities:
   - name: "campaigns"
-
     incremental_mode: "none"
-
     source:
       format: "csv"
-      path: "marketing/campaign_performance/campaigns"
+      path: "marketing_platform/campaigns"
       storage: "lakehouse_bronze"
-
-      options:
-        header: true
-        separator: ","
-        encoding: "utf-8"
-        glob: "*.csv"
-
+      options: { header: true, separator: ",", encoding: "utf-8", glob: "*.csv" }
       cast_mode: "strict"
-
     sink:
       write_mode: "overwrite"
-
       accepted:
         format: "iceberg"
-        path: "marketing/campaign_performance/campaigns"
+        path: "marketing/campaigns"
         storage: "lakehouse_silver"
-
-        iceberg:
-          catalog: "iceberg_catalog"
-          namespace: "marketing_campaign_performance_silver"
-          table: "campaigns"
-
-      rejected:
-        format: "csv"
-        path: "floe/rejected/marketing/campaign_performance/campaigns"
-        storage: "lakehouse_silver"
-
-    policy:
-      severity: "reject"
-
+        iceberg: { catalog: "iceberg_catalog", namespace: "marketing_silver", table: "campaigns" }
+      rejected: { format: "csv", path: "floe/rejected/marketing/campaigns", storage: "lakehouse_silver" }
+    policy: { severity: "reject" }
     schema:
-      normalize_columns:
-        enabled: true
-        strategy: "snake_case"
-
-      primary_key:
-        - "campaign_id"
-
+      normalize_columns: { enabled: true, strategy: "snake_case" }
+      primary_key: ["campaign_id"]
       columns:
-        - name: "campaign_id"
-          type: "string"
-          nullable: false
-
-        - name: "campaign_date"
-          type: "date"
-          nullable: false
-
-        - name: "channel"
-          type: "string"
-          nullable: false
-
-        - name: "spend"
-          type: "number"
-          nullable: false
-
-        - name: "conversions"
-          type: "integer"
-          nullable: false
+        - { name: "campaign_id", type: "string", nullable: false }
+        - { name: "campaign_date", type: "date", nullable: false }
+        - { name: "channel", type: "string", nullable: false }
+        - { name: "spend", type: "number", nullable: false }
+        - { name: "conversions", type: "integer", nullable: false }
 ```
 
-Floe now owns the technical transition from:
+Floe now owns the technical transition from Bronze to Silver Iceberg. Rows satisfying
+the contract are written to:
 
 ```text
-Bronze
-   ↓
-validation
-   ↓
-Silver Iceberg
+marketing_silver.campaigns
 ```
 
-Rows satisfying the contract are written to:
+Notice the namespace is `marketing_silver` — the **domain**, not the
+product. A domain has exactly one Floe configuration and one generated
+manifest. When a second `marketing` product needs another Silver table, add
+that entity to this existing `marketing.yml`; do not create a product-specific
+Floe configuration. Both products then consume tables from the same
+`marketing_silver` namespace.
 
-```text
-marketing_campaign_performance_silver.campaigns
-```
-
-Rejected rows are written to the product's rejection path instead of silently entering Silver.
+Rejected rows are written to the domain's rejection path instead of silently
+entering Silver.
 
 ---
 
@@ -486,47 +429,38 @@ Rejected rows are written to the product's rejection path instead of silently en
 Create:
 
 ```text
-domains/marketing/transformations/dbt/campaign_performance/dbt_project.yml
+lakehouse_code/gold/campaign_performance/dbt/dbt_project.yml
 ```
 
 with:
 
 ```yaml
-name: marketing_campaign_performance
+name: campaign_performance
 version: "1.0.0"
 config-version: 2
 
-profile: marketing_campaign_performance
+profile: campaign_performance
 
 model-paths: ["models"]
 macro-paths: []
-
 target-path: "target"
-
-clean-targets:
-  - "target"
-  - "dbt_packages"
+clean-targets: ["target", "dbt_packages"]
 
 models:
-  marketing_campaign_performance:
+  campaign_performance:
     +database: "{{ env_var('OPENLAKEFORGE_CATALOG_NAME', 'lakehouse_dev') }}"
     +materialized: table
     +on_table_exists: replace
-
     +meta:
       dagster:
-        group: marketing_campaign_performance
-
+        group: campaign_performance
     gold:
-      +tags:
-        - marketing
-        - campaign_performance
-        - gold
+      +tags: ["marketing", "campaign_performance", "gold"]
 ```
 
-OpenLakeForge renders the environment-specific dbt `profiles.yml` automatically.
-
-You should therefore **not hardcode Trino hosts or cloud-specific catalog settings into the dbt project**.
+OpenLakeForge renders the environment-specific dbt `profiles.yml` automatically. You
+should therefore **not hardcode Trino hosts or cloud-specific catalog settings into the
+dbt project**.
 
 ---
 
@@ -535,14 +469,14 @@ You should therefore **not hardcode Trino hosts or cloud-specific catalog settin
 Create:
 
 ```text
-domains/marketing/transformations/dbt/campaign_performance/packages.yml
+lakehouse_code/gold/campaign_performance/dbt/packages.yml
 ```
 
 with:
 
 ```yaml
 packages:
-  - local: ../../../../../libs/dbt/openlakeforge_dbt
+  - local: ../../../../libs/dbt/openlakeforge_dbt
 ```
 
 ---
@@ -552,7 +486,7 @@ packages:
 Create:
 
 ```text
-domains/marketing/transformations/dbt/campaign_performance/models/sources.yml
+lakehouse_code/gold/campaign_performance/dbt/models/sources.yml
 ```
 
 with:
@@ -562,26 +496,25 @@ version: 2
 
 sources:
   - name: silver
-
     database: "{{ env_var('OPENLAKEFORGE_CATALOG_NAME', 'lakehouse_dev') }}"
-    schema: marketing_campaign_performance_silver
-
+    schema: marketing_silver
     description: Floe-owned Campaign Performance Silver Iceberg tables.
-
     tables:
       - name: campaigns
         description: Validated marketing campaign data.
 ```
 
 dbt will consume the table created by Floe rather than owning a second staging layer.
-
 The ownership boundary is:
 
 ```text
-Bronze  → ingestion
-Silver  → Floe
-Gold    → dbt
+Bronze  → source-owned, dlt
+Silver  → domain-owned, Floe
+Gold    → product-owned, dbt
 ```
+
+Notice `schema: marketing_silver` matches the domain namespace from step 6, not a
+product-scoped name.
 
 ---
 
@@ -590,23 +523,20 @@ Gold    → dbt
 Create:
 
 ```text
-domains/marketing/transformations/dbt/campaign_performance/models/gold/mart_campaign_performance.sql
+lakehouse_code/gold/campaign_performance/dbt/models/gold/mart_campaign_performance.sql
 ```
 
 with:
 
 ```sql
 with campaigns as (
-
     select
         campaign_id,
         cast(campaign_date as date) as campaign_date,
         channel,
         cast(spend as double) as spend,
         cast(conversions as bigint) as conversions
-
     from {{ source('silver', 'campaigns') }}
-
 )
 
 select
@@ -614,17 +544,17 @@ select
     cast(count(*) as bigint) as campaign_count,
     cast(sum(spend) as double) as total_spend,
     cast(sum(conversions) as bigint) as total_conversions
-
 from campaigns
-
 group by channel
 ```
 
 This model will be materialized as an Iceberg table in:
 
 ```text
-marketing_campaign_performance_gold.mart_campaign_performance
+campaign_performance_gold.mart_campaign_performance
 ```
+
+The Gold namespace is product-owned — no domain prefix.
 
 ---
 
@@ -633,7 +563,7 @@ marketing_campaign_performance_gold.mart_campaign_performance
 Create:
 
 ```text
-domains/marketing/transformations/dbt/campaign_performance/models/gold/schema.yml
+lakehouse_code/gold/campaign_performance/dbt/models/gold/schema.yml
 ```
 
 with:
@@ -653,7 +583,7 @@ models:
 Create:
 
 ```text
-domains/marketing/pipelines/dagster/campaign_performance.py
+lakehouse_code/pipelines/dagster/campaign_performance.py
 ```
 
 with:
@@ -661,32 +591,19 @@ with:
 ```python
 from __future__ import annotations
 
-from pathlib import Path
-
 from libs.product_dagster import ProductDefinitionSpec, build_product_definitions
 
-from domains.marketing.extract.dlt.campaign_performance import (
-    CAMPAIGN_PERFORMANCE_ENTITIES,
-    load_all_entities_to_bronze,
-)
-
-
-_DOMAIN_DIR = Path(__file__).resolve().parents[2]
-
-CAMPAIGN_PERFORMANCE_GOLD_ASSETS = (
-    "mart_campaign_performance",
-)
+CAMPAIGN_PERFORMANCE_SILVER_INPUTS = ("campaigns",)
+CAMPAIGN_PERFORMANCE_GOLD_ASSETS = ("mart_campaign_performance",)
 
 
 defs = build_product_definitions(
     ProductDefinitionSpec(
         domain="marketing",
         product="campaign_performance",
-        asset_prefix="marketing_campaign_performance",
-        entities=CAMPAIGN_PERFORMANCE_ENTITIES,
+        silver_inputs=CAMPAIGN_PERFORMANCE_SILVER_INPUTS,
+        bronze_inputs=(("marketing_platform", "campaigns"),),
         gold_assets=CAMPAIGN_PERFORMANCE_GOLD_ASSETS,
-        domain_dir=_DOMAIN_DIR,
-        bronze_loader=load_all_entities_to_bronze,
     )
 )
 ```
@@ -694,49 +611,41 @@ defs = build_product_definitions(
 This produces the Dagster job:
 
 ```text
-marketing_campaign_performance_pipeline
+campaign_performance_pipeline
 ```
 
-and connects the three stages of the product:
-
-```text
-Bronze assets
-     ↓
-Floe Silver assets
-     ↓
-dbt Gold assets
-```
+and connects the three stages of the product: Bronze assets → Floe Silver assets → dbt
+Gold assets. `lakehouse_code/definitions.py` (already in the repository) discovers this
+module automatically by scanning `lakehouse_code/pipelines/dagster/` — you do **not**
+need to register it anywhere.
 
 ---
 
 # 11. Review the completed product
 
-Your new domain should now contain approximately:
+Your new code should now contain approximately:
 
 ```text
-domains/marketing/
-├── __init__.py
-├── definitions.py
-├── domain.yaml
-│
-├── examples/
-│   └── raw/
-│       └── campaign_performance/
-│           └── campaigns.csv
-│
-├── extract/
-│   ├── __init__.py
-│   └── dlt/
+lakehouse_code/
+├── lakehouse.yaml                                     (edited)
+├── bronze/
+│   └── marketing_platform/
+│       ├── source.yaml
+│       ├── examples/
+│       │   └── campaigns.csv
+│       └── dlt/
+│           ├── __init__.py
+│           └── marketing_platform.py
+├── silver/
+│   └── marketing/
 │       ├── __init__.py
-│       └── campaign_performance.py
-│
-├── contracts/
-│   └── floe/
-│       └── campaign_performance.yml
-│
-├── transformations/
-│   └── dbt/
-│       └── campaign_performance/
+│       └── contracts/
+│           └── floe/
+│               └── marketing.yml
+├── gold/
+│   └── campaign_performance/
+│       ├── __init__.py
+│       └── dbt/
 │           ├── dbt_project.yml
 │           ├── packages.yml
 │           └── models/
@@ -744,11 +653,8 @@ domains/marketing/
 │               └── gold/
 │                   ├── mart_campaign_performance.sql
 │                   └── schema.yml
-│
 └── pipelines/
-    ├── __init__.py
     └── dagster/
-        ├── __init__.py
         └── campaign_performance.py
 ```
 
@@ -757,13 +663,13 @@ You did **not** modify:
 ```text
 Terraform
 Helm
-domains/definitions.py
+lakehouse_code/definitions.py
 Dagster deployment configuration
 catalog configuration
 cloud configuration
 ```
 
-Those platform concerns are derived from the domain inventory and provider contracts.
+Those platform concerns are derived from the lakehouse inventory and provider contracts.
 
 ---
 
@@ -775,33 +681,21 @@ Run:
 make check-contracts
 ```
 
-Among other platform contract checks, this validates every:
+Among other platform contract checks, this validates `lakehouse_code/lakehouse.yaml` and
+every `lakehouse_code/bronze/*/source.yaml` against the canonical OpenLakeForge model and
+JSON Schema.
 
-```text
-domains/*/domain.yaml
-```
+If a descriptor contains an invalid identifier, missing field, duplicate product
+identity, unresolved source reference, or invalid API version, validation fails before
+deployment.
 
-against the canonical OpenLakeForge domain model and JSON Schema.
-
-If the descriptor contains an invalid identifier, missing field, duplicate product identity, or invalid API version, validation fails before deployment.
-
-For example, identifiers such as `id` and `asset_prefix` use:
+For example, identifiers such as source `name` and product `id` use:
 
 ```text
 ^[a-z][a-z0-9_]*$
 ```
 
-so prefer:
-
-```text
-campaign_performance
-```
-
-rather than:
-
-```text
-campaign-performance
-```
+so prefer `campaign_performance` rather than `campaign-performance`.
 
 ---
 
@@ -813,25 +707,27 @@ Run:
 make check-dbt
 ```
 
-This discovers every product dbt project and validates that it compiles against the OpenLakeForge contracts.
+This discovers every product dbt project under `lakehouse_code/gold/*/dbt` and validates
+that it compiles against the OpenLakeForge contracts.
 
 For this product, OpenLakeForge expects:
 
 ```text
 Silver:
-lakehouse_dev.marketing_campaign_performance_silver.*
+lakehouse_dev.marketing_silver.*
 
 Gold:
-lakehouse_dev.marketing_campaign_performance_gold.*
+lakehouse_dev.campaign_performance_gold.*
 ```
 
-The exact catalog implementation can differ between environments while those logical relations remain stable.
+The exact catalog implementation can differ between environments while those logical
+relations remain stable.
 
 ---
 
 # 14. Generate and validate the Floe manifest
 
-Floe manifests are generated from the product contract.
+Floe manifests are generated from each domain contract.
 
 Run:
 
@@ -842,26 +738,24 @@ make floe-manifest
 OpenLakeForge discovers:
 
 ```text
-domains/*/contracts/floe/*.yml
+lakehouse_code/silver/*/contracts/floe/*.yml
 ```
 
-automatically.
-
-For this product it generates:
+automatically. For this product it generates:
 
 ```text
-domains/marketing/contracts/floe/manifests/campaign_performance.manifest.json
+lakehouse_code/silver/marketing/contracts/floe/manifests/marketing.manifest.json
 ```
 
-Do not hand-author the generated manifest.
-
-The artifact deployment workflow also generates the immutable runtime version used by Dagster and the Floe runner.
+Do not hand-author the generated manifest. The artifact deployment workflow also
+generates the immutable runtime version used by Dagster and the Floe runner.
 
 ---
 
 # 15. Deploy the new product
 
-Because the platform is already running, you do **not** need to recreate Kubernetes or reinstall the platform.
+Because the platform is already running, you do **not** need to recreate Kubernetes or
+reinstall the platform.
 
 For Slim:
 
@@ -872,9 +766,9 @@ make local-slim-artifacts-deploy
 This performs the product-aware deployment phase:
 
 ```text
-domain.yaml
+lakehouse.yaml
      ↓
-domain inventory
+lakehouse inventory
      ↓
 reconcile catalog namespaces
      ↓
@@ -892,8 +786,9 @@ restart Dagster code
 The new namespaces are created automatically:
 
 ```text
-marketing_campaign_performance_silver
-marketing_campaign_performance_gold
+marketing_platform_bronze
+marketing_silver
+campaign_performance_gold
 ```
 
 No Terraform product registration is required.
@@ -917,29 +812,27 @@ http://localhost:3000
 In Dagster, look for:
 
 ```text
-marketing_campaign_performance_pipeline
+campaign_performance_pipeline
 ```
 
-Launch the job.
-
-Dagster should execute:
+Launch the job. Dagster should execute:
 
 ```text
 campaigns.csv
      ↓
-marketing_campaign_performance/campaigns_source
+marketing_platform.campaigns_source
      ↓
 dlt → Bronze
      ↓
 Floe → campaigns
      ↓
-Silver Iceberg
+Silver Iceberg (marketing_silver.campaigns)
      ↓
 dbt-trino
      ↓
 mart_campaign_performance
      ↓
-Gold Iceberg
+Gold Iceberg (campaign_performance_gold.mart_campaign_performance)
 ```
 
 You can inspect every step from the Dagster asset graph.
@@ -958,25 +851,26 @@ kubectl --context kind-openlakeforge-local \
 exec -n lakehouse deploy/trino-coordinator -- \
 trino --execute "
 SELECT *
-FROM iceberg.marketing_campaign_performance_gold.mart_campaign_performance
+FROM iceberg.campaign_performance_gold.mart_campaign_performance
 ORDER BY channel
 "
 ```
 
-You should see one row per marketing channel with its campaign count, spend, and conversions.
+You should see one row per marketing channel with its campaign count, spend, and
+conversions.
 
 You can also inspect the tables:
 
 ```sql
 SHOW TABLES
-FROM iceberg.marketing_campaign_performance_silver;
+FROM iceberg.marketing_silver;
 ```
 
 and:
 
 ```sql
 SHOW TABLES
-FROM iceberg.marketing_campaign_performance_gold;
+FROM iceberg.campaign_performance_gold;
 ```
 
 ---
@@ -989,11 +883,8 @@ Finally:
 make local-slim-e2e
 ```
 
-The E2E suite discovers products from the domain inventory.
-
-Your new product therefore becomes part of the validation automatically.
-
-The suite will:
+The E2E suite discovers products from the lakehouse inventory. Your new product
+therefore becomes part of the validation automatically. The suite will:
 
 1. verify the descriptor-derived catalog namespaces
 2. discover the Dagster job
@@ -1012,36 +903,42 @@ There is no seed-product allowlist to update.
 From:
 
 ```yaml
-name: marketing
+sources:
+  - marketing_platform
 
-data_products:
-  - id: campaign_performance
-    asset_prefix: marketing_campaign_performance
+domains:
+  - name: marketing
+    silver_tables:
+      tables:
+        - {name: campaigns, source: marketing_platform, resource: campaigns}
+    products:
+      - id: campaign_performance
+        silver_inputs: [campaigns]
 ```
 
 OpenLakeForge can derive:
 
-| Resource              | Derived identity                                                    |
-| --------------------- | ------------------------------------------------------------------- |
-| Dagster module        | `domains.marketing.pipelines.dagster.campaign_performance`          |
-| Dagster job           | `marketing_campaign_performance_pipeline`                           |
-| Silver namespace      | `marketing_campaign_performance_silver`                             |
-| Gold namespace        | `marketing_campaign_performance_gold`                               |
-| Floe manifest         | `marketing/campaign_performance/campaign_performance.manifest.json` |
-| Floe reports          | `marketing/campaign_performance/`                                   |
-| dbt runtime artifacts | `marketing/campaign_performance/`                                   |
+| Resource         | Derived identity                                                          |
+| ----------------- | -------------------------------------------------------------------------- |
+| Dagster module    | `lakehouse_code.pipelines.dagster.campaign_performance`                    |
+| Dagster job        | `campaign_performance_pipeline`                                            |
+| Bronze namespace  | `marketing_platform_bronze`                                                |
+| Silver namespace  | `marketing_silver` (domain-owned — shared by every `marketing` product)    |
+| Gold namespace    | `campaign_performance_gold` (product-owned)                                |
+| Floe manifest      | `marketing/marketing.manifest.json`                                        |
+| Floe reports        | `marketing/`                                                               |
+| dbt runtime artifacts | `marketing/campaign_performance/`                                       |
 
-Provider contracts then resolve those logical identities into the physical storage and catalog implementation of the active environment.
-
-That is why the same data product can move between local Kubernetes, AWS, and Azure without embedding provider-specific infrastructure into its business definition.
+Provider contracts then resolve those logical identities into the physical storage and
+catalog implementation of the active environment. That is why the same data product can
+move between local Kubernetes, AWS, and Azure without embedding provider-specific
+infrastructure into its business definition.
 
 ---
 
 # Adding more source entities
 
-A product can contain more than one Bronze entity.
-
-For example:
+A product can consume more than one Bronze resource. For example:
 
 ```text
 campaigns
@@ -1049,43 +946,38 @@ ad_groups
 ad_events
 ```
 
-Update `domain.yaml`:
+Add the resources to the source descriptor,
+`lakehouse_code/bronze/marketing_platform/source.yaml`:
 
 ```yaml
-bronze:
+resources:
   - name: campaigns
-    path: s3://lakehouse-bronze/marketing/campaign_performance/campaigns
-
   - name: ad_groups
-    path: s3://lakehouse-bronze/marketing/campaign_performance/ad_groups
-
   - name: ad_events
-    path: s3://lakehouse-bronze/marketing/campaign_performance/ad_events
 ```
 
-Add the corresponding Silver tables:
+Map them in the domain and select them from the product in `lakehouse.yaml`:
 
 ```yaml
 silver_tables:
   tables:
-    - name: campaigns
-    - name: ad_groups
-    - name: ad_events
+    - {name: campaigns, source: marketing_platform, resource: campaigns}
+    - {name: ad_groups, source: marketing_platform, resource: ad_groups}
+    - {name: ad_events, source: marketing_platform, resource: ad_events}
+products:
+  - id: campaign_performance
+    silver_inputs: [campaigns, ad_groups, ad_events]
 ```
 
-Then update:
+Then update the entity tuple in
+`lakehouse_code/bronze/marketing_platform/dlt/marketing_platform.py`:
 
 ```python
-CAMPAIGN_PERFORMANCE_ENTITIES = (
-    "campaigns",
-    "ad_groups",
-    "ad_events",
-)
+MARKETING_PLATFORM_ENTITIES = ("campaigns", "ad_groups", "ad_events")
 ```
 
-and define each entity in the Floe contract.
-
-The Dagster product definition automatically creates the Bronze/Floe asset selection from that entity list.
+and define each entity in the Floe contract. The Dagster product definition
+aggregator automatically creates the source Bronze and domain Floe definitions.
 
 ---
 
@@ -1094,16 +986,10 @@ The Dagster product definition automatically creates the Bronze/Floe asset selec
 Add another SQL model under:
 
 ```text
-transformations/dbt/campaign_performance/models/gold/
+lakehouse_code/gold/campaign_performance/dbt/models/gold/
 ```
 
-For example:
-
-```text
-mart_campaign_daily.sql
-```
-
-Declare it in `domain.yaml`:
+For example `mart_campaign_daily.sql`. Declare it in `lakehouse.yaml`:
 
 ```yaml
 gold_tables:
@@ -1127,23 +1013,21 @@ After redeploying the artifacts, both Gold models become part of the product pip
 
 # Using the Full profile
 
-The data product created in this tutorial works with the same core pipeline in the Full profile.
-
-When governance is enabled, OpenMetadata metadata is derived from `domain.yaml` and deployed during the optional artifact phase.
+The data product created in this tutorial works with the same core pipeline in the Full
+profile. When governance is enabled, OpenMetadata metadata is derived from
+`lakehouse.yaml` and deployed during the optional artifact phase.
 
 Superset reporting is maintained separately under:
 
 ```text
-domains/<domain>/reports/superset/<product>/
+lakehouse_code/dashboards/superset/<dashboard>/
 ```
 
-and is not required for the Slim tutorial.
-
-> **Current alpha limitation**
->
-> The Full E2E suite currently expects each discovered product to provide source-controlled Superset dashboard assets when the analytics layer is enabled.
->
-> If you want this product to participate in `make local-e2e`, add its Superset report bundle before running the Full validation suite.
+and is not required for the Slim tutorial. A dashboard is not required to belong to
+exactly one product — one dashboard can consume several Gold products. If you add a
+bundle, also declare that dashboard and its non-empty `products` list in
+`lakehouse.yaml`; Full deployment and E2E require exact parity between the descriptor
+registry and the mounted bundle directories.
 
 The core product pipeline itself does not depend on Superset.
 
@@ -1151,81 +1035,59 @@ The core product pipeline itself does not depend on Superset.
 
 # Adding a product to an existing domain
 
-You do not need to create a new domain for every product.
-
-To add another product to `marketing`, add another entry to:
-
-```text
-domains/marketing/domain.yaml
-```
-
-and create the corresponding:
+You do not need to create a new domain (or a new source) for every product. To add
+another `marketing` product, add another entry under the `marketing` domain's `products`
+in `lakehouse_code/lakehouse.yaml`, referencing whichever source it needs — the same
+`marketing_platform` source, or a different one — and create the corresponding:
 
 ```text
-examples/raw/<product>/
-extract/dlt/<product>.py
-contracts/floe/<product>.yml
-transformations/dbt/<product>/
+gold/<product>/dbt/
 pipelines/dagster/<product>.py
 ```
 
-`definitions.py` does not need to change.
-
-The domain inventory discovers the new product from `domain.yaml`.
+Its `silver_inputs` can overlap with an existing product's — the Bronze source and
+domain Silver definitions are loaded once and consumed by both in `marketing_silver`
+namespace. If the new product needs a new Silver table, add its mapping to the
+`marketing` domain's `silver_tables` and add the corresponding entity to the existing
+`silver/marketing/contracts/floe/marketing.yml`. Every domain has one Floe
+configuration and one `<domain>.manifest.json`; never add a product-specific Floe file
+under the same domain. `lakehouse_code/definitions.py` does not need to change.
 
 ---
 
-# The product contract
+# Ownership identities
 
 When adding a product, keep these identities aligned:
 
 ```text
-domain.yaml product id
+lakehouse.yaml product id
         │
-        ├── Floe config filename
-        │
-        ├── dlt module filename
-        │
-        ├── dbt project directory
-        │
-        └── Dagster module filename
+        ├── dbt project directory name (under gold/<product>/)
+        └── Dagster module filename (under pipelines/dagster/)
+
+lakehouse.yaml domain name
+        └── Floe contract filename (under silver/<domain>/contracts/floe/)
 ```
 
-For this tutorial:
+For this tutorial, `campaign_performance` is consistently used in:
 
 ```text
-campaign_performance
-```
-
-is consistently used in:
-
-```text
-domain.yaml
-
-contracts/floe/campaign_performance.yml
-
-extract/dlt/campaign_performance.py
-
-transformations/dbt/campaign_performance/
-
+lakehouse.yaml (product id)
+silver/marketing/contracts/floe/marketing.yml
+gold/campaign_performance/
 pipelines/dagster/campaign_performance.py
 ```
 
-The `asset_prefix` provides the globally unique runtime identity:
-
-```text
-marketing_campaign_performance
-```
-
-Consistency here allows OpenLakeForge to discover and assemble the product without a central product registry.
+The product `id` is the globally unique runtime identity used to derive the Gold
+namespace (`campaign_performance_gold`); the domain `name` is the runtime identity used
+to derive the shared Silver namespace (`marketing_silver`). Consistency here allows
+OpenLakeForge to discover and assemble the product without a central product registry.
 
 ---
 
 # Next steps
 
-You now have a complete OpenLakeForge data product.
-
-From here you can:
+You now have a complete OpenLakeForge data product. From here you can:
 
 * replace the example CSV ingestion with your own dlt source
 * add additional Floe validation rules
@@ -1241,5 +1103,5 @@ Useful documentation:
 * [Architecture overview](../architecture/overview.md)
 * [Floe validation](../architecture/floe-validation.md)
 * [Provider contracts](../architecture/provider-contracts.md)
-* [Domain descriptor schema](../schema/domain.schema.json)
+* [Lakehouse and Source descriptor reference](../reference/domain-descriptor.md)
 * [`olf` deployment tooling](../../tools/olf/README.md)

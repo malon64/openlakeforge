@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openlakeforge.io/schemas/source/v1alpha3",
+  "title": "OpenLakeForge Source",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "kind", "name", "displayName", "description", "status", "resources"],
+  "properties": {
+    "apiVersion": {"const": "openlakeforge.io/v1alpha3"},
+    "kind": {"const": "Source"},
+    "name": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+    "displayName": {"type": "string", "minLength": 1},
+    "description": {"type": "string"},
+    "status": {"type": "string", "minLength": 1},
+    "resources": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name"],
+        "properties": {
+          "name": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+          "description": {"type": "string"}
+        }
+      }
+    }
+  }
+}

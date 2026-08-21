@@ -11,6 +11,7 @@
 *.swo
 *~
 .omc
+.omo/
 
 # Python
 __pycache__/
@@ -51,15 +52,11 @@ override.tf.json
 generated/
 
 # dbt local artifacts
-**/transformations/dbt/.user.yml
-**/transformations/dbt/logs/
-**/transformations/dbt/target/
-**/transformations/dbt/dbt_packages/
-**/transformations/dbt/*/.user.yml
-**/transformations/dbt/*/package-lock.yml
-**/transformations/dbt/*/logs/
-**/transformations/dbt/*/target/
-**/transformations/dbt/*/dbt_packages/
+lakehouse_code/gold/*/dbt/.user.yml
+lakehouse_code/gold/*/dbt/package-lock.yml
+lakehouse_code/gold/*/dbt/logs/
+lakehouse_code/gold/*/dbt/target/
+lakehouse_code/gold/*/dbt/dbt_packages/
 
 # Local Kubernetes and tooling
 kubeconfig*

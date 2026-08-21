@@ -12,8 +12,8 @@ Appropriate examples include:
 - OpenLineage naming conventions
 - logging and observability helpers
 
-Domain business logic stays under `domains/`; `libs/` contains reusable platform
-glue shared by those domains.
+Business logic stays under `lakehouse_code/` (bronze/silver/gold/dashboards/
+pipelines); `libs/` contains reusable platform glue shared across that code.
 
 The provider-neutral descriptor and inventory model is deliberately not in
 `libs/`: it is the `openlakeforge_domain` package under `packages/domain-model/`

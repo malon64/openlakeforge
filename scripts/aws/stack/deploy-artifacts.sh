@@ -71,7 +71,7 @@ export FLOE_PERSIST_RUNTIME_ARTIFACTS="true"
 echo "==> Reconciling Glue databases from the domain descriptors..."
 olf_run catalog sync-namespaces
 
-echo "==> Generating product Floe manifests before baking the project-code image..."
+echo "==> Generating domain Floe manifests before baking the project-code image..."
 NAMESPACE="${NAMESPACE}" bash "${REPO_ROOT}/scripts/artifacts/floe-manifest.sh"
 
 echo "==> Publishing and verifying immutable Floe runtime-artifact revision..."
@@ -86,7 +86,7 @@ PROJECT_CODE_IMAGE_TAG="${PROJECT_CODE_IMAGE_TAG}" \
 FLOE_MANIFEST_REVISION="${FLOE_MANIFEST_REVISION}" \
   bash "${SCRIPT_DIR}/../images/build-push-project-code.sh"
 
-echo "==> Publishing product Floe runtime artifacts to the AWS S3 ops bucket..."
+echo "==> Publishing domain Floe runtime artifacts to the AWS S3 ops bucket..."
 olf_run artifacts upload-manifests --via direct --runtime-root "${FLOE_RUNTIME_ARTIFACT_DIR}"
 
 OPENMETADATA_ALLOW_MISSING_ASSETS="${OPENMETADATA_ALLOW_MISSING_ASSETS:-true}" \

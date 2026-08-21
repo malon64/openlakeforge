@@ -128,8 +128,8 @@ defaults to the full suite. The e2e check:
 
 - Confirms pods are `Running` or completed bootstrap pods are `Succeeded`.
 - Launches and polls these Dagster jobs to `SUCCESS`:
-  `sales_order_revenue_pipeline`, `sales_customer_health_pipeline`, and
-  `supply_chain_inventory_reliability_pipeline`.
+  `order_revenue_pipeline`, `customer_health_pipeline`, and
+  `inventory_reliability_pipeline`.
 - Confirms Trino exposes the `iceberg` catalog.
 - Confirms Silver has 15 tables and Gold has 9 marts.
 - Confirms each Gold mart has at least one row.

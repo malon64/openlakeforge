@@ -26,9 +26,9 @@ class FakeS3:
 
 
 def _uploads(tmp_path: Path) -> list[s3.ManifestUpload]:
-    config = tmp_path / "configs/sales/order_revenue/order_revenue.yml"
-    profile = tmp_path / "profiles/sales/order_revenue/local-k8s.yml"
-    manifest = tmp_path / "manifests/sales/order_revenue/order_revenue.manifest.json"
+    config = tmp_path / "configs/sales/sales.yml"
+    profile = tmp_path / "profiles/sales/local-k8s.yml"
+    manifest = tmp_path / "manifests/sales/sales.manifest.json"
     for path, content in [(config, "config"), (profile, "profile"), (manifest, "{}")]:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content)

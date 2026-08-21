@@ -1,0 +1,20 @@
+version: 2
+
+sources:
+  - name: silver
+    database: "{{ env_var('OPENLAKEFORGE_CATALOG_NAME', 'lakehouse_dev') }}"
+    schema: supply_chain_silver
+    description: Floe-owned Inventory Reliability Silver Iceberg tables.
+    tables:
+      - name: warehouses
+        description: Validated warehouse dimension.
+      - name: suppliers
+        description: Validated supplier dimension.
+      - name: inventory_snapshots
+        description: Validated inventory snapshot facts.
+      - name: purchase_orders
+        description: Validated purchase order facts.
+      - name: shipments
+        description: Validated shipment facts.
+      - name: stockout_events
+        description: Validated stockout event facts.

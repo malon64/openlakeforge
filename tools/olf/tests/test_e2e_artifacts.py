@@ -138,7 +138,7 @@ def test_assert_immutable_floe_manifests_requires_all_descriptor_manifests(monke
         lambda *_args: SimpleNamespace(entries={E2E_INVENTORY.manifest_keys[0]: "a" * 64}),
     )
 
-    with pytest.raises(E2EError, match="every descriptor-discovered product manifest"):
+    with pytest.raises(E2EError, match="every descriptor-discovered domain manifest"):
         _artifacts.assert_immutable_floe_manifests(object(), "ops", E2E_INVENTORY, deployed_revision)
 
 

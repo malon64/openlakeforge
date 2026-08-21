@@ -15,7 +15,7 @@ catalogs:
     - name: "iceberg_catalog"
       type: "glue"
       region: "eu-west-1"
-      database: "sales_customer_health_silver"
+      database: "sales_silver"
       warehouse_storage: "lakehouse_silver"
       warehouse_prefix: "s3://openlakeforge-poc-silver/warehouse/iceberg"
       create_database_if_missing: false

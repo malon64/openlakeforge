@@ -20,7 +20,7 @@ COPY packages/domain-model ./packages/domain-model
 RUN pip install --no-cache-dir --require-hashes --no-deps -r requirements.lock
 RUN pip install --no-cache-dir --no-build-isolation --no-deps ./packages/domain-model
 
-COPY domains ./domains
+COPY lakehouse_code ./lakehouse_code
 COPY libs ./libs
 
 # setuptools is pinned in requirements.lock, so re-use it instead of creating a
@@ -31,7 +31,7 @@ RUN pip install --no-cache-dir --no-build-isolation --no-deps .
 # the lightweight local target so code-server pods do not parse on every rollout.
 RUN set -e; \
     python -m libs.dbt.render_profiles --environment "${DBT_PROFILE_ENV}" --write; \
-    for project_dir in $(find domains -path "*/transformations/dbt/*/dbt_project.yml" -type f -exec dirname {} \; | sort); do \
+    for project_dir in $(find lakehouse_code/gold -path "*/dbt/dbt_project.yml" -type f -exec dirname {} \; | sort); do \
       dbt deps --project-dir "${project_dir}"; \
       dbt parse --project-dir "${project_dir}" --profiles-dir "${project_dir}" --target local; \
       echo "dbt manifest baked at ${project_dir}/target/manifest.json"; \
@@ -39,4 +39,4 @@ RUN set -e; \
 
 RUN mkdir -p "${DAGSTER_HOME}"
 
-CMD ["dagster", "api", "grpc", "--module-name", "domains.definitions", "--host", "0.0.0.0", "--port", "3030"]
+CMD ["dagster", "api", "grpc", "--module-name", "lakehouse_code.definitions", "--host", "0.0.0.0", "--port", "3030"]

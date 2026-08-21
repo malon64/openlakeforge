@@ -154,7 +154,7 @@ locals {
     code_locations = [
       {
         name               = "openlakeforge-dagster"
-        definitions_module = "domains.definitions"
+        definitions_module = "lakehouse_code.definitions"
       },
     ]
     runner                    = "kubernetes-run-launcher"
@@ -202,7 +202,7 @@ locals {
     floe_report_base_uri     = local.floe_report_base_uri
     log_base_uri             = local.log_base_uri
     run_artifact_base_uri    = local.run_artifact_base_uri
-    manifest_uris            = local.product_floe_manifest_uris
+    manifest_uris            = local.domain_floe_manifest_uris
     distribution_mode        = "aws-s3-upload"
     storage_ref              = local.storage_contract.logical_name
     credentials_secret_name  = null

@@ -1,0 +1,20 @@
+version: 2
+
+sources:
+  - name: silver
+    database: "{{ env_var('OPENLAKEFORGE_CATALOG_NAME', 'lakehouse_dev') }}"
+    schema: sales_silver
+    description: Floe-owned Order Revenue Silver Iceberg tables.
+    tables:
+      - name: orders
+        description: Validated sales order headers.
+      - name: order_lines
+        description: Validated sales order lines.
+      - name: products
+        description: Validated product dimension for revenue analytics.
+      - name: channels
+        description: Validated sales channel dimension.
+      - name: promotions
+        description: Validated promotion dimension.
+      - name: accounts
+        description: Validated account dimension.

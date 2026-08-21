@@ -36,7 +36,7 @@ discover_projects() {
     return
   fi
 
-  find domains -path "*/transformations/dbt/*/dbt_project.yml" -type f \
+  find lakehouse_code/gold -path "*/dbt/dbt_project.yml" -type f \
     -exec dirname {} \; | sort
 }
 

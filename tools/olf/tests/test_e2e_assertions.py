@@ -160,3 +160,253 @@ def test_discovered_dashboards_accepts_yml_suffixed_exports(tmp_path: Path) -> N
         "widgets-alpha-overview": "Widgets Alpha Overview Board",
         "widgets-beta-main": "Widgets Beta",
     }
+
+
+def test_discovered_dashboards_checks_every_dashboard_declared_for_a_product(tmp_path: Path) -> None:
+    """Two dashboards on one product must both be checked, not just the first found."""
+    from openlakeforge_domain import load_lakehouse_inventory
+
+    lakehouse_dir = tmp_path / "lakehouse_code"
+    source_dir = lakehouse_dir / "bronze" / "crm"
+    source_dir.mkdir(parents=True)
+    (source_dir / "source.yaml").write_text(
+        """apiVersion: openlakeforge.io/v1alpha3
+kind: Source
+name: crm
+displayName: CRM
+description: CRM source.
+status: planned
+resources:
+  - name: orders
+""",
+        encoding="utf-8",
+    )
+    (lakehouse_dir / "lakehouse.yaml").write_text(
+        """apiVersion: openlakeforge.io/v1alpha3
+kind: Lakehouse
+name: test
+displayName: Test
+description: Test lakehouse.
+status: planned
+sources:
+  - crm
+domains:
+  - name: sales
+    displayName: Sales
+    description: Sales domain.
+    status: planned
+    silver_tables:
+      tables:
+        - {name: orders, source: crm, resource: orders}
+    products:
+      - id: orders
+        displayName: Orders
+        description: Orders product.
+        status: planned
+        silver_inputs: [orders]
+        gold_tables:
+          tables:
+            - name: mart_orders
+dashboards:
+  - name: orders_overview
+    products: [orders]
+  - name: orders_detail
+    products: [orders]
+""",
+        encoding="utf-8",
+    )
+    inventory = load_lakehouse_inventory(tmp_path)
+    fixture_cfg = E2EConfig(
+        env="local",
+        suite="full",
+        namespace="lakehouse",
+        kube_context="kind-openlakeforge-local",
+        repo_root=tmp_path,
+        foundation_terraform_dir=tmp_path / "foundation",
+        contract_terraform_dir=tmp_path / "contract",
+        inventory=inventory,
+    )
+    overview = next(dashboard for dashboard in inventory.dashboards if dashboard.name == "orders_overview")
+    detail = next(dashboard for dashboard in inventory.dashboards if dashboard.name == "orders_detail")
+    write_dashboard_fixture(
+        tmp_path, overview.report_source_dir, "Overview_1.yaml", slug="orders-overview", title="Orders Overview"
+    )
+    detail_dir = tmp_path / detail.report_source_dir
+    detail_dir.mkdir(parents=True)
+    (detail_dir / "metadata.yaml").write_text("type: assets\n", encoding="utf-8")
+
+    # Only orders_overview exports a dashboard; orders_detail has none yet.
+    with pytest.raises(E2EError, match="exports no Superset dashboards"):
+        _assertions.discovered_dashboards(fixture_cfg)
+
+    write_dashboard_fixture(
+        tmp_path, detail.report_source_dir, "Detail_1.yaml", slug="orders-detail", title="Orders Detail"
+    )
+
+    assert _assertions.discovered_dashboards(fixture_cfg) == {
+        "orders-overview": "Orders Overview",
+        "orders-detail": "Orders Detail",
+    }
+
+
+def test_discovered_dashboards_skips_a_canonical_product_with_no_declared_dashboard(tmp_path: Path) -> None:
+    """A product with zero dashboards in lakehouse.yaml is valid and must not be checked."""
+    from openlakeforge_domain import load_lakehouse_inventory
+
+    lakehouse_dir = tmp_path / "lakehouse_code"
+    source_dir = lakehouse_dir / "bronze" / "crm"
+    source_dir.mkdir(parents=True)
+    (source_dir / "source.yaml").write_text(
+        """apiVersion: openlakeforge.io/v1alpha3
+kind: Source
+name: crm
+displayName: CRM
+description: CRM source.
+status: planned
+resources:
+  - name: orders
+""",
+        encoding="utf-8",
+    )
+    (lakehouse_dir / "lakehouse.yaml").write_text(
+        """apiVersion: openlakeforge.io/v1alpha3
+kind: Lakehouse
+name: test
+displayName: Test
+description: Test lakehouse.
+status: planned
+sources:
+  - crm
+domains:
+  - name: sales
+    displayName: Sales
+    description: Sales domain.
+    status: planned
+    silver_tables:
+      tables:
+        - {name: orders, source: crm, resource: orders}
+    products:
+      - id: orders
+        displayName: Orders
+        description: Orders product.
+        status: planned
+        silver_inputs: [orders]
+        gold_tables:
+          tables:
+            - name: mart_orders
+      - id: internal_only
+        displayName: Internal Only
+        description: Product with no dashboard.
+        status: planned
+        silver_inputs: [orders]
+        gold_tables:
+          tables:
+            - name: mart_internal
+dashboards:
+  - name: orders_overview
+    products: [orders]
+""",
+        encoding="utf-8",
+    )
+    inventory = load_lakehouse_inventory(tmp_path)
+    fixture_cfg = E2EConfig(
+        env="local",
+        suite="full",
+        namespace="lakehouse",
+        kube_context="kind-openlakeforge-local",
+        repo_root=tmp_path,
+        foundation_terraform_dir=tmp_path / "foundation",
+        contract_terraform_dir=tmp_path / "contract",
+        inventory=inventory,
+    )
+    overview = next(dashboard for dashboard in inventory.dashboards if dashboard.name == "orders_overview")
+    write_dashboard_fixture(
+        tmp_path, overview.report_source_dir, "Overview_1.yaml", slug="orders-overview", title="Orders Overview"
+    )
+
+    # internal_only has no dashboard entry at all -- must not raise.
+    assert _assertions.discovered_dashboards(fixture_cfg) == {
+        "orders-overview": "Orders Overview",
+    }
+
+
+def test_discovered_dashboards_rejects_a_bundle_on_disk_with_no_declared_dashboard(tmp_path: Path) -> None:
+    """superset.deploy_reports() discovers bundles from the filesystem, independent of
+    lakehouse.yaml -- a directory that would still deploy must not be silently ignored."""
+    from openlakeforge_domain import load_lakehouse_inventory
+
+    lakehouse_dir = tmp_path / "lakehouse_code"
+    source_dir = lakehouse_dir / "bronze" / "crm"
+    source_dir.mkdir(parents=True)
+    (source_dir / "source.yaml").write_text(
+        """apiVersion: openlakeforge.io/v1alpha3
+kind: Source
+name: crm
+displayName: CRM
+description: CRM source.
+status: planned
+resources:
+  - name: orders
+""",
+        encoding="utf-8",
+    )
+    (lakehouse_dir / "lakehouse.yaml").write_text(
+        """apiVersion: openlakeforge.io/v1alpha3
+kind: Lakehouse
+name: test
+displayName: Test
+description: Test lakehouse.
+status: planned
+sources:
+  - crm
+domains:
+  - name: sales
+    displayName: Sales
+    description: Sales domain.
+    status: planned
+    silver_tables:
+      tables:
+        - {name: orders, source: crm, resource: orders}
+    products:
+      - id: orders
+        displayName: Orders
+        description: Orders product.
+        status: planned
+        silver_inputs: [orders]
+        gold_tables:
+          tables:
+            - name: mart_orders
+dashboards:
+  - name: orders_overview
+    products: [orders]
+""",
+        encoding="utf-8",
+    )
+    inventory = load_lakehouse_inventory(tmp_path)
+    fixture_cfg = E2EConfig(
+        env="local",
+        suite="full",
+        namespace="lakehouse",
+        kube_context="kind-openlakeforge-local",
+        repo_root=tmp_path,
+        foundation_terraform_dir=tmp_path / "foundation",
+        contract_terraform_dir=tmp_path / "contract",
+        inventory=inventory,
+    )
+    overview = next(dashboard for dashboard in inventory.dashboards if dashboard.name == "orders_overview")
+    write_dashboard_fixture(
+        tmp_path, overview.report_source_dir, "Overview_1.yaml", slug="orders-overview", title="Orders Overview"
+    )
+    (tmp_path / overview.report_source_dir / "metadata.yaml").write_text("type: assets\n", encoding="utf-8")
+
+    # A directory exists that deploy_reports() would discover and import, but
+    # no dashboards[] entry in lakehouse.yaml references it.
+    rogue_dir = lakehouse_dir / "dashboards" / "superset" / "rogue"
+    (rogue_dir / "dashboards").mkdir(parents=True)
+    (rogue_dir / "metadata.yaml").write_text("type: assets\n", encoding="utf-8")
+    (rogue_dir / "dashboards" / "Rogue_1.yaml").write_text(
+        "dashboard_title: Rogue\nslug: rogue\n", encoding="utf-8"
+    )
+
+    with pytest.raises(E2EError, match="lakehouse_code/dashboards/superset/rogue"):
+        _assertions.discovered_dashboards(fixture_cfg)

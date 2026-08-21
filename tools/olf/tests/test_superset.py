@@ -1,13 +1,27 @@
 from pathlib import Path
 from zipfile import ZipFile
 
+import pytest
+
 from olf import superset
 
 
 def test_bundle_identity_from_source_dir() -> None:
-    identity = superset.bundle_identity("domains/sales/reports/superset/order_revenue")
-    assert identity.root == "sales_order_revenue_superset_bundle"
-    assert identity.name == "sales_order_revenue_superset_bundle.zip"
+    identity = superset.bundle_identity("lakehouse_code/dashboards/superset/order_revenue")
+    assert identity.root == "order_revenue_superset_bundle"
+    assert identity.name == "order_revenue_superset_bundle.zip"
+
+
+def test_validate_report_registry_rejects_declared_mounted_mismatch(tmp_path: Path) -> None:
+    mounted = tmp_path / "lakehouse_code/dashboards/superset/mounted"
+    mounted.mkdir(parents=True)
+    (mounted / "metadata.yaml").write_text("type: assets\n")
+
+    with pytest.raises(RuntimeError, match="declared but not mounted.*mounted but not declared"):
+        superset.validate_report_registry(
+            tmp_path,
+            ["lakehouse_code/dashboards/superset/declared"],
+        )
 
 
 def test_build_report_bundle_rewrites_database_uri(tmp_path: Path) -> None:

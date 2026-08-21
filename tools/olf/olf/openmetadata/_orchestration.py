@@ -14,7 +14,12 @@ import urllib.parse
 from collections.abc import Iterator
 from pathlib import Path
 
-from openlakeforge_domain import load_domain_descriptor
+from openlakeforge_domain import (
+    LakehouseDescriptorError,
+    load_lakehouse_descriptor,
+    load_lakehouse_inventory_from_descriptors,
+    load_source_descriptor,
+)
 
 from olf.clients.openmetadata import OpenMetadataClient, OpenMetadataError
 from olf.openmetadata._config import OpenMetadataConfig, resolve_metadata_descriptor_paths
@@ -67,7 +72,7 @@ class OpenMetadataDeployer:
     def schema_fqn_for_product(self, product: dict, table_group_key: str) -> str | None:
         product_key = product_contract_key(product)
         if table_group_key == "silver_tables":
-            return self.config.catalog_silver_schema_fqns.get(product_key)
+            return self.config.catalog_silver_schema_fqns.get(product["domain"])
         if table_group_key == "gold_tables":
             return self.config.catalog_gold_schema_fqns.get(product_key)
         return None
@@ -85,6 +90,15 @@ class OpenMetadataDeployer:
                 )
             for table in spec.get("tables", []):
                 yield schema_fqn, table
+
+    def domain_silver_table_specs(self, domain: dict):
+        schema_fqn = self.config.catalog_silver_schema_fqns.get(domain["name"])
+        if not schema_fqn:
+            raise OpenMetadataError(
+                f"Domain {domain['name']!r} Silver tables are not covered by the provider contract schema FQNs."
+            )
+        for table in domain.get("silver_tables", {}).get("tables", []):
+            yield schema_fqn, table
 
     def validate_deployment_inputs(self, domain_specs: list[tuple[Path, dict]]) -> None:
         """Resolve every declared table and logical asset before metadata writes."""
@@ -221,6 +235,102 @@ class OpenMetadataDeployer:
         )
         return descriptor_paths
 
+    def _domain_specs(self) -> list[tuple[Path, dict]]:
+        """Transform the canonical lakehouse descriptor into deployer domain specs.
+
+        The v1alpha3 Lakehouse descriptor nests domains with products whose
+        bronze references are provider-neutral ``{source, resources}`` pairs.
+        The deployer machinery consumes v1alpha2-shaped dicts (``data_products``
+        with explicit bronze container entries), so this maps between the two:
+        bronze entries are derived from the source name plus each resource,
+        and physical s3 paths are resolved from the provider contract at deploy
+        time -- never stored in the descriptor.
+
+        The two files are also loaded independently below (as raw dicts, to
+        keep every cosmetic ``description``/``status`` field the deployer
+        payloads need). ``load_lakehouse_inventory_from_descriptors`` runs
+        first purely for its cross-descriptor validation: it is the same
+        check every other consumer of these descriptors relies on to catch a
+        Silver table naming a source/resource no Source descriptor declares.
+        Without it, a bad reference would still build an
+        ``s3://.../<source>/<resource>`` Bronze path below and publish a
+        phantom asset to OpenMetadata instead of failing before any writes.
+        """
+        descriptor_paths = self.domain_files()
+        if not descriptor_paths:
+            raise OpenMetadataError(
+                f"No OpenMetadata lakehouse descriptor found under {self.config.metadata_root}/lakehouse.yaml"
+            )
+        lakehouse_path = descriptor_paths[0]
+        source_paths = descriptor_paths[1:]
+        try:
+            load_lakehouse_inventory_from_descriptors(lakehouse_path, source_paths)
+        except LakehouseDescriptorError as exc:
+            raise OpenMetadataError(str(exc)) from exc
+        lakehouse_document = load_lakehouse_descriptor(lakehouse_path)
+        resource_descriptions: dict[str, dict[str, str]] = {}
+        for source_path in source_paths:
+            source_document = load_source_descriptor(source_path)
+            resource_descriptions[source_document["name"]] = {
+                resource["name"]: resource.get("description", "")
+                for resource in source_document["resources"]
+                if isinstance(resource, dict) and "name" in resource
+            }
+        bronze_bucket = self.config.storage_bronze_bucket
+        domain_specs: list[tuple[Path, dict]] = []
+        for domain in lakehouse_document["domains"]:
+            products = []
+            silver_tables = {table["name"]: table for table in domain["silver_tables"]["tables"]}
+            for product in domain["products"]:
+                selected_silver = [silver_tables[name] for name in product["silver_inputs"]]
+                bronze_entries = [
+                    {
+                        "name": table["resource"],
+                        "path": f"s3://{bronze_bucket}/{table['source']}/{table['resource']}",
+                        "description": resource_descriptions.get(table["source"], {}).get(table["resource"], ""),
+                    }
+                    for table in selected_silver
+                ]
+                bronze_entries = list({entry["path"]: entry for entry in bronze_entries}.values())
+                products.append(
+                    {
+                        "id": product["id"],
+                        "name": product["id"],
+                        "displayName": product["displayName"],
+                        "description": product.get("description", ""),
+                        "status": product.get("status", ""),
+                        "domain": domain["name"],
+                        "bronze": bronze_entries,
+                        "silver_tables": {
+                            "tables": [
+                                {key: value for key, value in table.items() if key in {"name", "description"}}
+                                for table in selected_silver
+                            ]
+                        },
+                        "gold_tables": product["gold_tables"],
+                        "assets": [],
+                    }
+                )
+            domain_specs.append(
+                (
+                    lakehouse_path,
+                    {
+                        "name": domain["name"],
+                        "displayName": domain["displayName"],
+                        "description": domain.get("description", ""),
+                        "status": domain.get("status", ""),
+                        "silver_tables": {
+                            "tables": [
+                                {key: value for key, value in table.items() if key in {"name", "description"}}
+                                for table in domain["silver_tables"]["tables"]
+                            ]
+                        },
+                        "data_products": products,
+                    },
+                )
+            )
+        return domain_specs
+
     def validate_bronze_entries(self, domain_specs) -> None:
         for _, domain in domain_specs:
             for product in product_entries(domain):
@@ -261,11 +371,7 @@ class OpenMetadataDeployer:
         self.wait_for_openmetadata()
         self.login()
 
-        domain_specs = [(path, load_domain_descriptor(path)) for path in self.domain_files()]
-        if not domain_specs:
-            raise OpenMetadataError(
-                f"No OpenMetadata domain metadata files found under {self.config.metadata_root}/<domain>/domain.yaml"
-            )
+        domain_specs = self._domain_specs()
         self.validate_deployment_inputs(domain_specs)
 
         # Phase A+B: Object Store service and medallion bucket containers.
@@ -282,8 +388,13 @@ class OpenMetadataDeployer:
 
         # Phase C: Pre-seed Iceberg table stubs before the Polaris crawler runs.
         for _, domain in domain_specs:
+            for schema_fqn, table in self.domain_silver_table_specs(domain):
+                self.ensure_database_schema(schema_fqn)
+                self.ensure_table_stub(schema_fqn, table["name"], table.get("description", ""))
             for product in product_entries(domain):
                 for schema_fqn, table in self.product_table_specs(product):
+                    if schema_fqn == self.config.catalog_silver_schema_fqns.get(domain["name"]):
+                        continue
                     self.ensure_database_schema(schema_fqn)
                     self.ensure_table_stub(schema_fqn, table["name"], table.get("description", ""))
         self.cleanup_legacy_default_database()

@@ -116,6 +116,7 @@ def catalog_sync_namespaces(
         prune = config.truthy(config.env("OPENLAKEFORGE_CATALOG_PRUNE_NAMESPACES", "false"))
     desired = catalog_module.desired_namespaces(
         config.repo_root(),
+        bronze_bucket=config.env("OPENLAKEFORGE_STORAGE_BRONZE_BUCKET", "lakehouse-bronze"),
         silver_bucket=config.env("OPENLAKEFORGE_STORAGE_SILVER_BUCKET", "lakehouse-silver"),
         gold_bucket=config.env("OPENLAKEFORGE_STORAGE_GOLD_BUCKET", "lakehouse-gold"),
     )

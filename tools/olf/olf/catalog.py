@@ -69,6 +69,16 @@ def plan_namespace_sync(
     not drift: changing it could redirect someone else's data.
     """
     live = {name: _state(value) for name, value in existing.items()}
+    canonical_silver = {namespace.name for namespace in desired if namespace.name.endswith("_silver")}
+    noncanonical_silver = sorted(
+        name for name in live if name.endswith("_silver") and name not in canonical_silver
+    )
+    if noncanonical_silver:
+        raise NamespaceSyncError(
+            "Catalog contains noncanonical legacy Silver namespace(s) "
+            f"{noncanonical_silver!r}. This alpha ownership change is reset-only; "
+            "destroy and recreate the environment instead of migrating namespaces in place."
+        )
     create: list[CatalogNamespace] = []
     adopt: list[CatalogNamespace] = []
     update: list[CatalogNamespace] = []
@@ -99,9 +109,15 @@ def plan_namespace_sync(
     )
 
 
-def desired_namespaces(repo_root: Path, *, silver_bucket: str, gold_bucket: str) -> tuple[CatalogNamespace, ...]:
+def desired_namespaces(
+    repo_root: Path, *, bronze_bucket: str, silver_bucket: str, gold_bucket: str
+) -> tuple[CatalogNamespace, ...]:
     physical = inventory_for(repo_root).resolve_physical_names(
-        catalog_database_fqn="", silver_bucket=silver_bucket, gold_bucket=gold_bucket, manifest_base_uri=""
+        catalog_database_fqn="",
+        bronze_bucket=bronze_bucket,
+        silver_bucket=silver_bucket,
+        gold_bucket=gold_bucket,
+        manifest_base_uri="",
     )
     return physical.catalog_namespaces
 

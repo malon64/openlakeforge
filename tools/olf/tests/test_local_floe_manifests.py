@@ -34,8 +34,8 @@ def _toolkit(runner: RecordingRunner) -> Toolkit:
 
 def _make_repo(tmp_path: Path) -> Path:
     repo_root = tmp_path / "repo"
-    (repo_root / "domains/orders/contracts/floe").mkdir(parents=True)
-    (repo_root / "domains/orders/contracts/floe/orders.yml").write_text("sources: []\n")
+    (repo_root / "lakehouse_code/silver/orders/contracts/floe").mkdir(parents=True)
+    (repo_root / "lakehouse_code/silver/orders/contracts/floe/orders.yml").write_text("sources: []\n")
     (repo_root / "libs/floe/profiles").mkdir(parents=True)
     (repo_root / "libs/floe/profiles/local-k8s.yml").write_text("apiVersion: floe/v1\n")
     return repo_root
@@ -56,7 +56,7 @@ def test_discover_floe_configs_finds_domain_configs(tmp_path: Path) -> None:
 
     configs = floe_manifests.discover_floe_configs(repo_root)
 
-    assert configs == [repo_root / "domains/orders/contracts/floe/orders.yml"]
+    assert configs == [repo_root / "lakehouse_code/silver/orders/contracts/floe/orders.yml"]
 
 
 def test_generate_local_manifests_uses_checked_in_profile_when_governance_enabled(tmp_path: Path) -> None:
@@ -75,10 +75,10 @@ def test_generate_local_manifests_uses_checked_in_profile_when_governance_enable
         env={},
     )
 
-    assert manifests == [settings.runtime_artifact_dir / "manifests/orders/orders/orders.manifest.json"]
-    profile_copy = settings.runtime_artifact_dir / "profiles/orders/orders/local-k8s.yml"
+    assert manifests == [settings.runtime_artifact_dir / "manifests/orders/orders.manifest.json"]
+    profile_copy = settings.runtime_artifact_dir / "profiles/orders/local-k8s.yml"
     assert profile_copy.read_text() == "apiVersion: floe/v1\n"
-    config_copy = settings.runtime_artifact_dir / "configs/orders/orders/orders.yml"
+    config_copy = settings.runtime_artifact_dir / "configs/orders/orders.yml"
     assert config_copy.read_text() == "sources: []\n"
 
 
@@ -122,7 +122,8 @@ def test_generate_local_manifests_runs_validate_then_generate_via_docker(tmp_pat
     generate_call = runner.calls[1]
     assert "--deterministic" in generate_call.argv
     assert "--manifest-name" in generate_call.argv
-    assert "orders.orders.local" in generate_call.argv
+    assert "orders.local" in generate_call.argv
+    assert generate_call.argv[generate_call.argv.index("--default-domain") + 1] == "orders"
 
 
 def test_generate_local_manifests_makes_manifest_dir_writable_by_the_container_user(tmp_path: Path) -> None:
@@ -136,7 +137,7 @@ def test_generate_local_manifests_makes_manifest_dir_writable_by_the_container_u
         settings, tools, repo_root=repo_root, namespace="lakehouse", governance_enabled=True, environ={}, env={}
     )
 
-    manifest_dir = settings.runtime_artifact_dir / "manifests/orders/orders"
+    manifest_dir = settings.runtime_artifact_dir / "manifests/orders"
     mode = stat.S_IMODE(manifest_dir.stat().st_mode)
     assert mode == 0o777
 
@@ -145,7 +146,7 @@ def test_generate_local_manifests_raises_when_no_configs_found(tmp_path: Path) -
     from olf.deployment.errors import DeploymentPreconditionError
 
     repo_root = tmp_path / "empty-repo"
-    (repo_root / "domains").mkdir(parents=True)
+    (repo_root / "lakehouse_code/silver").mkdir(parents=True)
     (repo_root / "libs/floe/profiles").mkdir(parents=True)
     (repo_root / "libs/floe/profiles/local-k8s.yml").write_text("apiVersion: floe/v1\n")
     settings = _settings(repo_root)
@@ -154,6 +155,22 @@ def test_generate_local_manifests_raises_when_no_configs_found(tmp_path: Path) -
     import pytest
 
     with pytest.raises(DeploymentPreconditionError):
+        floe_manifests.generate_local_manifests(
+            settings, tools, repo_root=repo_root, namespace="lakehouse", governance_enabled=True, environ={}, env={}
+        )
+
+
+def test_generate_local_manifests_rejects_multiple_configs_for_one_domain(tmp_path: Path) -> None:
+    from olf.deployment.errors import DeploymentPreconditionError
+
+    repo_root = _make_repo(tmp_path)
+    (repo_root / "lakehouse_code/silver/orders/contracts/floe/extra.yml").write_text("sources: []\n")
+    settings = _settings(repo_root)
+    tools = _toolkit(RecordingRunner())
+
+    import pytest
+
+    with pytest.raises(DeploymentPreconditionError, match="duplicate configs found for: orders"):
         floe_manifests.generate_local_manifests(
             settings, tools, repo_root=repo_root, namespace="lakehouse", governance_enabled=True, environ={}, env={}
         )

@@ -97,3 +97,11 @@ prefetch, static platform apply, dynamic artifact deploy, status, forward,
 and teardown directly, invoking Terraform/Helm/kubectl/Docker/kind as
 managed external processes. AWS/Azure remain on the shell-orchestration path
 until #125.
+
+`0026-medallion-ownership-and-catalog-namespace-contract.md` supersedes ADR
+0021's descriptor shape for non-diagnostic use: `lakehouse_code/` replaces
+`domains/` as the user-code root, Bronze becomes source-owned, Silver becomes
+domain-owned (no longer keyed by product `asset_prefix`), Gold stays
+product-owned, and the flat `<source>_bronze` / `<domain>_silver` /
+`<product>_gold` catalog namespace contract works identically for Polaris and
+Glue.

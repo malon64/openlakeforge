@@ -7,15 +7,14 @@ from typing import Any
 
 import boto3
 from botocore.config import Config
-from openlakeforge_domain import DomainInventory
+from openlakeforge_domain import LakehouseInventory
 
 from olf import k8s, log, revision
 from olf.e2e._dagster import expected_repository_location_names, expected_user_code_pods
 from olf.e2e._shell import E2EConfig, E2EError, aws_stack_region, kubectl, load_provider_contracts_or_raise
 
-# The one artifact prefix that is genuinely platform-level, not per-product:
-# Dagster's own compute-log archive path. Per-product prefixes (Floe reports,
-# dbt artifacts, Floe manifests) come from the domain inventory instead.
+# The one artifact prefix that is genuinely platform-level, not owner-scoped:
+# Dagster's own compute-log archive path.
 ARTIFACT_PREFIXES = ("logs/dagster/compute/",)
 
 
@@ -128,24 +127,21 @@ def assert_ops_artifacts(
     client: Any,
     bucket: str,
     namespace: str,
-    inventory: DomainInventory,
+    inventory: LakehouseInventory,
     deployed_revision: str,
 ) -> None:
     if deployed_revision == "manual":
         assert_legacy_floe_manifests(client, bucket, inventory)
     else:
         assert_immutable_floe_manifests(client, bucket, inventory, deployed_revision)
-    product_prefixes = tuple(
-        prefix
-        for product in inventory.products
-        for prefix in (product.artifact_prefixes.floe_report_prefix, product.artifact_prefixes.dbt_artifact_prefix)
-    )
-    for prefix in (*product_prefixes, *ARTIFACT_PREFIXES, f"logs/k8s/namespace={namespace}/"):
+    floe_prefixes = tuple(domain.artifact_prefixes.floe_report_prefix for domain in inventory.domains)
+    dbt_prefixes = tuple(product.dbt_artifact_prefix for product in inventory.products)
+    for prefix in (*floe_prefixes, *dbt_prefixes, *ARTIFACT_PREFIXES, f"logs/k8s/namespace={namespace}/"):
         require_s3_prefix(client, bucket, prefix)
 
 
 def assert_immutable_floe_manifests(
-    client: Any, bucket: str, inventory: DomainInventory, deployed_revision: str
+    client: Any, bucket: str, inventory: LakehouseInventory, deployed_revision: str
 ) -> None:
     try:
         manifest = revision.verify(client, bucket, deployed_revision)
@@ -156,11 +152,11 @@ def assert_immutable_floe_manifests(
     if missing:
         raise E2EError(
             f"deployed immutable Floe revision {deployed_revision} does not contain every "
-            f"descriptor-discovered product manifest: {', '.join(sorted(missing))}."
+            f"descriptor-discovered domain manifest: {', '.join(sorted(missing))}."
         )
 
 
-def assert_legacy_floe_manifests(client: Any, bucket: str, inventory: DomainInventory) -> None:
+def assert_legacy_floe_manifests(client: Any, bucket: str, inventory: LakehouseInventory) -> None:
     """Verify mutable manifests for a supplied local project-code image."""
     for key in inventory.manifest_keys:
         try:

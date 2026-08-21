@@ -17,7 +17,7 @@ IY1, IY2 = 46, 152  # icon y-offsets inside a row-1 card
 c.box(52, ROW1, 350, 258, "Dagster — 3 pods", color="platform", fill="#FFFFFF")
 c.icon(140, ROW1 + IY1, "deploy", "webserver", label2="dagster chart 1.13.6")
 c.icon(316, ROW1 + IY1, "deploy", "daemon", label2="K8sRunLauncher")
-c.icon(228, ROW1 + IY2, "deploy", "code server", label2="domains.definitions")
+c.icon(228, ROW1 + IY2, "deploy", "code server", label2="lakehouse_code.definitions")
 
 c.box(422, ROW1, 350, 258, "SeaweedFS — 4 pods", color="platform", fill="#FFFFFF")
 c.icon(510, ROW1 + IY1, "sts", "master", label2=":9333")

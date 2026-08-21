@@ -1,4 +1,4 @@
-"""Local product Floe manifest generation.
+"""Local domain Floe manifest generation.
 
 Minimal, local-only port of `scripts/artifacts/floe-manifest.sh`. Only the
 branches that path actually takes for the local (non-AWS, non-Glue,
@@ -41,12 +41,26 @@ _AWS_PASSTHROUGH_ENV_NAMES = (
 @dataclass(frozen=True)
 class _GeneratedManifest:
     domain: str
-    product: str
     manifest_path: Path
 
 
 def discover_floe_configs(repo_root: Path) -> list[Path]:
-    return sorted((repo_root / "domains").glob("*/contracts/floe/*.yml"))
+    return sorted((repo_root / "lakehouse_code" / "silver").glob("*/contracts/floe/*.yml"))
+
+
+def _domain_for_config(config_path: Path) -> str:
+    return config_path.parents[2].name
+
+
+def _validate_one_config_per_domain(configs: list[Path]) -> None:
+    domains = [_domain_for_config(config_path) for config_path in configs]
+    duplicates = sorted({domain for domain in domains if domains.count(domain) > 1})
+    if duplicates:
+        raise DeploymentPreconditionError(
+            "each domain must have exactly one Floe configuration under "
+            "lakehouse_code/silver/<domain>/contracts/floe/; duplicate configs found for: "
+            + ", ".join(duplicates)
+        )
 
 
 def _container_path(repo_root: Path, path: Path) -> str:
@@ -96,7 +110,10 @@ def generate_local_manifests(
 
     configs = discover_floe_configs(repo_root)
     if not configs:
-        raise DeploymentPreconditionError("no product Floe configs found under domains/*/contracts/floe/*.yml.")
+        raise DeploymentPreconditionError(
+            "no domain Floe configs found under lakehouse_code/silver/*/contracts/floe/*.yml."
+        )
+    _validate_one_config_per_domain(configs)
 
     base_profile = _resolve_base_profile(
         settings, repo_root=repo_root, namespace=namespace, governance_enabled=governance_enabled, environ=environ
@@ -106,27 +123,25 @@ def generate_local_manifests(
     generated: list[_GeneratedManifest] = []
 
     for config_path in configs:
-        domain_dir = config_path.parent.parent.parent
-        domain = domain_dir.name
-        product = config_path.stem
+        domain = _domain_for_config(config_path)
 
-        profile_dir = runtime_root / "profiles" / domain / product
+        profile_dir = runtime_root / "profiles" / domain
         profile_dir.mkdir(parents=True, exist_ok=True)
         profile_path = profile_dir / base_profile.name
         profile_path.write_text(base_profile.read_text())
 
-        runtime_config_dir = runtime_root / "configs" / domain / product
+        runtime_config_dir = runtime_root / "configs" / domain
         runtime_config_dir.mkdir(parents=True, exist_ok=True)
         runtime_config_path = runtime_config_dir / config_path.name
         runtime_config_path.write_text(config_path.read_text())
 
-        manifest_dir = runtime_root / "manifests" / domain / product
+        manifest_dir = runtime_root / "manifests" / domain
         manifest_dir.mkdir(parents=True, exist_ok=True)
         # The Floe image runs as its own non-root user. Give that user
         # access to the bind-mounted output directory, or manifest
         # generation fails with EACCES on hosted CI runners.
         manifest_dir.chmod(0o777)
-        manifest_path = manifest_dir / f"{product}.manifest.json"
+        manifest_path = manifest_dir / f"{domain}.manifest.json"
 
         floe_config_path = _container_path(repo_root, runtime_config_path)
         floe_profile_path = _container_path(repo_root, profile_path)
@@ -155,9 +170,9 @@ def generate_local_manifests(
                 floe_profile_path,
                 "--deterministic",
                 "--manifest-name",
-                f"{domain}.{product}.local",
+                f"{domain}.local",
                 "--default-domain",
-                f"{domain}_{product}",
+                domain,
                 "--manifest-path-mode",
                 "resolved-uri",
                 "--runtime",
@@ -172,6 +187,6 @@ def generate_local_manifests(
             env=env,
         )
         log.step(f"Generated {manifest_path}")
-        generated.append(_GeneratedManifest(domain=domain, product=product, manifest_path=manifest_path))
+        generated.append(_GeneratedManifest(domain=domain, manifest_path=manifest_path))
 
     return [item.manifest_path for item in generated]

@@ -21,18 +21,17 @@ import hcl2
 import jsonschema
 import yaml
 from openlakeforge_domain import (
-    DOMAIN_API_VERSION,
-    LEGACY_DOMAIN_API_VERSION,
-    DomainDescriptorError,
-    load_domain_descriptor,
+    LakehouseDescriptorError,
+    load_lakehouse_descriptor,
+    load_source_descriptor,
 )
 
 from olf import contracts as contracts_module
 from olf import floe as floe_module
 
-_SCHEMA_BY_API_VERSION = {
-    DOMAIN_API_VERSION: "docs/schema/domain.schema.json",
-    LEGACY_DOMAIN_API_VERSION: "docs/schema/domain.v1alpha1.schema.json",
+_SCHEMA_BY_KIND = {
+    "lakehouse": "docs/schema/lakehouse.schema.json",
+    "source": "docs/schema/source.schema.json",
 }
 
 # Terraform environment roots that carry a `contracts.tf` provider-contract
@@ -143,28 +142,31 @@ class ContractsCheckReport:
 
 
 def _check_descriptor_schema_conformance(repo_root: Path) -> CheckResult:
-    """Every `domains/*/domain.yaml` must load via the canonical model and
-    conform to its versioned JSON Schema. The two validators run
+    """The `lakehouse_code/lakehouse.yaml` descriptor and every
+    `lakehouse_code/bronze/*/source.yaml` must load via the canonical model
+    and conform to its versioned JSON Schema. The two validators run
     independently; neither one substitutes for the other."""
     name = "descriptor_schema_conformance"
-    descriptor_paths = sorted((repo_root / "domains").glob("*/domain.yaml"))
-    if not descriptor_paths:
-        return CheckResult(name, ok=False, detail=f"no domain.yaml files found under {repo_root / 'domains'}")
+    lakehouse_path = repo_root / "lakehouse_code" / "lakehouse.yaml"
+    source_paths = sorted((repo_root / "lakehouse_code" / "bronze").glob("*/source.yaml"))
+    descriptor_paths = [lakehouse_path, *source_paths]
+    if not lakehouse_path.is_file():
+        return CheckResult(name, ok=False, detail=f"no lakehouse.yaml found under {repo_root / 'lakehouse_code'}")
 
     errors: list[str] = []
     for descriptor_path in descriptor_paths:
         rel_path = descriptor_path.relative_to(repo_root)
+        kind = "lakehouse" if descriptor_path == lakehouse_path else "source"
         try:
-            document = load_domain_descriptor(descriptor_path)
-        except DomainDescriptorError as exc:
+            if kind == "lakehouse":
+                document = load_lakehouse_descriptor(descriptor_path)
+            else:
+                document = load_source_descriptor(descriptor_path)
+        except LakehouseDescriptorError as exc:
             errors.append(f"{rel_path}: canonical model rejected descriptor: {exc}")
             continue
 
-        api_version = document.get("apiVersion")
-        schema_relpath = _SCHEMA_BY_API_VERSION.get(api_version)
-        if schema_relpath is None:
-            errors.append(f"{rel_path}: no JSON Schema registered for apiVersion {api_version!r}")
-            continue
+        schema_relpath = _SCHEMA_BY_KIND[kind]
         schema_path = repo_root / schema_relpath
         schema = json.loads(schema_path.read_text(encoding="utf-8"))
         validator = jsonschema.Draft202012Validator(schema)
@@ -225,8 +227,8 @@ def _check_hcl_structured_contracts(repo_root: Path) -> CheckResult:
             continue
         main_document = _parse_hcl(main_path)
         main_locals = _merged_locals(main_document)
-        if main_locals.get("catalog_namespace_model") != "product-layer":
-            errors.append(f"{env}/main.tf: local.catalog_namespace_model must be 'product-layer'")
+        if main_locals.get("catalog_namespace_model") != "medallion-owner":
+            errors.append(f"{env}/main.tf: local.catalog_namespace_model must be 'medallion-owner'")
         for forbidden_field in _FORBIDDEN_PHASE_TWO_FIELDS:
             if forbidden_field in main_locals:
                 errors.append(f"{env}/main.tf: locals must not declare Phase-2-owned field {forbidden_field!r}")
@@ -319,7 +321,7 @@ _AWS_GLUE_ENV_OVERRIDE = {
     "OPENLAKEFORGE_STORAGE_IMPLEMENTATION": "storage.aws_s3",
     "OPENLAKEFORGE_CATALOG_TYPE": "glue",
     "OPENLAKEFORGE_CATALOG_PROVIDER": "aws-glue",
-    "OPENLAKEFORGE_CATALOG_GLUE_DATABASE": "sales_order_revenue_silver",
+    "OPENLAKEFORGE_CATALOG_GLUE_DATABASE": "sales_silver",
 }
 
 
@@ -350,17 +352,20 @@ def _check_floe_rendered_profile() -> CheckResult:
 
 
 def _check_floe_contract_structure(repo_root: Path) -> CheckResult:
-    """Every `domains/*/contracts/floe/*.yml` must parse as YAML and use
-    provider-neutral storage aliases and a product-scoped Silver namespace
-    (never a shared "silver"/"gold" namespace, per ADR 0022)."""
+    """Every `lakehouse_code/silver/*/contracts/floe/*.yml` must parse as YAML
+    and use provider-neutral storage aliases and a domain-scoped Silver
+    namespace matching `<domain>_silver` (never a shared "silver"/"gold"
+    namespace, per ADR 0022)."""
     name = "floe_contract_structure"
     errors: list[str] = []
-    contract_paths = sorted(repo_root.glob("domains/*/contracts/floe/*.yml"))
+    contract_paths = sorted(repo_root.glob("lakehouse_code/silver/*/contracts/floe/*.yml"))
     if not contract_paths:
-        return CheckResult(name, ok=False, detail="no domains/*/contracts/floe/*.yml files found")
+        return CheckResult(name, ok=False, detail="no lakehouse_code/silver/*/contracts/floe/*.yml files found")
 
     for contract_path in contract_paths:
         rel_path = contract_path.relative_to(repo_root)
+        domain = contract_path.parents[2].name
+        expected_namespace = f"{domain}_silver"
         document = yaml.safe_load(contract_path.read_text(encoding="utf-8"))
         storage_names = {d.get("name") for d in document.get("storages", {}).get("definitions", [])}
         for required_alias in ("lakehouse_bronze", "lakehouse_silver"):
@@ -374,10 +379,10 @@ def _check_floe_contract_structure(repo_root: Path) -> CheckResult:
                     f"{rel_path}: entity {entity.get('name')!r} sink.accepted.iceberg.catalog must not "
                     "name the 'polaris' provider directly (use the logical 'iceberg_catalog' alias)"
                 )
-            if namespace in {"silver", "gold"}:
+            if namespace != expected_namespace:
                 errors.append(
                     f"{rel_path}: entity {entity.get('name')!r} sink.accepted.iceberg.namespace "
-                    f"must be product-scoped, not a shared {namespace!r} namespace"
+                    f"must be domain-scoped {expected_namespace!r}, got {namespace!r}"
                 )
 
     if errors:
