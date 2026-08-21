@@ -163,7 +163,7 @@ never to raw paths. Rejected rows are quarantined as CSV; exit code 0 covers
 
 ![Medallion and Catalog Data Path](chart4-medallion-catalog.svg)
 
-<sub>environments/local/main.tf · catalog/polaris/main.tf · lakehouse_code/lakehouse.yaml · ADR 0011, 0013, 0025</sub>
+<sub>environments/local/main.tf · catalog/polaris/main.tf · lakehouse_code/lakehouse.yaml · ADR 0011, 0013, 0026</sub>
 
 ## Chart 5 — Provider Contracts
 
@@ -290,7 +290,7 @@ prefix.
 Everything in Phase ③ is **user code under `lakehouse_code/`**, and nothing about the
 platform changes when a source, domain, or product is added. This is the "dynamic" half
 of the platform (the artifacts phase); the charts above are the static half. Unlike the
-pre-ADR-0025 layout, ownership is no longer domain-vertical: Bronze is source-owned,
+pre-ADR-0026 layout, ownership is no longer domain-vertical: Bronze is source-owned,
 Silver is domain-owned, Gold is product-owned, dashboards are consumption-owned, and each
 concern still maps to exactly one engine:
 
@@ -321,7 +321,7 @@ silver, gold, dashboard, and pipeline slices, then runs the artifact phase.
 `olf catalog sync-namespaces` derives the Bronze, Silver, and Gold namespaces from
 `lakehouse.yaml` plus every `bronze/*/source.yaml` and reconciles them before Floe, dbt, or
 OpenMetadata use them. A new product, domain, or source therefore needs no environment
-Terraform edit or platform apply; see ADR 0022 and ADR 0025. `lakehouse_code/lakehouse.yaml`
+Terraform edit or platform apply; see ADR 0022 and ADR 0026. `lakehouse_code/lakehouse.yaml`
 is the canonical, human- and machine-readable descriptor of every domain and product.
 
 ---

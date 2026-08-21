@@ -1,4 +1,4 @@
-# ADR 0025: Medallion Ownership and the Flat Catalog Namespace Contract
+# ADR 0026: Medallion Ownership and the Flat Catalog Namespace Contract
 
 ## Status
 

@@ -98,7 +98,7 @@ and teardown directly, invoking Terraform/Helm/kubectl/Docker/kind as
 managed external processes. AWS/Azure remain on the shell-orchestration path
 until #125.
 
-`0025-medallion-ownership-and-catalog-namespace-contract.md` supersedes ADR
+`0026-medallion-ownership-and-catalog-namespace-contract.md` supersedes ADR
 0021's descriptor shape for non-diagnostic use: `lakehouse_code/` replaces
 `domains/` as the user-code root, Bronze becomes source-owned, Silver becomes
 domain-owned (no longer keyed by product `asset_prefix`), Gold stays

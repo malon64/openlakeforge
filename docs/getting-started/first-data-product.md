@@ -78,7 +78,7 @@ lakehouse_code/
 ```
 
 Ownership follows the medallion layer, not one vertical per domain (see
-[ADR 0025](../adr/0025-medallion-ownership-and-catalog-namespace-contract.md)):
+[ADR 0026](../adr/0026-medallion-ownership-and-catalog-namespace-contract.md)):
 
 ```text
 Bronze = source-aligned    lakehouse_code/bronze/<source>/

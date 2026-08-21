@@ -22,7 +22,7 @@ Infrastructure-specific values such as Kubernetes resources, catalog implementat
 storage endpoints, and physical credentials do **not** belong in either descriptor. Those
 are resolved separately through OpenLakeForge provider contracts.
 
-See [ADR 0025](../adr/0025-medallion-ownership-and-catalog-namespace-contract.md) for the
+See [ADR 0026](../adr/0026-medallion-ownership-and-catalog-namespace-contract.md) for the
 architectural reasoning behind this ownership split.
 
 ---
@@ -616,7 +616,7 @@ Changes to `displayName`, `description`, and `status` are generally metadata-onl
 # Related documentation
 
 * [Build your first data product](../getting-started/first-data-product.md)
-* [ADR 0025 — medallion ownership and catalog namespace contract](../adr/0025-medallion-ownership-and-catalog-namespace-contract.md)
+* [ADR 0026 — medallion ownership and catalog namespace contract](../adr/0026-medallion-ownership-and-catalog-namespace-contract.md)
 * [Lakehouse JSON Schema](../schema/lakehouse.schema.json)
 * [Source JSON Schema](../schema/source.schema.json)
 * [v1alpha1 → v1alpha2 migration (historical)](../migrations/domain-v1alpha1-to-v1alpha2.md)

@@ -310,6 +310,18 @@ for product in PRODUCTS:
             f"{product['job']} selected Silver assets {sorted(selected_silver_keys)}; "
             f"expected {sorted(expected_silver_keys)}"
         )
+    canonical_gold_keys = {
+        (inventory_product.id, table.name)
+        for inventory_product in INVENTORY.products
+        for table in inventory_product.gold_tables
+    }
+    selected_gold_keys = selected_asset_keys & canonical_gold_keys
+    expected_gold_keys = {(prefix, asset_name) for asset_name in product["gold"]}
+    if selected_gold_keys != expected_gold_keys:
+        raise SystemExit(
+            f"{product['job']} selected Gold assets {sorted(selected_gold_keys)}; "
+            f"expected {sorted(expected_gold_keys)}"
+        )
 
     for source, resource in product["bronze_inputs"]:
         if (source, resource) not in asset_keys:
