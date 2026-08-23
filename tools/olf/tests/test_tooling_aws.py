@@ -63,3 +63,21 @@ def test_ecr_get_login_password_strips_output() -> None:
 
     assert password == "password-value"
     assert runner.last_call.argv == ["aws", "ecr", "get-login-password", "--region", "eu-west-1"]
+
+
+def test_eks_describe_cluster_builds_exact_argv_and_defaults_to_no_check() -> None:
+    aws, runner = _aws(CommandResult(argv=(), returncode=1, stdout="", stderr="not found", duration_seconds=0.0))
+
+    result = aws.eks_describe_cluster("eks-openlakeforge-poc", region="eu-west-1")
+
+    assert result.returncode == 1
+    assert runner.last_call.argv == [
+        "aws",
+        "eks",
+        "describe-cluster",
+        "--region",
+        "eu-west-1",
+        "--name",
+        "eks-openlakeforge-poc",
+    ]
+    assert runner.last_call.kwargs["check"] is False

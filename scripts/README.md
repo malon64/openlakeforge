@@ -1,6 +1,7 @@
 # Scripts
 
-Local, Azure POC, AWS POC, and repository validation scripts live here.
+Repository validation scripts, and the shell helpers the remaining
+non-lifecycle artifact tooling still depends on, live here.
 
 Repository validation scripts live under `scripts/test/`.
 `check-structure.sh` validates the repository skeleton and documentation
@@ -12,13 +13,16 @@ generated runtime profile expectations — is behavioral and lives in
 `make check-contracts`; see [ADR 0017](../docs/adr/0017-shared-python-deploy-tooling.md).
 ## Shell vs. Python boundary
 
-Shell scripts orchestrate the CLIs (terraform, kubectl, helm, docker, dbt,
-floe, aws, az). Cross-environment logic that is not a CLI call — REST/API
-requests, object-storage uploads, report bundle manipulation, credential
-handling, and provider-contract parsing — lives in the uv-managed Python
-package `tools/olf`, exposed through the `olf` CLI. Shell reaches it through
-`scripts/lib/python.sh` (`olf_run`), which runs `uv run --project tools/olf`.
-See [ADR 0017](../docs/adr/0017-shared-python-deploy-tooling.md).
+Every provider's deployment lifecycle now runs entirely in Python (see
+below); the shell that remains here wraps the standalone, non-lifecycle
+artifact tooling - Floe manifest generation, dbt profile rendering - that
+still shells out to `docker`/`dbt` directly. Cross-environment logic that
+is not a CLI call — REST/API requests, object-storage uploads, report
+bundle manipulation, credential handling, and provider-contract parsing —
+lives in the uv-managed Python package `tools/olf`, exposed through the
+`olf` CLI. Shell reaches it through `scripts/lib/python.sh` (`olf_run`),
+which runs `uv run --project tools/olf`. See
+[ADR 0017](../docs/adr/0017-shared-python-deploy-tooling.md).
 End-to-end validation also lives in `olf` (`olf e2e run`); the public Make
 targets call it directly with environment-specific defaults.
 
@@ -45,51 +49,30 @@ Environment-neutral shell lives outside `scripts/local/`:
 `check-project-code.sh` installs project-code dependencies into a local cache and
 verifies that the domain Dagster definitions load.
 
-The local (kind-based) deployment lifecycle - foundation, image prefetch,
-static platform apply, dynamic artifact deploy, status, port-forward, and
-teardown - is orchestrated by the Python deployment engine under
-`tools/olf/olf/deployment/{engine.py,local/}`, exposed through
-`olf deploy|destroy|status|forward --provider local`; see
-[ADR 0025](../docs/adr/0025-olf-owns-local-deployment-orchestration.md). The
-local `make` targets (`local-up`, `local-slim-up`, `local-down`,
-`local-foundation-*`, `local-platform-*`, `local-artifacts-deploy`,
-`local-prefetch`, `local-status`, `local-forward`) are thin delegates to that
-engine. `scripts/local/` now only holds the standalone image build/load
-helpers used by the `project-code-image`/`project-code-load`/
-`superset-image`/`superset-load` Make targets:
+Every provider's deployment lifecycle - foundation, image prefetch/build/
+push, static platform apply, dynamic artifact deploy, status, port-forward,
+and teardown - is orchestrated by the Python deployment engine under
+`tools/olf/olf/deployment/{engine.py,local/,cloud/}`, exposed through
+`olf deploy|destroy|status|forward --provider local|aws|azure`; see
+[ADR 0025](../docs/adr/0025-olf-owns-local-deployment-orchestration.md) for
+local and [ADR 0027](../docs/adr/0027-olf-owns-cloud-deployment-orchestration.md)
+for AWS/Azure. The `local-*`/`azure-*`/`aws-*` `make` targets (`*-up`,
+`*-down`, `*-foundation-*`, `*-platform-*`, `*-artifacts-deploy`,
+`*-status`, `*-forward`, `*-e2e`) are thin delegates to that engine.
+`scripts/azure/` and `scripts/aws/` no longer exist. `scripts/local/` still
+holds the standalone image build/load helpers used by the
+`project-code-image`/`project-code-load`/`superset-image`/`superset-load`
+Make targets:
 
 - `images/` contains local image build/load helpers for project-code and
   Superset.
 
 Manifest upload, Superset report deploy/export, and OpenMetadata metadata
-deploy are now `olf` subcommands (`artifacts upload-manifests`,
-`superset deploy-reports` / `export-reports`, `openmetadata deploy-metadata`),
-invoked by the per-environment `stack/deploy-artifacts.sh` orchestrators.
+deploy are `olf` subcommands (`artifacts upload-manifests`,
+`superset deploy-reports` / `export-reports`, `openmetadata deploy-metadata`);
+the standalone (non-lifecycle) Make targets for these still reach them
+through `scripts/artifacts/olf.sh`. The full deploy/artifacts lifecycle for
+every provider calls the same subcommands directly, in-process, through
+`olf.deployment.artifact_steps`.
 
-Azure POC scripts under `scripts/azure/` mirror the local lifecycle without
-overloading local behavior:
-
-- `foundation/` contains Terraform wrappers for AKS and ACR.
-- `stack/` contains Azure platform up, dynamic artifact deploy, and teardown
-  wrappers.
-- `images/` builds and pushes Superset and project-code images to ACR.
-- e2e validation is exposed directly through `make azure-e2e`, which runs
-  `olf e2e run --env azure` against Dagster, Trino, Superset, OpenMetadata,
-  and ops artifacts.
-
-AWS POC scripts under `scripts/aws/` mirror Azure while using AWS managed
-services:
-
-- `foundation/` contains Terraform wrappers for EKS, ECR, and EKS Pod Identity readiness.
-- `stack/` contains AWS platform up, S3/ECR artifact deploy, and teardown
-  wrappers.
-- `images/` builds and pushes Superset and project-code images to ECR.
-  `PROJECT_CODE_PYTHON_BASE_IMAGE` defaults to the ECR Public Docker Library
-  mirror for AWS project-code builds to avoid depending on Docker Hub during
-  `make aws-artifacts-deploy`.
-- e2e validation is exposed directly through `make aws-e2e`, which runs
-  `olf e2e run --env aws`: EKS provider, pod, S3, Glue, and Trino preflight
-  checks followed by the shared full Dagster and reporting validation.
-
-The Makefile is the public interface for normal use. The shell scripts stay
-focused implementation details behind those targets.
+The Makefile is the public interface for normal use.

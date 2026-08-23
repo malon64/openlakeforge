@@ -435,16 +435,18 @@ def _check_helm_values_as_data(repo_root: Path) -> CheckResult:
 # still `grep` as present in the unexpanded Makefile source but resolve to
 # empty/wrong at expansion time.
 #
-# `local-forward` is deliberately absent: since #124 it delegates to
-# `olf forward --provider local`, which resolves KUBECONFIG/kube-context
-# internally through `DeploymentContext.local()` rather than embedding them
-# in the Make recipe text; that wiring is covered by
-# `tools/olf/tests/test_deployment_context.py`,
-# `tools/olf/tests/test_local_forward.py`, and
-# `tools/olf/tests/test_cli_deployment.py` instead.
+# `local-forward`/`azure-forward`/`aws-forward` are deliberately absent:
+# since #124 (local) and #125 (AWS/Azure) they delegate to
+# `olf forward --provider <provider>`, which resolves KUBECONFIG/kube-context
+# internally - local through `DeploymentContext.local()`, cloud through
+# `CloudProvider._foundation_facts` reading the foundation's Terraform
+# outputs - rather than embedding them in the Make recipe text; that wiring
+# is covered by `tools/olf/tests/test_deployment_context.py`,
+# `tools/olf/tests/test_local_forward.py`, `tools/olf/tests/
+# test_cloud_provider.py`, `tools/olf/tests/test_cloud_aws.py`,
+# `tools/olf/tests/test_cloud_azure.py`, and `tools/olf/tests/
+# test_cli_deployment.py` instead.
 _KUBE_WIRED_TARGETS = (
-    "azure-forward",
-    "aws-forward",
     "floe-manifest-upload",
     "superset-reports-deploy",
     "superset-reports-export",

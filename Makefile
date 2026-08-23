@@ -16,8 +16,6 @@ SUPERSET_IMAGE_REPOSITORY ?= ghcr.io/openlakeforge/superset
 SUPERSET_IMAGE_TAG ?= local
 SUPERSET_IMAGE_PULL_POLICY ?= Never
 AZURE_CLUSTER_NAME ?= aks-openlakeforge-poc
-AZURE_KUBE_CONTEXT ?= $(AZURE_CLUSTER_NAME)
-AZURE_KUBECONFIG_PATH ?= $(CURDIR)/.tmp/kubeconfigs/azure.yaml
 AZURE_NODE_COUNT ?= 3
 AZURE_ACR_NAME_PREFIX ?= openlakeforgepoc
 AZURE_IMAGE_TAG ?= azure-$(shell git rev-parse --short HEAD 2>/dev/null || date -u +%Y%m%d%H%M%S)
@@ -29,8 +27,6 @@ AWS_REGION ?= eu-west-1
 # Runtime cluster name / kube-context. Must match cluster_name in
 # infra/terraform/foundations/aws-eks/sandbox.tfvars (sandbox requires a limited- prefix).
 AWS_CLUSTER_NAME ?= limited-eks-openlakeforge-poc
-AWS_KUBE_CONTEXT ?= $(AWS_CLUSTER_NAME)
-AWS_KUBECONFIG_PATH ?= $(CURDIR)/.tmp/kubeconfigs/aws.yaml
 AWS_NODE_DESIRED_SIZE ?= 3
 AWS_NODE_MIN_SIZE ?= 1
 AWS_NODE_MAX_SIZE ?= 4
@@ -40,6 +36,10 @@ AWS_PROJECT_CODE_IMAGE_REPOSITORY ?=
 AWS_PROJECT_CODE_IMAGE_TAG ?= $(AWS_IMAGE_TAG)
 AWS_SUPERSET_IMAGE_REPOSITORY ?=
 AWS_SUPERSET_IMAGE_TAG ?= $(AWS_IMAGE_TAG)
+AZURE_OLF_FLAGS = --provider azure --namespace $(NAMESPACE)
+AZURE_ENV = AZURE_CLUSTER_NAME=$(AZURE_CLUSTER_NAME) AZURE_NODE_COUNT=$(AZURE_NODE_COUNT) AZURE_ACR_NAME_PREFIX=$(AZURE_ACR_NAME_PREFIX) AZURE_TFVARS_FILE="$(AZURE_TFVARS_FILE)" AZURE_IMAGE_TAG=$(AZURE_IMAGE_TAG) PROJECT_CODE_IMAGE_REPOSITORY="$(AZURE_PROJECT_CODE_IMAGE_REPOSITORY)" PROJECT_CODE_IMAGE_TAG="$(AZURE_PROJECT_CODE_IMAGE_TAG)" SUPERSET_IMAGE_REPOSITORY="$(AZURE_SUPERSET_IMAGE_REPOSITORY)" SUPERSET_IMAGE_TAG="$(AZURE_SUPERSET_IMAGE_TAG)"
+AWS_OLF_FLAGS = --provider aws --namespace $(NAMESPACE)
+AWS_ENV = AWS_REGION=$(AWS_REGION) AWS_CLUSTER_NAME=$(AWS_CLUSTER_NAME) AWS_NODE_DESIRED_SIZE=$(AWS_NODE_DESIRED_SIZE) AWS_NODE_MIN_SIZE=$(AWS_NODE_MIN_SIZE) AWS_NODE_MAX_SIZE=$(AWS_NODE_MAX_SIZE) AWS_NODE_INSTANCE_TYPES=$(AWS_NODE_INSTANCE_TYPES) AWS_IMAGE_TAG=$(AWS_IMAGE_TAG) PROJECT_CODE_IMAGE_REPOSITORY="$(AWS_PROJECT_CODE_IMAGE_REPOSITORY)" PROJECT_CODE_IMAGE_TAG="$(AWS_PROJECT_CODE_IMAGE_TAG)" SUPERSET_IMAGE_REPOSITORY="$(AWS_SUPERSET_IMAGE_REPOSITORY)" SUPERSET_IMAGE_TAG="$(AWS_SUPERSET_IMAGE_TAG)"
 
 help:
 	@printf '%s\n' 'OpenLakeForge bootstrap targets:'
@@ -223,106 +223,58 @@ local-forward:
 	@$(OLF_BIN) forward $(LOCAL_OLF_FLAGS) --profile $(LOCAL_PROFILE)
 
 local-e2e:
-	@NAMESPACE=$(NAMESPACE) CLUSTER_NAME=$(CLUSTER_NAME) KUBE_CONTEXT=$(KUBE_CONTEXT) KUBECONFIG="$(LOCAL_KUBECONFIG_PATH)" OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR=infra/terraform/environments/local bash scripts/artifacts/olf.sh e2e run --env local --suite $(E2E_SUITE)
+	@NAMESPACE=$(NAMESPACE) CLUSTER_NAME=$(CLUSTER_NAME) KUBE_CONTEXT=$(KUBE_CONTEXT) KUBECONFIG="$(LOCAL_KUBECONFIG_PATH)" OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR=infra/terraform/environments/local $(OLF_BIN) e2e run --env local --suite $(E2E_SUITE)
 
 azure-foundation-up:
-	@AZURE_TFVARS_FILE="$(AZURE_TFVARS_FILE)" AZURE_CLUSTER_NAME=$(AZURE_CLUSTER_NAME) AZURE_NODE_COUNT=$(AZURE_NODE_COUNT) AZURE_ACR_NAME_PREFIX=$(AZURE_ACR_NAME_PREFIX) KUBECONFIG_PATH="$(AZURE_KUBECONFIG_PATH)" bash scripts/azure/foundation/up.sh
+	@$(AZURE_ENV) $(OLF_BIN) deploy $(AZURE_OLF_FLAGS) --phase foundation
 
 azure-platform-up:
-	@NAMESPACE=$(NAMESPACE) AZURE_CLUSTER_NAME=$(AZURE_CLUSTER_NAME) KUBE_CONTEXT=$(AZURE_KUBE_CONTEXT) KUBECONFIG_PATH="$(AZURE_KUBECONFIG_PATH)" DEPLOYMENT_SCOPE=azure AZURE_IMAGE_TAG=$(AZURE_IMAGE_TAG) PROJECT_CODE_IMAGE_REPOSITORY="$(AZURE_PROJECT_CODE_IMAGE_REPOSITORY)" PROJECT_CODE_IMAGE_TAG="$(AZURE_PROJECT_CODE_IMAGE_TAG)" PROJECT_CODE_IMAGE_PULL_POLICY=Always ENABLE_GOVERNANCE=$(ENABLE_GOVERNANCE) ENABLE_ANALYTICS=$(ENABLE_ANALYTICS) SUPERSET_IMAGE_REPOSITORY="$(AZURE_SUPERSET_IMAGE_REPOSITORY)" SUPERSET_IMAGE_TAG="$(AZURE_SUPERSET_IMAGE_TAG)" SUPERSET_IMAGE_PULL_POLICY=Always bash scripts/azure/stack/platform-up.sh
+	@$(AZURE_ENV) $(OLF_BIN) deploy $(AZURE_OLF_FLAGS) --phase platform
 
 azure-artifacts-deploy:
-	@NAMESPACE=$(NAMESPACE) AZURE_CLUSTER_NAME=$(AZURE_CLUSTER_NAME) KUBE_CONTEXT=$(AZURE_KUBE_CONTEXT) KUBECONFIG_PATH="$(AZURE_KUBECONFIG_PATH)" DEPLOYMENT_SCOPE=azure AZURE_IMAGE_TAG=$(AZURE_IMAGE_TAG) PROJECT_CODE_IMAGE_REPOSITORY="$(AZURE_PROJECT_CODE_IMAGE_REPOSITORY)" PROJECT_CODE_IMAGE_TAG="$(AZURE_PROJECT_CODE_IMAGE_TAG)" bash scripts/azure/stack/deploy-artifacts.sh
+	@$(AZURE_ENV) $(OLF_BIN) deploy $(AZURE_OLF_FLAGS) --phase artifacts
 
 azure-up:
-	@set -e; export KUBECONFIG="$(AZURE_KUBECONFIG_PATH)"; \
-	image_tag="$(AZURE_IMAGE_TAG)"; \
-	$(MAKE) azure-foundation-up AZURE_IMAGE_TAG="$$image_tag"; \
-	$(MAKE) azure-platform-up AZURE_IMAGE_TAG="$$image_tag"; \
-	$(MAKE) azure-artifacts-deploy AZURE_IMAGE_TAG="$$image_tag"
+	@$(AZURE_ENV) $(OLF_BIN) deploy $(AZURE_OLF_FLAGS)
 
 azure-forward:
-	@echo "Starting Azure POC port-forwards (Ctrl-C to stop all)..."
-	@echo "  Dagster UI:       http://localhost:3000"
-	@echo "  Superset UI:      http://localhost:8088  (admin / admin)"
-	@echo "  OpenMetadata UI:  http://localhost:8585  (admin@open-metadata.org / admin)"
-	@echo "  Trino UI:         http://localhost:8080"
-	@echo "  Polaris API:      http://localhost:8181"
-	@echo "  SeaweedFS S3:     http://localhost:9000"
-	@set -e; export KUBECONFIG="$(AZURE_KUBECONFIG_PATH)"; \
-	context="$(AZURE_KUBE_CONTEXT)"; \
-	kubectl --context $$context port-forward svc/seaweedfs-s3 9000:8333 -n $(NAMESPACE) & \
-	seaweedfs_pid=$$!; \
-	kubectl --context $$context port-forward svc/polaris 8181:8181 -n $(NAMESPACE) & \
-	polaris_pid=$$!; \
-	kubectl --context $$context port-forward svc/trino 8080:8080 -n $(NAMESPACE) & \
-	trino_pid=$$!; \
-	kubectl --context $$context port-forward svc/dagster-dagster-webserver 3000:80 -n $(NAMESPACE) & \
-	dagster_pid=$$!; \
-	kubectl --context $$context port-forward svc/superset 8088:8088 -n $(NAMESPACE) & \
-	superset_pid=$$!; \
-	kubectl --context $$context port-forward svc/openmetadata 8585:8585 -n $(NAMESPACE) & \
-	om_pid=$$!; \
-	trap 'kill $$seaweedfs_pid $$polaris_pid $$trino_pid $$dagster_pid $$superset_pid $$om_pid 2>/dev/null || true' INT TERM EXIT; \
-	wait
+	@$(AZURE_ENV) $(OLF_BIN) forward $(AZURE_OLF_FLAGS)
 
 azure-e2e:
-	@NAMESPACE=$(NAMESPACE) AZURE_CLUSTER_NAME=$(AZURE_CLUSTER_NAME) KUBE_CONTEXT=$(AZURE_KUBE_CONTEXT) KUBECONFIG="$(AZURE_KUBECONFIG_PATH)" OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR=infra/terraform/environments/azure-poc bash scripts/artifacts/olf.sh e2e run --env azure
+	@NAMESPACE=$(NAMESPACE) AZURE_CLUSTER_NAME=$(AZURE_CLUSTER_NAME) OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR=infra/terraform/environments/azure-poc $(OLF_BIN) e2e run --env azure
 
 azure-down:
-	@$(MAKE) azure-platform-down
-	@$(MAKE) azure-foundation-down
+	@$(AZURE_ENV) $(OLF_BIN) destroy $(AZURE_OLF_FLAGS)
 
 azure-platform-down:
-	@NAMESPACE=$(NAMESPACE) AZURE_CLUSTER_NAME=$(AZURE_CLUSTER_NAME) KUBE_CONTEXT=$(AZURE_KUBE_CONTEXT) KUBECONFIG_PATH="$(AZURE_KUBECONFIG_PATH)" bash scripts/azure/stack/teardown.sh
+	@$(AZURE_ENV) $(OLF_BIN) destroy $(AZURE_OLF_FLAGS) --phase platform
 
 azure-foundation-down:
-	@NAMESPACE=$(NAMESPACE) AZURE_TFVARS_FILE="$(AZURE_TFVARS_FILE)" AZURE_CLUSTER_NAME=$(AZURE_CLUSTER_NAME) AZURE_NODE_COUNT=$(AZURE_NODE_COUNT) AZURE_ACR_NAME_PREFIX=$(AZURE_ACR_NAME_PREFIX) KUBE_CONTEXT=$(AZURE_KUBE_CONTEXT) KUBECONFIG_PATH="$(AZURE_KUBECONFIG_PATH)" bash scripts/azure/foundation/down.sh
+	@$(AZURE_ENV) $(OLF_BIN) destroy $(AZURE_OLF_FLAGS) --phase foundation
 
 aws-foundation-up:
-	@AWS_REGION=$(AWS_REGION) AWS_CLUSTER_NAME=$(AWS_CLUSTER_NAME) AWS_NODE_DESIRED_SIZE=$(AWS_NODE_DESIRED_SIZE) AWS_NODE_MIN_SIZE=$(AWS_NODE_MIN_SIZE) AWS_NODE_MAX_SIZE=$(AWS_NODE_MAX_SIZE) AWS_NODE_INSTANCE_TYPES=$(AWS_NODE_INSTANCE_TYPES) KUBECONFIG_PATH="$(AWS_KUBECONFIG_PATH)" bash scripts/aws/foundation/up.sh
+	@$(AWS_ENV) $(OLF_BIN) deploy $(AWS_OLF_FLAGS) --phase foundation
 
 aws-platform-up:
-	@NAMESPACE=$(NAMESPACE) AWS_REGION=$(AWS_REGION) AWS_CLUSTER_NAME=$(AWS_CLUSTER_NAME) KUBE_CONTEXT=$(AWS_KUBE_CONTEXT) KUBECONFIG_PATH="$(AWS_KUBECONFIG_PATH)" DEPLOYMENT_SCOPE=aws AWS_IMAGE_TAG=$(AWS_IMAGE_TAG) PROJECT_CODE_IMAGE_REPOSITORY="$(AWS_PROJECT_CODE_IMAGE_REPOSITORY)" PROJECT_CODE_IMAGE_TAG="$(AWS_PROJECT_CODE_IMAGE_TAG)" PROJECT_CODE_IMAGE_PULL_POLICY=Always ENABLE_GOVERNANCE=$(ENABLE_GOVERNANCE) ENABLE_ANALYTICS=$(ENABLE_ANALYTICS) SUPERSET_IMAGE_REPOSITORY="$(AWS_SUPERSET_IMAGE_REPOSITORY)" SUPERSET_IMAGE_TAG="$(AWS_SUPERSET_IMAGE_TAG)" SUPERSET_IMAGE_PULL_POLICY=Always bash scripts/aws/stack/platform-up.sh
+	@$(AWS_ENV) $(OLF_BIN) deploy $(AWS_OLF_FLAGS) --phase platform
 
 aws-artifacts-deploy:
-	@NAMESPACE=$(NAMESPACE) AWS_REGION=$(AWS_REGION) AWS_CLUSTER_NAME=$(AWS_CLUSTER_NAME) KUBE_CONTEXT=$(AWS_KUBE_CONTEXT) KUBECONFIG_PATH="$(AWS_KUBECONFIG_PATH)" DEPLOYMENT_SCOPE=aws AWS_IMAGE_TAG=$(AWS_IMAGE_TAG) PROJECT_CODE_IMAGE_REPOSITORY="$(AWS_PROJECT_CODE_IMAGE_REPOSITORY)" PROJECT_CODE_IMAGE_TAG="$(AWS_PROJECT_CODE_IMAGE_TAG)" bash scripts/aws/stack/deploy-artifacts.sh
+	@$(AWS_ENV) $(OLF_BIN) deploy $(AWS_OLF_FLAGS) --phase artifacts
 
 aws-up:
-	@set -e; export KUBECONFIG="$(AWS_KUBECONFIG_PATH)"; \
-	image_tag="$(AWS_IMAGE_TAG)"; \
-	$(MAKE) aws-foundation-up AWS_IMAGE_TAG="$$image_tag"; \
-	$(MAKE) aws-platform-up AWS_IMAGE_TAG="$$image_tag"; \
-	$(MAKE) aws-artifacts-deploy AWS_IMAGE_TAG="$$image_tag"
+	@$(AWS_ENV) $(OLF_BIN) deploy $(AWS_OLF_FLAGS)
 
 aws-forward:
-	@echo "Starting AWS POC port-forwards (Ctrl-C to stop all)..."
-	@echo "  Dagster UI:       http://localhost:3000"
-	@echo "  Superset UI:      http://localhost:8088  (admin / admin)"
-	@echo "  OpenMetadata UI:  http://localhost:8585  (admin@open-metadata.org / admin)"
-	@echo "  Trino UI:         http://localhost:8080"
-	@set -e; export KUBECONFIG="$(AWS_KUBECONFIG_PATH)"; \
-	context="$(AWS_KUBE_CONTEXT)"; \
-	kubectl --context $$context port-forward svc/trino 8080:8080 -n $(NAMESPACE) & \
-	trino_pid=$$!; \
-	kubectl --context $$context port-forward svc/dagster-dagster-webserver 3000:80 -n $(NAMESPACE) & \
-	dagster_pid=$$!; \
-	kubectl --context $$context port-forward svc/superset 8088:8088 -n $(NAMESPACE) & \
-	superset_pid=$$!; \
-	kubectl --context $$context port-forward svc/openmetadata 8585:8585 -n $(NAMESPACE) & \
-	om_pid=$$!; \
-	trap 'kill $$trino_pid $$dagster_pid $$superset_pid $$om_pid 2>/dev/null || true' INT TERM EXIT; \
-	wait
+	@$(AWS_ENV) $(OLF_BIN) forward $(AWS_OLF_FLAGS)
 
 aws-e2e:
-	@NAMESPACE=$(NAMESPACE) AWS_REGION=$(AWS_REGION) AWS_CLUSTER_NAME=$(AWS_CLUSTER_NAME) KUBE_CONTEXT=$(AWS_KUBE_CONTEXT) KUBECONFIG="$(AWS_KUBECONFIG_PATH)" OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR=infra/terraform/environments/aws-poc bash scripts/artifacts/olf.sh e2e run --env aws
+	@NAMESPACE=$(NAMESPACE) AWS_REGION=$(AWS_REGION) AWS_CLUSTER_NAME=$(AWS_CLUSTER_NAME) OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR=infra/terraform/environments/aws-poc $(OLF_BIN) e2e run --env aws
 
 aws-down:
-	@$(MAKE) aws-platform-down
-	@$(MAKE) aws-foundation-down
+	@$(AWS_ENV) $(OLF_BIN) destroy $(AWS_OLF_FLAGS)
 
 aws-platform-down:
-	@NAMESPACE=$(NAMESPACE) AWS_REGION=$(AWS_REGION) AWS_CLUSTER_NAME=$(AWS_CLUSTER_NAME) KUBE_CONTEXT=$(AWS_KUBE_CONTEXT) KUBECONFIG_PATH="$(AWS_KUBECONFIG_PATH)" bash scripts/aws/stack/teardown.sh
+	@$(AWS_ENV) $(OLF_BIN) destroy $(AWS_OLF_FLAGS) --phase platform
 
 aws-foundation-down:
-	@NAMESPACE=$(NAMESPACE) AWS_REGION=$(AWS_REGION) AWS_CLUSTER_NAME=$(AWS_CLUSTER_NAME) AWS_NODE_DESIRED_SIZE=$(AWS_NODE_DESIRED_SIZE) AWS_NODE_MIN_SIZE=$(AWS_NODE_MIN_SIZE) AWS_NODE_MAX_SIZE=$(AWS_NODE_MAX_SIZE) AWS_NODE_INSTANCE_TYPES=$(AWS_NODE_INSTANCE_TYPES) KUBE_CONTEXT=$(AWS_KUBE_CONTEXT) KUBECONFIG_PATH="$(AWS_KUBECONFIG_PATH)" bash scripts/aws/foundation/down.sh
+	@$(AWS_ENV) $(OLF_BIN) destroy $(AWS_OLF_FLAGS) --phase foundation

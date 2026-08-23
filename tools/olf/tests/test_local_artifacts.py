@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from olf import contracts as contracts_module
 from olf.deployment.context import DeploymentContext, Profile
 from olf.deployment.engine import Toolkit
 from olf.deployment.local import artifacts
@@ -24,9 +25,9 @@ def _toolkit() -> Toolkit:
 
 def test_applied_contract_environment_applies_and_restores(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     config = _config(tmp_path)
-    monkeypatch.setattr(artifacts.contracts, "load_provider_contracts", lambda terraform_dir: None)
+    monkeypatch.setattr(contracts_module, "load_provider_contracts", lambda terraform_dir: None)
     monkeypatch.setattr(
-        artifacts.contracts,
+        contracts_module,
         "build_contract_env",
         lambda base, contracts_value, *, repo_root: (
             {"OPENLAKEFORGE_CATALOG_NAME": "lakehouse_dev"},
@@ -57,7 +58,7 @@ def test_artifacts_deploy_preserves_step_order(monkeypatch: pytest.MonkeyPatch, 
     )
     monkeypatch.setattr(artifacts, "sync_catalog_namespaces", lambda: calls.append("sync_namespaces"))
     monkeypatch.setattr(
-        artifacts.floe_manifests,
+        artifacts,
         "generate_local_manifests",
         lambda *a, **k: calls.append("generate_manifests") or [],
     )
@@ -101,7 +102,7 @@ def test_artifacts_deploy_uploads_manifests_when_image_tag_is_not_local(
 
     monkeypatch.setattr(artifacts, "applied_contract_environment", _fake_contextmanager(lambda: None))
     monkeypatch.setattr(artifacts, "sync_catalog_namespaces", lambda: None)
-    monkeypatch.setattr(artifacts.floe_manifests, "generate_local_manifests", lambda *a, **k: [])
+    monkeypatch.setattr(artifacts, "generate_local_manifests", lambda *a, **k: [])
     monkeypatch.setattr(artifacts, "activate_runtime_revision", lambda runtime_root: "sha256:abc")
     monkeypatch.setattr(
         artifacts, "upload_runtime_manifests", lambda runtime_root: calls.append("upload_runtime_manifests")

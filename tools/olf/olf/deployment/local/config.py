@@ -13,40 +13,13 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from olf.deployment.context import DeploymentContext, Profile
+from olf.deployment.env_settings import env as _env
+from olf.deployment.env_settings import float_env as _float_env
+from olf.deployment.env_settings import int_env as _int_env
+from olf.deployment.env_settings import retry_policy as _retry_policy
+from olf.deployment.env_settings import truthy as _truthy
+from olf.deployment.floe_manifests import FloeManifestSettings
 from olf.deployment.retry import RetryPolicy
-
-
-def _env(environ: Mapping[str, str], name: str, default: str) -> str:
-    value = environ.get(name)
-    return default if value is None or value == "" else value
-
-
-def _truthy(value: str) -> bool:
-    return value.strip().lower() in {"1", "true", "yes", "y"}
-
-
-def _int_env(environ: Mapping[str, str], name: str, default: int) -> int:
-    return int(_env(environ, name, str(default)))
-
-
-def _float_env(environ: Mapping[str, str], name: str, default: float) -> float:
-    return float(_env(environ, name, str(default)))
-
-
-def _retry_policy(
-    environ: Mapping[str, str],
-    *,
-    specific_attempts: str,
-    specific_delay: str,
-    generic_attempts: str = "DOCKER_REGISTRY_ATTEMPTS",
-    generic_delay: str = "DOCKER_REGISTRY_RETRY_DELAY_SECONDS",
-    default_attempts: int = 3,
-    default_delay: float = 10.0,
-) -> RetryPolicy:
-    """Port of `scripts/lib/docker.sh`'s two-tier `SPECIFIC:-GENERIC:-default` fallback."""
-    attempts = _int_env(environ, specific_attempts, _int_env(environ, generic_attempts, default_attempts))
-    delay = _float_env(environ, specific_delay, _float_env(environ, generic_delay, default_delay))
-    return RetryPolicy(max_attempts=attempts, delay_seconds=delay)
 
 
 @dataclass(frozen=True)
@@ -187,27 +160,6 @@ class PrefetchSettings:
                 default_attempts=5,
                 default_delay=20.0,
             ),
-        )
-
-
-@dataclass(frozen=True)
-class FloeManifestSettings:
-    version: str
-    image: str
-    runtime: str
-    runtime_artifact_dir: Path
-    platform: str | None
-
-    @classmethod
-    def from_environment(cls, environ: Mapping[str, str], *, repo_root: Path) -> FloeManifestSettings:
-        version = _env(environ, "FLOE_VERSION", "0.6.11")
-        default_runtime_dir = repo_root / ".tmp/floe-runtime/local"
-        return cls(
-            version=version,
-            image=_env(environ, "FLOE_IMAGE", f"ghcr.io/malon64/floe:{version}"),
-            runtime=_env(environ, "FLOE_RUNTIME", "image"),
-            runtime_artifact_dir=Path(_env(environ, "FLOE_RUNTIME_ARTIFACT_DIR", str(default_runtime_dir))),
-            platform=environ.get("FLOE_PLATFORM") or None,
         )
 
 

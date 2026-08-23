@@ -134,6 +134,19 @@ def test_profile_full_and_slim_are_accepted(fake_engine: _FakeEngine) -> None:
     assert runner.invoke(app, ["deploy", "--profile", "slim"]).exit_code == 0
 
 
+def test_deploy_accepts_aws_and_azure_providers(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:  # noqa: ANN001
+    """Exercises the real `_build_context` (no subprocess calls - pure data) for both cloud
+    providers, only mocking `_build_engine` to avoid touching real Terraform/AWS/Azure CLIs.
+    """
+    engine = _FakeEngine()
+    monkeypatch.setattr("olf.commands.deployment._build_engine", lambda *a, **k: engine)
+    monkeypatch.setenv("OPENLAKEFORGE_REPO_ROOT", str(tmp_path))
+
+    for provider in ("aws", "azure"):
+        result = runner.invoke(app, ["deploy", "--provider", provider, "--phase", "foundation"])
+        assert result.exit_code == 0, result.output
+
+
 def test_unknown_profile_is_rejected_before_building_an_engine(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         "olf.commands.deployment._build_engine",

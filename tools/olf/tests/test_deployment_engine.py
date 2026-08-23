@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
 from olf.deployment.context import DeploymentContext, Provider
-from olf.deployment.engine import DeploymentEngine, DeploymentPhase, build_provider
+from olf.deployment.engine import DeploymentEngine, DeploymentPhase, Toolkit, build_provider
 from olf.deployment.errors import UnsupportedProviderError
+from olf.tooling.aws import AwsCli
+from olf.tooling.azure import AzureCli
 
 
 class _FakeProvider:
@@ -102,7 +106,9 @@ def test_status_and_forward_delegate_to_provider() -> None:
 
 
 def test_build_provider_rejects_unsupported_providers(tmp_path) -> None:  # noqa: ANN001
-    context = DeploymentContext.for_provider(Provider.AWS, repo_root=tmp_path)
+    # Every real `Provider` enum member is supported now (local, aws, azure); this exercises
+    # the guard clause itself, which protects against a future enum member missing a branch.
+    context = replace(DeploymentContext.local(repo_root=tmp_path), provider="gcp")
 
     with pytest.raises(UnsupportedProviderError):
         build_provider(context)
@@ -114,3 +120,20 @@ def test_build_provider_returns_local_provider(tmp_path) -> None:  # noqa: ANN00
     provider = build_provider(context, environ={})
 
     assert provider.context is context
+
+
+def test_build_provider_returns_cloud_provider_for_aws_and_azure(tmp_path) -> None:  # noqa: ANN001
+    for provider_enum in (Provider.AWS, Provider.AZURE):
+        context = DeploymentContext.for_provider(provider_enum, repo_root=tmp_path)
+
+        provider = build_provider(context, environ={})
+
+        assert provider.context is context
+        assert provider.backend.scope == provider_enum.value
+
+
+def test_toolkit_default_includes_aws_and_azure_adapters() -> None:
+    toolkit = Toolkit.default()
+
+    assert isinstance(toolkit.aws, AwsCli)
+    assert isinstance(toolkit.azure, AzureCli)

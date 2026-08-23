@@ -181,11 +181,16 @@ class Docker:
         self,
         image: str,
         *,
+        platform: str | None = None,
         env: Mapping[str, str] | None = None,
         retry_policy: RetryPolicy | None = None,
         retry_if: RetryPredicate | None = None,
     ) -> CommandResult:
-        return self._run(["pull", image], env=env, retry_policy=retry_policy, retry_if=retry_if)
+        args = ["pull"]
+        if platform is not None:
+            args += ["--platform", platform]
+        args.append(image)
+        return self._run(args, env=env, retry_policy=retry_policy, retry_if=retry_if)
 
     def push(
         self,

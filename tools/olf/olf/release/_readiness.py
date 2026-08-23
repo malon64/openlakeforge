@@ -330,28 +330,19 @@ class _DeploymentWrapperChartVersion:
 
 _DEPLOYMENT_WRAPPER_CHART_VERSIONS = (
     _DeploymentWrapperChartVersion("tools/olf/olf/deployment/local/config.py", "trino", "TRINO_CHART_VERSION"),
-    _DeploymentWrapperChartVersion("scripts/azure/stack/platform-up.sh", "trino", "TRINO_CHART_VERSION"),
-    _DeploymentWrapperChartVersion("scripts/azure/stack/platform-up.sh", "dagster", "DAGSTER_CHART_VERSION"),
-    _DeploymentWrapperChartVersion("scripts/aws/stack/platform-up.sh", "trino", "TRINO_CHART_VERSION"),
-    _DeploymentWrapperChartVersion("scripts/aws/stack/platform-up.sh", "dagster", "DAGSTER_CHART_VERSION"),
+    _DeploymentWrapperChartVersion("tools/olf/olf/deployment/cloud/config.py", "trino", "TRINO_CHART_VERSION"),
+    _DeploymentWrapperChartVersion("tools/olf/olf/deployment/cloud/config.py", "dagster", "DAGSTER_CHART_VERSION"),
 )
 
 
 def _wrapper_chart_version_default(source_path: Path, variable: str) -> str | None:
-    """Read a wrapper's chart-version default.
+    """Read a provider config's chart-version default.
 
-    Shell wrappers use ``VAR="${VAR:-version}"``; the local provider (#124)
-    reads the same default through ``_env(environ, "VAR", "version")`` in
-    `tools/olf/olf/deployment/local/config.py`.
+    Every deployment provider (local since #124, AWS/Azure since #125) reads
+    its chart-version default through ``_env(environ, "VAR", "version")``.
     """
     text = source_path.read_text()
-    if source_path.suffix == ".py":
-        pattern = re.compile(rf'_env\(\s*environ,\s*"{re.escape(variable)}",\s*"(?P<version>[^"]+)"\s*\)')
-    else:
-        pattern = re.compile(
-            rf'^\s*{re.escape(variable)}="\$\{{{re.escape(variable)}:-(?P<version>[^}}"\n]+)\}}"\s*$',
-            re.MULTILINE,
-        )
+    pattern = re.compile(rf'_env\(\s*environ,\s*"{re.escape(variable)}",\s*"(?P<version>[^"]+)"\s*\)')
     match = pattern.search(text)
     return match.group("version") if match else None
 

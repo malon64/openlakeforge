@@ -263,13 +263,9 @@ def test_chart_versions_match_deployment_wrappers_flags_cached_chart_drift(tmp_p
     )
     for path, contents in {
         "tools/olf/olf/deployment/local/config.py": '_env(environ, "TRINO_CHART_VERSION", "9.9.9")\n',
-        "scripts/azure/stack/platform-up.sh": (
-            'TRINO_CHART_VERSION="${TRINO_CHART_VERSION:-1.42.2}"\n'
-            'DAGSTER_CHART_VERSION="${DAGSTER_CHART_VERSION:-1.13.6}"\n'
-        ),
-        "scripts/aws/stack/platform-up.sh": (
-            'TRINO_CHART_VERSION="${TRINO_CHART_VERSION:-1.42.2}"\n'
-            'DAGSTER_CHART_VERSION="${DAGSTER_CHART_VERSION:-1.13.6}"\n'
+        "tools/olf/olf/deployment/cloud/config.py": (
+            '_env(environ, "TRINO_CHART_VERSION", "1.42.2")\n'
+            '_env(environ, "DAGSTER_CHART_VERSION", "1.13.6")\n'
         ),
     }.items():
         wrapper_path = tmp_path / path

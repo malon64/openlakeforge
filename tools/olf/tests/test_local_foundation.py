@@ -23,6 +23,8 @@ def _config(tmp_path: Path) -> LocalDeploymentConfig:
 
 def _toolkit_with_runner(runner: RecordingRunner) -> Toolkit:
     resolver = PathExecutableResolver(overrides={tool: Path(tool) for tool in _TOOLS})
+    from olf.tooling.aws import AwsCli
+    from olf.tooling.azure import AzureCli
     from olf.tooling.docker import Docker
     from olf.tooling.helm import Helm
     from olf.tooling.kind import Kind
@@ -37,6 +39,8 @@ def _toolkit_with_runner(runner: RecordingRunner) -> Toolkit:
         kubectl=Kubectl(runner, resolver),
         docker=Docker(runner, resolver),
         kind=Kind(runner, resolver),
+        aws=AwsCli(runner, resolver),
+        azure=AzureCli(runner, resolver),
     )
 
 

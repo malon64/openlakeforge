@@ -54,3 +54,17 @@ class AzureCli:
 
     def acr_login(self, registry_name: str, *, env: Mapping[str, str] | None = None) -> CommandResult:
         return self._run(["acr", "login", "--name", registry_name], env=env)
+
+    def aks_show(
+        self,
+        cluster_name: str,
+        *,
+        resource_group: str,
+        env: Mapping[str, str] | None = None,
+        check: bool = False,
+    ) -> CommandResult:
+        return self._run(
+            ["aks", "show", "--resource-group", resource_group, "--name", cluster_name],
+            env=env,
+            check=check,
+        )
