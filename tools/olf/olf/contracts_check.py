@@ -141,17 +141,18 @@ class ContractsCheckReport:
         return "\n".join(lines)
 
 
-def _check_descriptor_schema_conformance(repo_root: Path) -> CheckResult:
-    """The `lakehouse_code/lakehouse.yaml` descriptor and every
-    `lakehouse_code/bronze/*/source.yaml` must load via the canonical model
-    and conform to its versioned JSON Schema. The two validators run
-    independently; neither one substitutes for the other."""
-    name = "descriptor_schema_conformance"
+def descriptor_schema_errors(repo_root: Path) -> list[str]:
+    """Validate `lakehouse_code/lakehouse.yaml` and every
+    `lakehouse_code/bronze/*/source.yaml` against the canonical model and
+    versioned JSON Schema. The two validators run independently; neither one
+    substitutes for the other. Returns an empty list when everything is
+    valid. Shared by `olf contracts check` and the `olf source|domain|product
+    new` scaffold engine's pre-commit verification."""
     lakehouse_path = repo_root / "lakehouse_code" / "lakehouse.yaml"
     source_paths = sorted((repo_root / "lakehouse_code" / "bronze").glob("*/source.yaml"))
     descriptor_paths = [lakehouse_path, *source_paths]
     if not lakehouse_path.is_file():
-        return CheckResult(name, ok=False, detail=f"no lakehouse.yaml found under {repo_root / 'lakehouse_code'}")
+        return [f"no lakehouse.yaml found under {repo_root / 'lakehouse_code'}"]
 
     errors: list[str] = []
     for descriptor_path in descriptor_paths:
@@ -175,9 +176,23 @@ def _check_descriptor_schema_conformance(repo_root: Path) -> CheckResult:
             location = "/".join(str(part) for part in error.absolute_path) or "<root>"
             errors.append(f"{rel_path}: schema violation at {location}: {error.message}")
 
+    return errors
+
+
+def _check_descriptor_schema_conformance(repo_root: Path) -> CheckResult:
+    """The `lakehouse_code/lakehouse.yaml` descriptor and every
+    `lakehouse_code/bronze/*/source.yaml` must load via the canonical model
+    and conform to its versioned JSON Schema. The two validators run
+    independently; neither one substitutes for the other."""
+    name = "descriptor_schema_conformance"
+    lakehouse_path = repo_root / "lakehouse_code" / "lakehouse.yaml"
+    source_paths = sorted((repo_root / "lakehouse_code" / "bronze").glob("*/source.yaml"))
+    descriptor_count = 1 + len(source_paths) if lakehouse_path.is_file() else 0
+
+    errors = descriptor_schema_errors(repo_root)
     if errors:
         return CheckResult(name, ok=False, detail="; ".join(errors))
-    return CheckResult(name, ok=True, detail=f"{len(descriptor_paths)} descriptor(s) validated")
+    return CheckResult(name, ok=True, detail=f"{descriptor_count} descriptor(s) validated")
 
 
 def _check_hcl_structured_contracts(repo_root: Path) -> CheckResult:

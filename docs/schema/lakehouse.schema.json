@@ -44,7 +44,7 @@
           "silver_tables": {"$ref": "#/$defs/silverTableGroup"},
           "products": {
             "type": "array",
-            "minItems": 1,
+            "minItems": 0,
             "uniqueItems": true,
             "items": {
               "type": "object",

@@ -43,7 +43,7 @@ labels expressing intended sequence within a milestone.
 | `lakehouse_code/lakehouse.yaml` | Canonical domain/product business metadata descriptor |
 | `libs/` | Shared runtime Python imported by the project-code image |
 | `packages/domain-model/` | Canonical provider-neutral descriptor and inventory package |
-| `tools/olf/` | The `olf` CLI — uv-managed deploy tooling, contracts, artifacts, e2e |
+| `tools/olf/` | The `olf` CLI — uv-managed deploy tooling, contracts, artifacts, scaffolding, e2e |
 | `infra/terraform/environments/` | Per-environment wiring; `contracts.tf` is the contract surface |
 | `infra/terraform/foundations/` | Cluster and registry creation (kind, AKS, EKS) |
 | `infra/terraform/modules/` | Component modules grouped by capability |

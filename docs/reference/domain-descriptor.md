@@ -187,7 +187,7 @@ and every `source.yaml` found on disk must be declared here.
 - `name` (required, `^[a-z][a-z0-9_]*$`, unique across the lakehouse)
 - `displayName`, `description`, `status` (required, as above)
 - `silver_tables` (required domain-owned Source-to-Silver mappings)
-- `products` (required, non-empty array — see below)
+- `products` (required array, may be empty — see below)
 
 ## `domains[].silver_tables`
 
@@ -205,6 +205,14 @@ silver_tables:
 Source's resources. All three identities match `^[a-z][a-z0-9_]*$`.
 
 ## `domains[].products`
+
+**Required array; may be empty.** A domain may declare Silver tables ahead of any
+product consuming them — for example, seeding an `hr` domain from a Workday source
+before deciding which product(s) will use it. `olf domain new` always creates a
+domain this way; run `olf product new <domain>/<product>` afterward to add its
+first product. A Silver table with no product consuming it yet is still a valid,
+loadable part of the inventory: it gets its `<domain>_silver` namespace and its
+Floe Silver assets, just no product job selecting it yet.
 
 Each product entry is:
 

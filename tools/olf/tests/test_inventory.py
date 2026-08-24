@@ -5,7 +5,6 @@ from pathlib import Path
 import pytest
 from openlakeforge_domain import (
     DomainDescriptorError,
-    LakehouseDescriptorError,
     inventory_for,
     load_domain_inventory,
     load_domain_inventory_from_descriptors,
@@ -320,7 +319,9 @@ def test_renaming_descriptor_product_changes_discovered_work_without_shared_code
     assert inventory.silver_namespace_names == frozenset({"sales_silver"})
 
 
-def test_inventory_rejects_domain_silver_table_without_a_product_consumer(tmp_path: Path) -> None:
+def test_inventory_accepts_domain_silver_table_without_a_product_consumer(tmp_path: Path) -> None:
+    """A domain may declare Silver tables ahead of any product consuming them
+    (e.g. an HR domain seeded before its first data product exists)."""
     lakehouse_path = _write_lakehouse(tmp_path)
     descriptor = lakehouse_path.read_text(encoding="utf-8")
     descriptor = descriptor.replace(
@@ -334,8 +335,53 @@ def test_inventory_rejects_domain_silver_table_without_a_product_consumer(tmp_pa
     )
     lakehouse_path.write_text(descriptor, encoding="utf-8")
 
-    with pytest.raises(
-        LakehouseDescriptorError,
-        match=r"domain 'sales': Silver tables \['unconsumed_orders'\] are not consumed by any product",
-    ):
-        load_lakehouse_inventory(tmp_path)
+    inventory = load_lakehouse_inventory(tmp_path)
+
+    domain = inventory.domains[0]
+    assert {table.name for table in domain.silver_tables} == {"orders", "unconsumed_orders"}
+    # silver_table_count only counts tables reachable from a product's
+    # silver_inputs, so the unconsumed table does not inflate it.
+    assert inventory.silver_table_count == 1
+
+
+def test_inventory_accepts_domain_with_no_products(tmp_path: Path) -> None:
+    """A domain may be declared with an empty products array and validate on
+    its own, before its first product lands."""
+    lakehouse_dir = tmp_path / "lakehouse_code"
+    lakehouse_dir.mkdir(parents=True)
+    (lakehouse_dir / "lakehouse.yaml").write_text(
+        """\
+apiVersion: openlakeforge.io/v1alpha3
+kind: Lakehouse
+name: test
+displayName: Test
+description: Test lakehouse.
+status: planned
+sources:
+  - workday
+domains:
+  - name: hr
+    displayName: Hr
+    description: hr domain.
+    status: planned
+    silver_tables:
+      tables:
+        - name: employees
+          source: workday
+          resource: employees
+    products: []
+dashboards: []
+""",
+        encoding="utf-8",
+    )
+    source_path = lakehouse_dir / "bronze" / "workday" / "source.yaml"
+    source_path.parent.mkdir(parents=True)
+    source_path.write_text(_source(source="workday", resource="employees"), encoding="utf-8")
+
+    inventory = load_lakehouse_inventory(tmp_path)
+
+    assert inventory.domains[0].name == "hr"
+    assert inventory.domains[0].products == ()
+    assert inventory.products == ()
+    assert inventory.silver_table_count == 0
+    assert inventory.domains[0].silver_namespace == "hr_silver"

@@ -43,13 +43,39 @@ and one Gold mart:
 mart_campaign_performance
 ```
 
-> **Alpha note**
->
-> Product onboarding is currently source-driven: you create a small set of files under
-> `lakehouse_code/`.
->
-> A product scaffold is planned to automate this workflow. Until then, this tutorial
-> documents the current golden path explicitly.
+---
+
+# Fast path: the scaffold
+
+`olf` generates this exact file tree for you:
+
+```bash
+olf source new marketing_platform --resource campaigns
+olf product new marketing/campaign_performance \
+  --input marketing_platform/campaigns \
+  --gold-table mart_campaign_performance
+```
+
+`olf product new` creates the `marketing` domain inline here because it does not exist
+yet. Each command validates its result against the canonical model before writing
+anything, and writes nothing at all if validation fails.
+
+A domain can also be created up front, ahead of any product — useful when you know the
+Silver tables you want before you know what will consume them:
+
+```bash
+olf domain new hr --input workday/employees
+# ... later, once you know what product to build:
+olf product new hr/headcount --silver-input employees --gold-table mart_headcount_by_org
+```
+
+Run `olf source new --help`, `olf domain new --help`, and `olf product new --help` for
+the full flag reference, including `--with-report` to also scaffold a Superset report
+skeleton.
+
+The rest of this tutorial builds the same `campaign_performance` product by hand, file
+by file. Read it to understand *what* the scaffold generates and *why* — the generated
+files, and the ownership model behind them, are identical either way.
 
 ---
 
