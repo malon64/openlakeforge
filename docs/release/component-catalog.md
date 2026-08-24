@@ -18,7 +18,7 @@ gate. It runs `olf release check` (fails if the tag doesn't match
 `distribution.version`, if any catalog image is missing its `@sha256` digest,
 if any workflow action isn't SHA-pinned and recorded under
 `components.actions`, if an action catalog entry is unused, or if a Dockerfile
-base image is unpinned) and `scripts/test/check-lockfiles.sh` (reads every
+base image is unpinned) and `olf check lockfiles` (reads every
 lockfile declared in `components.python` and fails if one is out of sync with
 its sibling `pyproject.toml`, checked with `uv` directly rather than a
 duplicate implementation here).

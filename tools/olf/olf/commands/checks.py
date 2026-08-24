@@ -181,6 +181,7 @@ def project_code(repo_root: str = typer.Option("", "--repo-root", help="Checkout
         _uv_pip_install(target=site, requirements=[str(root / "packages/domain-model")], cwd=root)
         (site / ".complete").touch()
     env = {
+        "PATH": f"{site / 'bin'}{os.pathsep}{os.environ.get('PATH', '')}",
         "PYTHONPATH": f"{site}{os.pathsep}{root}",
         "OPENLAKEFORGE_FLOE_MANIFEST_ACCESS_MODE": "remote",
         "OPENLAKEFORGE_OPS_BUCKET_NAME": "openlakeforge-ops",

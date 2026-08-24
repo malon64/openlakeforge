@@ -8,7 +8,7 @@ Kubernetes service DNS names and Kubernetes Secrets, not generated files.
 The local root normalizes provider contracts in `contracts.tf`. The foundation
 contract is read from the local kind foundation Terraform state, and runtime
 scripts load contract-derived defaults through
-`scripts/local/contracts/load-runtime-env.sh`.
+provider contract hydration inside `olf`.
 
 Local remains the only runnable environment today. Its credentials, basic app
 auth, and port-forwarded access are development-only choices, not production

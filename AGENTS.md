@@ -49,7 +49,7 @@ labels expressing intended sequence within a milestone.
 | `infra/terraform/modules/` | Component modules grouped by capability |
 | `infra/helm/values/local/` | Helm values for the local profile |
 | `images/project-code/` | The Dagster runtime image |
-| `scripts/test/` | Structure, contract, component, and lockfile checks |
+| `tools/olf/` | Python CLI, deployment orchestration, checks, artifacts, and e2e |
 | `release/component-catalog.yaml` | Immutable version and digest pins |
 | `docs/schema/lakehouse.schema.json`, `docs/schema/source.schema.json` | Schemas `lakehouse.yaml` and `source.yaml` validate against |
 
@@ -106,7 +106,7 @@ Test behaviour against fixtures rather than source text. New `olf` behaviour
 ships with tests in the same change.
 
 **Terraform.** Modules follow `main.tf` / `variables.tf` / `outputs.tf`;
-`scripts/test/check-structure.sh` requires all three for registered modules.
+`olf check structure` requires all three for registered Terraform modules.
 Variables carry a `description` and an explicit `type`.
 
 **Docs.** Hard-wrap around 80 columns, as the existing files do. Prefer tables
