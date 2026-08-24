@@ -37,6 +37,27 @@ def test_local_kubeconfig_path_override_is_resolved_to_an_absolute_path(tmp_path
     assert ctx.paths.kubeconfig_path.is_absolute()
 
 
+def test_aws_kubeconfig_path_override(tmp_path: Path) -> None:
+    """The concurrent-deployment workflow in docs/setup/cloud-poc-setup.md isolates a
+    parallel `make aws-up` run with its own kubeconfig via `AWS_KUBECONFIG_PATH`.
+    """
+    override = tmp_path / "custom" / "aws-smoke.yaml"
+
+    ctx = DeploymentContext.aws(repo_root=tmp_path, kubeconfig_path=override)
+
+    assert ctx.paths.kubeconfig_path == override
+    assert ctx.paths.docker_config_dir == tmp_path / ".tmp" / "docker" / "aws"
+
+
+def test_azure_kubeconfig_path_override(tmp_path: Path) -> None:
+    override = tmp_path / "custom" / "azure-smoke.yaml"
+
+    ctx = DeploymentContext.azure(repo_root=tmp_path, kubeconfig_path=override)
+
+    assert ctx.paths.kubeconfig_path == override
+    assert ctx.paths.docker_config_dir == tmp_path / ".tmp" / "docker" / "azure"
+
+
 def test_aws_and_azure_produce_independent_scoped_paths(tmp_path: Path) -> None:
     aws_ctx = DeploymentContext.aws(repo_root=tmp_path)
     azure_ctx = DeploymentContext.azure(repo_root=tmp_path)

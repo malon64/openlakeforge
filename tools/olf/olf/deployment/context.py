@@ -122,8 +122,17 @@ class DeploymentContext:
         distribution_root: Path | None = None,
         namespace: str = DEFAULT_NAMESPACE,
         kube_context: str = "",
+        kubeconfig_path: Path | None = None,
     ) -> DeploymentContext:
-        return cls._build(
+        """Build the AWS `DeploymentContext`.
+
+        `kubeconfig_path`, when given, overrides the default
+        `<repo_root>/.tmp/kubeconfigs/aws.yaml` - the concurrent-deployment
+        workflow in `docs/setup/cloud-poc-setup.md` isolates a parallel
+        `make aws-up` run with its own kubeconfig file via
+        `AWS_KUBECONFIG_PATH`, matching `local()`'s override.
+        """
+        context = cls._build(
             provider=Provider.AWS,
             scope="aws",
             repo_root=repo_root,
@@ -134,6 +143,9 @@ class DeploymentContext:
             foundation_terraform_dir=Path("infra/terraform/foundations/aws-eks"),
             platform_terraform_dir=Path("infra/terraform/environments/aws-poc"),
         )
+        if kubeconfig_path is not None:
+            context = replace(context, paths=replace(context.paths, kubeconfig_path=Path(kubeconfig_path).resolve()))
+        return context
 
     @classmethod
     def azure(
@@ -144,8 +156,14 @@ class DeploymentContext:
         distribution_root: Path | None = None,
         namespace: str = DEFAULT_NAMESPACE,
         kube_context: str = "",
+        kubeconfig_path: Path | None = None,
     ) -> DeploymentContext:
-        return cls._build(
+        """Build the Azure `DeploymentContext`.
+
+        `kubeconfig_path`, when given, overrides the default
+        `<repo_root>/.tmp/kubeconfigs/azure.yaml` - see `aws()`.
+        """
+        context = cls._build(
             provider=Provider.AZURE,
             scope="azure",
             repo_root=repo_root,
@@ -156,6 +174,9 @@ class DeploymentContext:
             foundation_terraform_dir=Path("infra/terraform/foundations/azure-aks"),
             platform_terraform_dir=Path("infra/terraform/environments/azure-poc"),
         )
+        if kubeconfig_path is not None:
+            context = replace(context, paths=replace(context.paths, kubeconfig_path=Path(kubeconfig_path).resolve()))
+        return context
 
     @classmethod
     def _build(
