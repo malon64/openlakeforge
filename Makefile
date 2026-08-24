@@ -36,9 +36,9 @@ release-check:
 release-bundle:
 	@$(OLF_BIN) release build-bundle
 floe-manifest:
-	@$(OLF_BIN) floe generate-manifests --provider local
+	@$(OLF_BIN) floe generate-manifests --provider local --profile $(LOCAL_PROFILE) --namespace $(NAMESPACE) --cluster-name $(CLUSTER_NAME) --kubeconfig-path $(LOCAL_KUBECONFIG_PATH)
 floe-manifest-upload:
-	@KUBECONFIG="$(LOCAL_KUBECONFIG_PATH)" KUBE_CONTEXT=$(KUBE_CONTEXT) $(OLF_BIN) artifacts upload-manifests --provider local --via port-forward
+	@$(OLF_BIN) artifacts upload-manifests --provider local --profile $(LOCAL_PROFILE) --namespace $(NAMESPACE) --cluster-name $(CLUSTER_NAME) --kubeconfig-path $(LOCAL_KUBECONFIG_PATH) --via port-forward
 dbt-parse:
 	@$(OLF_BIN) dbt parse
 project-code-image:

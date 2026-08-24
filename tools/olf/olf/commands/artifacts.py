@@ -44,6 +44,30 @@ def artifacts_upload_manifests(
         "--runtime-root",
         help="Rendered Floe runtime artifact root containing configs/, profiles/, and manifests/.",
     ),
+    provider: str = typer.Option("local", "--provider", help="Provider owning the deployed contracts."),
+    profile: str = typer.Option("full", "--profile", help="full or slim."),
+    namespace: str = typer.Option("", "--namespace", help="Kubernetes namespace override."),
+    cluster_name: str = typer.Option("", "--cluster-name", help="Local kind cluster name override."),
+    kubeconfig_path: str = typer.Option("", "--kubeconfig-path", help="Kubeconfig file path override."),
+) -> None:
+    """Publish artifacts using the selected provider's Terraform contracts."""
+    from olf.commands.runtime import provider_contract_environment
+
+    with provider_contract_environment(
+        provider=provider,
+        profile=profile,
+        namespace=namespace,
+        cluster_name=cluster_name,
+        kubeconfig_path=kubeconfig_path,
+    ):
+        upload_manifests(via=via, manifest_root=manifest_root, runtime_root=runtime_root)
+
+
+def upload_manifests(
+    *,
+    via: str = "port-forward",
+    manifest_root: str = "",
+    runtime_root: str = "",
 ) -> None:
     """Publish domain Floe runtime artifacts to the operational artifact bucket."""
     from olf import s3
@@ -70,7 +94,9 @@ def artifacts_upload_manifests(
         else:
             uploads = s3.discover_tracked_manifests(repo_root)
         if not uploads:
-            raise typer.Exit(code=fail("no generated domain Floe artifacts found. Run 'make floe-manifest' first."))
+            raise typer.Exit(
+                code=fail("no generated domain Floe artifacts found. Run 'olf floe generate-manifests' first.")
+            )
         secret_name = config.env("OPENLAKEFORGE_STORAGE_CREDENTIALS_SECRET_NAME")
         service = config.env("OPENLAKEFORGE_STORAGE_S3_SERVICE_NAME", "seaweedfs-s3")
         remote_port = int(config.env("OPENLAKEFORGE_STORAGE_S3_SERVICE_PORT", "8333"))

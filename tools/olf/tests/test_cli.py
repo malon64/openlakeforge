@@ -1,5 +1,6 @@
 from contextlib import nullcontext
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from typer.testing import CliRunner
@@ -71,6 +72,82 @@ def test_openmetadata_deploy_hydrates_selected_provider_contracts(monkeypatch: p
     assert result.exit_code == 0
     assert options["provider"] == "azure"
     assert calls == ["metadata"]
+
+
+def test_artifacts_upload_hydrates_selected_provider_contracts(monkeypatch: pytest.MonkeyPatch) -> None:
+    options: dict[str, str] = {}
+    calls: list[dict[str, str]] = []
+    monkeypatch.setattr(
+        "olf.commands.runtime.provider_contract_environment",
+        lambda **kwargs: options.update(kwargs) or nullcontext(),
+    )
+    monkeypatch.setattr("olf.commands.artifacts.upload_manifests", lambda **kwargs: calls.append(kwargs))
+
+    result = runner.invoke(
+        app,
+        [
+            "artifacts",
+            "upload-manifests",
+            "--provider",
+            "aws",
+            "--namespace",
+            "custom-lakehouse",
+            "--via",
+            "direct",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert options["provider"] == "aws"
+    assert options["namespace"] == "custom-lakehouse"
+    assert calls == [{"via": "direct", "manifest_root": "", "runtime_root": ""}]
+
+
+def test_floe_generation_passes_the_selected_namespace_to_the_local_profile(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    options: dict[str, str] = {}
+    generated: list[dict] = []
+
+    class FakeLocalProvider:
+        config = SimpleNamespace(floe=object())
+        tools = object()
+        env = {}
+
+    context = SimpleNamespace(
+        paths=SimpleNamespace(repo_root=tmp_path),
+        namespace="custom-lakehouse",
+        features=SimpleNamespace(governance_enabled=True),
+    )
+    monkeypatch.setattr(
+        "olf.commands.deployment._build_context",
+        lambda *args, **kwargs: options.update(kwargs) or context,
+    )
+    monkeypatch.setattr(
+        "olf.commands.deployment._build_engine",
+        lambda *args, **kwargs: SimpleNamespace(provider=FakeLocalProvider()),
+    )
+    monkeypatch.setattr("olf.deployment.local.provider.LocalProvider", FakeLocalProvider)
+    monkeypatch.setattr(
+        "olf.deployment.local.artifacts.applied_contract_environment", lambda *args: nullcontext({})
+    )
+    monkeypatch.setattr(
+        "olf.deployment.floe_manifests.generate_local_manifests", lambda *args, **kwargs: generated.append(kwargs)
+    )
+
+    result = runner.invoke(app, ["floe", "generate-manifests", "--namespace", "custom-lakehouse"])
+
+    assert result.exit_code == 0
+    assert options["namespace"] == "custom-lakehouse"
+    assert generated == [
+        {
+            "repo_root": tmp_path,
+            "namespace": "custom-lakehouse",
+            "governance_enabled": True,
+            "environ": {},
+            "env": {},
+        }
+    ]
 
 
 def test_revision_compute_command_prints_runtime_artifact_revision(tmp_path: Path) -> None:

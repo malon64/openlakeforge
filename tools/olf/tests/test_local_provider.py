@@ -5,7 +5,7 @@ from pathlib import Path
 from _tooling_support import RecordedCall, RecordingRunner
 
 from olf.deployment.context import DeploymentContext
-from olf.deployment.engine import Toolkit
+from olf.deployment.engine import DeploymentPhase, Toolkit
 from olf.deployment.local.config import LocalDeploymentConfig
 from olf.deployment.local.provider import LocalProvider
 from olf.tooling.aws import AwsCli
@@ -100,3 +100,36 @@ def test_env_resolves_docker_host_from_ambient_context_when_unset(tmp_path: Path
     provider = LocalProvider.create(_config(tmp_path), toolkit=toolkit, environ={})
 
     assert provider.env["DOCKER_HOST"] == "unix:///colima/docker.sock"
+
+
+def test_foundation_doctor_does_not_require_helm(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    provider = LocalProvider.create(_config(tmp_path), toolkit=_toolkit(), environ={})
+    required: list[str] = []
+    health_calls: list[str] = []
+    monkeypatch.setattr(
+        "olf.deployment.local.provider.base_report",
+        lambda **kwargs: required.extend(kwargs["required_tools"]) or [],
+    )
+    monkeypatch.setattr(
+        "olf.deployment.local.provider.docker_health",
+        lambda *args, **kwargs: health_calls.append("docker") or None,
+    )
+
+    provider.doctor(DeploymentPhase.FOUNDATION)
+
+    assert required == ["terraform", "kubectl", "docker", "kind"]
+    assert health_calls == ["docker"]
+
+
+def test_artifacts_doctor_does_not_require_helm(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    provider = LocalProvider.create(_config(tmp_path), toolkit=_toolkit(), environ={})
+    required: list[str] = []
+    monkeypatch.setattr(
+        "olf.deployment.local.provider.base_report",
+        lambda **kwargs: required.extend(kwargs["required_tools"]) or [],
+    )
+    monkeypatch.setattr("olf.deployment.local.provider.docker_health", lambda *args, **kwargs: None)
+
+    provider.doctor(DeploymentPhase.ARTIFACTS)
+
+    assert required == ["terraform", "kubectl", "docker", "kind"]

@@ -152,10 +152,13 @@ class LocalProvider:
         return changes
 
     def doctor(self, phase: DeploymentPhase) -> DoctorReport:
+        required = ["terraform", "kubectl", "docker", "kind"]
+        if phase in (DeploymentPhase.ALL, DeploymentPhase.PLATFORM):
+            required.append("helm")
         items = base_report(
             repo_root=self.config.paths.repo_root,
             tools=self.tools,
-            required_tools=("terraform", "helm", "kubectl", "docker", "kind"),
+            required_tools=required,
         )
         items.append(docker_health(self.tools, env=self.context.command_env()))
         if phase in (DeploymentPhase.PLATFORM, DeploymentPhase.ARTIFACTS):

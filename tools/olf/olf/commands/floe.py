@@ -22,6 +22,9 @@ def floe_render_profile() -> None:
 def generate_manifests(
     provider: str = typer.Option("local", "--provider", help="local, aws, or azure."),
     profile: str = typer.Option("full", "--profile", help="full or slim."),
+    namespace: str = typer.Option("", "--namespace", help="Kubernetes namespace override."),
+    cluster_name: str = typer.Option("", "--cluster-name", help="Local kind cluster name override."),
+    kubeconfig_path: str = typer.Option("", "--kubeconfig-path", help="Kubeconfig file path override."),
 ) -> None:
     """Generate Floe manifests using resolved provider contracts, never shell exports."""
     from olf.commands.deployment import _build_context, _build_engine
@@ -32,7 +35,13 @@ def generate_manifests(
     from olf.deployment.local.provider import LocalProvider
 
     try:
-        context = _build_context(provider, profile=profile, namespace="", cluster_name="", kubeconfig_path="")
+        context = _build_context(
+            provider,
+            profile=profile,
+            namespace=namespace,
+            cluster_name=cluster_name,
+            kubeconfig_path=kubeconfig_path,
+        )
         engine = _build_engine(context, var_file="")
         deployment_provider = engine.provider
         if isinstance(deployment_provider, LocalProvider):

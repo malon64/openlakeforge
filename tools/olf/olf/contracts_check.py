@@ -449,11 +449,11 @@ def _check_helm_values_as_data(repo_root: Path) -> CheckResult:
     return CheckResult(name, ok=True, detail="infra/helm/values/local/dagster.yaml validated as data")
 
 
-# Makefile targets whose recipe bodies must resolve real, non-empty
-# KUBECONFIG/KUBE_CONTEXT values. `make -n <target>` prints the fully
-# variable-expanded recipe, so this catches a variable-name typo that would
-# still `grep` as present in the unexpanded Makefile source but resolve to
-# empty/wrong at expansion time.
+# Makefile targets whose recipe bodies must resolve real, non-empty kubeconfig
+# and context inputs. `make -n <target>` prints the fully variable-expanded
+# recipe, so this catches a variable-name typo that would still `grep` as
+# present in the unexpanded Makefile source but resolve to empty/wrong at
+# expansion time.
 #
 # `local-forward`/`azure-forward`/`aws-forward` are deliberately absent:
 # since #124 (local) and #125 (AWS/Azure) they delegate to
@@ -475,12 +475,12 @@ _KUBE_WIRED_TARGETS = (
 
 _KUBECONFIG_PATTERN = re.compile(r'KUBECONFIG(?:_PATH)?="([^"]*)"')
 _KUBE_CONTEXT_PATTERN = re.compile(r'(?:KUBE_CONTEXT=|context=")([^\s"]+)"?')
+_KUBECONFIG_ARGUMENT_PATTERN = re.compile(r"--kubeconfig-path\s+(\S+)")
+_KUBE_CONTEXT_ARGUMENT_PATTERN = re.compile(r"--(?:kube-context|cluster-name)\s+(\S+)")
 
 
 def _check_makefile_target_wiring(repo_root: Path) -> CheckResult:
-    """`make -n <target>` dry-run each Kubernetes-touching target and assert
-    the *expanded* recipe carries a real KUBECONFIG(_PATH) and kube context,
-    rather than regex-parsing the Makefile's unexpanded source text."""
+    """Validate each Kubernetes-touching Make delegate's expanded runtime inputs."""
     name = "makefile_target_wiring"
     errors: list[str] = []
     checked = 0
@@ -503,11 +503,11 @@ def _check_makefile_target_wiring(repo_root: Path) -> CheckResult:
         checked += 1
         output = result.stdout
 
-        kubeconfig_match = _KUBECONFIG_PATTERN.search(output)
+        kubeconfig_match = _KUBECONFIG_PATTERN.search(output) or _KUBECONFIG_ARGUMENT_PATTERN.search(output)
         if not kubeconfig_match or not kubeconfig_match.group(1):
             errors.append(f"{target}: recipe does not resolve a non-empty KUBECONFIG(_PATH) value")
 
-        context_match = _KUBE_CONTEXT_PATTERN.search(output)
+        context_match = _KUBE_CONTEXT_PATTERN.search(output) or _KUBE_CONTEXT_ARGUMENT_PATTERN.search(output)
         if not context_match or not context_match.group(1):
             errors.append(f"{target}: recipe does not resolve a non-empty kube context value")
 
