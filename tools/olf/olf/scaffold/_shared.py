@@ -15,9 +15,23 @@ class ScaffoldError(ValueError):
     """Raised when scaffold intent fails validation. Nothing is written."""
 
 
+# Every lowercase word `^[a-z][a-z0-9_]*$` can match that YAML 1.1's
+# implicit resolver (PyYAML's SafeLoader included) still reads back as a
+# bool or null rather than a string. Rejecting these up front, in the one
+# place every generated identifier passes through, is simpler and more
+# robust than individually quoting every place an identifier is later
+# interpolated into generated YAML.
+_YAML_KEYWORD_IDENTIFIERS = frozenset({"yes", "no", "true", "false", "on", "off", "null"})
+
+
 def require_identifier(value: str, *, field: str) -> str:
     if not IDENTIFIER_PATTERN.fullmatch(value):
         raise ScaffoldError(f"{field} {value!r} must match '^[a-z][a-z0-9_]*$'")
+    if value in _YAML_KEYWORD_IDENTIFIERS:
+        raise ScaffoldError(
+            f"{field} {value!r} is a YAML boolean/null keyword and would not round-trip as a string "
+            "in the generated descriptor; choose a different name"
+        )
     return value
 
 

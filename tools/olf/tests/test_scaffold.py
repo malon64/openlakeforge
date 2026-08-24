@@ -407,6 +407,24 @@ def test_source_new_rejects_bad_identifier_and_writes_nothing(tmp_path: Path) ->
     assert (repo_root / "lakehouse_code" / "lakehouse.yaml").read_text() == lakehouse_before
 
 
+@pytest.mark.parametrize("keyword", ["yes", "no", "true", "false", "on", "off", "null"])
+def test_source_new_rejects_a_yaml_keyword_identifier_and_writes_nothing(tmp_path: Path, keyword: str) -> None:
+    """`on`, `true`, `null`, etc. all match `^[a-z][a-z0-9_]*$`, but YAML
+    1.1's implicit resolver (PyYAML's SafeLoader included) reads them back
+    as a bool/null rather than a string -- silently changing the type of a
+    generated identifier. Reject them up front rather than generating a
+    descriptor that fails to round-trip."""
+    repo_root = _seed_repo(tmp_path)
+    before = _tree(repo_root)
+    lakehouse_before = (repo_root / "lakehouse_code" / "lakehouse.yaml").read_text()
+
+    with pytest.raises(ScaffoldError, match=r"YAML boolean/null keyword"):
+        plan_source_new(repo_root, source=keyword, display_name=None, resources=("campaigns",))
+
+    assert _tree(repo_root) == before
+    assert (repo_root / "lakehouse_code" / "lakehouse.yaml").read_text() == lakehouse_before
+
+
 def test_source_new_rejects_duplicate_source_and_writes_nothing(tmp_path: Path) -> None:
     repo_root = _seed_repo(tmp_path)
     before = _tree(repo_root)

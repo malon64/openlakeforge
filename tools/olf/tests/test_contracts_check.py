@@ -1,7 +1,10 @@
+import json
 import shutil
 from pathlib import Path
 
+import jsonschema
 import pytest
+import yaml
 
 from olf import contracts_check
 
@@ -324,3 +327,42 @@ def test_run_contracts_check_passes_against_real_repo() -> None:
     report = contracts_check.run_contracts_check(ROOT)
 
     assert report.ok, report.render()
+
+
+def test_lakehouse_schema_rejects_a_lakehouse_with_no_products_anywhere() -> None:
+    """The versioned JSON Schema alone -- independent of the canonical
+    model, for editors and external tooling that only validate against it
+    -- must reject a lakehouse where every domain has an empty products
+    array, the same state the canonical model rejects."""
+    schema = json.loads((ROOT / "docs/schema/lakehouse.schema.json").read_text())
+    validator = jsonschema.Draft202012Validator(schema)
+    document = yaml.safe_load(
+        (FIXTURES / "descriptors" / "invalid_lakehouse_no_products_anywhere.yaml").read_text()
+    )
+
+    errors = list(validator.iter_errors(document))
+
+    assert errors
+    assert any("does not contain items matching" in error.message for error in errors)
+
+
+def test_lakehouse_schema_accepts_a_product_less_domain_alongside_a_productful_one() -> None:
+    """A single product-less domain is still valid, as long as some other
+    domain in the lakehouse has at least one product."""
+    schema = json.loads((ROOT / "docs/schema/lakehouse.schema.json").read_text())
+    validator = jsonschema.Draft202012Validator(schema)
+    document = yaml.safe_load((FIXTURES / "descriptors" / "valid_lakehouse.yaml").read_text())
+    document["domains"].append(
+        {
+            "name": "hr",
+            "displayName": "Hr",
+            "description": "HR domain.",
+            "status": "planned",
+            "silver_tables": {"tables": [{"name": "employees", "source": "crm", "resource": "employees"}]},
+            "products": [],
+        }
+    )
+
+    errors = list(validator.iter_errors(document))
+
+    assert errors == []

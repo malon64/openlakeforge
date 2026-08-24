@@ -32,6 +32,7 @@
       "type": "array",
       "minItems": 1,
       "uniqueItems": true,
+      "contains": {"type": "object", "properties": {"products": {"type": "array", "minItems": 1}}},
       "items": {
         "type": "object",
         "additionalProperties": false,
