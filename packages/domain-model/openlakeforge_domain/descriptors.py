@@ -287,6 +287,13 @@ def validate_lakehouse_descriptor(document: Mapping[str, Any], *, source: str = 
                     f"{source}: product id {product['id']!r} must be globally unique across domains"
                 )
             seen_products.add(product["id"])
+    if not seen_products:
+        raise LakehouseDescriptorError(
+            f"{source}: lakehouse must declare at least one product across its domains "
+            "(an individual domain may have zero products while it is being seeded, "
+            "but the lakehouse as a whole cannot -- deployment tooling requires a "
+            "default product)"
+        )
     dashboards = document["dashboards"]
     if not isinstance(dashboards, list):
         raise LakehouseDescriptorError(f"{source}: dashboards must be an array")

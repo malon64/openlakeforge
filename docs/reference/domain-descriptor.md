@@ -214,6 +214,12 @@ first product. A Silver table with no product consuming it yet is still a valid,
 loadable part of the inventory: it gets its `<domain>_silver` namespace and its
 Floe Silver assets, just no product job selecting it yet.
 
+This is per-domain only: the lakehouse as a whole must still declare at least one
+product somewhere, even while individual domains are product-less. Deployment
+tooling (local smoke, `check-dbt.sh`, full e2e) all assume at least one product
+exists, so a lakehouse where every domain has `products: []` fails descriptor
+validation.
+
 Each product entry is:
 
 ```yaml
