@@ -5,6 +5,17 @@ valid in an isolated temp tree: the canonical descriptor model plus both
 JSON Schemas, exactly as `olf contracts check` validates the committed
 descriptors. On any failure, zero files are written and `lakehouse.yaml` is
 left byte-identical.
+
+Concurrent `olf ... new` invocations against the same repo checkout are not
+supported: no cross-process lock guards the check/verify/write sequence, so
+two commands that both finish verification before either writes can race --
+the second write silently drops the first command's `lakehouse.yaml`
+addition while leaving its files on disk. This is a deliberate scope
+boundary, not a silent-corruption risk: like `rails generate`, `cargo new`,
+or `ng generate`, this tool assumes one command runs against a given
+checkout at a time, and a lost race is immediately caught by the very next
+`olf contracts check` (or scaffold command), which fails loudly on files
+undeclared in the descriptor -- not accepted unnoticed.
 """
 
 from __future__ import annotations
