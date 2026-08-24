@@ -38,7 +38,7 @@ release-bundle:
 floe-manifest:
 	@$(OLF_BIN) floe generate-manifests --provider local
 floe-manifest-upload:
-	@KUBECONFIG=$(LOCAL_KUBECONFIG_PATH) KUBE_CONTEXT=$(KUBE_CONTEXT) $(OLF_BIN) artifacts upload-manifests --provider local --via port-forward
+	@KUBECONFIG="$(LOCAL_KUBECONFIG_PATH)" KUBE_CONTEXT=$(KUBE_CONTEXT) $(OLF_BIN) artifacts upload-manifests --provider local --via port-forward
 dbt-parse:
 	@$(OLF_BIN) dbt parse
 project-code-image:
@@ -50,11 +50,11 @@ superset-image:
 superset-load:
 	@$(OLF_BIN) images load superset --cluster-name $(CLUSTER_NAME)
 superset-reports-deploy:
-	@KUBECONFIG=$(LOCAL_KUBECONFIG_PATH) KUBE_CONTEXT=$(KUBE_CONTEXT) $(OLF_BIN) superset deploy-reports --provider local
+	@KUBECONFIG="$(LOCAL_KUBECONFIG_PATH)" KUBE_CONTEXT=$(KUBE_CONTEXT) $(OLF_BIN) superset deploy-reports --provider local
 superset-reports-export:
-	@KUBECONFIG=$(LOCAL_KUBECONFIG_PATH) KUBE_CONTEXT=$(KUBE_CONTEXT) $(OLF_BIN) superset export-reports --provider local
+	@KUBECONFIG="$(LOCAL_KUBECONFIG_PATH)" KUBE_CONTEXT=$(KUBE_CONTEXT) $(OLF_BIN) superset export-reports --provider local
 openmetadata-metadata-deploy:
-	@KUBECONFIG=$(LOCAL_KUBECONFIG_PATH) KUBE_CONTEXT=$(KUBE_CONTEXT) $(OLF_BIN) openmetadata deploy-metadata --provider local
+	@KUBECONFIG="$(LOCAL_KUBECONFIG_PATH)" KUBE_CONTEXT=$(KUBE_CONTEXT) $(OLF_BIN) openmetadata deploy-metadata --provider local
 
 local-foundation-up:
 	@$(OLF_BIN) deploy --provider local --namespace $(NAMESPACE) --cluster-name $(CLUSTER_NAME) --kubeconfig-path $(LOCAL_KUBECONFIG_PATH) --profile $(LOCAL_PROFILE) --phase foundation
