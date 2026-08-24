@@ -112,6 +112,8 @@ class _ScriptedRunner(RecordingRunner):
         self.calls.append(RecordedCall(argv=argv, kwargs=kwargs))
         if argv[1:3] == ["get", "nodes"]:
             return CommandResult(argv=(), returncode=0, stdout="node-a\n", stderr="", duration_seconds=0.0)
+        if argv[1:2] == ["version"]:
+            return CommandResult(argv=(), returncode=0, stdout="amd64\n", stderr="", duration_seconds=0.0)
         if "inspecti" in argv:
             image = argv[-1]
             ok = image in self._present

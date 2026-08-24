@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import hashlib
+import json
+import re
 import shutil
 from pathlib import Path
 
@@ -10,6 +12,7 @@ import typer
 
 from olf import config
 from olf.commands._shared import fail
+from olf.deployment.engine import Toolkit
 from olf.deployment.errors import DeploymentError
 
 app = typer.Typer(help="Release manifest, checksums, compatibility matrix, and readiness gate.")
@@ -165,31 +168,137 @@ def build_bundle(
 @app.command("verify-install")
 def verify_install(
     asset_dir: str = typer.Option(".tmp/release-bundle", "--asset-dir", help="Directory containing checksums.txt."),
+    tag: str = typer.Option("", "--tag", help="Published release tag (defaults to the catalog version)."),
+    repo_slug: str = typer.Option("malon64/openlakeforge", "--repo", help="GitHub owner/repository for the release."),
+    work_dir: str = typer.Option(".tmp/release-verify", "--work-dir", help="Clean-checkout verification workspace."),
+    pull_images: bool = typer.Option(False, "--pull-images", help="Also pull authenticated published images."),
 ) -> None:
-    """Verify a downloaded or locally built release asset set using Python hashing."""
-    directory = (config.repo_root() / asset_dir).resolve()
+    """Authenticate a release, verify its assets/images, and validate a clean checkout."""
+    from olf import release as release_module
+
+    root = config.repo_root()
+    directory = (root / asset_dir).resolve()
+    catalog = release_module.load_catalog(root / "release/component-catalog.yaml")
+    resolved_tag = tag or f"v{catalog['distribution']['version']}"
+    tools = Toolkit.default()
+    try:
+        if not (directory / "checksums.txt").is_file():
+            directory.mkdir(parents=True, exist_ok=True)
+            tools.runner.run(
+                [
+                    str(tools.resolver.resolve("gh")), "release", "download", resolved_tag,
+                    "--repo", repo_slug, "--clobber", "--dir", str(directory),
+                ],
+                cwd=root,
+                stream_output=True,
+            )
+        _verify_release_assets(directory, tag=resolved_tag, repo_slug=repo_slug, tools=tools)
+        manifest = json.loads((directory / "component-manifest.json").read_text())
+        images = manifest.get("resolved_images", {})
+        identity = _release_identity(repo_slug, resolved_tag)
+        cosign = str(tools.resolver.resolve("cosign"))
+        for name in ("project-code", "superset"):
+            reference = images.get(name)
+            if not isinstance(reference, str) or "@sha256:" not in reference:
+                raise typer.Exit(code=fail(f"component-manifest.json lacks a digest-pinned {name} image"))
+            tools.runner.run(
+                [
+                    cosign, "verify", "--certificate-identity-regexp", identity,
+                    "--certificate-oidc-issuer", "https://token.actions.githubusercontent.com", reference,
+                ],
+                cwd=directory,
+                stream_output=True,
+            )
+        _verify_clean_checkout(root, work_dir, resolved_tag, repo_slug, manifest, tools)
+        if pull_images:
+            docker = str(tools.resolver.resolve("docker"))
+            for reference in images.values():
+                tools.runner.run([docker, "pull", str(reference)], cwd=root, stream_output=True)
+    except DeploymentError as exc:
+        raise typer.Exit(code=fail(str(exc))) from exc
+    typer.echo(f"Verified authenticated OpenLakeForge release {resolved_tag}.")
+
+
+def _release_identity(repo_slug: str, tag: str) -> str:
+    subject = f"https://github.com/{repo_slug}/.github/workflows/release.yml@refs/tags/{tag}"
+    return "^" + re.escape(subject) + "$"
+
+
+def _verify_release_assets(directory: Path, *, tag: str, repo_slug: str, tools: Toolkit) -> None:
     checksums = directory / "checksums.txt"
     if not checksums.is_file():
         raise typer.Exit(code=fail(f"missing checksum manifest: {checksums}"))
+    bundle = directory / "checksums.txt.bundle"
+    manifest = directory / "component-manifest.json"
+    if not bundle.is_file() or not manifest.is_file():
+        missing = [str(path.name) for path in (bundle, manifest) if not path.is_file()]
+        raise typer.Exit(code=fail(f"missing release asset(s): {', '.join(missing)}"))
+    tools.runner.run(
+        [
+            str(tools.resolver.resolve("cosign")), "verify-blob", str(checksums), "--bundle", str(bundle),
+            "--certificate-identity-regexp", _release_identity(repo_slug, tag),
+            "--certificate-oidc-issuer", "https://token.actions.githubusercontent.com",
+        ],
+        cwd=directory,
+        stream_output=True,
+    )
     failures: list[str] = []
     for line in checksums.read_text().splitlines():
         digest, _, filename = line.partition("  ")
+        candidate = Path(filename)
+        if not digest or not filename or candidate.is_absolute() or ".." in candidate.parts:
+            failures.append(f"invalid checksum entry: {line!r}")
+            continue
         path = directory / filename
         actual = hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else "missing"
         if actual != digest:
             failures.append(f"{filename}: expected {digest}, got {actual}")
     if failures:
         raise typer.Exit(code=fail("\n".join(failures)))
-    typer.echo(f"Verified release asset checksums in {directory}")
+
+
+def _verify_clean_checkout(
+    root: Path,
+    work_dir: str,
+    tag: str,
+    repo_slug: str,
+    manifest: dict[str, object],
+    tools: Toolkit,
+) -> None:
+    checkout = (root / work_dir / "checkout").resolve()
+    if checkout.exists():
+        raise typer.Exit(code=fail(f"clean checkout path already exists: {checkout}; remove it or select --work-dir"))
+    checkout.parent.mkdir(parents=True, exist_ok=True)
+    git = str(tools.resolver.resolve("git"))
+    tools.runner.run(
+        [git, "clone", "--depth", "1", "--branch", tag, f"https://github.com/{repo_slug}.git", str(checkout)],
+        cwd=root,
+        stream_output=True,
+    )
+    cloned_sha = tools.runner.run([git, "rev-parse", "HEAD"], cwd=checkout).stdout.strip()
+    distribution = manifest.get("distribution", {})
+    manifest_sha = distribution.get("git_sha") if isinstance(distribution, dict) else None
+    if not isinstance(manifest_sha, str) or cloned_sha != manifest_sha:
+        raise typer.Exit(
+            code=fail(
+                f"tag {tag} points at {cloned_sha}, but component-manifest.json records git_sha={manifest_sha!r}"
+            )
+        )
+    uv = str(tools.resolver.resolve("uv"))
+    for check in ("structure", "components"):
+        tools.runner.run(
+            [uv, "run", "--project", "tools/olf", "--locked", "olf", "check", check],
+            cwd=checkout,
+            stream_output=True,
+        )
 
 
 def _git_sha() -> str:
-    import subprocess
-
     try:
-        result = subprocess.run(
-            ["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=True, cwd=config.repo_root()
+        tools = Toolkit.default()
+        result = tools.runner.run(
+            [str(tools.resolver.resolve("git")), "rev-parse", "HEAD"], cwd=config.repo_root()
         )
         return result.stdout.strip()
-    except (OSError, subprocess.CalledProcessError):
+    except DeploymentError:
         return "unknown"

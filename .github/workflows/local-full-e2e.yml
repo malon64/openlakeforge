@@ -97,7 +97,7 @@ jobs:
           kubectl_version: v1.31.4
 
       - name: Deploy the local stack (fresh foundation)
-        run: uv run --project tools/olf --locked olf deploy --provider local --profile ${{ inputs.suite }} --cluster-name ${{ env.CLUSTER_NAME }} --kubeconfig-path ${{ env.LOCAL_KUBECONFIG_PATH }}
+        run: uv run --project tools/olf --locked olf deploy --provider local --profile ${{ inputs.suite == 'smoke' && 'slim' || 'full' }} --cluster-name ${{ env.CLUSTER_NAME }} --kubeconfig-path ${{ env.LOCAL_KUBECONFIG_PATH }}
 
       - name: Negative-test failure injection
         if: inputs.debug_fail_after_deploy == 'true'

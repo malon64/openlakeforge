@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 import os
+import signal
+import threading
 import time
 from collections.abc import Callable, Mapping
+from contextlib import contextmanager
+from pathlib import Path
 
 from olf import config, e2e, log
 from olf.deployment.context import DeploymentContext, Profile
@@ -28,14 +32,28 @@ def run(
     started = monotonic()
     env = dict(environ or os.environ)
     root = config.repo_root()
-    context = DeploymentContext.local(repo_root=root, profile=Profile.SLIM)
+    cluster_name = env.get("CLUSTER_NAME", "openlakeforge-local")
+    kubeconfig_path = Path(env.get("LOCAL_KUBECONFIG_PATH", root / ".tmp/kubeconfigs/local.yaml"))
+    context = DeploymentContext.local(
+        repo_root=root,
+        profile=Profile.SLIM,
+        cluster_name=cluster_name,
+        kubeconfig_path=kubeconfig_path,
+    )
     try:
-        log.step("Deploying slim local platform...")
-        provider = build_provider(context, toolkit=Toolkit.default(), environ=env)
-        DeploymentEngine(provider).deploy(DeploymentPhase.ALL)
-        _require_remaining(started, timeout_seconds, monotonic, "validating one product pipeline and Gold table")
-        log.step("Validating one product pipeline and Gold table...")
-        e2e.run("local", suite="smoke", namespace=context.namespace, kube_context=context.kube_context, repo_root=root)
+        with _deadline(timeout_seconds):
+            log.step("Deploying slim local platform...")
+            provider = build_provider(context, toolkit=Toolkit.default(), environ=env)
+            DeploymentEngine(provider).deploy(DeploymentPhase.ALL)
+            _require_remaining(started, timeout_seconds, monotonic, "validating one product pipeline and Gold table")
+            log.step("Validating one product pipeline and Gold table...")
+            e2e.run(
+                "local",
+                suite="smoke",
+                namespace=context.namespace,
+                kube_context=context.kube_context,
+                repo_root=root,
+            )
     except DeploymentError as exc:
         raise SmokeError(str(exc)) from exc
     _require_remaining(started, timeout_seconds, monotonic, "completing smoke validation")
@@ -45,3 +63,23 @@ def run(
 def _require_remaining(started: float, budget: int, monotonic: Callable[[], float], phase: str) -> None:
     if monotonic() - started >= budget:
         raise SmokeError(f"Local slim smoke exceeded its {budget}s time budget during: {phase}.")
+
+
+@contextmanager
+def _deadline(timeout_seconds: int):
+    """Interrupt blocking in-process deploy/e2e work at the smoke deadline."""
+    if threading.current_thread() is not threading.main_thread() or not hasattr(signal, "setitimer"):
+        yield
+        return
+    previous_handler = signal.getsignal(signal.SIGALRM)
+    previous_timer = signal.setitimer(signal.ITIMER_REAL, timeout_seconds)
+
+    def _expired(_signum: int, _frame: object) -> None:
+        raise SmokeError(f"Local slim smoke exceeded its {timeout_seconds}s time budget.")
+
+    signal.signal(signal.SIGALRM, _expired)
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, *previous_timer)
+        signal.signal(signal.SIGALRM, previous_handler)

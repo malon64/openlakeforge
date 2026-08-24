@@ -100,7 +100,10 @@ class Terraform:
             args.append("-detailed-exitcode")
         args.extend(self._var_args(var_files, variables))
         args.extend(extra_args)
-        return self._run(terraform_dir, args, env=env, check=not detailed_exitcode, stream_output=True)
+        result = self._run(terraform_dir, args, env=env, check=not detailed_exitcode, stream_output=True)
+        if detailed_exitcode and result.returncode not in (0, 2):
+            raise CommandExecutionError(result.argv, result.returncode, stdout=result.stdout, stderr=result.stderr)
+        return result
 
     def destroy(
         self,

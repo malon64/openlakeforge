@@ -151,3 +151,24 @@ def test_apply_forwards_retry_policy_to_runner() -> None:
     terraform.apply(Path("/repo/infra"), retry_policy=policy)
 
     assert runner.last_call.kwargs["retry_policy"] is policy
+
+
+def test_detailed_plan_allows_terraform_changes_exit_code() -> None:
+    terraform, runner = _terraform(
+        CommandResult(argv=("terraform", "plan"), returncode=2, stdout="changes", stderr="", duration_seconds=0.0)
+    )
+
+    result = terraform.plan(Path("/repo/infra"), detailed_exitcode=True)
+
+    assert result.returncode == 2
+    assert runner.last_call.kwargs["check"] is False
+    assert "-detailed-exitcode" in runner.last_call.argv
+
+
+def test_detailed_plan_raises_for_terraform_error() -> None:
+    terraform, _runner = _terraform(
+        CommandResult(argv=("terraform", "plan"), returncode=1, stdout="", stderr="invalid", duration_seconds=0.0)
+    )
+
+    with pytest.raises(CommandExecutionError, match=r"command failed \(1\)"):
+        terraform.plan(Path("/repo/infra"), detailed_exitcode=True)

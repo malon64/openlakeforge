@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
+import shlex
+import shutil
 import sys
+import tempfile
 import tomllib
 from pathlib import Path
 
@@ -63,11 +67,20 @@ def structure(repo_root: str = typer.Option("", "--repo-root", help="Checkout ro
         "tools/olf/pyproject.toml",
     )
     missing = [path for path in required if not (root / path).exists()]
+    modules_root = root / "infra/terraform/modules"
+    module_errors: list[str] = []
+    if modules_root.is_dir():
+        module_dirs = {path.parent for path in modules_root.rglob("*.tf")}
+        for module in sorted(module_dirs):
+            for filename in ("main.tf", "variables.tf", "outputs.tf"):
+                if not (module / filename).is_file():
+                    module_errors.append(f"Terraform module {module.relative_to(root)} is missing {filename}")
     tracked = Toolkit.default().runner.run(["git", "ls-files", "-z"], cwd=root).stdout.split("\0")
     scripts = [root / path for path in tracked if path.endswith(".sh") and (root / path).is_file()]
-    if missing or scripts:
+    if missing or scripts or module_errors:
         details = [
             *(f"missing required path: {path}" for path in missing),
+            *module_errors,
             *(f"shell script is forbidden: {path.relative_to(root)}" for path in scripts),
         ]
         raise typer.Exit(code=fail("\n".join(details)))
@@ -164,7 +177,36 @@ def lockfiles(repo_root: str = typer.Option("", "--repo-root", help="Checkout ro
             raise typer.Exit(code=fail(f"missing or empty lockfile: {path}"))
         if path.name == "uv.lock":
             _run([uv, "lock", "--project", str(path.parent), "--check"], cwd=root)
+        else:
+            _check_compiled_lock(path, uv=uv, root=root)
     typer.echo("Lockfiles are in sync.")
+
+
+def _check_compiled_lock(path: Path, *, uv: str, root: Path) -> None:
+    """Re-run the exact pinned compile command recorded in a requirements lock."""
+    lines = path.read_text().splitlines()
+    if len(lines) < 2 or not lines[1].lstrip("# ").startswith("uv pip compile "):
+        raise typer.Exit(code=fail(f"{path}: line 2 must record a uv pip compile command"))
+    argv = shlex.split(lines[1].lstrip("# "))
+    try:
+        index = argv.index("--output-file")
+        original_output = argv[index + 1]
+    except (ValueError, IndexError) as exc:
+        raise typer.Exit(code=fail(f"{path}: compile command must include --output-file")) from exc
+    if (root / original_output).resolve() != path.resolve():
+        raise typer.Exit(code=fail(f"{path}: compile command output must be {path.relative_to(root)}"))
+    argv[0] = uv
+    with tempfile.TemporaryDirectory(prefix="olf-lockfile-") as temporary:
+        compiled = Path(temporary) / path.name
+        shutil.copy2(path, compiled)
+        argv[index + 1] = str(compiled)
+        _run([*argv, "--quiet"], cwd=root)
+        if "\n".join(lines[2:]) != "\n".join(compiled.read_text().splitlines()[2:]):
+            raise typer.Exit(
+                code=fail(
+                    f"{path.relative_to(root)} does not match its pinned uv pip compile command; regenerate it."
+                )
+            )
 
 
 @app.command("project-code")
@@ -192,17 +234,7 @@ def project_code(repo_root: str = typer.Option("", "--repo-root", help="Checkout
         "OPENLAKEFORGE_LOG_BASE_URI": "s3://openlakeforge-ops/logs",
         "OPENLAKEFORGE_RUN_ARTIFACT_BASE_URI": "s3://openlakeforge-ops/runs",
     }
-    _run(
-        [
-            sys.executable,
-            "-c",
-            "from lakehouse_code.definitions import defs; from dagster import Definitions; "
-            "Definitions.validate_loadable(defs); defs.get_repository_def().load_all_definitions(); "
-            "print('Project-code definitions loaded.')",
-        ],
-        cwd=root,
-        env=env,
-    )
+    _run([sys.executable, "-m", "olf.project_code_check", str(root)], cwd=root, env=env)
 
 
 @app.command("dbt")
@@ -265,6 +297,45 @@ def dbt(repo_root: str = typer.Option("", "--repo-root", help="Checkout root to 
             cwd=root,
             env=env,
         )
+        _validate_dbt_relation_contract(project, root=root, catalog=env["OPENLAKEFORGE_CATALOG_NAME"])
+    typer.echo("dbt projects compiled and relation contracts are valid.")
+
+
+def _validate_dbt_relation_contract(project: Path, *, root: Path, catalog: str) -> None:
+    """Assert compiled Gold models consume only their descriptor-owned Silver schema."""
+    from openlakeforge_domain import load_lakehouse_inventory
+
+    manifest_path = project / "target/manifest.json"
+    if not manifest_path.is_file():
+        raise typer.Exit(code=fail(f"dbt did not create {manifest_path}"))
+    try:
+        product = project.relative_to(root / "lakehouse_code/gold").parts[0]
+    except (ValueError, IndexError) as exc:
+        raise typer.Exit(code=fail(f"cannot derive product from dbt path: {project}")) from exc
+    inventory = load_lakehouse_inventory(root / "lakehouse_code")
+    descriptor = next((item for item in inventory.products if item.id == product), None)
+    if descriptor is None:
+        raise typer.Exit(code=fail(f"cannot resolve dbt product {product!r} from lakehouse.yaml"))
+    manifest = json.loads(manifest_path.read_text())
+    expected_gold = f"{product}_gold"
+    expected_silver = f"{descriptor.domain_name}_silver"
+    models = [
+        f"{node.get('name')}: {node.get('database')}.{node.get('schema')}"
+        for node in manifest.get("nodes", {}).values()
+        if node.get("resource_type") == "model"
+        and (node.get("database"), node.get("schema")) != (catalog, expected_gold)
+    ]
+    sources = [
+        f"{source.get('name')}: {source.get('database')}.{source.get('schema')}"
+        for source in manifest.get("sources", {}).values()
+        if (source.get("database"), source.get("schema")) != (catalog, expected_silver)
+    ]
+    if models or sources:
+        details = [
+            *(f"Gold models must use {catalog}.{expected_gold}: {item}" for item in models),
+            *(f"Silver sources must use {catalog}.{expected_silver}: {item}" for item in sources),
+        ]
+        raise typer.Exit(code=fail("\n".join(details)))
 
 
 @app.command("all")
