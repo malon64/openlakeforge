@@ -147,6 +147,20 @@ def _domain_span(lines: list[str], domains_start: int, domains_end: int, domain_
 _FLOW_LIST_KEY = re.compile(r"^(\s*)(\w[\w-]*):\s*\[.*\](\s*#.*)?\s*$")
 
 
+class _BlockIndentDumper(yaml.SafeDumper):
+    """PyYAML's default block-sequence style indents list items flush with
+    their parent key (`products:\n- id: x`). This module's fixed indentation
+    scheme (see the module docstring) instead indents them one level further
+    (`products:\n  - id: x`), matching every domain this tool writes and the
+    checked-in samples. Forcing that here -- rather than adjusting the fixed
+    scheme to match PyYAML's default -- keeps `_render_flow_item_as_block`'s
+    output insertable by `_block_list_end`/`_PRODUCTS_KEY`/
+    `_SILVER_TABLES_TABLES_KEY`, which all assume it."""
+
+    def increase_indent(self, flow: bool = False, indentless: bool = False) -> int:
+        return super().increase_indent(flow, False)
+
+
 def _render_flow_item_as_block(item: object, *, indent: str) -> list[str]:
     """Render one already-parsed flow-list item (a scalar or a mapping, e.g.
     a dashboard `{name: ..., products: [...]}`) as block-style lines at
@@ -162,7 +176,7 @@ def _render_flow_item_as_block(item: object, *, indent: str) -> list[str]:
         # document-end marker safe_dump appends to a bare scalar document.
         rendered_item = yaml.safe_dump(item, default_style=None).splitlines()[0]
         return [f"{indent}- {rendered_item}\n"]
-    dumped_lines = yaml.safe_dump(item, default_flow_style=False, sort_keys=False).splitlines()
+    dumped_lines = yaml.dump(item, Dumper=_BlockIndentDumper, default_flow_style=False, sort_keys=False).splitlines()
     return [f"{indent}- {dumped_lines[0]}\n"] + [f"{indent}  {extra}\n" for extra in dumped_lines[1:]]
 
 
@@ -216,9 +230,20 @@ def add_domain(text: str, domain_block: str) -> str:
     return _join(lines)
 
 
+def _domains_span(lines: list[str]) -> tuple[int, int]:
+    """Return `domains:`'s (start, end), converting it from flow to block
+    style first if needed -- the same conversion `add_domain()` already does
+    before appending a new domain, needed here too so an *existing* domain
+    can be located regardless of whether the whole `domains:` sequence
+    happens to be flow-style."""
+    start, end = _top_level_span(lines, "domains")
+    end = _ensure_block_style(lines, start, end)
+    return start, end
+
+
 def domain_exists(text: str, domain_name: str) -> bool:
     lines = _lines(text)
-    domains_start, domains_end = _top_level_span(lines, "domains")
+    domains_start, domains_end = _domains_span(lines)
     return _domain_span(lines, domains_start, domains_end, domain_name) is not None
 
 
@@ -229,7 +254,7 @@ def add_silver_tables(text: str, domain_name: str, table_lines: str) -> str:
     field order within the domain (`products` need not immediately follow
     `silver_tables`, or be last)."""
     lines = _lines(text)
-    domains_start, domains_end = _top_level_span(lines, "domains")
+    domains_start, domains_end = _domains_span(lines)
     span = _domain_span(lines, domains_start, domains_end, domain_name)
     if span is None:
         raise ScaffoldError(f"lakehouse.yaml: domain {domain_name!r} not found")
@@ -255,7 +280,7 @@ def add_product(text: str, domain_name: str, product_block: str) -> str:
     mappings) to block style first if needed. Independent of field order
     within the domain (`products` need not be the domain's last field)."""
     lines = _lines(text)
-    domains_start, domains_end = _top_level_span(lines, "domains")
+    domains_start, domains_end = _domains_span(lines)
     span = _domain_span(lines, domains_start, domains_end, domain_name)
     if span is None:
         raise ScaffoldError(f"lakehouse.yaml: domain {domain_name!r} not found")

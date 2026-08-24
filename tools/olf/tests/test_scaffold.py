@@ -252,6 +252,36 @@ def test_domain_new_handles_a_flow_style_domains_list(tmp_path: Path) -> None:
     assert {d.name for d in inventory.domains} == {"sales", "supply_chain", "hr"}
 
 
+def test_product_new_locates_an_existing_domain_in_a_flow_style_domains_list(tmp_path: Path) -> None:
+    """Adding a product to a domain that already exists must find that
+    domain even when the whole `domains:` sequence is flow-style -- the
+    same conversion `add_domain()` does before appending a new domain is
+    needed by the lookup path too, not just the append path."""
+    repo_root = _seed_repo(tmp_path)
+    lakehouse_path = repo_root / "lakehouse_code" / "lakehouse.yaml"
+    text = lakehouse_path.read_text(encoding="utf-8")
+    domains_block_match = re.search(r"^domains:\n(.*\n)+?(?=^dashboards:)", text, re.MULTILINE)
+    parsed_domains = yaml.safe_load(text)["domains"]
+    flow_domains = "domains: " + yaml.safe_dump(parsed_domains, default_flow_style=True, width=10**9).strip() + "\n"
+    text = text[: domains_block_match.start()] + flow_domains + text[domains_block_match.end() :]
+    lakehouse_path.write_text(text, encoding="utf-8")
+
+    plan = plan_product_new(
+        repo_root,
+        target="sales/order_summary",
+        display_name=None,
+        silver_inputs=("orders",),
+        inputs=(),
+        gold_tables=("mart_order_summary",),
+        with_report=False,
+    )
+    commit_plan(repo_root, plan)
+
+    inventory = load_lakehouse_inventory(repo_root)
+    sales = next(d for d in inventory.domains if d.name == "sales")
+    assert {p.id for p in sales.products} == {"order_revenue", "customer_health", "order_summary"}
+
+
 def test_product_new_reorders_products_before_silver_tables(tmp_path: Path) -> None:
     """Schema doesn't require `silver_tables` before `products` within a
     domain; appending a new product to a domain that reverses this order
@@ -468,6 +498,30 @@ def test_domain_new_creates_a_product_less_domain_that_validates_on_its_own(tmp_
     assert hr.products == ()
     assert hr.silver_namespace == "hr_silver"
     assert {t.name for t in hr.silver_tables} == {"employees"}
+
+
+def test_domain_new_rejects_a_pre_existing_but_undeclared_domain_directory(tmp_path: Path) -> None:
+    """A stray file already sitting under `silver/<domain>/` before that
+    domain is declared anywhere would otherwise slip past the exact-file
+    check in `check_no_existing_targets` (its name doesn't collide with any
+    file the plan writes), then combine badly with what the scaffold adds --
+    e.g. two Floe contracts under one domain, which
+    scripts/artifacts/floe-manifest.sh rejects. The scaffold must refuse to
+    write into a non-empty, not-yet-owned directory at all."""
+    repo_root = _seed_repo(tmp_path)
+    source_plan = plan_source_new(repo_root, source="workday", display_name=None, resources=("employees",))
+    commit_plan(repo_root, source_plan)
+
+    stray = repo_root / "lakehouse_code" / "silver" / "hr" / "contracts" / "floe" / "old.yml"
+    stray.parent.mkdir(parents=True)
+    stray.write_text("apiVersion: floe/v1alpha1\n", encoding="utf-8")
+    before = _tree(repo_root)
+
+    plan = plan_domain_new(repo_root, domain="hr", display_name="HR", inputs=(("workday", "employees"),))
+    with pytest.raises(ScaffoldError, match=r"refusing to scaffold into lakehouse_code/silver/hr"):
+        commit_plan(repo_root, plan)
+
+    assert _tree(repo_root) == before
 
 
 def test_domain_new_rejects_unresolved_source_resource_and_writes_nothing(tmp_path: Path) -> None:

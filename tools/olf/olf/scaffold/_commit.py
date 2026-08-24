@@ -20,6 +20,7 @@ undeclared in the descriptor -- not accepted unnoticed.
 
 from __future__ import annotations
 
+import re
 import shutil
 import tempfile
 from pathlib import Path
@@ -34,11 +35,40 @@ _SOURCE_YAML_SUFFIX = "source.yaml"
 _BRONZE_PREFIX = "lakehouse_code/bronze/"
 _YAML_SUFFIXES = (".yaml", ".yml")
 
+# Matches the owned root directory of a brand-new source/domain/product/
+# dashboard: `lakehouse_code/bronze/<source>/...`,
+# `lakehouse_code/silver/<domain>/...`, `lakehouse_code/gold/<product>/...`,
+# `lakehouse_code/dashboards/superset/<name>/...`. A path that isn't nested
+# under one of these (e.g. a Floe contract edit to an *existing* domain, or a
+# Dagster module added beside existing ones) has no such root and is not
+# checked here -- only genuinely new ownership subtrees are.
+_OWNERSHIP_ROOT = re.compile(r"^lakehouse_code/(?:bronze|silver|gold|dashboards/superset)/[a-z][a-z0-9_]*")
+
 
 def check_no_existing_targets(repo_root: Path, files: tuple[ScaffoldFile, ...]) -> None:
     existing = sorted(f.relative_path for f in files if (repo_root / f.relative_path).exists())
     if existing:
         raise ScaffoldError("refusing to overwrite existing file(s): " + ", ".join(existing))
+
+    # A brand-new ownership directory should not already exist with
+    # unrelated content: `scripts/artifacts/floe-manifest.sh` rejects two
+    # Floe contracts under one domain, for example, and that collision
+    # wouldn't be caught above if the stray file's name happens not to match
+    # any file this plan writes.
+    roots = sorted({match.group(0) for f in files if (match := _OWNERSHIP_ROOT.match(f.relative_path))})
+    for root in roots:
+        root_path = repo_root / root
+        if not root_path.is_dir():
+            continue
+        # Check for files, not just directory entries: a rolled-back partial
+        # write (see _write()) unlinks the files it created but leaves the
+        # now-empty parent directories it made behind, and those must not
+        # look like "unexpected content" on the next retry.
+        if any(p.is_file() for p in root_path.rglob("*")):
+            raise ScaffoldError(
+                f"refusing to scaffold into {root}: the directory already exists with unexpected content "
+                "(expected a brand-new source/domain/product/dashboard directory)"
+            )
 
 
 def _check_yaml_well_formed(files: tuple[ScaffoldFile, ...]) -> None:
