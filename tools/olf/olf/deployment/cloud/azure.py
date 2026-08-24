@@ -112,7 +112,14 @@ class AzureBackend:
             env=env,
         )
 
-    def registry_login(self, tools: Toolkit, facts: FoundationFacts, *, env: Mapping[str, str]) -> None:
+    def registry_login(
+        self,
+        tools: Toolkit,
+        facts: FoundationFacts,
+        *,
+        repository: str,  # noqa: ARG002 - `az acr login` authenticates by registry name, not repository
+        env: Mapping[str, str],
+    ) -> None:
         tools.azure.acr_login(facts.azure_acr_name, env=env)
 
     def platform_apply_variables(self, config: CloudDeploymentConfig, facts: FoundationFacts) -> dict[str, str]:

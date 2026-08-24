@@ -103,8 +103,10 @@ class AwsBackend:
             env=env,
         )
 
-    def registry_login(self, tools: Toolkit, facts: FoundationFacts, *, env: Mapping[str, str]) -> None:
-        registry = facts.project_code_repository.split("/", 1)[0]
+    def registry_login(
+        self, tools: Toolkit, facts: FoundationFacts, *, repository: str, env: Mapping[str, str]
+    ) -> None:
+        registry = repository.split("/", 1)[0]
         password = tools.aws.ecr_get_login_password(region=facts.aws_region, env=env)
         tools.docker.login(registry, username="AWS", password=password, env=env)
 

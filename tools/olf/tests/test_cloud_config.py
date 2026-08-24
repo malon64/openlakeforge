@@ -113,19 +113,35 @@ def test_azure_terraform_settings_has_no_default_var_file(tmp_path: Path) -> Non
     assert settings.var_file is None
 
 
-def test_terraform_settings_explicit_override_wins_for_either_scope(tmp_path: Path) -> None:
+def test_terraform_settings_explicit_aws_tfvars_file_override_wins(tmp_path: Path) -> None:
     explicit = tmp_path / "explicit.tfvars"
     explicit.write_text("x = 1\n")
 
     aws_settings = CloudTerraformSettings.from_environment(
         {"AWS_TFVARS_FILE": str(explicit)}, repo_root=tmp_path, platform_terraform_dir=tmp_path, scope="aws"
     )
-    azure_settings = CloudTerraformSettings.from_environment(
-        {"AZURE_TFVARS_FILE": str(explicit)}, repo_root=tmp_path, platform_terraform_dir=tmp_path, scope="azure"
-    )
 
     assert aws_settings.var_file == explicit
-    assert azure_settings.var_file == explicit
+
+
+def test_terraform_settings_ignores_azure_tfvars_file_for_the_platform_apply(tmp_path: Path) -> None:
+    """AZURE_TFVARS_FILE is a foundation-only concept (handled by AzureBackend.
+    foundation_tfvars_file) - Azure's platform Terraform root declares none of the
+    foundation-only variables (resource_group_name, location, node_vm_size, ...) a
+    foundation tfvars file sets, so passing it through here would fail `-var-file`
+    validation on every azure-up/azure-platform-up/platform teardown.
+    """
+    foundation_tfvars = tmp_path / "sandbox.tfvars"
+    foundation_tfvars.write_text("resource_group_name = \"rg\"\n")
+
+    azure_settings = CloudTerraformSettings.from_environment(
+        {"AZURE_TFVARS_FILE": str(foundation_tfvars)},
+        repo_root=tmp_path,
+        platform_terraform_dir=tmp_path,
+        scope="azure",
+    )
+
+    assert azure_settings.var_file is None
 
 
 def test_terraform_settings_apply_retry_defaults_and_scope_prefixed_overrides(tmp_path: Path) -> None:

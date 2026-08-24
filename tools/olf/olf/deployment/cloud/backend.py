@@ -74,7 +74,18 @@ class CloudBackend(Protocol):
         self, tools: Toolkit, facts: FoundationFacts, *, kubeconfig_path: Path, env: Mapping[str, str]
     ) -> None: ...
 
-    def registry_login(self, tools: Toolkit, facts: FoundationFacts, *, env: Mapping[str, str]) -> None: ...
+    def registry_login(
+        self, tools: Toolkit, facts: FoundationFacts, *, repository: str, env: Mapping[str, str]
+    ) -> None:
+        """Authenticate against the registry that hosts `repository`.
+
+        `repository` is the *effective* image repository being pushed to
+        (after `PROJECT_CODE_IMAGE_REPOSITORY`/`SUPERSET_IMAGE_REPOSITORY`
+        overrides are applied), not necessarily the foundation's default -
+        an override pointed at a different ECR registry must still get
+        credentials for that registry, matching the removed shell scripts
+        (`registry="${PROJECT_CODE_IMAGE_REPOSITORY%%/*}"`).
+        """
 
     def platform_apply_variables(self, config: CloudDeploymentConfig, facts: FoundationFacts) -> dict[str, str]: ...
 

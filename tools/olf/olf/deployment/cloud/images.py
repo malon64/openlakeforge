@@ -42,7 +42,7 @@ def build_and_push_superset_image(
 ) -> str:
     images = resolve_effective_images(config.images, facts)
     log.step(f"Logging in to the {backend.scope} registry...")
-    backend.registry_login(tools, facts, env=env)
+    backend.registry_login(tools, facts, repository=images.superset_repository, env=env)
 
     log.step(f"Pulling Superset base image: {images.superset_base_image}")
     tools.docker.pull(
@@ -76,7 +76,7 @@ def build_and_push_project_code_image(
 ) -> str:
     images = resolve_effective_images(config.images, facts)
     log.step(f"Logging in to the {backend.scope} registry...")
-    backend.registry_login(tools, facts, env=env)
+    backend.registry_login(tools, facts, repository=images.project_code_repository, env=env)
 
     log.step(f"Pulling project-code Python base image: {images.project_code_python_base_image}")
     tools.docker.pull(

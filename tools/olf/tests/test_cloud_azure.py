@@ -208,7 +208,7 @@ def test_registry_login_uses_acr_login_with_acr_name(tmp_path: Path) -> None:  #
     runner = RecordingRunner(_ok())
     tools = _toolkit(runner)
 
-    backend.registry_login(tools, _FACTS, env={})
+    backend.registry_login(tools, _FACTS, repository=_FACTS.project_code_repository, env={})
 
     assert runner.calls[0].argv == ["az", "acr", "login", "--name", "openlakeforgepoc"]
 

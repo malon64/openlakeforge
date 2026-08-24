@@ -164,13 +164,30 @@ def test_registry_login_uses_ecr_password_via_docker_login(tmp_path: Path) -> No
     runner = RecordingRunner(_ok("ecr-password\n"))
     tools = _toolkit(runner)
 
-    backend.registry_login(tools, _FACTS, env={})
+    backend.registry_login(tools, _FACTS, repository=_FACTS.project_code_repository, env={})
 
     ecr_call = next(c for c in runner.calls if c.argv[:3] == ["aws", "ecr", "get-login-password"])
     assert "--region" in ecr_call.argv and "eu-west-1" in ecr_call.argv
     login_call = next(c for c in runner.calls if c.argv[:2] == ["docker", "login"])
     assert login_call.argv[-1] == "123456789012.dkr.ecr.eu-west-1.amazonaws.com"
     assert login_call.kwargs["input_text"] == "ecr-password"
+
+
+def test_registry_login_uses_the_effective_repository_not_the_foundation_default(tmp_path: Path) -> None:
+    """A PROJECT_CODE_IMAGE_REPOSITORY/SUPERSET_IMAGE_REPOSITORY override pointed at a
+    different ECR registry than the foundation's default must still get credentials
+    for *that* registry - matching the removed shell scripts, which always derived
+    `registry="${PROJECT_CODE_IMAGE_REPOSITORY%%/*}"` from the effective repository.
+    """
+    backend = AwsBackend()
+    runner = RecordingRunner(_ok("ecr-password\n"))
+    tools = _toolkit(runner)
+    overridden_repository = "999999999999.dkr.ecr.us-east-1.amazonaws.com/shared/project-code"
+
+    backend.registry_login(tools, _FACTS, repository=overridden_repository, env={})
+
+    login_call = next(c for c in runner.calls if c.argv[:2] == ["docker", "login"])
+    assert login_call.argv[-1] == "999999999999.dkr.ecr.us-east-1.amazonaws.com"
 
 
 def test_cluster_reachable_uses_eks_describe_cluster(tmp_path: Path) -> None:

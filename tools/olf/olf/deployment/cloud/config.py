@@ -177,14 +177,20 @@ class CloudTerraformSettings:
     def from_environment(
         cls, environ: Mapping[str, str], *, repo_root: Path, platform_terraform_dir: Path, scope: str
     ) -> CloudTerraformSettings:
-        raw = environ.get(f"{scope.upper()}_TFVARS_FILE") or ""
         resolved: Path | None = None
-        if raw:
-            candidate = Path(raw)
-            resolved = candidate if candidate.is_absolute() else repo_root / candidate
-        elif scope == "aws":
-            default_tfvars = platform_terraform_dir / "sandbox.tfvars"
-            resolved = default_tfvars if default_tfvars.is_file() else None
+        if scope == "aws":
+            # AWS's stack/platform-up.sh reuses the same AWS_TFVARS_FILE (mandatory
+            # account tags) as the foundation apply - unlike Azure, whose platform
+            # Terraform root declares no foundation-only variables at all
+            # (resource_group_name, location, node_vm_size, ...) and would fail
+            # `-var-file` validation if AZURE_TFVARS_FILE were passed to it.
+            raw = environ.get("AWS_TFVARS_FILE") or ""
+            if raw:
+                candidate = Path(raw)
+                resolved = candidate if candidate.is_absolute() else repo_root / candidate
+            else:
+                default_tfvars = platform_terraform_dir / "sandbox.tfvars"
+                resolved = default_tfvars if default_tfvars.is_file() else None
         return cls(
             var_file=resolved,
             apply_retry=RetryPolicy(

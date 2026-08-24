@@ -87,7 +87,12 @@ class FakeCloudBackend:
         self.calls.append("update_kubeconfig")
 
     def registry_login(
-        self, tools: Toolkit, facts: FoundationFacts, *, env: Mapping[str, str]  # noqa: ARG002
+        self,
+        tools: Toolkit,  # noqa: ARG002
+        facts: FoundationFacts,  # noqa: ARG002
+        *,
+        repository: str,  # noqa: ARG002
+        env: Mapping[str, str],  # noqa: ARG002
     ) -> None:
         self.calls.append("registry_login")
 
