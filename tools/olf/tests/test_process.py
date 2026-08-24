@@ -66,6 +66,51 @@ def test_timeout_raises_typed_error(tmp_path: Path) -> None:
         runner.run([str(script)], timeout_seconds=0.05)
 
 
+def test_stream_output_echoes_live_and_still_captures_result(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    script = tmp_path / "fake.sh"
+    script.write_text("#!/usr/bin/env bash\necho out-line\necho err-line 1>&2\n")
+    script.chmod(0o755)
+    runner = ProcessRunner()
+
+    result = runner.run([str(script)], stream_output=True)
+
+    assert result.returncode == 0
+    assert result.stdout == "out-line\n"
+    assert result.stderr == "err-line\n"
+    captured = capsys.readouterr()
+    assert "out-line" in captured.out
+    assert "err-line" in captured.err
+
+
+def test_stream_output_failed_command_raises_typed_error(tmp_path: Path) -> None:
+    script = tmp_path / "fake.sh"
+    script.write_text("#!/usr/bin/env bash\necho boom 1>&2\nexit 5\n")
+    script.chmod(0o755)
+    runner = ProcessRunner()
+
+    with pytest.raises(CommandExecutionError) as excinfo:
+        runner.run([str(script)], stream_output=True)
+
+    assert excinfo.value.returncode == 5
+
+
+def test_stream_output_missing_executable_raises_typed_error(tmp_path: Path) -> None:
+    runner = ProcessRunner()
+
+    with pytest.raises(ExecutableNotFoundError):
+        runner.run([str(tmp_path / "does-not-exist")], stream_output=True)
+
+
+def test_stream_output_timeout_raises_typed_error(tmp_path: Path) -> None:
+    script = write_sleeping_executable(tmp_path / "slow", seconds=5)
+    runner = ProcessRunner()
+
+    with pytest.raises(CommandTimeoutError):
+        runner.run([str(script)], timeout_seconds=0.05, stream_output=True)
+
+
 def test_cwd_is_observed_by_child(tmp_path: Path) -> None:
     script = write_fake_executable(tmp_path / "fake")
     work_dir = tmp_path / "work"
