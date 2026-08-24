@@ -605,6 +605,36 @@ def test_product_new_extends_existing_domain_with_new_input(tmp_path: Path) -> N
     assert set(headcount.silver_inputs) == {"employees", "absences"}
 
 
+def test_product_new_inserts_a_floe_entity_before_a_trailing_extra_key(tmp_path: Path) -> None:
+    """The Floe contract's entities: list is always last in a
+    scaffold-generated contract, but a hand-edited one could add another
+    top-level field after it. A new --input entity must land inside the
+    entities sequence, not get appended past that later field."""
+    repo_root = _seed_repo(tmp_path)
+    source_plan = plan_source_new(repo_root, source="workday", display_name=None, resources=("employees", "absences"))
+    commit_plan(repo_root, source_plan)
+    domain_plan = plan_domain_new(repo_root, domain="hr", display_name="HR", inputs=(("workday", "employees"),))
+    commit_plan(repo_root, domain_plan)
+
+    contract_path = repo_root / "lakehouse_code" / "silver" / "hr" / "contracts" / "floe" / "hr.yml"
+    contract_path.write_text(contract_path.read_text(encoding="utf-8") + "x_extra: true\n", encoding="utf-8")
+
+    plan = plan_product_new(
+        repo_root,
+        target="hr/headcount",
+        display_name=None,
+        silver_inputs=("employees",),
+        inputs=(("workday", "absences"),),
+        gold_tables=("mart_headcount",),
+        with_report=False,
+    )
+    commit_plan(repo_root, plan)
+
+    contract_doc = yaml.safe_load(contract_path.read_text(encoding="utf-8"))
+    assert {entity["name"] for entity in contract_doc["entities"]} == {"employees", "absences"}
+    assert contract_doc["x_extra"] is True
+
+
 def test_product_new_rejects_when_domain_missing_and_no_input_given(tmp_path: Path) -> None:
     repo_root = _seed_repo(tmp_path)
 

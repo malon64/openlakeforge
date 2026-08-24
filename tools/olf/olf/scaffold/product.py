@@ -148,9 +148,11 @@ def plan_product_new(
                         FloeEntitySpec(table=resource, source=source, resource=resource, domain=domain, columns=columns)
                     )
                 )
-            edits.append(
-                ScaffoldFile(contract_path, existing_contract.rstrip("\n") + "\n\n" + "\n\n".join(new_entities) + "\n")
+            addition = "\n" + "\n\n".join(new_entities) + "\n"
+            new_contract = _lakehouse_edit.append_to_top_level_list(
+                existing_contract, "entities", addition, source_label=contract_path
             )
+            edits.append(ScaffoldFile(contract_path, new_contract))
 
     all_silver_inputs = tuple(silver_inputs) + tuple(new_table_names)
     if not all_silver_inputs:

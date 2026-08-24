@@ -18,6 +18,16 @@ in `_commit.py` then rejects the result and nothing is written, rather than
 silently producing invalid YAML. A trailing inline comment on the converted
 line itself (`sources: [crm, erp]  # owners`) is dropped by the conversion;
 a comment on its own line before/after the flow line is preserved.
+
+The indentation scheme (2-space list markers, 4-space domain fields, 6-space
+product items, 8-space table items) is fixed, matching every domain this
+module writes and the two checked-in sample domains it was built against.
+A different but equally valid scheme -- notably PyYAML's own zero-indent
+block-sequence style (`domains:\n- name: sales`, list markers flush with
+their parent key) -- is a deliberate scope boundary, not a silent gap:
+`_domain_span` then can't locate the domain and `product new`/`domain new`
+fail cleanly (nothing is written) rather than misplacing content into the
+wrong field.
 """
 
 from __future__ import annotations
@@ -44,16 +54,28 @@ def _join(lines: list[str]) -> str:
     return "".join(lines)
 
 
-def _top_level_span(lines: list[str], key: str) -> tuple[int, int]:
+def _top_level_span(lines: list[str], key: str, *, source_label: str = "lakehouse.yaml") -> tuple[int, int]:
     """Return (start, end) line indices for a top-level `key:` block."""
     pattern = re.compile(rf"^{re.escape(key)}:")
     start = next((i for i, line in enumerate(lines) if pattern.match(line)), None)
     if start is None:
-        raise ScaffoldError(f"lakehouse.yaml: missing top-level key {key!r}")
+        raise ScaffoldError(f"{source_label}: missing top-level key {key!r}")
     end = start + 1
     while end < len(lines) and not _TOP_LEVEL_KEY.match(lines[end]):
         end += 1
     return start, end
+
+
+def append_to_top_level_list(text: str, key: str, addition: str, *, source_label: str) -> str:
+    """Append `addition` right before the next top-level key after `key:`
+    -- or at end-of-file if `key:` is the document's last top-level key --
+    rather than always appending at end-of-file. A hand-edited file (e.g. a
+    Floe contract with a custom key placed after `entities:`) is not
+    guaranteed to keep any particular field last."""
+    lines = _lines(text)
+    _, end = _top_level_span(lines, key, source_label=source_label)
+    lines[end:end] = _lines(addition)
+    return _join(lines)
 
 
 def _block_list_end(lines: list[str], list_key_index: int, domain_end: int) -> int:
