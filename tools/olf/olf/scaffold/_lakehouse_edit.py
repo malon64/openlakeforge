@@ -50,6 +50,19 @@ def _lines(text: str) -> list[str]:
     return text.splitlines(keepends=True)
 
 
+def _ensure_newline_before(lines: list[str], index: int) -> None:
+    """Ensure `lines[index - 1]` ends with a newline before splicing new
+    content in at `index`. Property order at every level of this document
+    is unconstrained (JSON Schema doesn't enforce it, and this module was
+    already relaxed to accept any field order within a domain), so any
+    insertion point computed as "next top-level/sibling key, or end" can
+    land at true end-of-file -- not just `dashboards:`, which merely does
+    so the most often. A file missing its final newline would otherwise get
+    the new content concatenated directly onto its last line."""
+    if index > 0 and not lines[index - 1].endswith("\n"):
+        lines[index - 1] += "\n"
+
+
 def _join(lines: list[str]) -> str:
     return "".join(lines)
 
@@ -77,6 +90,7 @@ def append_to_top_level_list(text: str, key: str, addition: str, *, source_label
     lines = _lines(text)
     start, end = _top_level_span(lines, key, source_label=source_label)
     end = _ensure_block_style(lines, start, end, indent=indent)
+    _ensure_newline_before(lines, end)
     lines[end:end] = _lines(addition)
     return _join(lines)
 
@@ -184,6 +198,7 @@ def add_source(text: str, source_name: str) -> str:
     lines = _lines(text)
     start, end = _top_level_span(lines, "sources")
     end = _ensure_block_style(lines, start, end)
+    _ensure_newline_before(lines, end)
     lines.insert(end, f"  - {source_name}\n")
     return _join(lines)
 
@@ -196,6 +211,7 @@ def add_domain(text: str, domain_block: str) -> str:
     lines = _lines(text)
     start, end = _top_level_span(lines, "domains")
     end = _ensure_block_style(lines, start, end)
+    _ensure_newline_before(lines, end)
     lines[end:end] = _lines(domain_block)
     return _join(lines)
 
@@ -227,6 +243,7 @@ def add_silver_tables(text: str, domain_name: str, table_lines: str) -> str:
     was_flow = _FLOW_LIST_KEY.match(lines[tables_index].rstrip("\n")) is not None
     new_tables_end = _ensure_block_style(lines, tables_index, tables_index + 1, indent="        ")
     insert_at = new_tables_end if was_flow else _block_list_end(lines, tables_index, domain_end)
+    _ensure_newline_before(lines, insert_at)
     lines[insert_at:insert_at] = _lines(table_lines)
     return _join(lines)
 
@@ -257,6 +274,7 @@ def add_product(text: str, domain_name: str, product_block: str) -> str:
     # `_block_list_end` rather than assumed to be `domain_end` -- `products`
     # is not required to be the domain's last field.
     insert_at = new_products_end if was_flow else _block_list_end(lines, products_index, domain_end)
+    _ensure_newline_before(lines, insert_at)
     lines[insert_at:insert_at] = _lines(product_block)
     return _join(lines)
 
@@ -268,17 +286,15 @@ def add_dashboard(text: str, dashboard_block: str) -> str:
     `dashboards:` has no schema minimum, so a fresh lakehouse.yaml
     legitimately starts out as `dashboards: []`.
 
-    `dashboards:` is always the document's last top-level key, so `end` is
-    always end-of-file here (unlike every other `add_*` insertion point,
-    which is always followed by more document content). If the file itself
-    doesn't end in a newline, the last line must be newline-terminated
-    before splicing the new dashboard in, or it concatenates directly onto
-    that line instead of starting a new one.
+    `dashboards:` is normally the document's last top-level key (`end` is
+    then end-of-file), but property order is unconstrained at every level
+    of this document, so `_ensure_newline_before` -- not a special case
+    just for this function -- guards every insertion point in this module
+    against a missing final newline.
     """
     lines = _lines(text)
     start, end = _top_level_span(lines, "dashboards")
     end = _ensure_block_style(lines, start, end)
-    if end > 0 and not lines[end - 1].endswith("\n"):
-        lines[end - 1] += "\n"
+    _ensure_newline_before(lines, end)
     lines[end:end] = _lines(dashboard_block)
     return _join(lines)

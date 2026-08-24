@@ -962,6 +962,101 @@ def test_write_restores_lakehouse_yaml_when_its_own_write_fails(
     assert "marketing_platform" in inventory.source_names
 
 
+def test_write_rolls_back_a_file_whose_own_write_partially_failed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """write_text() can create or truncate its target and then still raise
+    partway through -- a disk-full error doesn't necessarily fail before
+    touching the file. That target must be tracked for rollback before the
+    write is attempted, not only after it succeeds, or the one file whose
+    own write failed is left behind with partial content and blocks a
+    retry with "refusing to overwrite existing file(s)"."""
+    repo_root = _seed_repo(tmp_path)
+    plan = plan_source_new(repo_root, source="marketing_platform", display_name=None, resources=("campaigns",))
+    failing_target = repo_root / plan.files[-1].relative_path
+
+    from pathlib import Path as PathClass
+
+    real_write_text = PathClass.write_text
+
+    def flaky_write_text(self, content, *args, **kwargs):
+        if self == failing_target:
+            real_write_text(self, content[: len(content) // 2], *args, **kwargs)
+            raise OSError("simulated partial write failure")
+        return real_write_text(self, content, *args, **kwargs)
+
+    monkeypatch.setattr(PathClass, "write_text", flaky_write_text)
+
+    with pytest.raises(OSError, match="simulated partial write failure"):
+        commit_plan(repo_root, plan)
+
+    monkeypatch.undo()
+
+    for scaffold_file in plan.files:
+        assert not (repo_root / scaffold_file.relative_path).exists(), scaffold_file.relative_path
+
+    # A retry after the transient failure clears must succeed cleanly.
+    commit_plan(repo_root, plan)
+    inventory = load_lakehouse_inventory(repo_root)
+    assert "marketing_platform" in inventory.source_names
+
+
+def test_add_domain_and_add_source_terminate_a_missing_final_newline(tmp_path: Path) -> None:
+    """Property order is unconstrained at every level of the document, so
+    `domains:`/`sources:` can legally be the document's last top-level key
+    (e.g. `dashboards:` placed before them) -- not just `dashboards:`,
+    which is merely the common case. Appending must still not concatenate
+    onto an unterminated last line."""
+    from olf.scaffold import _lakehouse_edit
+
+    reordered_no_trailing_newline = (
+        "apiVersion: openlakeforge.io/v1alpha3\n"
+        "kind: Lakehouse\n"
+        "name: test\n"
+        "displayName: Test\n"
+        "description: Test lakehouse.\n"
+        "status: planned\n"
+        "dashboards: []\n"
+        "sources:\n"
+        "  - crm"
+    )
+    result = _lakehouse_edit.add_source(reordered_no_trailing_newline, "erp")
+    assert yaml.safe_load(result)["sources"] == ["crm", "erp"]
+
+    reordered_domains_last = (
+        "apiVersion: openlakeforge.io/v1alpha3\n"
+        "kind: Lakehouse\n"
+        "name: test\n"
+        "displayName: Test\n"
+        "description: Test lakehouse.\n"
+        "status: planned\n"
+        "sources:\n"
+        "  - crm\n"
+        "dashboards: []\n"
+        "domains:\n"
+        "  - name: sales\n"
+        "    displayName: Sales\n"
+        "    description: d\n"
+        "    status: planned\n"
+        "    silver_tables:\n"
+        "      tables:\n"
+        "        - {name: orders, source: crm, resource: orders}\n"
+        "    products: []"
+    )
+    domain_block = (
+        "  - name: hr\n"
+        "    displayName: HR\n"
+        "    description: d\n"
+        "    status: planned\n"
+        "    silver_tables:\n"
+        "      tables:\n"
+        "        - {name: employees, source: crm, resource: employees}\n"
+        "    products: []\n"
+    )
+    result = _lakehouse_edit.add_domain(reordered_domains_last, domain_block)
+    assert {d["name"] for d in yaml.safe_load(result)["domains"]} == {"sales", "hr"}
+
+
 # --------------------------------------------------------------------------
 # Cross-artifact consistency
 # --------------------------------------------------------------------------

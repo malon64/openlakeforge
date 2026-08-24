@@ -139,8 +139,13 @@ def _write(repo_root: Path, plan: ScaffoldPlan) -> None:
         for scaffold_file in plan.files:
             target = repo_root / scaffold_file.relative_path
             target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(scaffold_file.content, encoding="utf-8")
+            # Recorded before writing, not after: write_text() can create or
+            # truncate the target and then still raise partway through (a
+            # disk-full error doesn't necessarily fail atomically before
+            # touching the file), so waiting for success to record it would
+            # miss exactly the file whose write failed.
             created.append(target)
+            target.write_text(scaffold_file.content, encoding="utf-8")
         for scaffold_file in plan.edits:
             target = repo_root / scaffold_file.relative_path
             target.write_text(scaffold_file.content, encoding="utf-8")
