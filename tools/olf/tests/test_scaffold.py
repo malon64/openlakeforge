@@ -337,6 +337,64 @@ def test_product_new_finds_a_domain_whose_name_field_is_not_first(tmp_path: Path
     assert "order_summary" in {p.id for p in sales.products}
 
 
+def test_product_new_finds_a_domain_with_a_quoted_or_commented_name(tmp_path: Path) -> None:
+    """`name: "sales"` (quoted) and `name: sales  # primary` (inline
+    comment) are both schema-valid spellings of the same scalar; the domain
+    lookup must parse the value, not match the raw source text."""
+    repo_root = _seed_repo(tmp_path)
+    lakehouse_path = repo_root / "lakehouse_code" / "lakehouse.yaml"
+    text = lakehouse_path.read_text(encoding="utf-8")
+    text = text.replace('  - name: sales\n', '  - name: "sales"  # primary\n', 1)
+    lakehouse_path.write_text(text, encoding="utf-8")
+    assert yaml.safe_load(text)["domains"][0]["name"] == "sales"
+
+    plan = plan_product_new(
+        repo_root,
+        target="sales/order_summary",
+        display_name=None,
+        silver_inputs=("orders",),
+        inputs=(),
+        gold_tables=("mart_order_summary",),
+        with_report=False,
+    )
+    commit_plan(repo_root, plan)
+
+    inventory = load_lakehouse_inventory(repo_root)
+    sales = next(d for d in inventory.domains if d.name == "sales")
+    assert "order_summary" in {p.id for p in sales.products}
+
+
+def test_product_new_handles_a_trailing_comment_on_products_and_tables_keys(tmp_path: Path) -> None:
+    """`tables: # core dims` and `products: # inventory` are schema-valid;
+    the locator regexes for those fields must tolerate a trailing inline
+    comment the same way the flow-list matcher already does."""
+    repo_root = _seed_repo(tmp_path)
+    source_plan = plan_source_new(repo_root, source="marketing_platform", display_name=None, resources=("campaigns",))
+    commit_plan(repo_root, source_plan)
+    lakehouse_path = repo_root / "lakehouse_code" / "lakehouse.yaml"
+    text = lakehouse_path.read_text(encoding="utf-8")
+    text = text.replace("      tables:\n", "      tables:  # core dims\n", 1)
+    text = text.replace("    products:\n", "    products:  # revenue and health\n", 1)
+    lakehouse_path.write_text(text, encoding="utf-8")
+    assert yaml.safe_load(text)["domains"][0]["name"] == "sales"
+
+    plan = plan_product_new(
+        repo_root,
+        target="sales/order_summary",
+        display_name=None,
+        silver_inputs=("orders",),
+        inputs=(("marketing_platform", "campaigns"),),
+        gold_tables=("mart_order_summary",),
+        with_report=False,
+    )
+    commit_plan(repo_root, plan)
+
+    inventory = load_lakehouse_inventory(repo_root)
+    sales = next(d for d in inventory.domains if d.name == "sales")
+    assert "order_summary" in {p.id for p in sales.products}
+    assert {t.name for t in sales.silver_tables} >= {"orders", "campaigns"}
+
+
 def test_source_new_rejects_bad_identifier_and_writes_nothing(tmp_path: Path) -> None:
     repo_root = _seed_repo(tmp_path)
     before = _tree(repo_root)

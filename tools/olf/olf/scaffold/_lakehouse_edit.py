@@ -30,10 +30,10 @@ from olf.scaffold._shared import ScaffoldError
 
 _TOP_LEVEL_KEY = re.compile(r"^[A-Za-z]")
 _DOMAIN_ITEM_START = re.compile(r"^  - \S")
-_DOMAIN_NAME_FIELD = re.compile(r"^(?:  - name: |    name: )(\S+)\s*$")
+_DOMAIN_NAME_FIELD = re.compile(r"^(?:  - name:|    name:)(.*)$")
 _DOMAIN_FIELD = re.compile(r"^    \S")
-_PRODUCTS_KEY = re.compile(r"^    products:(\s*\[.*\])?\s*$")
-_SILVER_TABLES_TABLES_KEY = re.compile(r"^      tables:(\s*\[.*\])?\s*$")
+_PRODUCTS_KEY = re.compile(r"^    products:(\s*\[.*\])?(\s*#.*)?\s*$")
+_SILVER_TABLES_TABLES_KEY = re.compile(r"^      tables:(\s*\[.*\])?(\s*#.*)?\s*$")
 
 
 def _lines(text: str) -> list[str]:
@@ -70,6 +70,22 @@ def _block_list_end(lines: list[str], list_key_index: int, domain_end: int) -> i
     return index
 
 
+def _domain_name_at(lines: list[str], index: int) -> str | None:
+    """Parse the `name:` scalar out of `lines[index]`, or None if it isn't a
+    name field line. Parses through PyYAML rather than capturing the raw
+    source text, so a quoted (`name: "sales"`) or inline-commented
+    (`name: sales  # primary`) value still resolves to the plain string a
+    caller compares against."""
+    match = _DOMAIN_NAME_FIELD.match(lines[index].rstrip("\n"))
+    if match is None:
+        return None
+    try:
+        parsed = yaml.safe_load("name:" + match.group(1))
+    except yaml.YAMLError:
+        return None
+    return parsed.get("name") if isinstance(parsed, dict) else None
+
+
 def _domain_span(lines: list[str], domains_start: int, domains_end: int, domain_name: str) -> tuple[int, int] | None:
     """Return (start, end) line indices for one domain entry, or None.
 
@@ -82,10 +98,8 @@ def _domain_span(lines: list[str], domains_start: int, domains_end: int, domain_
     item_starts = [i for i in range(domains_start + 1, domains_end) if _DOMAIN_ITEM_START.match(lines[i])]
     for index, start in enumerate(item_starts):
         end = item_starts[index + 1] if index + 1 < len(item_starts) else domains_end
-        name = next(
-            (match.group(1) for i in range(start, end) for match in [_DOMAIN_NAME_FIELD.match(lines[i])] if match),
-            None,
-        )
+        names = (_domain_name_at(lines, i) for i in range(start, end))
+        name = next((found for found in names if found is not None), None)
         if name == domain_name:
             return start, end
     return None
