@@ -111,6 +111,77 @@ def test_source_new_handles_a_flow_style_sources_list(tmp_path: Path) -> None:
     assert set(inventory.source_names) == {"crm", "erp", "marketing_platform"}
 
 
+def test_product_new_handles_a_flow_style_dashboards_list_with_mappings(tmp_path: Path) -> None:
+    """`dashboards: [{name: x, products: [a]}]` is valid, schema-accepted
+    YAML; converting it must re-parse each mapping item rather than split
+    the flow text on commas, which would break on the commas inside the
+    nested `products: [...]` value."""
+    repo_root = _seed_repo(tmp_path)
+    lakehouse_path = repo_root / "lakehouse_code" / "lakehouse.yaml"
+    text = lakehouse_path.read_text(encoding="utf-8")
+    text = re.sub(
+        r"dashboards:\n(.*\n)+?$",
+        "dashboards: [{name: sales_order_revenue, products: [order_revenue, customer_health]}]\n",
+        text,
+    )
+    lakehouse_path.write_text(text, encoding="utf-8")
+    assert yaml.safe_load(text)["dashboards"] == [
+        {"name": "sales_order_revenue", "products": ["order_revenue", "customer_health"]}
+    ]
+
+    plan = plan_product_new(
+        repo_root,
+        target="sales/order_summary",
+        display_name=None,
+        silver_inputs=("orders",),
+        inputs=(),
+        gold_tables=("mart_order_summary",),
+        with_report=True,
+    )
+    commit_plan(repo_root, plan)
+
+    inventory = load_lakehouse_inventory(repo_root)
+    dashboard_names = {d.name: d.products for d in inventory.dashboards}
+    assert dashboard_names["sales_order_revenue"] == ("order_revenue", "customer_health")
+    assert dashboard_names["order_summary"] == ("order_summary",)
+
+
+def test_product_new_handles_a_flow_style_non_empty_products_list(tmp_path: Path) -> None:
+    """A domain may represent its existing products as a schema-valid,
+    non-empty flow sequence (`products: [{id: ..., ...}]`); appending a new
+    product must convert it, not fail to even locate the field."""
+    repo_root = _seed_repo(tmp_path)
+    lakehouse_path = repo_root / "lakehouse_code" / "lakehouse.yaml"
+    text = lakehouse_path.read_text(encoding="utf-8")
+    text = re.sub(
+        r"    products:\n(      - id: order_revenue\n(?:.*\n)*?)(?=  - name: supply_chain)",
+        "    products: [{id: order_revenue, displayName: Order Revenue, description: d, "
+        "status: active, silver_inputs: [orders], gold_tables: {tables: [{name: mart_order_revenue}]}}, "
+        "{id: customer_health, displayName: Customer Health, description: d, status: active, "
+        "silver_inputs: [accounts], gold_tables: {tables: [{name: mart_customer_health}]}}]\n",
+        text,
+    )
+    lakehouse_path.write_text(text, encoding="utf-8")
+    parsed = yaml.safe_load(text)
+    sales_domain = next(d for d in parsed["domains"] if d["name"] == "sales")
+    assert [p["id"] for p in sales_domain["products"]] == ["order_revenue", "customer_health"]
+
+    plan = plan_product_new(
+        repo_root,
+        target="sales/order_summary",
+        display_name=None,
+        silver_inputs=("orders",),
+        inputs=(),
+        gold_tables=("mart_order_summary",),
+        with_report=False,
+    )
+    commit_plan(repo_root, plan)
+
+    inventory = load_lakehouse_inventory(repo_root)
+    sales = next(d for d in inventory.domains if d.name == "sales")
+    assert {p.id for p in sales.products} == {"order_revenue", "customer_health", "order_summary"}
+
+
 def test_source_new_rejects_bad_identifier_and_writes_nothing(tmp_path: Path) -> None:
     repo_root = _seed_repo(tmp_path)
     before = _tree(repo_root)

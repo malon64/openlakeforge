@@ -20,12 +20,14 @@ from __future__ import annotations
 
 import re
 
+import yaml
+
 from olf.scaffold._shared import ScaffoldError
 
 _TOP_LEVEL_KEY = re.compile(r"^[A-Za-z]")
 _DOMAIN_START = re.compile(r"^  - name: (\S+)\s*$")
-_PRODUCTS_KEY = re.compile(r"^    products:(\s*\[\])?\s*$")
-_SILVER_TABLES_TABLES_KEY = re.compile(r"^      tables:\s*$")
+_PRODUCTS_KEY = re.compile(r"^    products:(\s*\[.*\])?\s*$")
+_SILVER_TABLES_TABLES_KEY = re.compile(r"^      tables:(\s*\[.*\])?\s*$")
 
 
 def _lines(text: str) -> list[str]:
@@ -64,19 +66,35 @@ def _domain_span(lines: list[str], domains_start: int, domains_end: int, domain_
     return None
 
 
-_FLOW_LIST_KEY = re.compile(r"^(\w[\w-]*):\s*\[(.*)\]\s*$")
+_FLOW_LIST_KEY = re.compile(r"^(\s*)(\w[\w-]*):\s*\[.*\]\s*$")
 
 
-def _ensure_block_style(lines: list[str], start: int, end: int) -> int:
-    """If the top-level list at `lines[start:end]` is flow style (`key:
-    [a, b]`, including the empty `key: []`), rewrite it in place as block
-    style. Returns the (possibly updated) end index. A no-op when it is
-    already block style."""
-    match = _FLOW_LIST_KEY.match(lines[start].rstrip("\n"))
+def _render_flow_item_as_block(item: object, *, indent: str) -> list[str]:
+    """Render one already-parsed flow-list item (a scalar or a mapping, e.g.
+    a dashboard `{name: ..., products: [...]}`) as block-style lines at
+    `indent`. Re-parses through PyYAML rather than splitting the flow text on
+    commas, since a naive split breaks on commas inside a nested
+    mapping/list (`[{name: x, products: [a, b]}]`)."""
+    if isinstance(item, str):
+        return [f"{indent}- {item}\n"]
+    dumped_lines = yaml.safe_dump(item, default_flow_style=False, sort_keys=False).splitlines()
+    return [f"{indent}- {dumped_lines[0]}\n"] + [f"{indent}  {extra}\n" for extra in dumped_lines[1:]]
+
+
+def _ensure_block_style(lines: list[str], start: int, end: int, *, indent: str = "  ") -> int:
+    """If the list at `lines[start]` is flow style (`key: [a, b]`, including
+    the empty `key: []`), rewrite `lines[start:end]` in place as block style
+    with items indented by `indent`. Returns the (possibly updated) end
+    index. A no-op when it is already block style."""
+    stripped = lines[start].rstrip("\n")
+    match = _FLOW_LIST_KEY.match(stripped)
     if match is None:
         return end
-    items = [item.strip() for item in match.group(2).split(",") if item.strip()]
-    block_lines = [f"{match.group(1)}:\n"] + [f"  - {item}\n" for item in items]
+    leading, key = match.group(1), match.group(2)
+    items = yaml.safe_load(stripped)[key] or []
+    block_lines = [f"{leading}{key}:\n"]
+    for item in items:
+        block_lines.extend(_render_flow_item_as_block(item, indent=indent))
     lines[start:end] = block_lines
     return start + len(block_lines)
 
@@ -107,27 +125,42 @@ def domain_exists(text: str, domain_name: str) -> bool:
 
 def add_silver_tables(text: str, domain_name: str, table_lines: str) -> str:
     """Append pre-rendered `- {name: ..., ...}` lines to a domain's
-    `silver_tables.tables:` list. `silver_tables` must immediately precede
-    `products` in the domain entry (see module docstring)."""
+    `silver_tables.tables:` list, converting a flow-style `tables:
+    [{name: ..., ...}]` to block style first if needed. `silver_tables`
+    must immediately precede `products` in the domain entry (see module
+    docstring)."""
     lines = _lines(text)
     domains_start, domains_end = _top_level_span(lines, "domains")
     span = _domain_span(lines, domains_start, domains_end, domain_name)
     if span is None:
         raise ScaffoldError(f"lakehouse.yaml: domain {domain_name!r} not found")
     domain_start, domain_end = span
-    products_index = next(
-        (i for i in range(domain_start, domain_end) if _PRODUCTS_KEY.match(lines[i])),
+    tables_index = next(
+        (i for i in range(domain_start, domain_end) if _SILVER_TABLES_TABLES_KEY.match(lines[i])),
         None,
     )
-    if products_index is None:
-        raise ScaffoldError(f"lakehouse.yaml: domain {domain_name!r}: could not locate 'products:' field")
-    lines[products_index:products_index] = _lines(table_lines)
+    if tables_index is None:
+        raise ScaffoldError(f"lakehouse.yaml: domain {domain_name!r}: could not locate 'silver_tables.tables:' field")
+    was_flow = _FLOW_LIST_KEY.match(lines[tables_index].rstrip("\n")) is not None
+    new_tables_end = _ensure_block_style(lines, tables_index, tables_index + 1, indent="        ")
+    if was_flow:
+        lines[new_tables_end:new_tables_end] = _lines(table_lines)
+    else:
+        products_index = next(
+            (i for i in range(new_tables_end, domain_end) if _PRODUCTS_KEY.match(lines[i])),
+            None,
+        )
+        if products_index is None:
+            raise ScaffoldError(f"lakehouse.yaml: domain {domain_name!r}: could not locate 'products:' field")
+        lines[products_index:products_index] = _lines(table_lines)
     return _join(lines)
 
 
 def add_product(text: str, domain_name: str, product_block: str) -> str:
     """Append a fully-rendered product entry to a domain's `products:` list,
-    converting an inline `products: []` to block style first if needed."""
+    converting a flow-style list (most commonly the inline-empty
+    `products: []`, but also a schema-valid non-empty flow array of product
+    mappings) to block style first if needed."""
     lines = _lines(text)
     domains_start, domains_end = _top_level_span(lines, "domains")
     span = _domain_span(lines, domains_start, domains_end, domain_name)
@@ -140,11 +173,13 @@ def add_product(text: str, domain_name: str, product_block: str) -> str:
     )
     if products_index is None:
         raise ScaffoldError(f"lakehouse.yaml: domain {domain_name!r}: could not locate 'products:' field")
-    if lines[products_index].rstrip("\n").endswith("[]"):
-        lines[products_index] = "    products:\n"
-        insert_at = products_index + 1
-    else:
-        insert_at = domain_end
+    was_flow = _FLOW_LIST_KEY.match(lines[products_index].rstrip("\n")) is not None
+    new_products_end = _ensure_block_style(lines, products_index, products_index + 1, indent="      ")
+    # A flow list converts in place, so the new product goes right after the
+    # converted items. An already-block-style list is untouched by
+    # `_ensure_block_style` (a no-op), so `domain_end` is still valid and the
+    # new product goes after the domain's existing block-style products.
+    insert_at = new_products_end if was_flow else domain_end
     lines[insert_at:insert_at] = _lines(product_block)
     return _join(lines)
 
