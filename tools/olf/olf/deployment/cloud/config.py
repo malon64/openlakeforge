@@ -165,13 +165,25 @@ class CloudTerraformSettings:
 
     Foundation-level tfvars handling (AWS: optional; Azure: required) is a
     genuine provider difference and stays in `cloud/aws.py`/`cloud/azure.py`
-    - this only covers the platform apply, which AWS var-files and Azure
-    does not (Azure's `stack/platform-up.sh` never references a tfvars
-    file at all).
+    - `var_file` only covers the platform apply, which AWS var-files and
+    Azure does not (Azure's `stack/platform-up.sh` never references a
+    tfvars file at all; ADR 0027 makes this a binding requirement, not an
+    incidental default).
+
+    `foundation_var_file` is the separate channel an explicit `--var-file`
+    CLI override travels through for Azure foundation operations: it must
+    never also populate `var_file`, or a combined `olf deploy --provider
+    azure --var-file <foundation.tfvars>` run would forward that file into
+    the platform apply too and fail Terraform's `-var-file` validation
+    there (Azure's platform root declares none of the foundation-only
+    variables a foundation tfvars file sets). AWS has no equivalent field -
+    it deliberately reuses `var_file` for both phases (see
+    `cloud/aws.py::foundation_tfvars_file`'s docstring).
     """
 
     var_file: Path | None
     apply_retry: RetryPolicy
+    foundation_var_file: Path | None = None
 
     @classmethod
     def from_environment(
@@ -241,7 +253,18 @@ class CloudDeploymentConfig:
             environ, repo_root=repo_root, platform_terraform_dir=context.paths.platform_terraform_dir, scope=scope
         )
         if var_file is not None:
-            terraform = CloudTerraformSettings(var_file=var_file, apply_retry=terraform.apply_retry)
+            # AWS reuses the same explicit override for both foundation and
+            # platform (var_file); Azure's platform apply must NEVER see a
+            # tfvars file (ADR 0027), so the override travels through
+            # foundation_var_file only, leaving var_file untouched (None).
+            if scope == "aws":
+                terraform = CloudTerraformSettings(
+                    var_file=var_file, apply_retry=terraform.apply_retry, foundation_var_file=var_file
+                )
+            else:
+                terraform = CloudTerraformSettings(
+                    var_file=terraform.var_file, apply_retry=terraform.apply_retry, foundation_var_file=var_file
+                )
         return cls(
             context=context,
             images=CloudImageSettings.from_environment(environ, scope=scope, image_tag=tag),

@@ -121,6 +121,31 @@ def test_platform_up_uses_backend_apply_variables_and_var_file(tmp_path: Path) -
     assert "-var=namespace=lakehouse" in apply_call.argv
 
 
+def test_platform_up_never_passes_var_file_to_azure_apply_even_with_explicit_override(tmp_path: Path) -> None:
+    """P1 regression: an explicit `--var-file` for a combined `olf deploy
+    --provider azure --var-file <foundation.tfvars>` run must reach the
+    foundation apply but never the platform apply - Azure's platform
+    Terraform root declares none of the foundation-only variables a
+    foundation tfvars file sets and rejects `-var-file` entirely (ADR
+    0027).
+    """
+    explicit = tmp_path / "explicit.tfvars"
+    explicit.write_text("resource_group = \"rg\"\n")
+    context = DeploymentContext.azure(repo_root=tmp_path, profile=Profile.SLIM)
+    config = CloudDeploymentConfig.from_environment({}, context=context, var_file=explicit)
+    config.paths.helm_cache_dir.mkdir(parents=True, exist_ok=True)
+    config.charts.trino_package_path.write_text("cached")
+    config.charts.dagster_package_path.write_text("cached")
+    backend = FakeCloudBackend(scope="azure")
+    runner = _PlatformScriptedRunner()
+    tools = _toolkit(runner)
+
+    platform.platform_up(config, tools, backend, _FACTS, env={})
+
+    apply_call = next(c for c in runner.calls if c.argv[0] == "terraform" and c.argv[2:3] == ["apply"])
+    assert not any(arg.startswith("-var-file=") for arg in apply_call.argv)
+
+
 def test_platform_up_cleans_up_polaris_jobs_only_when_backend_requests_it(tmp_path: Path) -> None:
     config = _config(tmp_path, enable_analytics="false")
     config.paths.helm_cache_dir.mkdir(parents=True, exist_ok=True)

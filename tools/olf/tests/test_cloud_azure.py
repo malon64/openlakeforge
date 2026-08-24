@@ -244,6 +244,47 @@ def test_registry_login_uses_acr_login_with_acr_name(tmp_path: Path) -> None:  #
     assert runner.calls[0].argv == ["az", "acr", "login", "--name", "openlakeforgepoc"]
 
 
+def test_registry_login_derives_acr_name_from_an_overridden_repository(tmp_path: Path) -> None:  # noqa: ARG001
+    """AZURE_PROJECT_CODE_IMAGE_REPOSITORY/AZURE_SUPERSET_IMAGE_REPOSITORY
+    can point at a different ACR than the foundation's default - the login
+    must target *that* registry, matching the AWS backend's equivalent fix,
+    not the foundation's `facts.azure_acr_name`.
+    """
+    backend = AzureBackend()
+    runner = RecordingRunner(_ok())
+    tools = _toolkit(runner)
+    overridden_repository = "otheracr.azurecr.io/shared/project-code"
+
+    backend.registry_login(tools, _FACTS, repository=overridden_repository, env={})
+
+    assert runner.calls[0].argv == ["az", "acr", "login", "--name", "otheracr"]
+
+
+def test_registry_login_derives_acr_name_even_when_foundation_facts_have_no_registry(tmp_path: Path) -> None:
+    """When registry outputs are absent from the foundation state (see
+    resolve_foundation_facts's lenient handling) but an explicit repository
+    override is supplied, the login must not depend on `facts.azure_acr_name`
+    being resolvable at all.
+    """
+    backend = AzureBackend()
+    runner = RecordingRunner(_ok())
+    tools = _toolkit(runner)
+    facts_without_registry = FoundationFacts(
+        cluster_name="aks-openlakeforge-poc",
+        kube_context="aks-openlakeforge-poc",
+        project_code_repository="",
+        superset_repository="",
+        azure_resource_group="openlakeforge-poc-rg",
+        azure_acr_name="",
+    )
+
+    backend.registry_login(
+        tools, facts_without_registry, repository="otheracr.azurecr.io/shared/project-code", env={}
+    )
+
+    assert runner.calls[0].argv == ["az", "acr", "login", "--name", "otheracr"]
+
+
 def test_cluster_reachable_uses_aks_show(tmp_path: Path) -> None:  # noqa: ARG001
     backend = AzureBackend()
     runner = RecordingRunner(_fail())

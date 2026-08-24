@@ -180,10 +180,29 @@ def test_cloud_deployment_config_from_environment_builds_full_config(tmp_path: P
     assert config.force_foundation_down is False
 
 
-def test_cloud_deployment_config_var_file_argument_overrides_resolved_default(tmp_path: Path) -> None:
-    context = DeploymentContext.azure(repo_root=tmp_path)
+def test_cloud_deployment_config_var_file_argument_overrides_resolved_default_for_aws(tmp_path: Path) -> None:
+    context = DeploymentContext.aws(repo_root=tmp_path)
     explicit = tmp_path / "explicit.tfvars"
 
     config = CloudDeploymentConfig.from_environment({}, context=context, var_file=explicit)
 
     assert config.terraform.var_file == explicit
+    assert config.terraform.foundation_var_file == explicit
+
+
+def test_cloud_deployment_config_var_file_argument_never_reaches_azure_platform_apply(tmp_path: Path) -> None:
+    """An explicit `--var-file` on Azure must route only through
+    `foundation_var_file`, never `var_file` - `var_file` also feeds the
+    platform apply (`cloud/platform.py`), and Azure's platform Terraform
+    root rejects a tfvars file entirely (ADR 0027, binding requirement).
+    A combined `olf deploy --provider azure --var-file <foundation.tfvars>`
+    run must not fail Terraform `-var-file` validation at the platform
+    phase.
+    """
+    context = DeploymentContext.azure(repo_root=tmp_path)
+    explicit = tmp_path / "explicit.tfvars"
+
+    config = CloudDeploymentConfig.from_environment({}, context=context, var_file=explicit)
+
+    assert config.terraform.var_file is None
+    assert config.terraform.foundation_var_file == explicit

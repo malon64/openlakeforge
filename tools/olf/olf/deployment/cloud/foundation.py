@@ -24,14 +24,19 @@ def _resolve_foundation_tfvars_file(
 ) -> Path | None:
     """Honor an explicit `--var-file` CLI override for foundation operations.
 
-    `config.terraform.var_file` is `None` unless a CLI `--var-file` was
-    given (Azure never defaults it; AWS's env-derived default happens to
-    resolve from the same `AWS_TFVARS_FILE` the foundation apply already
-    uses), so preferring it here - falling back to the backend's own
-    `AWS_TFVARS_FILE`/`AZURE_TFVARS_FILE` resolution only when unset - lets
-    an explicit override win for both providers without silently ignoring
-    it or defaulting to the wrong file.
+    Checked in order:
+    1. `foundation_var_file` - an explicit CLI `--var-file` on Azure, which
+       must never populate `var_file` (that field also feeds the platform
+       apply, and Azure's platform Terraform root rejects a tfvars file
+       entirely per ADR 0027).
+    2. `var_file` - AWS's case, whether from an explicit `--var-file` or
+       its env-derived `AWS_TFVARS_FILE` default; AWS deliberately reuses
+       the same file for both foundation and platform.
+    3. The backend's own `AWS_TFVARS_FILE`/`AZURE_TFVARS_FILE` resolution,
+       when no explicit override was given at all.
     """
+    if config.terraform.foundation_var_file is not None:
+        return config.terraform.foundation_var_file
     if config.terraform.var_file is not None:
         return config.terraform.var_file
     return backend.foundation_tfvars_file(

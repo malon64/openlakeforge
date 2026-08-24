@@ -123,12 +123,27 @@ class AzureBackend:
     def registry_login(
         self,
         tools: Toolkit,
-        facts: FoundationFacts,
+        facts: FoundationFacts,  # noqa: ARG002 - the ACR name is derived from `repository`, not the foundation facts
         *,
-        repository: str,  # noqa: ARG002 - `az acr login` authenticates by registry name, not repository
+        repository: str,
         env: Mapping[str, str],
     ) -> None:
-        tools.azure.acr_login(facts.azure_acr_name, env=env)
+        """Authenticate to the ACR that hosts `repository`.
+
+        `az acr login --name` wants the ACR *short name*, not a full login
+        server or repository path - derive it from `repository`'s registry
+        host (`<name>.azurecr.io/...` -> `<name>`) rather than always using
+        `facts.azure_acr_name`. `repository` is the *effective* repository
+        (after `AZURE_PROJECT_CODE_IMAGE_REPOSITORY`/
+        `AZURE_SUPERSET_IMAGE_REPOSITORY` overrides), matching the AWS
+        backend's equivalent fix: an override pointed at a different ACR
+        must still authenticate against *that* registry, not the
+        foundation's default - and must not depend on `facts.azure_acr_name`
+        being resolvable at all when an override is supplied.
+        """
+        registry_host = repository.split("/", 1)[0]
+        acr_name = registry_host.split(".", 1)[0] if registry_host else ""
+        tools.azure.acr_login(acr_name, env=env)
 
     def platform_apply_variables(self, config: CloudDeploymentConfig, facts: FoundationFacts) -> dict[str, str]:
         from olf.deployment.cloud.images import resolve_effective_images
