@@ -145,3 +145,67 @@ def test_applied_contract_environment_uses_facts_kube_context(tmp_path: Path, mo
     artifacts.artifacts_deploy(config, tools, backend, _FACTS, env={})
 
     assert seen_context["kube_context"] == _FACTS.kube_context
+
+
+def test_artifacts_deploy_honors_contract_terraform_dir_override(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR` must win over the provider's
+    default platform Terraform directory, matching the removed
+    `scripts/{aws,azure}/stack/deploy-artifacts.sh` and `olf.e2e._runner`.
+    """
+    config = _config(tmp_path)
+    tools = _toolkit()
+    backend = FakeCloudBackend(scope="aws")
+    override_dir = tmp_path / "custom/contract-env"
+    override_dir.mkdir(parents=True)
+    monkeypatch.setenv("OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR", str(override_dir))
+
+    seen_dirs: list[Path] = []
+
+    @contextmanager
+    def _capturing_contract_env(*, contract_terraform_dir, **kwargs):  # noqa: ANN001, ANN003
+        seen_dirs.append(contract_terraform_dir)
+        yield dict(os.environ)
+
+    monkeypatch.setattr(artifacts.contract_env, "applied_contract_environment", _capturing_contract_env)
+    monkeypatch.setattr(artifacts, "sync_catalog_namespaces", lambda: None)
+    monkeypatch.setattr(artifacts, "activate_runtime_revision", lambda root, *, via: "sha256:abc")
+    monkeypatch.setattr(artifacts, "build_and_push_project_code_image", lambda *a, **k: None)
+    monkeypatch.setattr(artifacts, "upload_runtime_manifests", lambda root, *, via: None)
+    monkeypatch.setattr(artifacts.k8s, "set_project_code_image", lambda image, namespace: None)
+    monkeypatch.setattr(artifacts, "deploy_optional_layer_artifacts", lambda environ: None)
+    backend.generate_floe_manifests = lambda *a, **k: []
+
+    artifacts.artifacts_deploy(config, tools, backend, _FACTS, env={})
+
+    assert seen_dirs == [override_dir]
+
+
+def test_artifacts_deploy_falls_back_to_platform_terraform_dir_when_override_unset(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = _config(tmp_path)
+    tools = _toolkit()
+    backend = FakeCloudBackend(scope="aws")
+    monkeypatch.delenv("OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR", raising=False)
+
+    seen_dirs: list[Path] = []
+
+    @contextmanager
+    def _capturing_contract_env(*, contract_terraform_dir, **kwargs):  # noqa: ANN001, ANN003
+        seen_dirs.append(contract_terraform_dir)
+        yield dict(os.environ)
+
+    monkeypatch.setattr(artifacts.contract_env, "applied_contract_environment", _capturing_contract_env)
+    monkeypatch.setattr(artifacts, "sync_catalog_namespaces", lambda: None)
+    monkeypatch.setattr(artifacts, "activate_runtime_revision", lambda root, *, via: "sha256:abc")
+    monkeypatch.setattr(artifacts, "build_and_push_project_code_image", lambda *a, **k: None)
+    monkeypatch.setattr(artifacts, "upload_runtime_manifests", lambda root, *, via: None)
+    monkeypatch.setattr(artifacts.k8s, "set_project_code_image", lambda image, namespace: None)
+    monkeypatch.setattr(artifacts, "deploy_optional_layer_artifacts", lambda environ: None)
+    backend.generate_floe_manifests = lambda *a, **k: []
+
+    artifacts.artifacts_deploy(config, tools, backend, _FACTS, env={})
+
+    assert seen_dirs == [config.paths.platform_terraform_dir]

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Mapping
+from pathlib import Path
 
 from olf import k8s, log
 from olf.deployment import contract_env
@@ -31,6 +32,16 @@ from olf.deployment.cloud.images import build_and_push_project_code_image, resol
 from olf.deployment.engine import Toolkit
 
 
+def _resolve_contract_terraform_dir(config: CloudDeploymentConfig) -> Path:
+    """Honor `OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR`, matching the removed
+    `scripts/{aws,azure}/stack/deploy-artifacts.sh` (`CONTRACT_TERRAFORM_DIR=
+    "${OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR:-...}"`) and `olf.e2e._runner
+    ._contract_dir`, both of which resolve this override directly from the
+    process environment rather than a provider's curated command env.
+    """
+    return Path(os.environ.get("OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR", config.paths.platform_terraform_dir)).resolve()
+
+
 def artifacts_deploy(
     config: CloudDeploymentConfig,
     tools: Toolkit,
@@ -40,7 +51,7 @@ def artifacts_deploy(
     env: Mapping[str, str],
 ) -> None:
     with contract_env.applied_contract_environment(
-        contract_terraform_dir=config.paths.platform_terraform_dir,
+        contract_terraform_dir=_resolve_contract_terraform_dir(config),
         repo_root=config.paths.repo_root,
         namespace=config.namespace,
         kube_context=facts.kube_context,
