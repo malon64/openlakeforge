@@ -6,6 +6,8 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+import yaml
+
 IDENTIFIER_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
 
 
@@ -27,11 +29,14 @@ def yaml_dq(value: str) -> str:
     """Render `value` as a double-quoted YAML scalar.
 
     User-supplied strings (--display-name, inferred CSV column names) can
-    contain YAML metacharacters (':', '#', quotes); splicing them unquoted
-    into generated YAML would corrupt or break parsing of the descriptor.
+    contain YAML metacharacters (':', '#', quotes) or actual control
+    characters (newlines, tabs); splicing them unquoted into generated YAML
+    would corrupt or break parsing of the descriptor, and hand-rolled
+    escaping of just backslash and quote would still fold a literal newline
+    into a space. Delegates to PyYAML's own emitter (forced double-quote
+    style) rather than reimplementing YAML's escape rules.
     """
-    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
-    return f'"{escaped}"'
+    return yaml.safe_dump(value, default_style='"').rstrip("\n")
 
 
 @dataclass(frozen=True)

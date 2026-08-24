@@ -231,6 +231,80 @@ def test_product_new_with_report_handles_a_lakehouse_missing_its_final_newline(t
     assert any(d.name == "order_summary" for d in inventory.dashboards)
 
 
+def test_domain_new_handles_a_flow_style_domains_list(tmp_path: Path) -> None:
+    """`domains: [{name: sales, ...}]` is valid, schema-accepted YAML;
+    appending a new domain must convert it, not splice a block-style item
+    after the already-closed flow value."""
+    repo_root = _seed_repo(tmp_path)
+    lakehouse_path = repo_root / "lakehouse_code" / "lakehouse.yaml"
+    text = lakehouse_path.read_text(encoding="utf-8")
+    domains_block_match = re.search(r"^domains:\n(.*\n)+?(?=^dashboards:)", text, re.MULTILINE)
+    parsed_domains = yaml.safe_load(text)["domains"]
+    flow_domains = "domains: " + yaml.safe_dump(parsed_domains, default_flow_style=True, width=10**9).strip() + "\n"
+    text = text[: domains_block_match.start()] + flow_domains + text[domains_block_match.end() :]
+    lakehouse_path.write_text(text, encoding="utf-8")
+    assert yaml.safe_load(text)["domains"][0]["name"] == "sales"
+
+    plan = plan_domain_new(repo_root, domain="hr", display_name="HR", inputs=(("crm", "orders"),))
+    commit_plan(repo_root, plan)
+
+    inventory = load_lakehouse_inventory(repo_root)
+    assert {d.name for d in inventory.domains} == {"sales", "supply_chain", "hr"}
+
+
+def test_product_new_reorders_products_before_silver_tables(tmp_path: Path) -> None:
+    """Schema doesn't require `silver_tables` before `products` within a
+    domain; appending a new product to a domain that reverses this order
+    must land inside the products sequence, not past whatever field follows
+    it."""
+    repo_root = _seed_repo(tmp_path)
+    lakehouse_path = repo_root / "lakehouse_code" / "lakehouse.yaml"
+    text = lakehouse_path.read_text(encoding="utf-8")
+    # Swap the sales domain's silver_tables: and products: blocks textually,
+    # preserving the file's established block-style formatting exactly --
+    # a full yaml.safe_dump round-trip would reformat with PyYAML's own
+    # (differently-indented) list style, not what this module is built for.
+    match = re.search(
+        r"(    silver_tables:\n(?:      .*\n)+?)(    products:\n(?:      .*\n)+?)(?=  - name: supply_chain)",
+        text,
+    )
+    assert match is not None
+    text = text[: match.start()] + match.group(2) + match.group(1) + text[match.end() :]
+    lakehouse_path.write_text(text, encoding="utf-8")
+    reloaded_sales = next(d for d in yaml.safe_load(text)["domains"] if d["name"] == "sales")
+    assert list(reloaded_sales.keys()).index("products") < list(reloaded_sales.keys()).index("silver_tables")
+
+    plan = plan_product_new(
+        repo_root,
+        target="sales/order_summary",
+        display_name=None,
+        silver_inputs=("orders",),
+        inputs=(),
+        gold_tables=("mart_order_summary",),
+        with_report=False,
+    )
+    commit_plan(repo_root, plan)
+
+    inventory = load_lakehouse_inventory(repo_root)
+    sales = next(d for d in inventory.domains if d.name == "sales")
+    assert "order_summary" in {p.id for p in sales.products}
+    assert {t.name for t in sales.silver_tables} >= {"orders"}
+
+
+def test_yaml_dq_escapes_newlines_and_control_characters(tmp_path: Path) -> None:
+    """A literal newline in --display-name must not be silently folded into
+    a space by YAML's plain-scalar rules; it has to be escaped so the exact
+    string round-trips."""
+    repo_root = _seed_repo(tmp_path)
+    tricky_name = "HR\nOps"
+
+    plan = plan_source_new(repo_root, source="workday", display_name=tricky_name, resources=("employees",))
+    commit_plan(repo_root, plan)
+
+    source_doc = yaml.safe_load((repo_root / "lakehouse_code" / "bronze" / "workday" / "source.yaml").read_text())
+    assert source_doc["displayName"] == tricky_name
+
+
 def test_source_new_rejects_bad_identifier_and_writes_nothing(tmp_path: Path) -> None:
     repo_root = _seed_repo(tmp_path)
     before = _tree(repo_root)

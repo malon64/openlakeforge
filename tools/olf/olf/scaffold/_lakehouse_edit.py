@@ -8,12 +8,16 @@ known anchors and leaves every other byte untouched. Correctness is not
 assumed from the splice: the caller always re-validates the spliced result
 through the canonical loader before committing it (see `_commit.py`).
 
-Field order within a domain entry (`name, displayName, description, status,
-silver_tables, products`) and within the document
-(`apiVersion, kind, name, displayName, description, status, sources, domains,
-dashboards`) is assumed to match every domain this module writes or edits --
-true for every scaffold-generated domain and for the two checked-in sample
-domains this module was built against.
+Flow-style lists (`sources: [crm, erp]`, `products: [{id: x, ...}]`) are
+detected and converted to block style before an item is appended, since
+appending a block-style item directly after an already-closed flow value is
+invalid YAML. A flow-style list is required to fit on one line (matching how
+every tool and human actually writes one); a flow sequence that spans
+multiple lines is not detected and is treated as unconvertible -- `_verify`
+in `_commit.py` then rejects the result and nothing is written, rather than
+silently producing invalid YAML. A trailing inline comment on the converted
+line itself (`sources: [crm, erp]  # owners`) is dropped by the conversion;
+a comment on its own line before/after the flow line is preserved.
 """
 
 from __future__ import annotations
@@ -26,6 +30,7 @@ from olf.scaffold._shared import ScaffoldError
 
 _TOP_LEVEL_KEY = re.compile(r"^[A-Za-z]")
 _DOMAIN_START = re.compile(r"^  - name: (\S+)\s*$")
+_DOMAIN_FIELD = re.compile(r"^    \S")
 _PRODUCTS_KEY = re.compile(r"^    products:(\s*\[.*\])?\s*$")
 _SILVER_TABLES_TABLES_KEY = re.compile(r"^      tables:(\s*\[.*\])?\s*$")
 
@@ -50,6 +55,20 @@ def _top_level_span(lines: list[str], key: str) -> tuple[int, int]:
     return start, end
 
 
+def _block_list_end(lines: list[str], list_key_index: int, domain_end: int) -> int:
+    """Return the index right after a domain-level block-style list's items
+    -- the first following line at the domain's own 4-space field indent (a
+    sibling field, e.g. a reordered `silver_tables:` following `products:`),
+    or `domain_end` if the list runs to the end of the domain entry. Makes
+    `add_product`/`add_silver_tables` independent of field order within a
+    domain -- neither field is required to be last, or adjacent to the
+    other."""
+    index = list_key_index + 1
+    while index < domain_end and not _DOMAIN_FIELD.match(lines[index]):
+        index += 1
+    return index
+
+
 def _domain_span(lines: list[str], domains_start: int, domains_end: int, domain_name: str) -> tuple[int, int] | None:
     """Return (start, end) line indices for one domain entry, or None."""
     starts = [
@@ -66,7 +85,7 @@ def _domain_span(lines: list[str], domains_start: int, domains_end: int, domain_
     return None
 
 
-_FLOW_LIST_KEY = re.compile(r"^(\s*)(\w[\w-]*):\s*\[.*\]\s*$")
+_FLOW_LIST_KEY = re.compile(r"^(\s*)(\w[\w-]*):\s*\[.*\](\s*#.*)?\s*$")
 
 
 def _render_flow_item_as_block(item: object, *, indent: str) -> list[str]:
@@ -118,9 +137,13 @@ def add_source(text: str, source_name: str) -> str:
 
 
 def add_domain(text: str, domain_block: str) -> str:
-    """Append a fully-rendered domain entry to the end of `domains:`."""
+    """Append a fully-rendered domain entry to `domains:`, converting a
+    flow-style list (`domains: [{name: sales, ...}]`) to block style first
+    if needed. Unlike `sources:`, `domains:` has no inline-empty form
+    (schema `minItems: 1`), but a non-empty flow sequence is still valid."""
     lines = _lines(text)
-    _, end = _top_level_span(lines, "domains")
+    start, end = _top_level_span(lines, "domains")
+    end = _ensure_block_style(lines, start, end)
     lines[end:end] = _lines(domain_block)
     return _join(lines)
 
@@ -134,9 +157,9 @@ def domain_exists(text: str, domain_name: str) -> bool:
 def add_silver_tables(text: str, domain_name: str, table_lines: str) -> str:
     """Append pre-rendered `- {name: ..., ...}` lines to a domain's
     `silver_tables.tables:` list, converting a flow-style `tables:
-    [{name: ..., ...}]` to block style first if needed. `silver_tables`
-    must immediately precede `products` in the domain entry (see module
-    docstring)."""
+    [{name: ..., ...}]` to block style first if needed. Independent of
+    field order within the domain (`products` need not immediately follow
+    `silver_tables`, or be last)."""
     lines = _lines(text)
     domains_start, domains_end = _top_level_span(lines, "domains")
     span = _domain_span(lines, domains_start, domains_end, domain_name)
@@ -151,16 +174,8 @@ def add_silver_tables(text: str, domain_name: str, table_lines: str) -> str:
         raise ScaffoldError(f"lakehouse.yaml: domain {domain_name!r}: could not locate 'silver_tables.tables:' field")
     was_flow = _FLOW_LIST_KEY.match(lines[tables_index].rstrip("\n")) is not None
     new_tables_end = _ensure_block_style(lines, tables_index, tables_index + 1, indent="        ")
-    if was_flow:
-        lines[new_tables_end:new_tables_end] = _lines(table_lines)
-    else:
-        products_index = next(
-            (i for i in range(new_tables_end, domain_end) if _PRODUCTS_KEY.match(lines[i])),
-            None,
-        )
-        if products_index is None:
-            raise ScaffoldError(f"lakehouse.yaml: domain {domain_name!r}: could not locate 'products:' field")
-        lines[products_index:products_index] = _lines(table_lines)
+    insert_at = new_tables_end if was_flow else _block_list_end(lines, tables_index, domain_end)
+    lines[insert_at:insert_at] = _lines(table_lines)
     return _join(lines)
 
 
@@ -168,7 +183,8 @@ def add_product(text: str, domain_name: str, product_block: str) -> str:
     """Append a fully-rendered product entry to a domain's `products:` list,
     converting a flow-style list (most commonly the inline-empty
     `products: []`, but also a schema-valid non-empty flow array of product
-    mappings) to block style first if needed."""
+    mappings) to block style first if needed. Independent of field order
+    within the domain (`products` need not be the domain's last field)."""
     lines = _lines(text)
     domains_start, domains_end = _top_level_span(lines, "domains")
     span = _domain_span(lines, domains_start, domains_end, domain_name)
@@ -185,9 +201,10 @@ def add_product(text: str, domain_name: str, product_block: str) -> str:
     new_products_end = _ensure_block_style(lines, products_index, products_index + 1, indent="      ")
     # A flow list converts in place, so the new product goes right after the
     # converted items. An already-block-style list is untouched by
-    # `_ensure_block_style` (a no-op), so `domain_end` is still valid and the
-    # new product goes after the domain's existing block-style products.
-    insert_at = new_products_end if was_flow else domain_end
+    # `_ensure_block_style` (a no-op), so its true end must be located with
+    # `_block_list_end` rather than assumed to be `domain_end` -- `products`
+    # is not required to be the domain's last field.
+    insert_at = new_products_end if was_flow else _block_list_end(lines, products_index, domain_end)
     lines[insert_at:insert_at] = _lines(product_block)
     return _join(lines)
 
