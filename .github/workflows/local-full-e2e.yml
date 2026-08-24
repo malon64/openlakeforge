@@ -68,7 +68,7 @@ jobs:
   e2e:
     name: Deploy and validate local stack (${{ inputs.suite }})
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ inputs.timeout_minutes }}
+    timeout-minutes: ${{ fromJSON(inputs.timeout_minutes) }}
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
