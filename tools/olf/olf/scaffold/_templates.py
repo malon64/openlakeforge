@@ -96,7 +96,7 @@ Scaffolded by `olf source new {source}`.
 Replace the placeholder example CSV(s) under `examples/` with real sample
 data for each resource, and point `dlt/{source}.py` at a real ingestion
 adapter when this source moves beyond local CSV examples. See
-[Build your first data product](../../../../docs/getting-started/first-data-product.md)
+[Build your first data product](../../../docs/getting-started/first-data-product.md)
 for the full ownership model this source participates in.
 """
 
@@ -124,7 +124,7 @@ This domain owns the `{domain}_silver` Iceberg namespace and its Floe
 Bronze-to-Silver contract at `contracts/floe/{domain}.yml`. Every product
 built on `{domain}` shares this one Silver namespace and this one Floe
 contract -- see
-[ADR 0026](../../../../docs/adr/0026-medallion-ownership-and-catalog-namespace-contract.md).
+[ADR 0026](../../../docs/adr/0026-medallion-ownership-and-catalog-namespace-contract.md).
 """
 
 

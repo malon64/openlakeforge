@@ -7,6 +7,7 @@ commands against that copy -- never against the checked-in repository.
 
 from __future__ import annotations
 
+import re
 import shutil
 from pathlib import Path
 
@@ -66,6 +67,48 @@ def test_source_new_generates_the_documented_file_tree(tmp_path: Path) -> None:
 
     inventory = load_lakehouse_inventory(repo_root)
     assert "marketing_platform" in inventory.source_names
+
+
+def test_readme_links_from_generated_bronze_and_silver_dirs_resolve(tmp_path: Path) -> None:
+    """The Bronze and Silver READMEs link back to docs/ with a relative
+    path; that path must actually resolve from where the README lives."""
+    repo_root = _seed_repo(tmp_path)
+    source_plan = plan_source_new(repo_root, source="marketing_platform", display_name=None, resources=("campaigns",))
+    commit_plan(repo_root, source_plan)
+    domain_plan = plan_domain_new(
+        repo_root, domain="marketing", display_name=None, inputs=(("marketing_platform", "campaigns"),)
+    )
+    commit_plan(repo_root, domain_plan)
+
+    bronze_readme = repo_root / "lakehouse_code" / "bronze" / "marketing_platform" / "README.md"
+    domain_readme = repo_root / "lakehouse_code" / "silver" / "marketing" / "README.md"
+    bronze_link = re.search(r"\]\((\.\./[^)]+)\)", bronze_readme.read_text(encoding="utf-8")).group(1)
+    domain_link = re.search(r"\]\((\.\./[^)]+)\)", domain_readme.read_text(encoding="utf-8")).group(1)
+
+    assert (bronze_readme.parent / bronze_link).resolve().is_relative_to(repo_root.resolve())
+    assert (bronze_readme.parent / bronze_link).resolve() == (repo_root / "docs/getting-started/first-data-product.md")
+    assert (domain_readme.parent / domain_link).resolve().is_relative_to(repo_root.resolve())
+    assert (domain_readme.parent / domain_link).resolve() == (
+        repo_root / "docs/adr/0026-medallion-ownership-and-catalog-namespace-contract.md"
+    )
+
+
+def test_source_new_handles_a_flow_style_sources_list(tmp_path: Path) -> None:
+    """`sources: [crm, erp]` is valid, schema-accepted YAML the descriptor
+    could legitimately use; appending to it must not splice a block-style
+    list item directly after the flow list (invalid YAML)."""
+    repo_root = _seed_repo(tmp_path)
+    lakehouse_path = repo_root / "lakehouse_code" / "lakehouse.yaml"
+    text = lakehouse_path.read_text(encoding="utf-8")
+    text = re.sub(r"sources:\n(  - \w+\n)+", "sources: [crm, erp]\n", text)
+    lakehouse_path.write_text(text, encoding="utf-8")
+    assert yaml.safe_load(text)["sources"] == ["crm", "erp"]
+
+    plan = plan_source_new(repo_root, source="marketing_platform", display_name=None, resources=("campaigns",))
+    commit_plan(repo_root, plan)
+
+    inventory = load_lakehouse_inventory(repo_root)
+    assert set(inventory.source_names) == {"crm", "erp", "marketing_platform"}
 
 
 def test_source_new_rejects_bad_identifier_and_writes_nothing(tmp_path: Path) -> None:

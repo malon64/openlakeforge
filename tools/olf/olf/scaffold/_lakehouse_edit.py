@@ -64,10 +64,29 @@ def _domain_span(lines: list[str], domains_start: int, domains_end: int, domain_
     return None
 
 
+_FLOW_LIST_KEY = re.compile(r"^(\w[\w-]*):\s*\[(.*)\]\s*$")
+
+
+def _ensure_block_style(lines: list[str], start: int, end: int) -> int:
+    """If the top-level list at `lines[start:end]` is flow style (`key:
+    [a, b]`, including the empty `key: []`), rewrite it in place as block
+    style. Returns the (possibly updated) end index. A no-op when it is
+    already block style."""
+    match = _FLOW_LIST_KEY.match(lines[start].rstrip("\n"))
+    if match is None:
+        return end
+    items = [item.strip() for item in match.group(2).split(",") if item.strip()]
+    block_lines = [f"{match.group(1)}:\n"] + [f"  - {item}\n" for item in items]
+    lines[start:end] = block_lines
+    return start + len(block_lines)
+
+
 def add_source(text: str, source_name: str) -> str:
-    """Append `source_name` to the `sources:` list."""
+    """Append `source_name` to the `sources:` list, converting a flow-style
+    list (`sources: [crm, erp]`) to block style first if needed."""
     lines = _lines(text)
     start, end = _top_level_span(lines, "sources")
+    end = _ensure_block_style(lines, start, end)
     lines.insert(end, f"  - {source_name}\n")
     return _join(lines)
 
@@ -132,13 +151,12 @@ def add_product(text: str, domain_name: str, product_block: str) -> str:
 
 def add_dashboard(text: str, dashboard_block: str) -> str:
     """Append a fully-rendered dashboard entry to `dashboards:`, converting
-    an inline `dashboards: []` to block style first if needed. Unlike
-    `sources:`/`domains:`, `dashboards:` has no schema minimum, so a fresh
-    lakehouse.yaml legitimately starts out as `dashboards: []`."""
+    a flow-style list (most commonly the inline-empty `dashboards: []`) to
+    block style first if needed. Unlike `sources:`/`domains:`,
+    `dashboards:` has no schema minimum, so a fresh lakehouse.yaml
+    legitimately starts out as `dashboards: []`."""
     lines = _lines(text)
     start, end = _top_level_span(lines, "dashboards")
-    if lines[start].rstrip("\n").endswith("[]"):
-        lines[start] = "dashboards:\n"
-        end = start + 1
+    end = _ensure_block_style(lines, start, end)
     lines[end:end] = _lines(dashboard_block)
     return _join(lines)
