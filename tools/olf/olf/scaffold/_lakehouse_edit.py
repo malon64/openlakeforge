@@ -29,7 +29,8 @@ import yaml
 from olf.scaffold._shared import ScaffoldError
 
 _TOP_LEVEL_KEY = re.compile(r"^[A-Za-z]")
-_DOMAIN_START = re.compile(r"^  - name: (\S+)\s*$")
+_DOMAIN_ITEM_START = re.compile(r"^  - \S")
+_DOMAIN_NAME_FIELD = re.compile(r"^(?:  - name: |    name: )(\S+)\s*$")
 _DOMAIN_FIELD = re.compile(r"^    \S")
 _PRODUCTS_KEY = re.compile(r"^    products:(\s*\[.*\])?\s*$")
 _SILVER_TABLES_TABLES_KEY = re.compile(r"^      tables:(\s*\[.*\])?\s*$")
@@ -70,18 +71,23 @@ def _block_list_end(lines: list[str], list_key_index: int, domain_end: int) -> i
 
 
 def _domain_span(lines: list[str], domains_start: int, domains_end: int, domain_name: str) -> tuple[int, int] | None:
-    """Return (start, end) line indices for one domain entry, or None."""
-    starts = [
-        (i, match.group(1))
-        for i in range(domains_start + 1, domains_end)
-        for match in [_DOMAIN_START.match(lines[i])]
-        if match
-    ]
-    for index, (start, name) in enumerate(starts):
-        if name != domain_name:
-            continue
-        end = starts[index + 1][0] if index + 1 < len(starts) else domains_end
-        return start, end
+    """Return (start, end) line indices for one domain entry, or None.
+
+    Domain items are located by their list-item marker (`  - `), not by
+    assuming `name` is the item's first field -- a schema-valid domain can
+    order its fields any way. Each item's `name` is then found by scanning
+    its own lines, whether `name` is the first field (`  - name: sales`) or
+    a later one (`    name: sales`).
+    """
+    item_starts = [i for i in range(domains_start + 1, domains_end) if _DOMAIN_ITEM_START.match(lines[i])]
+    for index, start in enumerate(item_starts):
+        end = item_starts[index + 1] if index + 1 < len(item_starts) else domains_end
+        name = next(
+            (match.group(1) for i in range(start, end) for match in [_DOMAIN_NAME_FIELD.match(lines[i])] if match),
+            None,
+        )
+        if name == domain_name:
+            return start, end
     return None
 
 

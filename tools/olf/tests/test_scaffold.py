@@ -305,6 +305,38 @@ def test_yaml_dq_escapes_newlines_and_control_characters(tmp_path: Path) -> None
     assert source_doc["displayName"] == tricky_name
 
 
+def test_product_new_finds_a_domain_whose_name_field_is_not_first(tmp_path: Path) -> None:
+    """A schema-valid domain can order its fields any way; `name` need not
+    be first. add_product() (and add_silver_tables()'s --input path) must
+    still locate the domain by its list-item marker, not by assuming
+    `- name:` opens the entry."""
+    repo_root = _seed_repo(tmp_path)
+    lakehouse_path = repo_root / "lakehouse_code" / "lakehouse.yaml"
+    text = lakehouse_path.read_text(encoding="utf-8")
+    text = text.replace(
+        "  - name: sales\n    displayName: Sales\n",
+        "  - displayName: Sales\n    name: sales\n",
+        1,
+    )
+    lakehouse_path.write_text(text, encoding="utf-8")
+    assert yaml.safe_load(text)["domains"][0]["name"] == "sales"
+
+    plan = plan_product_new(
+        repo_root,
+        target="sales/order_summary",
+        display_name=None,
+        silver_inputs=("orders",),
+        inputs=(),
+        gold_tables=("mart_order_summary",),
+        with_report=False,
+    )
+    commit_plan(repo_root, plan)
+
+    inventory = load_lakehouse_inventory(repo_root)
+    sales = next(d for d in inventory.domains if d.name == "sales")
+    assert "order_summary" in {p.id for p in sales.products}
+
+
 def test_source_new_rejects_bad_identifier_and_writes_nothing(tmp_path: Path) -> None:
     repo_root = _seed_repo(tmp_path)
     before = _tree(repo_root)

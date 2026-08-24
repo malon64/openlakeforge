@@ -1,3 +1,4 @@
+import dataclasses
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -157,3 +158,27 @@ def test_assert_ops_artifacts_uses_legacy_manifests_for_supplied_local_image(mon
     _artifacts.assert_ops_artifacts(FakeS3Client(), "ops", "lakehouse", E2E_INVENTORY, "manual")
 
     assert checked == [("ops", key) for key in E2E_INVENTORY.manifest_keys]
+
+
+def test_assert_ops_artifacts_skips_floe_report_prefix_for_a_product_less_domain(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A domain created via `olf domain new` may have no products yet (see
+    the domain-first scaffolding flow); no product job ever selects its
+    Silver tables, so Floe never runs for it and it never writes a runtime
+    report under floe/reports/<domain>/. Requiring that prefix would fail
+    `make local-e2e` for this supported state."""
+    product_less_domain = dataclasses.replace(E2E_INVENTORY.domains[0], products=())
+    inventory = dataclasses.replace(E2E_INVENTORY, domains=(product_less_domain, *E2E_INVENTORY.domains[1:]))
+    monkeypatch.setattr(_artifacts, "assert_legacy_floe_manifests", lambda *_args: None)
+    checked_prefixes: list[str] = []
+    monkeypatch.setattr(
+        _artifacts, "require_s3_prefix", lambda _client, _bucket, prefix: checked_prefixes.append(prefix)
+    )
+
+    _artifacts.assert_ops_artifacts(object(), "ops", "lakehouse", inventory, "manual")
+
+    assert product_less_domain.artifact_prefixes.floe_report_prefix not in checked_prefixes
+    for domain in inventory.domains:
+        if domain.products:
+            assert domain.artifact_prefixes.floe_report_prefix in checked_prefixes
