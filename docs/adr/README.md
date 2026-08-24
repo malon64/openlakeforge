@@ -113,3 +113,7 @@ lifecycle, with a `CloudBackend` protocol isolating the genuine
 AWS/Azure differences (foundation variables, kubeconfig population,
 registry login, default image repository, Polaris job cleanup, Floe
 profile selection) behind `AwsBackend`/`AzureBackend`.
+
+`0028-python-owns-repository-orchestration.md` fully supersedes ADR 0017's
+shell-orchestration decision. `olf` owns repository orchestration; Make and
+workflow commands are delegates, while Terraform and Helm remain their engines.

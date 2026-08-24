@@ -25,7 +25,8 @@ from typing import TYPE_CHECKING
 
 from olf.deployment.cloud.backend import CloudBackend, FoundationFacts
 from olf.deployment.cloud.config import CloudDeploymentConfig
-from olf.deployment.engine import Toolkit
+from olf.deployment.engine import DeploymentPhase, Toolkit
+from olf.deployment.inspection import DoctorItem, DoctorReport, base_report, docker_health
 
 if TYPE_CHECKING:
     from olf.deployment.context import DeploymentContext
@@ -140,3 +141,61 @@ class CloudProvider:
             print(line)  # noqa: T201 - user-facing CLI banner
         supervisor = PortForwardSupervisor(self.tools.kubectl, log_prefix=self.config.paths.port_forward_log_prefix)
         supervisor.run(spec, env=self.env)
+
+    def plan(self, phase: DeploymentPhase) -> bool:
+        from olf.deployment.cloud import foundation
+        from olf.deployment.errors import DeploymentPreconditionError
+
+        changes = False
+        if phase in (DeploymentPhase.ALL, DeploymentPhase.FOUNDATION):
+            foundation_dir = self.config.paths.foundation_terraform_dir
+            tfvars = foundation._resolve_foundation_tfvars_file(
+                self.config, self.backend, self._environ, foundation_dir
+            )
+            self.tools.terraform.init(foundation_dir, env=self._base_env)
+            result = self.tools.terraform.plan(
+                foundation_dir,
+                var_files=(str(tfvars),) if tfvars is not None else (),
+                variables=self.backend.foundation_apply_variables(self.config, self._environ),
+                detailed_exitcode=True,
+                env=self._base_env,
+            )
+            changes = changes or result.returncode == 2
+        if phase in (DeploymentPhase.ALL, DeploymentPhase.PLATFORM):
+            if not self.config.paths.foundation_state_path.is_file():
+                if phase == DeploymentPhase.PLATFORM:
+                    raise DeploymentPreconditionError("foundation state is required before planning the cloud platform")
+                return changes
+            facts = self._foundation_facts
+            platform_dir = self.config.paths.platform_terraform_dir
+            self.tools.terraform.init(platform_dir, env=self.env)
+            result = self.tools.terraform.plan(
+                platform_dir,
+                var_files=(str(self.config.terraform.var_file),) if self.config.terraform.var_file is not None else (),
+                variables=self.backend.platform_apply_variables(self.config, facts),
+                detailed_exitcode=True,
+                env=self.env,
+            )
+            changes = changes or result.returncode == 2
+        return changes
+
+    def doctor(self, phase: DeploymentPhase) -> DoctorReport:
+        required = ["terraform", "helm", "kubectl", "docker", self.backend.scope == "aws" and "aws" or "az"]
+        items = base_report(repo_root=self.config.paths.repo_root, tools=self.tools, required_tools=required)
+        env = self.context.command_env()
+        items.append(docker_health(self.tools, env=env))
+        try:
+            self.backend.preflight(self.tools, env=env)
+        except Exception as exc:  # provider adapters provide the actionable message
+            items.append(DoctorItem(f"{self.backend.scope} authentication", False, str(exc)))
+        else:
+            items.append(DoctorItem(f"{self.backend.scope} authentication", True, "authenticated"))
+        if phase in (DeploymentPhase.PLATFORM, DeploymentPhase.ARTIFACTS):
+            items.append(
+                DoctorItem(
+                    "foundation state",
+                    self.config.paths.foundation_state_path.is_file(),
+                    str(self.config.paths.foundation_state_path),
+                )
+            )
+        return DoctorReport(tuple(items))

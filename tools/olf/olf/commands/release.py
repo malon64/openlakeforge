@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import hashlib
+import shutil
 from pathlib import Path
 
 import typer
 
 from olf import config
 from olf.commands._shared import fail
+from olf.deployment.errors import DeploymentError
 
 app = typer.Typer(help="Release manifest, checksums, compatibility matrix, and readiness gate.")
 
@@ -110,6 +113,74 @@ def release_check(
     typer.echo(report.render())
     if not report.ok:
         raise typer.Exit(code=1)
+
+
+@app.command("build-bundle")
+def build_bundle(
+    output_dir: str = typer.Option(".tmp/release-bundle", "--output-dir", help="Local bundle destination."),
+) -> None:
+    """Build a local, inspectable release bundle with Python-owned checksums."""
+    from olf import release as release_module
+    from olf.commands.images import _local_config
+    from olf.deployment.local.images import build_project_code_image, build_superset_image
+
+    root = config.repo_root()
+    output = (root / output_dir).resolve()
+    settings, tools = _local_config("openlakeforge-local")
+    try:
+        project = build_project_code_image(
+            settings,
+            tools,
+            env={},
+            revision=settings.images.project_code_revision,
+        )
+        superset = build_superset_image(settings, tools, env={})
+        docker = str(tools.resolver.resolve("docker"))
+        project_id = tools.runner.run([docker, "image", "inspect", "--format", "{{.Id}}", project]).stdout.strip()
+        superset_id = tools.runner.run([docker, "image", "inspect", "--format", "{{.Id}}", superset]).stdout.strip()
+    except DeploymentError as exc:
+        raise typer.Exit(code=fail(str(exc))) from exc
+    if output.exists():
+        shutil.rmtree(output)
+    output.mkdir(parents=True)
+    manifest = release_module.build_manifest(
+        release_module.load_catalog(root / "release/component-catalog.yaml"),
+        git_sha=_git_sha(),
+        image_digests={
+            "project-code": f"{project}@{project_id} (local build, not pushed)",
+            "superset": f"{superset}@{superset_id} (local build, not pushed)",
+        },
+    )
+    (output / "component-manifest.json").write_text(release_module.render_manifest(manifest, fmt="json"))
+    catalog = release_module.load_catalog(root / "release/component-catalog.yaml")
+    (output / "compatibility-matrix.md").write_text(
+        release_module.render_compatibility_matrix(catalog, root)
+    )
+    shutil.copy2(root / "release/component-catalog.yaml", output / "component-catalog.yaml")
+    shutil.copy2(root / "CHANGELOG.md", output / "CHANGELOG.md")
+    release_module.write_checksums(output)
+    typer.echo(f"Release bundle written to {output}")
+
+
+@app.command("verify-install")
+def verify_install(
+    asset_dir: str = typer.Option(".tmp/release-bundle", "--asset-dir", help="Directory containing checksums.txt."),
+) -> None:
+    """Verify a downloaded or locally built release asset set using Python hashing."""
+    directory = (config.repo_root() / asset_dir).resolve()
+    checksums = directory / "checksums.txt"
+    if not checksums.is_file():
+        raise typer.Exit(code=fail(f"missing checksum manifest: {checksums}"))
+    failures: list[str] = []
+    for line in checksums.read_text().splitlines():
+        digest, _, filename = line.partition("  ")
+        path = directory / filename
+        actual = hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else "missing"
+        if actual != digest:
+            failures.append(f"{filename}: expected {digest}, got {actual}")
+    if failures:
+        raise typer.Exit(code=fail("\n".join(failures)))
+    typer.echo(f"Verified release asset checksums in {directory}")
 
 
 def _git_sha() -> str:

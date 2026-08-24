@@ -14,7 +14,8 @@ from dataclasses import dataclass, field
 from functools import cached_property
 from typing import TYPE_CHECKING
 
-from olf.deployment.engine import Toolkit
+from olf.deployment.engine import DeploymentPhase, Toolkit
+from olf.deployment.inspection import DoctorItem, DoctorReport, base_report, docker_health
 from olf.deployment.local.config import LocalDeploymentConfig
 
 if TYPE_CHECKING:
@@ -118,3 +119,51 @@ class LocalProvider:
             print(line)  # noqa: T201 - user-facing CLI banner
         supervisor = PortForwardSupervisor(self.tools.kubectl, log_prefix=self.config.paths.port_forward_log_prefix)
         supervisor.run(spec, env=self.env)
+
+    def plan(self, phase: DeploymentPhase) -> bool:
+        from olf.deployment.errors import DeploymentPreconditionError
+        from olf.deployment.local import foundation, platform
+
+        changes = False
+        if phase in (DeploymentPhase.ALL, DeploymentPhase.FOUNDATION):
+            self.context.prepare_directories()
+            self.tools.terraform.init(self.config.paths.foundation_terraform_dir, env=self.env)
+            result = self.tools.terraform.plan(
+                self.config.paths.foundation_terraform_dir,
+                variables=foundation.foundation_apply_variables(self.config),
+                detailed_exitcode=True,
+                env=self.env,
+            )
+            changes = changes or result.returncode == 2
+        if phase in (DeploymentPhase.ALL, DeploymentPhase.PLATFORM):
+            if not self.config.paths.foundation_state_path.is_file():
+                if phase == DeploymentPhase.PLATFORM:
+                    raise DeploymentPreconditionError("foundation state is required before planning the local platform")
+                return changes
+            self.tools.terraform.init(self.config.paths.platform_terraform_dir, env=self.env)
+            result = self.tools.terraform.plan(
+                self.config.paths.platform_terraform_dir,
+                var_files=platform.platform_var_files(self.config),
+                variables=platform.platform_apply_variables(self.config),
+                detailed_exitcode=True,
+                env=self.env,
+            )
+            changes = changes or result.returncode == 2
+        return changes
+
+    def doctor(self, phase: DeploymentPhase) -> DoctorReport:
+        items = base_report(
+            repo_root=self.config.paths.repo_root,
+            tools=self.tools,
+            required_tools=("terraform", "helm", "kubectl", "docker", "kind"),
+        )
+        items.append(docker_health(self.tools, env=self.context.command_env()))
+        if phase in (DeploymentPhase.PLATFORM, DeploymentPhase.ARTIFACTS):
+            items.append(
+                DoctorItem(
+                    "foundation state",
+                    self.config.paths.foundation_state_path.is_file(),
+                    str(self.config.paths.foundation_state_path),
+                )
+            )
+        return DoctorReport(tuple(items))

@@ -7,12 +7,10 @@ name: Local full e2e (manual)
 # select any branch in the dispatch UI and verify that branch's runtime
 # conformance from GitHub Actions instead of a local machine.
 #
-# The job runs the same Make targets a developer runs locally:
-#   make local-up && make local-e2e          (full profile, suite=full)
-#   make local-slim-up && make local-slim-e2e (slim profile, suite=smoke)
+# The job runs the supported `olf` lifecycle and e2e commands directly.
 #
 # It reuses the kind-smoke plumbing from checks.yml (same toolchain setup,
-# kind-action install, and scripts/ci/kind-diagnostics.sh on failure) but
+# kind-action install, and `olf diagnostics collect` on failure) but
 # deploys the full profile by default and runs the complete assertion suite:
 # Polaris namespaces, Dagster product pipelines, Silver and Gold tables,
 # Polaris restart recovery, Superset dashboards, OpenMetadata assets, and
@@ -99,13 +97,7 @@ jobs:
           kubectl_version: v1.31.4
 
       - name: Deploy the local stack (fresh foundation)
-        run: |
-          set -euo pipefail
-          if [[ "${{ inputs.suite }}" == "smoke" ]]; then
-            make local-slim-up
-          else
-            make local-up
-          fi
+        run: uv run --project tools/olf --locked olf deploy --provider local --profile ${{ inputs.suite }} --cluster-name ${{ env.CLUSTER_NAME }} --kubeconfig-path ${{ env.LOCAL_KUBECONFIG_PATH }}
 
       - name: Negative-test failure injection
         if: inputs.debug_fail_after_deploy == 'true'
@@ -115,13 +107,7 @@ jobs:
           exit 1
 
       - name: Run the local e2e suite
-        run: |
-          set -euo pipefail
-          if [[ "${{ inputs.suite }}" == "smoke" ]]; then
-            make local-slim-e2e E2E_SUITE=smoke
-          else
-            make local-e2e E2E_SUITE=full
-          fi
+        run: uv run --project tools/olf --locked olf e2e run --env local --suite ${{ inputs.suite }}
 
       - name: Write run summary
         if: always()
@@ -149,7 +135,7 @@ jobs:
 
       - name: Collect kind diagnostics
         if: failure()
-        run: scripts/ci/kind-diagnostics.sh .tmp/kind-e2e-diagnostics
+        run: uv run --project tools/olf --locked olf diagnostics collect .tmp/kind-e2e-diagnostics
 
       - name: Upload kind diagnostics
         if: failure()

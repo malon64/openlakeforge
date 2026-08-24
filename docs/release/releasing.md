@@ -45,19 +45,16 @@ Jobs:
    dry-run mode the unsigned inspection bundle is uploaded as a single
    workflow artifact.
 
-The heavy cross-environment logic (manifest construction, checksums,
-compatibility-matrix rendering, the readiness gate) lives in
-`tools/olf/olf/release.py` behind the `olf release` CLI, unit-tested in
-`tools/olf/tests/test_release.py`. The workflow and
-`scripts/release/build-bundle.sh`/`scripts/release/verify-install.sh` remain
-thin shell orchestrators over docker/cosign/syft/git, per
-[ADR 0017](../adr/0017-shared-python-deploy-tooling.md).
+Release orchestration (bundle construction, checksums, compatibility-matrix
+rendering, and verification) lives behind `olf release`. Terraform and Helm
+remain their respective deployment engines; no release shell wrappers remain.
+See [ADR 0028](../adr/0028-python-owns-repository-orchestration.md).
 
 ## Cutting a release
 
 1. Update `release/component-catalog.yaml`'s `distribution.version` (and any
    changed component versions/digests/lockfiles) in the same PR as the code
-   it describes. Run `make release-check` locally.
+   it describes. Run `uv run --project tools/olf --locked olf check all` locally.
 2. Add a `## [<version>]` entry to `CHANGELOG.md` with migration notes,
    replacing "Unreleased" with the release date.
 3. Merge to `main`. Confirm the `release-check` job in

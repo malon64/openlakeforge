@@ -79,6 +79,29 @@ class Terraform:
             terraform_dir, args, env=env, retry_policy=retry_policy, retry_if=retry_if, stream_output=True
         )
 
+    def plan(
+        self,
+        terraform_dir: Path,
+        *,
+        var_files: Sequence[Path | str] = (),
+        variables: Mapping[str, str] | None = None,
+        detailed_exitcode: bool = False,
+        extra_args: Sequence[str] = (),
+        env: Mapping[str, str] | None = None,
+    ) -> CommandResult:
+        """Create a non-mutating Terraform plan.
+
+        Terraform uses exit code 2 to report pending changes when
+        ``-detailed-exitcode`` is supplied.  That is a successful plan, so
+        callers always receive the result and decide whether to expose 2.
+        """
+        args = ["plan", "-input=false"]
+        if detailed_exitcode:
+            args.append("-detailed-exitcode")
+        args.extend(self._var_args(var_files, variables))
+        args.extend(extra_args)
+        return self._run(terraform_dir, args, env=env, check=not detailed_exitcode, stream_output=True)
+
     def destroy(
         self,
         terraform_dir: Path,

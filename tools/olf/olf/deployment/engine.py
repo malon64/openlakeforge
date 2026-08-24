@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Protocol
 
 from olf.deployment.context import DeploymentContext, Provider
 from olf.deployment.errors import UnsupportedProviderError
+from olf.deployment.inspection import DoctorReport
 from olf.tooling.aws import AwsCli
 from olf.tooling.azure import AzureCli
 from olf.tooling.docker import Docker
@@ -96,6 +97,8 @@ class DeploymentProvider(Protocol):
     def artifacts_deploy(self) -> None: ...
     def status(self) -> StatusReport: ...
     def forward(self) -> None: ...
+    def plan(self, phase: DeploymentPhase) -> bool: ...
+    def doctor(self, phase: DeploymentPhase) -> DoctorReport: ...
 
 
 @dataclass
@@ -137,6 +140,13 @@ class DeploymentEngine:
 
     def forward(self) -> None:
         self.provider.forward()
+
+    def plan(self, phase: DeploymentPhase = DeploymentPhase.ALL) -> bool:
+        """Plan supported static phases and return whether Terraform found changes."""
+        return self.provider.plan(phase)
+
+    def doctor(self, phase: DeploymentPhase = DeploymentPhase.ALL) -> DoctorReport:
+        return self.provider.doctor(phase)
 
     def _deploy_step(self, phase: DeploymentPhase) -> None:
         if phase == DeploymentPhase.FOUNDATION:

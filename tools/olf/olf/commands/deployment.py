@@ -93,6 +93,59 @@ def deploy(
         raise typer.Exit(code=fail(str(exc))) from exc
 
 
+def plan(
+    provider: str = typer.Option("local", "--provider", help="Target deployment provider."),
+    profile: str = typer.Option("full", "--profile", help="'full' or 'slim'."),
+    phase: str = typer.Option("all", "--phase", help="'all', 'foundation', or 'platform'."),
+    namespace: str = typer.Option("", "--namespace", help="Kubernetes namespace override."),
+    cluster_name: str = typer.Option("", "--cluster-name", help="Local kind cluster name override."),
+    kubeconfig_path: str = typer.Option("", "--kubeconfig-path", help="Kubeconfig file path override."),
+    var_file: str = typer.Option("", "--var-file", help="Terraform tfvars file override."),
+    detailed_exitcode: bool = typer.Option(False, "--detailed-exitcode", help="Return 2 when changes are pending."),
+) -> None:
+    """Plan Terraform-managed deployment phases without applying them."""
+    from olf.deployment.errors import DeploymentError
+
+    context = _build_context(
+        provider, profile=profile, namespace=namespace, cluster_name=cluster_name, kubeconfig_path=kubeconfig_path
+    )
+    engine = _build_engine(context, var_file=var_file)
+    resolved_phase = _resolve_phase(phase, valid=("all", "foundation", "platform"))
+    try:
+        changes = engine.plan(resolved_phase)
+    except DeploymentError as exc:
+        raise typer.Exit(code=fail(str(exc))) from exc
+    typer.echo("Terraform changes are pending." if changes else "Terraform reports no changes.")
+    if changes and detailed_exitcode:
+        raise typer.Exit(code=2)
+
+
+def doctor(
+    provider: str = typer.Option("local", "--provider", help="Target deployment provider."),
+    profile: str = typer.Option("full", "--profile", help="'full' or 'slim'."),
+    phase: str = typer.Option("all", "--phase", help="'all', 'foundation', 'platform', or 'artifacts'."),
+    namespace: str = typer.Option("", "--namespace", help="Kubernetes namespace override."),
+    cluster_name: str = typer.Option("", "--cluster-name", help="Local kind cluster name override."),
+    kubeconfig_path: str = typer.Option("", "--kubeconfig-path", help="Kubeconfig file path override."),
+    var_file: str = typer.Option("", "--var-file", help="Terraform tfvars file override."),
+) -> None:
+    """Check host tools, source inputs, and provider authentication without mutating deployment state."""
+    from olf.deployment.errors import DeploymentError
+
+    context = _build_context(
+        provider, profile=profile, namespace=namespace, cluster_name=cluster_name, kubeconfig_path=kubeconfig_path
+    )
+    engine = _build_engine(context, var_file=var_file)
+    resolved_phase = _resolve_phase(phase, valid=("all", "foundation", "platform", "artifacts"))
+    try:
+        report = engine.doctor(resolved_phase)
+    except DeploymentError as exc:
+        raise typer.Exit(code=fail(str(exc))) from exc
+    typer.echo(report.render())
+    if not report.ok:
+        raise typer.Exit(code=1)
+
+
 def destroy(
     provider: str = typer.Option("local", "--provider", help="Target deployment provider."),
     profile: str = typer.Option("full", "--profile", help="'full' or 'slim'."),
