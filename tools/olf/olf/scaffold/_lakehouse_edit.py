@@ -40,6 +40,7 @@ from olf.scaffold._shared import ScaffoldError
 
 _TOP_LEVEL_KEY = re.compile(r"^[A-Za-z]")
 _DOMAIN_ITEM_START = re.compile(r"^  - \S")
+_DOMAIN_FLOW_ITEM = re.compile(r"^(  - )(\{.*\})(\s*#.*)?\s*$")
 _DOMAIN_NAME_FIELD = re.compile(r"^(?:  - name:|    name:)(.*)$")
 _DOMAIN_FIELD = re.compile(r"^    \S")
 _PRODUCTS_KEY = re.compile(r"^    products:(\s*\[.*\])?(\s*#.*)?\s*$")
@@ -133,10 +134,31 @@ def _domain_span(lines: list[str], domains_start: int, domains_end: int, domain_
     order its fields any way. Each item's `name` is then found by scanning
     its own lines, whether `name` is the first field (`  - name: sales`) or
     a later one (`    name: sales`).
+
+    An individual item can itself be a single-line flow mapping
+    (`  - {name: sales, ...}`), valid even when `domains:` as a whole is
+    block style (only the whole-sequence case is converted by
+    `_domains_span`). Its name can't be pulled out by `_domain_name_at`'s
+    line-oriented regex, so it's parsed as a mapping instead. Once matched,
+    it's converted to block style in place (mutating `lines`) -- like every
+    other flow-to-block conversion in this module, done only once a match is
+    confirmed, so an unrelated flow-mapping domain is left untouched -- so a
+    caller can go on to locate/insert a field within it.
     """
     item_starts = [i for i in range(domains_start + 1, domains_end) if _DOMAIN_ITEM_START.match(lines[i])]
     for index, start in enumerate(item_starts):
         end = item_starts[index + 1] if index + 1 < len(item_starts) else domains_end
+        flow_match = _DOMAIN_FLOW_ITEM.match(lines[start].rstrip("\n"))
+        if flow_match is not None:
+            try:
+                item = yaml.safe_load(flow_match.group(2))
+            except yaml.YAMLError:
+                item = None
+            if isinstance(item, dict) and item.get("name") == domain_name:
+                block_lines = _render_flow_item_as_block(item, indent="  ")
+                lines[start : start + 1] = block_lines
+                return start, start + len(block_lines)
+            continue
         names = (_domain_name_at(lines, i) for i in range(start, end))
         name = next((found for found in names if found is not None), None)
         if name == domain_name:

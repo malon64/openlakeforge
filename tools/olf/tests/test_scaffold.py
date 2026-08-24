@@ -282,6 +282,39 @@ def test_product_new_locates_an_existing_domain_in_a_flow_style_domains_list(tmp
     assert {p.id for p in sales.products} == {"order_revenue", "customer_health", "order_summary"}
 
 
+def test_product_new_locates_a_domain_that_is_itself_a_flow_mapping_item(tmp_path: Path) -> None:
+    """`domains:` can be block-style while one of its items is a single-line
+    flow mapping (`  - {name: sales, ...}`) -- schema-valid, but not covered
+    by `_domains_span`'s whole-sequence flow conversion. `_domain_span` must
+    parse such an item as a mapping to find its name, then convert it to
+    block style so a field can still be located/inserted inside it."""
+    repo_root = _seed_repo(tmp_path)
+    lakehouse_path = repo_root / "lakehouse_code" / "lakehouse.yaml"
+    text = lakehouse_path.read_text(encoding="utf-8")
+    sales_block_match = re.search(r"^  - name: sales\n(?:.*\n)+?(?=^  - name: supply_chain)", text, re.MULTILINE)
+    parsed_domains = yaml.safe_load(text)["domains"]
+    sales_domain = next(d for d in parsed_domains if d["name"] == "sales")
+    flow_sales = "  - " + yaml.safe_dump(sales_domain, default_flow_style=True, width=10**9).strip() + "\n"
+    text = text[: sales_block_match.start()] + flow_sales + text[sales_block_match.end() :]
+    lakehouse_path.write_text(text, encoding="utf-8")
+    assert yaml.safe_load(text)["domains"][0]["name"] == "sales"
+
+    plan = plan_product_new(
+        repo_root,
+        target="sales/order_summary",
+        display_name=None,
+        silver_inputs=("orders",),
+        inputs=(),
+        gold_tables=("mart_order_summary",),
+        with_report=False,
+    )
+    commit_plan(repo_root, plan)
+
+    inventory = load_lakehouse_inventory(repo_root)
+    sales = next(d for d in inventory.domains if d.name == "sales")
+    assert {p.id for p in sales.products} == {"order_revenue", "customer_health", "order_summary"}
+
+
 def test_product_new_reorders_products_before_silver_tables(tmp_path: Path) -> None:
     """Schema doesn't require `silver_tables` before `products` within a
     domain; appending a new product to a domain that reverses this order
