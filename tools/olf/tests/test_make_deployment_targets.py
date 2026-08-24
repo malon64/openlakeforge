@@ -58,3 +58,16 @@ def test_every_deployment_target_delegates_to_olf_or_another_deployment_target()
         )
         for token in _FORBIDDEN_TOKENS:
             assert token not in joined, f"{name}: recipe still orchestrates via {token!r}:\n{joined}"
+
+
+def test_status_targets_exist_for_every_provider() -> None:
+    """`scripts/README.md` advertises `*-status` for all three providers -
+    `local-status` predates this PR, but `azure-status`/`aws-status` must
+    also exist or the documented `olf deploy|destroy|status|forward
+    --provider local|aws|azure` surface would be a lie for `status`.
+    """
+    targets = _deployment_target_recipes()
+
+    assert "local-status" in targets
+    assert "azure-status" in targets
+    assert "aws-status" in targets

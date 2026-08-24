@@ -1,4 +1,4 @@
-.PHONY: help tree check-structure check-components check-contracts check-infra check-project-code check-dbt check-lockfiles release-check release-bundle floe-manifest floe-manifest-upload dbt-parse project-code-image project-code-load superset-image superset-load superset-reports-deploy superset-reports-export openmetadata-metadata-deploy local-foundation-up local-foundation-down local-platform-up local-platform-down local-artifacts-deploy local-up local-down local-status local-forward local-prefetch local-e2e local-slim-platform-up local-slim-artifacts-deploy local-slim-up local-slim-e2e local-slim-smoke local-slim-down azure-foundation-up azure-platform-up azure-platform-down azure-artifacts-deploy azure-up azure-forward azure-e2e azure-down azure-foundation-down aws-foundation-up aws-platform-up aws-platform-down aws-artifacts-deploy aws-up aws-forward aws-e2e aws-down aws-foundation-down
+.PHONY: help tree check-structure check-components check-contracts check-infra check-project-code check-dbt check-lockfiles release-check release-bundle floe-manifest floe-manifest-upload dbt-parse project-code-image project-code-load superset-image superset-load superset-reports-deploy superset-reports-export openmetadata-metadata-deploy local-foundation-up local-foundation-down local-platform-up local-platform-down local-artifacts-deploy local-up local-down local-status local-forward local-prefetch local-e2e local-slim-platform-up local-slim-artifacts-deploy local-slim-up local-slim-e2e local-slim-smoke local-slim-down azure-foundation-up azure-platform-up azure-platform-down azure-artifacts-deploy azure-up azure-status azure-forward azure-e2e azure-down azure-foundation-down aws-foundation-up aws-platform-up aws-platform-down aws-artifacts-deploy aws-up aws-status aws-forward aws-e2e aws-down aws-foundation-down
 
 NAMESPACE ?= lakehouse
 CLUSTER_NAME ?= openlakeforge-local
@@ -88,6 +88,7 @@ help:
 	@printf '%s\n' '  make azure-platform-down    Terraform-destroy AKS platform services, leaving AKS/ACR'
 	@printf '%s\n' '  make azure-artifacts-deploy Deploy Floe manifests, project-code image, Superset reports, and OpenMetadata metadata'
 	@printf '%s\n' '  make azure-up               Full wrapper: foundation, platform, artifacts'
+	@printf '%s\n' '  make azure-status           Show pod and service status in the configured namespace'
 	@printf '%s\n' '  make azure-forward          Port-forward all Azure POC services to localhost'
 	@printf '%s\n' '  make azure-e2e              Run Azure POC end-to-end validation'
 	@printf '%s\n' '  make azure-down             Full teardown wrapper: platform, foundation'
@@ -99,6 +100,7 @@ help:
 	@printf '%s\n' '  make aws-platform-down      Terraform-destroy AWS platform services, leaving EKS/ECR'
 	@printf '%s\n' '  make aws-artifacts-deploy   Deploy Floe manifests, project-code image, Superset reports, and OpenMetadata metadata'
 	@printf '%s\n' '  make aws-up                 Full wrapper: foundation, platform, artifacts'
+	@printf '%s\n' '  make aws-status             Show pod and service status in the configured namespace'
 	@printf '%s\n' '  make aws-forward            Port-forward AWS POC services to localhost'
 	@printf '%s\n' '  make aws-e2e                Run AWS POC end-to-end validation'
 	@printf '%s\n' '  make aws-down               Full teardown wrapper: platform, foundation'
@@ -239,6 +241,9 @@ azure-artifacts-deploy:
 azure-up:
 	@$(AZURE_ENV) $(OLF_BIN) deploy $(AZURE_OLF_FLAGS)
 
+azure-status:
+	@$(AZURE_ENV) $(OLF_BIN) status $(AZURE_OLF_FLAGS)
+
 azure-forward:
 	@$(AZURE_ENV) $(OLF_BIN) forward $(AZURE_OLF_FLAGS)
 
@@ -265,6 +270,9 @@ aws-artifacts-deploy:
 
 aws-up:
 	@$(AWS_ENV) $(OLF_BIN) deploy $(AWS_OLF_FLAGS)
+
+aws-status:
+	@$(AWS_ENV) $(OLF_BIN) status $(AWS_OLF_FLAGS)
 
 aws-forward:
 	@$(AWS_ENV) $(OLF_BIN) forward $(AWS_OLF_FLAGS)

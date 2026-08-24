@@ -177,6 +177,12 @@ required_paths=(
   "tools/olf/olf/deployment/cloud/teardown.py"
   "tools/olf/olf/deployment/cloud/forward.py"
   "tools/olf/olf/deployment/cloud/images.py"
+  "tools/olf/olf/deployment/artifact_steps.py"
+  "tools/olf/olf/deployment/contract_env.py"
+  "tools/olf/olf/deployment/env_settings.py"
+  "tools/olf/olf/deployment/floe_manifests.py"
+  "tools/olf/olf/tooling/aws.py"
+  "tools/olf/olf/tooling/azure.py"
 )
 
 forbidden_paths=(
