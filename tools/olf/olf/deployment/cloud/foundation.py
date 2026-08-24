@@ -9,6 +9,7 @@ Terraform/kubectl/aws-or-az calls through `CloudBackend`, mirroring
 from __future__ import annotations
 
 from collections.abc import Mapping
+from pathlib import Path
 
 from olf import log
 from olf.deployment.cloud.backend import CloudBackend, FoundationFacts
@@ -16,6 +17,26 @@ from olf.deployment.cloud.config import CloudDeploymentConfig
 from olf.deployment.engine import Toolkit
 from olf.deployment.errors import DeploymentPreconditionError
 from olf.tooling.kubectl import KubeContextUnreachableError
+
+
+def _resolve_foundation_tfvars_file(
+    config: CloudDeploymentConfig, backend: CloudBackend, environ: Mapping[str, str], foundation_dir: Path
+) -> Path | None:
+    """Honor an explicit `--var-file` CLI override for foundation operations.
+
+    `config.terraform.var_file` is `None` unless a CLI `--var-file` was
+    given (Azure never defaults it; AWS's env-derived default happens to
+    resolve from the same `AWS_TFVARS_FILE` the foundation apply already
+    uses), so preferring it here - falling back to the backend's own
+    `AWS_TFVARS_FILE`/`AZURE_TFVARS_FILE` resolution only when unset - lets
+    an explicit override win for both providers without silently ignoring
+    it or defaulting to the wrong file.
+    """
+    if config.terraform.var_file is not None:
+        return config.terraform.var_file
+    return backend.foundation_tfvars_file(
+        environ, repo_root=config.paths.repo_root, foundation_terraform_dir=foundation_dir
+    )
 
 
 def foundation_up(
@@ -32,9 +53,7 @@ def foundation_up(
     log.step(f"Checking {backend.scope} foundation prerequisites...")
     backend.preflight(tools, env=env)
 
-    tfvars_file = backend.foundation_tfvars_file(
-        environ, repo_root=config.paths.repo_root, foundation_terraform_dir=foundation_dir
-    )
+    tfvars_file = _resolve_foundation_tfvars_file(config, backend, environ, foundation_dir)
     var_files = (str(tfvars_file),) if tfvars_file is not None else ()
 
     log.step(f"Initializing Terraform {backend.scope} foundation...")
@@ -93,9 +112,7 @@ def foundation_down(
     log.step(f"Checking {backend.scope} foundation prerequisites...")
     backend.preflight(tools, env=env)
 
-    tfvars_file = backend.foundation_tfvars_file(
-        environ, repo_root=config.paths.repo_root, foundation_terraform_dir=foundation_dir
-    )
+    tfvars_file = _resolve_foundation_tfvars_file(config, backend, environ, foundation_dir)
     var_files = (str(tfvars_file),) if tfvars_file is not None else ()
 
     facts = backend.resolve_foundation_facts(tools, foundation_terraform_dir=foundation_dir, env=env)

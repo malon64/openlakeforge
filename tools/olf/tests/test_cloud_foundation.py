@@ -23,6 +23,11 @@ def _config(tmp_path: Path) -> CloudDeploymentConfig:
     return CloudDeploymentConfig.from_environment({}, context=context)
 
 
+def _azure_config(tmp_path: Path, *, var_file: Path | None = None) -> CloudDeploymentConfig:
+    context = DeploymentContext.azure(repo_root=tmp_path)
+    return CloudDeploymentConfig.from_environment({}, context=context, var_file=var_file)
+
+
 def _toolkit(runner: RecordingRunner) -> Toolkit:
     from olf.tooling.aws import AwsCli
     from olf.tooling.azure import AzureCli
@@ -93,6 +98,61 @@ def test_foundation_up_calls_preflight_apply_kubeconfig_and_reachability_in_orde
     assert "-var=cluster_name=fake-cluster" in apply_call.argv
     assert any("get-contexts" in c.argv for c in runner.calls)
     assert any("cluster-info" in c.argv for c in runner.calls)
+
+
+def test_foundation_up_honors_explicit_var_file_override_for_azure(tmp_path: Path) -> None:
+    """Azure's `foundation_tfvars_file` requires the resolved file to exist
+    (there is no default sandbox.tfvars written in this test), so this
+    proves an explicit `--var-file` bypasses that resolution entirely
+    rather than the CLI's own override being silently dropped.
+    """
+    explicit = tmp_path / "explicit.tfvars"
+    explicit.write_text("resource_group = \"rg\"\n")
+    config = _azure_config(tmp_path, var_file=explicit)
+    backend = FakeCloudBackend(scope="azure")
+    runner = _ScriptedRunner(rules=[(lambda argv: "get-contexts" in argv, _ok("fake-cluster\n"))], default=_ok())
+    tools = _toolkit(runner)
+
+    foundation.foundation_up(config, tools, backend, environ={}, env={})
+
+    apply_call = next(c for c in runner.calls if c.argv[2:3] == ["apply"])
+    assert f"-var-file={explicit}" in apply_call.argv
+    assert "foundation_tfvars_file" not in backend.calls
+
+
+def test_foundation_down_honors_explicit_var_file_override_for_azure(tmp_path: Path) -> None:
+    explicit = tmp_path / "explicit.tfvars"
+    explicit.write_text("resource_group = \"rg\"\n")
+    config = _azure_config(tmp_path, var_file=explicit)
+    backend = FakeCloudBackend(scope="azure", cluster_reachable_result=False)
+    runner = _ScriptedRunner(
+        rules=[
+            (lambda argv: "state" in argv, _ok()),
+            (lambda argv: "namespace" in argv and "get" in argv, _fail()),
+        ],
+        default=_ok(),
+    )
+    tools = _toolkit(runner)
+
+    foundation.foundation_down(config, tools, backend, environ={}, env={})
+
+    destroy_call = next(c for c in runner.calls if c.argv[2:3] == ["destroy"])
+    assert f"-var-file={explicit}" in destroy_call.argv
+    assert "foundation_tfvars_file" not in backend.calls
+
+
+def test_foundation_up_falls_back_to_backend_resolution_when_no_explicit_var_file(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    tfvars = tmp_path / "backend-resolved.tfvars"
+    backend = FakeCloudBackend(scope="aws", tfvars_file=tfvars)
+    runner = _ScriptedRunner(rules=[(lambda argv: "get-contexts" in argv, _ok("fake-cluster\n"))], default=_ok())
+    tools = _toolkit(runner)
+
+    foundation.foundation_up(config, tools, backend, environ={}, env={})
+
+    apply_call = next(c for c in runner.calls if c.argv[2:3] == ["apply"])
+    assert f"-var-file={tfvars}" in apply_call.argv
+    assert "foundation_tfvars_file" in backend.calls
 
 
 def test_foundation_up_includes_tfvars_file_when_backend_resolves_one(tmp_path: Path) -> None:
