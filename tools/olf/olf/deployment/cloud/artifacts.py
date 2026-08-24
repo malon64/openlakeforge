@@ -3,8 +3,11 @@
 Port of `scripts/{aws,azure}/stack/deploy-artifacts.sh`. Preserves the exact
 ordering: reconcile catalog namespaces -> generate Floe runtime artifacts ->
 activate/publish the immutable Floe revision -> build/push the project-code
-image using that revision -> upload legacy Floe manifests -> point Dagster
-at the image -> deploy optional Superset/OpenMetadata artifacts.
+image using that revision -> upload legacy Floe manifests -> deploy optional
+Superset/OpenMetadata artifacts -> point Dagster at the image. The optional
+layers deliberately run before the Dagster image switch, so a failed
+Superset/OpenMetadata deploy leaves the running deployment on its previous
+image rather than one whose optional artifacts never landed.
 
 Unlike local (which only builds the project-code image when the tag is
 still the `local` placeholder), cloud always builds and pushes a freshly
