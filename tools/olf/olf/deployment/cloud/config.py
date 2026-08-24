@@ -253,6 +253,15 @@ class CloudDeploymentConfig:
             environ, repo_root=repo_root, platform_terraform_dir=context.paths.platform_terraform_dir, scope=scope
         )
         if var_file is not None:
+            # Terraform runs with `-chdir=<foundation-or-platform-root>`, so
+            # a relative `--var-file` would resolve beneath whichever
+            # Terraform root happens to run first (AWS reuses this override
+            # across two different roots), not beneath the repo. Normalize
+            # against repo_root here, matching how the environment-based
+            # override (CloudTerraformSettings.from_environment) and the
+            # local provider already resolve relative var files.
+            if not var_file.is_absolute():
+                var_file = repo_root / var_file
             # AWS reuses the same explicit override for both foundation and
             # platform (var_file); Azure's platform apply must NEVER see a
             # tfvars file (ADR 0027), so the override travels through

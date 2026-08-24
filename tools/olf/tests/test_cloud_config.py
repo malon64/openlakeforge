@@ -190,6 +190,25 @@ def test_cloud_deployment_config_var_file_argument_overrides_resolved_default_fo
     assert config.terraform.foundation_var_file == explicit
 
 
+def test_cloud_deployment_config_var_file_argument_resolves_relative_paths_against_repo_root(
+    tmp_path: Path,
+) -> None:
+    """P2 regression: Terraform runs with `-chdir=<foundation-or-platform-
+    root>`, so a relative `--var-file` (as the CLI hands it through
+    unresolved) must be normalized against the repo root before storage -
+    otherwise Terraform resolves it beneath whichever Terraform root
+    happens to run, not beneath the repo (and AWS reuses the override
+    across two different roots in the same `deploy` run).
+    """
+    context = DeploymentContext.aws(repo_root=tmp_path)
+    relative = Path("configs/cloud.tfvars")
+
+    config = CloudDeploymentConfig.from_environment({}, context=context, var_file=relative)
+
+    assert config.terraform.var_file == tmp_path / relative
+    assert config.terraform.foundation_var_file == tmp_path / relative
+
+
 def test_cloud_deployment_config_var_file_argument_never_reaches_azure_platform_apply(tmp_path: Path) -> None:
     """An explicit `--var-file` on Azure must route only through
     `foundation_var_file`, never `var_file` - `var_file` also feeds the
