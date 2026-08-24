@@ -1,4 +1,0 @@
-packages:
-  - local: ../../../../../libs/dbt/openlakeforge_dbt
-    name: openlakeforge_dbt
-sha1_hash: b47431ce7447b18b053f321727be1eeec224df73

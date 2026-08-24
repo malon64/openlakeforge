@@ -206,3 +206,21 @@ def test_require_foundation_facts_returns_facts_when_reachable(tmp_path: Path) -
     result = foundation.require_foundation_facts(config, tools, backend, env={})
 
     assert result == facts
+
+
+def test_require_foundation_facts_refreshes_kubeconfig_before_reachability_check(tmp_path: Path) -> None:
+    """A missing/stale local kubeconfig (fresh checkout, or a granular phase run in a
+    separate process from `foundation_up`) must not fail here - the removed shell paths
+    always ran `aws eks update-kubeconfig`/`az aks get-credentials` before `kubectl
+    cluster-info`.
+    """
+    config = _config(tmp_path)
+    config.paths.foundation_state_path.parent.mkdir(parents=True, exist_ok=True)
+    config.paths.foundation_state_path.write_text("{}")
+    backend = FakeCloudBackend(scope="aws")
+    runner = _ScriptedRunner(rules=[(lambda argv: "get-contexts" in argv, _ok("fake-cluster\n"))], default=_ok())
+    tools = _toolkit(runner)
+
+    foundation.require_foundation_facts(config, tools, backend, env={})
+
+    assert backend.calls == ["resolve_foundation_facts", "update_kubeconfig"]

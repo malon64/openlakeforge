@@ -149,6 +149,9 @@ def require_foundation_facts(
         tools, foundation_terraform_dir=config.paths.foundation_terraform_dir, env=env
     )
 
+    config.paths.kubeconfig_path.parent.mkdir(parents=True, exist_ok=True)
+    backend.update_kubeconfig(tools, facts, kubeconfig_path=config.paths.kubeconfig_path, env=env)
+
     try:
         tools.kubectl.require_context_reachable(facts.kube_context, kubeconfig=config.paths.kubeconfig_path, env=env)
     except KubeContextUnreachableError as exc:
