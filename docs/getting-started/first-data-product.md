@@ -43,13 +43,59 @@ and one Gold mart:
 mart_campaign_performance
 ```
 
-> **Alpha note**
->
-> Product onboarding is currently source-driven: you create a small set of files under
-> `lakehouse_code/`.
->
-> A product scaffold is planned to automate this workflow. Until then, this tutorial
-> documents the current golden path explicitly.
+---
+
+# Fast path: the scaffold
+
+`olf` generates this exact file tree for you. Run it via `uv run --project tools/olf
+olf ...` (there is no repository-wide `olf` install on `PATH`):
+
+```bash
+uv run --project tools/olf olf source new marketing_platform --resource campaigns
+uv run --project tools/olf olf product new marketing/campaign_performance \
+  --input marketing_platform/campaigns \
+  --gold-table mart_campaign_performance
+```
+
+`olf product new` creates the `marketing` domain inline here because it does not exist
+yet. Each command validates its result against the canonical model before writing
+anything, and writes nothing at all if validation fails.
+
+A domain can also be created up front, ahead of any product — useful when you know the
+Silver tables you want before you know what will consume them:
+
+```bash
+uv run --project tools/olf olf source new workday --resource employees
+uv run --project tools/olf olf domain new hr --input workday/employees
+# ... later, once you know what product to build:
+uv run --project tools/olf olf product new hr/headcount \
+  --silver-input employees --gold-table mart_headcount_by_org
+```
+
+Run `uv run --project tools/olf olf source new --help` (and the `domain`/`product`
+equivalents) for the full flag reference, including `--with-report` to also scaffold a
+Superset report skeleton.
+
+The rest of this tutorial builds the same `campaign_performance` product by hand, file
+by file. Read it to understand *what* the scaffold generates and *why* — the file tree
+and ownership model are identical either way, but the **content** is not: the scaffold
+can't invent business logic, so it writes a one-column placeholder example CSV
+(`campaigns_id`), a Floe contract inferred from that same placeholder (`campaigns_id`
+as the sole, required column), and a Gold model that is a literal `select * from` its
+Silver source with a `# TODO` to fill in the real transformation. The hand-built
+walkthrough below uses real columns (`channel`, `spend`, `conversions`, ...) and a real
+aggregation, and later steps — notably [step 17's query](#17-query-the-gold-table),
+which selects a `channel` column — assume that real schema.
+
+If you took the fast path and want to continue into this real schema, **replace the
+example CSV before running `product new`**: the Floe contract's columns are inferred
+from `lakehouse_code/bronze/marketing_platform/examples/campaigns.csv` at the moment
+the domain is created, so swapping it in afterward leaves a contract that still expects
+`campaigns_id` and rejects the real data. Run `source new`, replace that CSV with
+[step 4](#4-add-some-source-data)'s version below, *then* run `product new`; afterward,
+still replace the generated `dbt/models/gold/*.sql` with [step 9](#9-create-the-gold-model)'s
+aggregation. Otherwise, treat the rest of the tutorial as a reference rather than
+commands to run verbatim against the scaffolded output.
 
 ---
 

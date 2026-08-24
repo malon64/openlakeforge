@@ -320,7 +320,9 @@ def test_renaming_descriptor_product_changes_discovered_work_without_shared_code
     assert inventory.silver_namespace_names == frozenset({"sales_silver"})
 
 
-def test_inventory_rejects_domain_silver_table_without_a_product_consumer(tmp_path: Path) -> None:
+def test_inventory_accepts_domain_silver_table_without_a_product_consumer(tmp_path: Path) -> None:
+    """A domain may declare Silver tables ahead of any product consuming them
+    (e.g. an HR domain seeded before its first data product exists)."""
     lakehouse_path = _write_lakehouse(tmp_path)
     descriptor = lakehouse_path.read_text(encoding="utf-8")
     descriptor = descriptor.replace(
@@ -334,8 +336,118 @@ def test_inventory_rejects_domain_silver_table_without_a_product_consumer(tmp_pa
     )
     lakehouse_path.write_text(descriptor, encoding="utf-8")
 
-    with pytest.raises(
-        LakehouseDescriptorError,
-        match=r"domain 'sales': Silver tables \['unconsumed_orders'\] are not consumed by any product",
-    ):
+    inventory = load_lakehouse_inventory(tmp_path)
+
+    domain = inventory.domains[0]
+    assert {table.name for table in domain.silver_tables} == {"orders", "unconsumed_orders"}
+    # silver_table_count only counts tables reachable from a product's
+    # silver_inputs, so the unconsumed table does not inflate it.
+    assert inventory.silver_table_count == 1
+
+
+def test_inventory_accepts_domain_with_no_products(tmp_path: Path) -> None:
+    """A domain may be declared with an empty products array and validate on
+    its own, before its first product lands -- as long as some other domain
+    in the lakehouse still has at least one product (see the sibling test
+    for the all-domains-empty case, which is rejected)."""
+    lakehouse_dir = tmp_path / "lakehouse_code"
+    lakehouse_dir.mkdir(parents=True)
+    (lakehouse_dir / "lakehouse.yaml").write_text(
+        """\
+apiVersion: openlakeforge.io/v1alpha3
+kind: Lakehouse
+name: test
+displayName: Test
+description: Test lakehouse.
+status: planned
+sources:
+  - workday
+  - crm
+domains:
+  - name: hr
+    displayName: Hr
+    description: hr domain.
+    status: planned
+    silver_tables:
+      tables:
+        - name: employees
+          source: workday
+          resource: employees
+    products: []
+  - name: sales
+    displayName: Sales
+    description: sales domain.
+    status: planned
+    silver_tables:
+      tables:
+        - name: orders
+          source: crm
+          resource: orders
+    products:
+      - id: revenue
+        displayName: Revenue
+        description: revenue product.
+        status: planned
+        silver_inputs: [orders]
+        gold_tables:
+          tables:
+            - name: mart_revenue
+dashboards: []
+""",
+        encoding="utf-8",
+    )
+    workday_path = lakehouse_dir / "bronze" / "workday" / "source.yaml"
+    workday_path.parent.mkdir(parents=True)
+    workday_path.write_text(_source(source="workday", resource="employees"), encoding="utf-8")
+    crm_path = lakehouse_dir / "bronze" / "crm" / "source.yaml"
+    crm_path.parent.mkdir(parents=True)
+    crm_path.write_text(_source(source="crm", resource="orders"), encoding="utf-8")
+
+    inventory = load_lakehouse_inventory(tmp_path)
+
+    hr = next(domain for domain in inventory.domains if domain.name == "hr")
+    assert hr.products == ()
+    assert hr.silver_namespace == "hr_silver"
+    assert [product.id for product in inventory.products] == ["revenue"]
+    # silver_table_count only counts product-reachable tables, so hr's
+    # product-less employees table doesn't inflate it.
+    assert inventory.silver_table_count == 1
+
+
+def test_inventory_rejects_a_lakehouse_with_no_products_anywhere(tmp_path: Path) -> None:
+    """A domain may be product-less while it is being seeded, but the
+    lakehouse as a whole must still have at least one product somewhere --
+    downstream tooling (default_product, check-dbt.sh, e2e) requires one."""
+    lakehouse_dir = tmp_path / "lakehouse_code"
+    lakehouse_dir.mkdir(parents=True)
+    (lakehouse_dir / "lakehouse.yaml").write_text(
+        """\
+apiVersion: openlakeforge.io/v1alpha3
+kind: Lakehouse
+name: test
+displayName: Test
+description: Test lakehouse.
+status: planned
+sources:
+  - workday
+domains:
+  - name: hr
+    displayName: Hr
+    description: hr domain.
+    status: planned
+    silver_tables:
+      tables:
+        - name: employees
+          source: workday
+          resource: employees
+    products: []
+dashboards: []
+""",
+        encoding="utf-8",
+    )
+    source_path = lakehouse_dir / "bronze" / "workday" / "source.yaml"
+    source_path.parent.mkdir(parents=True)
+    source_path.write_text(_source(source="workday", resource="employees"), encoding="utf-8")
+
+    with pytest.raises(LakehouseDescriptorError, match=r"must declare at least one product"):
         load_lakehouse_inventory(tmp_path)

@@ -304,14 +304,20 @@ class LakehouseInventory:
 
     @property
     def silver_table_count(self) -> int:
-        """Count of distinct physical Silver relations.
+        """Count of distinct product-reachable physical Silver relations.
 
-        Two products in the same domain can declare the same table (they
-        share the domain's Silver namespace), so this counts unique
-        ``(silver_namespace, table)`` pairs rather than summing per-product
-        declarations, which would double-count a shared table.
+        A domain may declare Silver tables ahead of any product consuming
+        them (see the product-less-domain scaffolding path), so this counts
+        only tables referenced by at least one product's ``silver_inputs``,
+        not every declared table. Two products in the same domain can
+        declare the same table (they share the domain's Silver namespace),
+        so this counts unique ``(domain, table)`` pairs rather than summing
+        per-product declarations, which would double-count a shared table.
         """
-        return sum(len(domain.silver_tables) for domain in self.domains)
+        return sum(
+            len({name for product in domain.products for name in product.silver_inputs})
+            for domain in self.domains
+        )
 
     @property
     def gold_table_count(self) -> int:
@@ -586,7 +592,6 @@ def load_lakehouse_inventory_from_descriptors(
         dashboards=dashboards,
     )
     _validate_inventory_identities(inventory.lakehouse_root, inventory.sources, inventory.domains, inventory.dashboards)
-    _ = inventory.default_product
     return inventory
 
 

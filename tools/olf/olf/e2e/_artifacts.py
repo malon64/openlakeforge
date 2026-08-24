@@ -134,7 +134,12 @@ def assert_ops_artifacts(
         assert_legacy_floe_manifests(client, bucket, inventory)
     else:
         assert_immutable_floe_manifests(client, bucket, inventory, deployed_revision)
-    floe_prefixes = tuple(domain.artifact_prefixes.floe_report_prefix for domain in inventory.domains)
+    # A product-less domain (see olf domain new) has no product job selecting
+    # its Silver tables, so Floe never runs for it and it never writes a
+    # runtime report -- only domains with at least one product produce one.
+    floe_prefixes = tuple(
+        domain.artifact_prefixes.floe_report_prefix for domain in inventory.domains if domain.products
+    )
     dbt_prefixes = tuple(product.dbt_artifact_prefix for product in inventory.products)
     for prefix in (*floe_prefixes, *dbt_prefixes, *ARTIFACT_PREFIXES, f"logs/k8s/namespace={namespace}/"):
         require_s3_prefix(client, bucket, prefix)

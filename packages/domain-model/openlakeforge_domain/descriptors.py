@@ -175,11 +175,10 @@ def _validate_domain(domain: Mapping[str, Any], *, source: str) -> None:
     _optional_string(domain["description"], field="domain.description", source=source)
     _validate_silver_table_group(domain, source=source)
     products = domain["products"]
-    if not isinstance(products, list) or not products:
-        raise LakehouseDescriptorError(f"{source}: domain {domain['name']!r}: products must be a non-empty array")
+    if not isinstance(products, list):
+        raise LakehouseDescriptorError(f"{source}: domain {domain['name']!r}: products must be an array")
     seen_products: set[str] = set()
     silver_names = {table["name"] for table in domain["silver_tables"]["tables"]}
-    consumed_silver_names: set[str] = set()
     for product in products:
         if not isinstance(product, Mapping):
             raise LakehouseDescriptorError(f"{source}: domain {domain['name']!r}: products must contain objects")
@@ -195,13 +194,6 @@ def _validate_domain(domain: Mapping[str, Any], *, source: str) -> None:
                 f"{source}: product {product['id']!r}: silver_inputs reference unknown domain Silver tables "
                 f"{unknown_inputs!r}"
             )
-        consumed_silver_names.update(product["silver_inputs"])
-    unconsumed_tables = sorted(silver_names - consumed_silver_names)
-    if unconsumed_tables:
-        raise LakehouseDescriptorError(
-            f"{source}: domain {domain['name']!r}: Silver tables {unconsumed_tables!r} are not consumed by "
-            "any product; add them to a product's silver_inputs or remove them from silver_tables"
-        )
     unexpected = set(domain) - {"name", "displayName", "description", "status", "silver_tables", "products"}
     if unexpected:
         raise LakehouseDescriptorError(
@@ -295,6 +287,13 @@ def validate_lakehouse_descriptor(document: Mapping[str, Any], *, source: str = 
                     f"{source}: product id {product['id']!r} must be globally unique across domains"
                 )
             seen_products.add(product["id"])
+    if not seen_products:
+        raise LakehouseDescriptorError(
+            f"{source}: lakehouse must declare at least one product across its domains "
+            "(an individual domain may have zero products while it is being seeded, "
+            "but the lakehouse as a whole cannot -- deployment tooling requires a "
+            "default product)"
+        )
     dashboards = document["dashboards"]
     if not isinstance(dashboards, list):
         raise LakehouseDescriptorError(f"{source}: dashboards must be an array")

@@ -1,0 +1,38 @@
+"""`olf domain new` -- golden-path domain (Silver) scaffolding."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import typer
+
+from olf.commands._shared import fail
+from olf.scaffold._commit import commit_plan
+from olf.scaffold._shared import ScaffoldError, parse_source_resource
+from olf.scaffold.domain import plan_domain_new
+
+app = typer.Typer(help="Domain-owned Silver scaffolding.")
+
+
+@app.command("new")
+def domain_new(
+    domain: str = typer.Argument(..., help="Domain identifier, e.g. 'hr'."),
+    display_name: str = typer.Option(None, "--display-name", help="Defaults to a title-cased DOMAIN."),
+    input_: list[str] = typer.Option(
+        ..., "--input", help="An existing '<source>/<resource>' this domain validates into Silver. Repeatable."
+    ),
+    repo_root: str = typer.Option(".", "--repo-root", help="Repository root."),
+) -> None:
+    """Generate a new Domain: a Silver package plus a Floe Bronze-to-Silver
+    contract with one entity per --input. Inserts DOMAIN into
+    lakehouse.yaml with `products: []` -- a domain may be created and
+    validated before any product consumes its Silver tables."""
+    root = Path(repo_root).resolve()
+    try:
+        inputs = tuple(parse_source_resource(value) for value in input_)
+        plan = plan_domain_new(root, domain=domain, display_name=display_name, inputs=inputs)
+        commit_plan(root, plan)
+    except ScaffoldError as exc:
+        raise typer.Exit(code=fail(str(exc))) from exc
+    for line in plan.summary:
+        typer.echo(line)

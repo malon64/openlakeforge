@@ -14,14 +14,17 @@ from olf.commands import (
     catalog,
     contracts,
     deployment,
+    domain,
     e2e,
     floe,
     k8s,
     layers,
     openmetadata,
+    product,
     release,
     revision,
     smoke,
+    source,
     superset,
 )
 
@@ -44,6 +47,9 @@ app.add_typer(k8s.app, name="k8s")
 app.add_typer(e2e.app, name="e2e")
 app.add_typer(smoke.app, name="smoke")
 app.add_typer(release.app, name="release")
+app.add_typer(source.app, name="source")
+app.add_typer(domain.app, name="domain")
+app.add_typer(product.app, name="product")
 
 app.command("deploy")(deployment.deploy)
 app.command("destroy")(deployment.destroy)
