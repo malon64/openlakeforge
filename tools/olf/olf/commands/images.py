@@ -22,7 +22,7 @@ def _local_config(cluster_name: str) -> tuple[LocalDeploymentConfig, Toolkit]:
         "local",
         repo_root=config.repo_root(),
         namespace=config.namespace(),
-        kube_context=f"kind-{cluster_name}",
+        cluster_name=cluster_name,
         kubeconfig_path=config.repo_root() / ".tmp/kubeconfigs/local.yaml",
         profile=Profile.FULL,
     )
