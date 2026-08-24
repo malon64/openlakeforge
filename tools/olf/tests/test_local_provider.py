@@ -8,6 +8,8 @@ from olf.deployment.context import DeploymentContext
 from olf.deployment.engine import Toolkit
 from olf.deployment.local.config import LocalDeploymentConfig
 from olf.deployment.local.provider import LocalProvider
+from olf.tooling.aws import AwsCli
+from olf.tooling.azure import AzureCli
 from olf.tooling.docker import Docker
 from olf.tooling.helm import Helm
 from olf.tooling.kind import Kind
@@ -30,6 +32,8 @@ def _toolkit() -> Toolkit:
         kubectl=Kubectl(runner, resolver),
         docker=Docker(runner, resolver),
         kind=Kind(runner, resolver),
+        aws=AwsCli(runner, resolver),
+        azure=AzureCli(runner, resolver),
     )
 
 
@@ -89,6 +93,8 @@ def test_env_resolves_docker_host_from_ambient_context_when_unset(tmp_path: Path
         kubectl=Kubectl(runner, resolver),
         docker=Docker(runner, resolver),
         kind=Kind(runner, resolver),
+        aws=AwsCli(runner, resolver),
+        azure=AzureCli(runner, resolver),
     )
 
     provider = LocalProvider.create(_config(tmp_path), toolkit=toolkit, environ={})

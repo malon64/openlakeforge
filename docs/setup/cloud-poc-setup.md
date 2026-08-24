@@ -61,7 +61,7 @@ All have sane defaults; override via environment variables:
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `AWS_REGION` | `eu-west-1` | Region for the foundation + platform |
-| `AWS_CLUSTER_NAME` | `eks-openlakeforge-poc` | EKS cluster name (must match `cluster_name` in the foundation tfvars) |
+| `AWS_CLUSTER_NAME` | `limited-eks-openlakeforge-poc` | EKS cluster name (must match `cluster_name` in the foundation tfvars) |
 | `AWS_NODE_INSTANCE_TYPES` | `m7i.large` | Node group instance type(s) |
 | `AWS_TFVARS_FILE` | `<dir>/sandbox.tfvars` | Path to your tfvars |
 | `AWS_KUBECONFIG_PATH` | `.tmp/kubeconfigs/aws.yaml` | Isolated EKS kubeconfig used by every AWS target |

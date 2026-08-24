@@ -166,6 +166,36 @@ required_paths=(
   "tools/olf/olf/deployment/engine.py"
   "tools/olf/olf/deployment/local/provider.py"
   "tools/olf/olf/deployment/local/config.py"
+  "tools/olf/olf/deployment/cloud/provider.py"
+  "tools/olf/olf/deployment/cloud/config.py"
+  "tools/olf/olf/deployment/cloud/backend.py"
+  "tools/olf/olf/deployment/cloud/aws.py"
+  "tools/olf/olf/deployment/cloud/azure.py"
+  "tools/olf/olf/deployment/cloud/foundation.py"
+  "tools/olf/olf/deployment/cloud/platform.py"
+  "tools/olf/olf/deployment/cloud/artifacts.py"
+  "tools/olf/olf/deployment/cloud/teardown.py"
+  "tools/olf/olf/deployment/cloud/forward.py"
+  "tools/olf/olf/deployment/cloud/images.py"
+  "tools/olf/olf/deployment/artifact_steps.py"
+  "tools/olf/olf/deployment/contract_env.py"
+  "tools/olf/olf/deployment/env_settings.py"
+  "tools/olf/olf/deployment/floe_manifests.py"
+  "tools/olf/olf/tooling/aws.py"
+  "tools/olf/olf/tooling/azure.py"
+)
+
+forbidden_paths=(
+  "infra/floe"
+  "domains"
+  "scripts/local/cluster/create.sh"
+  "scripts/local/cluster/destroy.sh"
+  "scripts/local/foundation/up.sh"
+  "scripts/local/foundation/down.sh"
+  "scripts/local/cluster/prefetch-images.sh"
+  "scripts/local/stack/platform-up.sh"
+  "scripts/local/stack/deploy-artifacts.sh"
+  "scripts/local/stack/teardown.sh"
   "scripts/azure/foundation/up.sh"
   "scripts/azure/foundation/down.sh"
   "scripts/azure/stack/platform-up.sh"
@@ -180,19 +210,6 @@ required_paths=(
   "scripts/aws/stack/teardown.sh"
   "scripts/aws/images/build-push-project-code.sh"
   "scripts/aws/images/build-push-superset.sh"
-)
-
-forbidden_paths=(
-  "infra/floe"
-  "domains"
-  "scripts/local/cluster/create.sh"
-  "scripts/local/cluster/destroy.sh"
-  "scripts/local/foundation/up.sh"
-  "scripts/local/foundation/down.sh"
-  "scripts/local/cluster/prefetch-images.sh"
-  "scripts/local/stack/platform-up.sh"
-  "scripts/local/stack/deploy-artifacts.sh"
-  "scripts/local/stack/teardown.sh"
 )
 
 missing=0

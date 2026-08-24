@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
+
+import pytest
 
 from olf.deployment.portforward import ForwardSpec, ForwardTarget, PortForwardSupervisor
 from olf.tooling.kubectl import Kubectl
@@ -184,3 +187,48 @@ def test_stop_all_kills_processes_that_do_not_terminate_in_time(tmp_path: Path) 
     supervisor.stop_all()
 
     assert process.killed
+
+
+def test_start_layers_env_overrides_over_the_ambient_process_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A bare `env=dict(overrides)` would replace the whole child environment,
+    dropping `PATH`/`HOME` and any cloud credential-plugin config (e.g.
+    `AWS_PROFILE`, Azure's config dir) that EKS/AKS exec-based kubeconfigs
+    need in order to authenticate - see the CloudProvider.forward() caller.
+    """
+    monkeypatch.setenv("AWS_PROFILE", "ambient-profile")
+    popens: list[_FakePopen] = []
+
+    def fake_popen(argv, **kwargs):  # noqa: ANN001
+        popen = _FakePopen(argv, **kwargs)
+        popen.env = kwargs.get("env")
+        popens.append(popen)
+        return popen
+
+    supervisor = PortForwardSupervisor(_kubectl(), log_prefix=tmp_path / "openlakeforge-local", popen=fake_popen)
+    spec = _spec()
+
+    supervisor.start(spec.targets[0], spec, env={"KUBECONFIG": "/repo/.tmp/kubeconfigs/aws.yaml"})
+
+    child_env = popens[0].env
+    assert child_env["AWS_PROFILE"] == "ambient-profile"
+    assert child_env["PATH"] == os.environ["PATH"]
+    assert child_env["KUBECONFIG"] == "/repo/.tmp/kubeconfigs/aws.yaml"
+
+
+def test_start_passes_none_env_when_no_overrides_given(tmp_path: Path) -> None:
+    popens: list[_FakePopen] = []
+
+    def fake_popen(argv, **kwargs):  # noqa: ANN001
+        popen = _FakePopen(argv, **kwargs)
+        popen.env = kwargs.get("env")
+        popens.append(popen)
+        return popen
+
+    supervisor = PortForwardSupervisor(_kubectl(), log_prefix=tmp_path / "openlakeforge-local", popen=fake_popen)
+    spec = _spec()
+
+    supervisor.start(spec.targets[0], spec)
+
+    assert popens[0].env is None

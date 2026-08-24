@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
+import threading
 import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -94,6 +96,7 @@ class ProcessRunner:
         check: bool = True,
         retry_policy: RetryPolicy | None = None,
         retry_if: RetryPredicate | None = None,
+        stream_output: bool = False,
     ) -> CommandResult:
         cmd = _to_command(
             command,
@@ -105,13 +108,13 @@ class ProcessRunner:
         )
 
         def attempt() -> CommandResult:
-            return self._run_once(cmd, check=check)
+            return self._run_once(cmd, check=check, stream_output=stream_output)
 
         if retry_policy is not None:
             return run_with_retry(attempt, policy=retry_policy, retry_if=retry_if)
         return attempt()
 
-    def _run_once(self, command: Command, *, check: bool) -> CommandResult:
+    def _run_once(self, command: Command, *, check: bool, stream_output: bool = False) -> CommandResult:
         argv = list(command.argv)
         full_env = {**os.environ, **command.env} if command.env is not None else None
 
@@ -124,20 +127,28 @@ class ProcessRunner:
         started = time.perf_counter()
         stdin_file = open(command.stdin_path, "rb") if command.stdin_path is not None else None  # noqa: SIM115
         try:
-            completed = subprocess.run(  # noqa: S603 - argv is structured, shell=False
-                argv,
-                cwd=command.cwd,
-                env=full_env,
-                capture_output=True,
-                text=True,
-                timeout=command.timeout_seconds,
-                input=command.input_text,
-                stdin=(stdin_file if stdin_file is not None else subprocess.DEVNULL)
-                if command.input_text is None
-                else None,
-                check=False,
-                shell=False,
-            )
+            if stream_output:
+                returncode, stdout_text, stderr_text = self._run_streaming(
+                    argv, cwd=command.cwd, env=full_env, timeout_seconds=command.timeout_seconds
+                )
+            else:
+                completed = subprocess.run(  # noqa: S603 - argv is structured, shell=False
+                    argv,
+                    cwd=command.cwd,
+                    env=full_env,
+                    capture_output=True,
+                    text=True,
+                    timeout=command.timeout_seconds,
+                    input=command.input_text,
+                    stdin=(stdin_file if stdin_file is not None else subprocess.DEVNULL)
+                    if command.input_text is None
+                    else None,
+                    check=False,
+                    shell=False,
+                )
+                returncode = completed.returncode
+                stdout_text = completed.stdout or ""
+                stderr_text = completed.stderr or ""
         except FileNotFoundError as exc:
             raise ExecutableNotFoundError(argv[0]) from exc
         except subprocess.TimeoutExpired as exc:
@@ -149,9 +160,9 @@ class ProcessRunner:
         duration = time.perf_counter() - started
         result = CommandResult(
             argv=tuple(argv),
-            returncode=completed.returncode,
-            stdout=completed.stdout or "",
-            stderr=completed.stderr or "",
+            returncode=returncode,
+            stdout=stdout_text,
+            stderr=stderr_text,
             duration_seconds=duration,
         )
 
@@ -165,3 +176,59 @@ class ProcessRunner:
                 env=command.env,
             )
         return result
+
+    @staticmethod
+    def _run_streaming(
+        argv: list[str],
+        *,
+        cwd: Path | None,
+        env: Mapping[str, str] | None,
+        timeout_seconds: float | None,
+    ) -> tuple[int, str, str]:
+        """Run a command with its stdout/stderr echoed live to the terminal.
+
+        `subprocess.run(capture_output=True)` buffers everything until exit,
+        which hides Terraform's per-resource apply/destroy progress for the
+        whole duration of a foundation/platform operation - the removed
+        shell scripts let Terraform inherit the terminal directly. This
+        tees each stream to the real terminal as it arrives while still
+        collecting it for `CommandResult`.
+        """
+        process = subprocess.Popen(  # noqa: S603 - argv is structured, shell=False
+            argv,
+            cwd=cwd,
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            shell=False,
+        )
+
+        stdout_lines: list[str] = []
+        stderr_lines: list[str] = []
+
+        def _pump(source, sink, dest_stream) -> None:  # noqa: ANN001
+            for line in iter(source.readline, ""):
+                dest_stream.write(line)
+                dest_stream.flush()
+                sink.append(line)
+            source.close()
+
+        stdout_thread = threading.Thread(target=_pump, args=(process.stdout, stdout_lines, sys.stdout))
+        stderr_thread = threading.Thread(target=_pump, args=(process.stderr, stderr_lines, sys.stderr))
+        stdout_thread.start()
+        stderr_thread.start()
+
+        try:
+            returncode = process.wait(timeout=timeout_seconds)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
+            stdout_thread.join()
+            stderr_thread.join()
+            raise
+        finally:
+            stdout_thread.join()
+            stderr_thread.join()
+
+        return returncode, "".join(stdout_lines), "".join(stderr_lines)

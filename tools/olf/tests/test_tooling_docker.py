@@ -41,6 +41,14 @@ def test_pull_and_push_build_expected_argv() -> None:
     assert runner.last_call.argv == ["docker", "push", "ghcr.io/openlakeforge/project-code:local"]
 
 
+def test_pull_with_platform_inserts_platform_flag_before_image() -> None:
+    docker, runner = _docker()
+
+    docker.pull("python:3.12-slim", platform="linux/amd64")
+
+    assert runner.last_call.argv == ["docker", "pull", "--platform", "linux/amd64", "python:3.12-slim"]
+
+
 def test_tag_builds_expected_argv() -> None:
     docker, runner = _docker()
 

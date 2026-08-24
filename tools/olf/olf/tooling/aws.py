@@ -52,3 +52,17 @@ class AwsCli:
     def ecr_get_login_password(self, *, region: str, env: Mapping[str, str] | None = None) -> str:
         result = self._run(["ecr", "get-login-password", "--region", region], env=env)
         return result.stdout.strip()
+
+    def eks_describe_cluster(
+        self,
+        cluster_name: str,
+        *,
+        region: str,
+        env: Mapping[str, str] | None = None,
+        check: bool = False,
+    ) -> CommandResult:
+        return self._run(
+            ["eks", "describe-cluster", "--region", region, "--name", cluster_name],
+            env=env,
+            check=check,
+        )

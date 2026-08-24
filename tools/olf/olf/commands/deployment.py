@@ -39,7 +39,7 @@ def _build_context(
         kwargs["namespace"] = namespace
     if resolved_provider == Provider.LOCAL and cluster_name:
         kwargs["cluster_name"] = cluster_name
-    if resolved_provider == Provider.LOCAL and kubeconfig_path:
+    if kubeconfig_path:
         kwargs["kubeconfig_path"] = Path(kubeconfig_path)
     return DeploymentContext.for_provider(resolved_provider, **kwargs)
 

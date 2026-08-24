@@ -2,16 +2,20 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from _tooling_support import RecordingRunner
 
+from olf.deployment import floe_manifests
 from olf.deployment.engine import Toolkit
-from olf.deployment.local import floe_manifests
-from olf.deployment.local.config import FloeManifestSettings
+from olf.deployment.errors import DeploymentPreconditionError
+from olf.deployment.floe_manifests import FloeManifestSettings
 from olf.tooling.process import CommandResult
 from olf.tooling.resolver import PathExecutableResolver
 
 
 def _toolkit(runner: RecordingRunner) -> Toolkit:
+    from olf.tooling.aws import AwsCli
+    from olf.tooling.azure import AzureCli
     from olf.tooling.docker import Docker
     from olf.tooling.helm import Helm
     from olf.tooling.kind import Kind
@@ -29,6 +33,8 @@ def _toolkit(runner: RecordingRunner) -> Toolkit:
         kubectl=Kubectl(runner, resolver),
         docker=Docker(runner, resolver),
         kind=Kind(runner, resolver),
+        aws=AwsCli(runner, resolver),
+        azure=AzureCli(runner, resolver),
     )
 
 
@@ -143,16 +149,12 @@ def test_generate_local_manifests_makes_manifest_dir_writable_by_the_container_u
 
 
 def test_generate_local_manifests_raises_when_no_configs_found(tmp_path: Path) -> None:
-    from olf.deployment.errors import DeploymentPreconditionError
-
     repo_root = tmp_path / "empty-repo"
     (repo_root / "lakehouse_code/silver").mkdir(parents=True)
     (repo_root / "libs/floe/profiles").mkdir(parents=True)
     (repo_root / "libs/floe/profiles/local-k8s.yml").write_text("apiVersion: floe/v1\n")
     settings = _settings(repo_root)
     tools = _toolkit(RecordingRunner())
-
-    import pytest
 
     with pytest.raises(DeploymentPreconditionError):
         floe_manifests.generate_local_manifests(
@@ -161,16 +163,93 @@ def test_generate_local_manifests_raises_when_no_configs_found(tmp_path: Path) -
 
 
 def test_generate_local_manifests_rejects_multiple_configs_for_one_domain(tmp_path: Path) -> None:
-    from olf.deployment.errors import DeploymentPreconditionError
-
     repo_root = _make_repo(tmp_path)
     (repo_root / "lakehouse_code/silver/orders/contracts/floe/extra.yml").write_text("sources: []\n")
     settings = _settings(repo_root)
     tools = _toolkit(RecordingRunner())
 
-    import pytest
-
     with pytest.raises(DeploymentPreconditionError, match="duplicate configs found for: orders"):
         floe_manifests.generate_local_manifests(
             settings, tools, repo_root=repo_root, namespace="lakehouse", governance_enabled=True, environ={}, env={}
         )
+
+
+# --- AWS Glue profile strategy -----------------------------------------------
+
+
+def test_aws_glue_profile_strategy_renders_profile_with_domain_glue_database(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    seen_environ: dict = {}
+
+    def _fake_render_profile(environ):  # noqa: ANN001, ANN202
+        seen_environ.update(environ)
+        return "apiVersion: floe/v1\nkind: EnvironmentProfile\n"
+
+    monkeypatch.setattr(floe_manifests.floe_module, "render_profile", _fake_render_profile)
+
+    strategy = floe_manifests.AwsGlueProfileStrategy(
+        environ={"OPENLAKEFORGE_CATALOG_SILVER_NAMESPACES_JSON": '{"orders": "orders_silver"}'}
+    )
+    profile_dir = tmp_path / "profiles/orders"
+
+    profile_path = strategy.profile_for(domain="orders", profile_dir=profile_dir)
+
+    assert profile_path == profile_dir / "aws-eks.yml"
+    assert profile_path.is_file()
+    assert seen_environ["OPENLAKEFORGE_CATALOG_GLUE_DATABASE"] == "orders_silver"
+
+
+def test_aws_glue_profile_strategy_raises_when_domain_namespace_missing(tmp_path: Path) -> None:
+    strategy = floe_manifests.AwsGlueProfileStrategy(
+        environ={"OPENLAKEFORGE_CATALOG_SILVER_NAMESPACES_JSON": '{"other_domain": "other_silver"}'}
+    )
+
+    with pytest.raises(DeploymentPreconditionError, match="missing Silver catalog namespace"):
+        strategy.profile_for(domain="orders", profile_dir=tmp_path / "profiles/orders")
+
+
+def test_aws_glue_profile_strategy_raises_on_invalid_namespaces_json(tmp_path: Path) -> None:
+    strategy = floe_manifests.AwsGlueProfileStrategy(
+        environ={"OPENLAKEFORGE_CATALOG_SILVER_NAMESPACES_JSON": "not-json"}
+    )
+
+    with pytest.raises(DeploymentPreconditionError, match="invalid OPENLAKEFORGE_CATALOG_SILVER_NAMESPACES_JSON"):
+        strategy.profile_for(domain="orders", profile_dir=tmp_path / "profiles/orders")
+
+
+def test_generate_aws_manifests_uses_a_distinct_profile_per_domain(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    repo_root = tmp_path / "repo"
+    (repo_root / "lakehouse_code/silver/orders/contracts/floe").mkdir(parents=True)
+    (repo_root / "lakehouse_code/silver/orders/contracts/floe/orders.yml").write_text("sources: []\n")
+    (repo_root / "lakehouse_code/silver/inventory/contracts/floe").mkdir(parents=True)
+    (repo_root / "lakehouse_code/silver/inventory/contracts/floe/inventory.yml").write_text("sources: []\n")
+
+    def _fake_render_profile(environ):  # noqa: ANN001, ANN202
+        return f"database: {environ['OPENLAKEFORGE_CATALOG_GLUE_DATABASE']}\n"
+
+    monkeypatch.setattr(floe_manifests.floe_module, "render_profile", _fake_render_profile)
+
+    settings = floe_manifests.FloeManifestSettings(
+        version="0.6.11",
+        image="ghcr.io/malon64/floe:0.6.11",
+        runtime="image",
+        runtime_artifact_dir=repo_root / ".tmp/floe-runtime/aws",
+        platform=None,
+    )
+    runner = RecordingRunner(CommandResult(argv=(), returncode=0, stdout="", stderr="", duration_seconds=0.0))
+    tools = _toolkit(runner)
+    environ = {
+        "OPENLAKEFORGE_CATALOG_SILVER_NAMESPACES_JSON": (
+            '{"orders": "orders_silver", "inventory": "inventory_silver"}'
+        )
+    }
+
+    floe_manifests.generate_aws_manifests(settings, tools, repo_root=repo_root, environ=environ, env={})
+
+    orders_profile = settings.runtime_artifact_dir / "profiles/orders/aws-eks.yml"
+    inventory_profile = settings.runtime_artifact_dir / "profiles/inventory/aws-eks.yml"
+    assert orders_profile.read_text() == "database: orders_silver\n"
+    assert inventory_profile.read_text() == "database: inventory_silver\n"

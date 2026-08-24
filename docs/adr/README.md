@@ -105,3 +105,11 @@ domain-owned (no longer keyed by product `asset_prefix`), Gold stays
 product-owned, and the flat `<source>_bronze` / `<domain>_silver` /
 `<product>_gold` catalog namespace contract works identically for Polaris and
 Glue.
+
+`0027-olf-owns-cloud-deployment-orchestration.md` completes what ADR 0025
+left open: it supersedes ADR 0017's shell-orchestration decision for AWS
+and Azure too. A single `CloudProvider` implements both clouds' shared
+lifecycle, with a `CloudBackend` protocol isolating the genuine
+AWS/Azure differences (foundation variables, kubeconfig population,
+registry login, default image repository, Polaris job cleanup, Floe
+profile selection) behind `AwsBackend`/`AzureBackend`.

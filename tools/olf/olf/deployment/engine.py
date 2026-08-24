@@ -3,10 +3,10 @@
 `DeploymentEngine` sequences a `DeploymentProvider`'s lifecycle steps in the
 order ADR 0008 requires (foundation -> platform -> dynamic artifacts, never
 the other way around). `Toolkit` bundles the process-execution primitives
-every provider needs. Only the local provider (issue #124) exists today;
-`build_provider` is the single seam #125 extends with `aws`/`azure` branches
-and `Toolkit.aws`/`Toolkit.azure` fields - nothing provider-specific belongs
-in this module.
+every provider needs, including the `aws`/`azure` CLI adapters used by the
+cloud provider (issue #125). `build_provider` is the single seam that
+dispatches on `context.provider` - nothing provider-specific otherwise
+belongs in this module.
 """
 
 from __future__ import annotations
@@ -19,6 +19,8 @@ from typing import TYPE_CHECKING, Protocol
 
 from olf.deployment.context import DeploymentContext, Provider
 from olf.deployment.errors import UnsupportedProviderError
+from olf.tooling.aws import AwsCli
+from olf.tooling.azure import AzureCli
 from olf.tooling.docker import Docker
 from olf.tooling.helm import Helm
 from olf.tooling.kind import Kind
@@ -50,6 +52,8 @@ class Toolkit:
     kubectl: Kubectl
     docker: Docker
     kind: Kind
+    aws: AwsCli
+    azure: AzureCli
 
     @classmethod
     def default(
@@ -68,6 +72,8 @@ class Toolkit:
             kubectl=Kubectl(runner, resolver),
             docker=Docker(runner, resolver),
             kind=Kind(runner, resolver),
+            aws=AwsCli(runner, resolver),
+            azure=AzureCli(runner, resolver),
         )
 
 
@@ -152,10 +158,7 @@ def build_provider(
     environ: Mapping[str, str] | None = None,
     var_file: Path | None = None,
 ) -> DeploymentProvider:
-    """Build the `DeploymentProvider` for `context.provider`.
-
-    `Provider.AWS`/`Provider.AZURE` are not implemented yet (issue #125).
-    """
+    """Build the `DeploymentProvider` for `context.provider`."""
     if context.provider == Provider.LOCAL:
         from olf.deployment.local.config import LocalDeploymentConfig
         from olf.deployment.local.provider import LocalProvider
@@ -163,4 +166,14 @@ def build_provider(
         config = LocalDeploymentConfig.from_environment(environ or {}, context=context, var_file=var_file)
         return LocalProvider.create(config, toolkit=toolkit, environ=environ)
 
-    raise UnsupportedProviderError(f"provider {context.provider!r} is not yet ported (issue #125)")
+    if context.provider in (Provider.AWS, Provider.AZURE):
+        from olf.deployment.cloud.aws import AwsBackend
+        from olf.deployment.cloud.azure import AzureBackend
+        from olf.deployment.cloud.config import CloudDeploymentConfig
+        from olf.deployment.cloud.provider import CloudProvider
+
+        config = CloudDeploymentConfig.from_environment(environ or {}, context=context, var_file=var_file)
+        backend = AwsBackend() if context.provider == Provider.AWS else AzureBackend()
+        return CloudProvider.create(config, backend, toolkit=toolkit, environ=environ)
+
+    raise UnsupportedProviderError(f"provider {context.provider!r} is not supported")

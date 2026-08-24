@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from typer.testing import CliRunner
 
@@ -55,6 +57,31 @@ def test_deploy_forwards_kubeconfig_path_to_build_context(monkeypatch: pytest.Mo
 
     assert result.exit_code == 0
     assert calls[0]["kubeconfig_path"] == "/tmp/custom/kind-smoke.yaml"
+
+
+def test_build_context_honors_kubeconfig_path_override_for_cloud_providers(tmp_path: Path) -> None:
+    """Regression test: `_build_context` used to gate `kubeconfig_path` on
+    `Provider.LOCAL`, silently ignoring the documented `AWS_KUBECONFIG_PATH`/
+    `AZURE_KUBECONFIG_PATH` concurrent-deployment overrides for cloud.
+    """
+    import os
+
+    from olf.commands.deployment import _build_context
+
+    override = tmp_path / "custom" / "aws-smoke.yaml"
+    old_repo_root = os.environ.get("OPENLAKEFORGE_REPO_ROOT")
+    os.environ["OPENLAKEFORGE_REPO_ROOT"] = str(tmp_path)
+    try:
+        context = _build_context(
+            "aws", profile="full", namespace="", cluster_name="", kubeconfig_path=str(override)
+        )
+    finally:
+        if old_repo_root is None:
+            os.environ.pop("OPENLAKEFORGE_REPO_ROOT", None)
+        else:
+            os.environ["OPENLAKEFORGE_REPO_ROOT"] = old_repo_root
+
+    assert context.paths.kubeconfig_path == override
 
 
 def test_deploy_defaults_to_all_phases(fake_engine: _FakeEngine) -> None:
@@ -132,6 +159,19 @@ def test_forward_delegates_to_engine(fake_engine: _FakeEngine) -> None:
 def test_profile_full_and_slim_are_accepted(fake_engine: _FakeEngine) -> None:
     assert runner.invoke(app, ["deploy", "--profile", "full"]).exit_code == 0
     assert runner.invoke(app, ["deploy", "--profile", "slim"]).exit_code == 0
+
+
+def test_deploy_accepts_aws_and_azure_providers(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:  # noqa: ANN001
+    """Exercises the real `_build_context` (no subprocess calls - pure data) for both cloud
+    providers, only mocking `_build_engine` to avoid touching real Terraform/AWS/Azure CLIs.
+    """
+    engine = _FakeEngine()
+    monkeypatch.setattr("olf.commands.deployment._build_engine", lambda *a, **k: engine)
+    monkeypatch.setenv("OPENLAKEFORGE_REPO_ROOT", str(tmp_path))
+
+    for provider in ("aws", "azure"):
+        result = runner.invoke(app, ["deploy", "--provider", provider, "--phase", "foundation"])
+        assert result.exit_code == 0, result.output
 
 
 def test_unknown_profile_is_rejected_before_building_an_engine(monkeypatch: pytest.MonkeyPatch) -> None:

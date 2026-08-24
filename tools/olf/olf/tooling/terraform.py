@@ -30,6 +30,7 @@ class Terraform:
         check: bool = True,
         retry_policy: RetryPolicy | None = None,
         retry_if: RetryPredicate | None = None,
+        stream_output: bool = False,
     ) -> CommandResult:
         argv = [str(self._executable()), f"-chdir={terraform_dir}", *args]
         return self._runner.run(
@@ -38,6 +39,7 @@ class Terraform:
             check=check,
             retry_policy=retry_policy,
             retry_if=retry_if,
+            stream_output=stream_output,
         )
 
     @staticmethod
@@ -54,7 +56,7 @@ class Terraform:
         extra_args: Sequence[str] = (),
         env: Mapping[str, str] | None = None,
     ) -> CommandResult:
-        return self._run(terraform_dir, ["init", *extra_args], env=env)
+        return self._run(terraform_dir, ["init", *extra_args], env=env, stream_output=True)
 
     def apply(
         self,
@@ -73,7 +75,9 @@ class Terraform:
             args.append("-auto-approve")
         args.extend(self._var_args(var_files, variables))
         args.extend(extra_args)
-        return self._run(terraform_dir, args, env=env, retry_policy=retry_policy, retry_if=retry_if)
+        return self._run(
+            terraform_dir, args, env=env, retry_policy=retry_policy, retry_if=retry_if, stream_output=True
+        )
 
     def destroy(
         self,
@@ -92,7 +96,9 @@ class Terraform:
             args.append("-auto-approve")
         args.extend(self._var_args(var_files, variables))
         args.extend(extra_args)
-        return self._run(terraform_dir, args, env=env, retry_policy=retry_policy, retry_if=retry_if)
+        return self._run(
+            terraform_dir, args, env=env, retry_policy=retry_policy, retry_if=retry_if, stream_output=True
+        )
 
     def output_raw(self, terraform_dir: Path, name: str, *, env: Mapping[str, str] | None = None) -> str:
         result = self._run(terraform_dir, ["output", "-raw", name], env=env)

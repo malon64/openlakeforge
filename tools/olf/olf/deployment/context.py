@@ -19,6 +19,22 @@ DEFAULT_NAMESPACE = "lakehouse"
 DEFAULT_LOCAL_CLUSTER_NAME = "openlakeforge-local"
 
 
+def _resolve_foundation_state_path(foundation_terraform_dir: Path) -> Path:
+    """Honor `FOUNDATION_STATE_PATH`, matching every removed provider's
+    stack scripts (`FOUNDATION_STATE_PATH="${FOUNDATION_STATE_PATH:-
+    ${FOUNDATION_TERRAFORM_DIR}/terraform.tfstate}"`), which both gated
+    their own state-missing precondition check on this path and supplied it
+    as the `foundation_state_path` Terraform variable to the platform root -
+    a non-default foundation state (e.g. a distribution's isolated backend)
+    would otherwise be rejected by every platform/artifact/status/forward/
+    teardown command.
+    """
+    override = os.environ.get("FOUNDATION_STATE_PATH")
+    if override:
+        return Path(override).resolve()
+    return foundation_terraform_dir / "terraform.tfstate"
+
+
 class Provider(StrEnum):
     LOCAL = "local"
     AWS = "aws"
@@ -122,8 +138,17 @@ class DeploymentContext:
         distribution_root: Path | None = None,
         namespace: str = DEFAULT_NAMESPACE,
         kube_context: str = "",
+        kubeconfig_path: Path | None = None,
     ) -> DeploymentContext:
-        return cls._build(
+        """Build the AWS `DeploymentContext`.
+
+        `kubeconfig_path`, when given, overrides the default
+        `<repo_root>/.tmp/kubeconfigs/aws.yaml` - the concurrent-deployment
+        workflow in `docs/setup/cloud-poc-setup.md` isolates a parallel
+        `make aws-up` run with its own kubeconfig file via
+        `AWS_KUBECONFIG_PATH`, matching `local()`'s override.
+        """
+        context = cls._build(
             provider=Provider.AWS,
             scope="aws",
             repo_root=repo_root,
@@ -134,6 +159,9 @@ class DeploymentContext:
             foundation_terraform_dir=Path("infra/terraform/foundations/aws-eks"),
             platform_terraform_dir=Path("infra/terraform/environments/aws-poc"),
         )
+        if kubeconfig_path is not None:
+            context = replace(context, paths=replace(context.paths, kubeconfig_path=Path(kubeconfig_path).resolve()))
+        return context
 
     @classmethod
     def azure(
@@ -144,8 +172,14 @@ class DeploymentContext:
         distribution_root: Path | None = None,
         namespace: str = DEFAULT_NAMESPACE,
         kube_context: str = "",
+        kubeconfig_path: Path | None = None,
     ) -> DeploymentContext:
-        return cls._build(
+        """Build the Azure `DeploymentContext`.
+
+        `kubeconfig_path`, when given, overrides the default
+        `<repo_root>/.tmp/kubeconfigs/azure.yaml` - see `aws()`.
+        """
+        context = cls._build(
             provider=Provider.AZURE,
             scope="azure",
             repo_root=repo_root,
@@ -156,6 +190,9 @@ class DeploymentContext:
             foundation_terraform_dir=Path("infra/terraform/foundations/azure-aks"),
             platform_terraform_dir=Path("infra/terraform/environments/azure-poc"),
         )
+        if kubeconfig_path is not None:
+            context = replace(context, paths=replace(context.paths, kubeconfig_path=Path(kubeconfig_path).resolve()))
+        return context
 
     @classmethod
     def _build(
@@ -186,7 +223,7 @@ class DeploymentContext:
             kubeconfig_path=work_root / "kubeconfigs" / f"{scope}.yaml",
             foundation_terraform_dir=resolved_repo_root / foundation_terraform_dir,
             platform_terraform_dir=resolved_repo_root / platform_terraform_dir,
-            foundation_state_path=resolved_repo_root / foundation_terraform_dir / "terraform.tfstate",
+            foundation_state_path=_resolve_foundation_state_path(resolved_repo_root / foundation_terraform_dir),
             docker_config_dir=work_root / "docker" / scope,
             helm_cache_dir=helm_root / "charts",
             helm_repository_config=helm_root / "repositories.yaml",
