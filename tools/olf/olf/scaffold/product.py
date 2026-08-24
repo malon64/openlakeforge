@@ -15,7 +15,7 @@ from openlakeforge_domain import load_lakehouse_inventory
 from olf.scaffold import _lakehouse_edit, _templates
 from olf.scaffold import domain as domain_module
 from olf.scaffold._csv import infer_columns
-from olf.scaffold._shared import ScaffoldError, ScaffoldFile, ScaffoldPlan, require_identifier, title_case
+from olf.scaffold._shared import ScaffoldError, ScaffoldFile, ScaffoldPlan, require_identifier, title_case, yaml_dq
 from olf.scaffold._templates import FloeEntitySpec, render_floe_entity
 
 
@@ -43,8 +43,8 @@ def _render_product_block(
     silver_inputs_text = ", ".join(silver_inputs)
     return (
         f"      - id: {product}\n"
-        f"        displayName: {display_name}\n"
-        f"        description: {display_name} product.\n"
+        f"        displayName: {yaml_dq(display_name)}\n"
+        f"        description: {yaml_dq(display_name + ' product.')}\n"
         "        status: planned\n"
         f"        silver_inputs: [{silver_inputs_text}]\n"
         "        gold_tables:\n"
@@ -214,7 +214,7 @@ def plan_product_new(
         product_files.append(
             ScaffoldFile(
                 f"{dashboard_dir}/databases/openlakeforge_trino.yaml",
-                _templates.render_superset_database_yaml(dashboard=product),
+                _templates.render_superset_database_yaml(),
             )
         )
         for mart in gold_tables:

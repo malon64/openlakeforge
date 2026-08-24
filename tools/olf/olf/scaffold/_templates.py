@@ -12,8 +12,16 @@ import uuid
 from dataclasses import dataclass
 
 from olf.scaffold._csv import InferredColumn
+from olf.scaffold._shared import yaml_dq
 
 _UUID_NAMESPACE = uuid.UUID("6f2f6c0a-6b0e-4c2a-8f1a-3f7a9e0b6f21")
+
+# Every checked-in Superset report bundle registers the same logical "OpenLakeForge
+# Trino" database connection under this one uuid (see
+# lakehouse_code/dashboards/superset/*/databases/openlakeforge_trino.yaml). A
+# generated bundle must reuse it too, or Superset registers a second, disconnected
+# database identity instead of attaching the new datasets to the existing one.
+_SUPERSET_TRINO_DATABASE_UUID = "8a87434c-559e-545d-badd-3575affe0185"
 
 
 def _deterministic_uuid(*parts: str) -> str:
@@ -34,14 +42,14 @@ def render_source_yaml(
         "apiVersion: openlakeforge.io/v1alpha3",
         "kind: Source",
         f"name: {source}",
-        f"displayName: {display_name}",
-        f"description: {description}",
+        f"displayName: {yaml_dq(display_name)}",
+        f"description: {yaml_dq(description)}",
         "status: planned",
         "resources:",
     ]
     for name, resource_description in resources:
         lines.append(f"  - name: {name}")
-        lines.append(f"    description: {resource_description}")
+        lines.append(f"    description: {yaml_dq(resource_description)}")
     return "\n".join(lines) + "\n"
 
 
@@ -128,11 +136,12 @@ def _floe_column_lines(columns: tuple[InferredColumn, ...]) -> str:
             "      columns: []\n"
         )
     rendered = "\n".join(
-        f'        - {{ name: "{column.name}", type: "{column.type}", nullable: {str(column.nullable).lower()} }}'
+        f"        - {{ name: {yaml_dq(column.name)}, type: \"{column.type}\", "
+        f"nullable: {str(column.nullable).lower()} }}"
         for column in columns
     )
     primary_key = columns[0].name
-    return f'      primary_key: ["{primary_key}"]\n      columns:\n{rendered}\n'
+    return f"      primary_key: [{yaml_dq(primary_key)}]\n      columns:\n{rendered}\n"
 
 
 def render_floe_entity(spec: FloeEntitySpec) -> str:
@@ -305,8 +314,7 @@ def render_superset_metadata_yaml() -> str:
     return "version: 1.0.0\ntype: assets\n"
 
 
-def render_superset_database_yaml(*, dashboard: str) -> str:
-    database_uuid = _deterministic_uuid("superset-database", dashboard)
+def render_superset_database_yaml() -> str:
     return f'''database_name: OpenLakeForge Trino
 sqlalchemy_uri: trino://superset@trino:8080/iceberg
 cache_timeout: null
@@ -322,23 +330,22 @@ extra:
   metadata_cache_timeout: {{}}
   schemas_allowed_for_file_upload: []
 impersonate_user: false
-uuid: {database_uuid}
+uuid: {_SUPERSET_TRINO_DATABASE_UUID}
 version: 1.0.0
 '''
 
 
 def render_superset_dataset_yaml(*, dashboard: str, mart: str, gold_namespace: str, description: str) -> str:
     dataset_uuid = _deterministic_uuid("superset-dataset", dashboard, mart)
-    database_uuid = _deterministic_uuid("superset-database", dashboard)
     return f'''table_name: {mart}
 main_dttm_col: null
-description: {description}
+description: {yaml_dq(description)}
 schema: {gold_namespace}
 uuid: {dataset_uuid}
 metrics: []
 columns: []
 version: 1.0.0
-database_uuid: {database_uuid}
+database_uuid: {_SUPERSET_TRINO_DATABASE_UUID}
 '''
 
 

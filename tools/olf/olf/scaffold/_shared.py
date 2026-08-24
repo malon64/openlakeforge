@@ -23,6 +23,17 @@ def title_case(identifier: str) -> str:
     return identifier.replace("_", " ").title()
 
 
+def yaml_dq(value: str) -> str:
+    """Render `value` as a double-quoted YAML scalar.
+
+    User-supplied strings (--display-name, inferred CSV column names) can
+    contain YAML metacharacters (':', '#', quotes); splicing them unquoted
+    into generated YAML would corrupt or break parsing of the descriptor.
+    """
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
+
+
 @dataclass(frozen=True)
 class ScaffoldFile:
     """One new file to write, relative to the repository root."""

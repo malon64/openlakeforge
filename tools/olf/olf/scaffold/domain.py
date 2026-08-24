@@ -13,7 +13,7 @@ from openlakeforge_domain import LakehouseInventory, load_lakehouse_inventory
 
 from olf.scaffold import _lakehouse_edit, _templates
 from olf.scaffold._csv import infer_columns
-from olf.scaffold._shared import ScaffoldError, ScaffoldFile, ScaffoldPlan, require_identifier, title_case
+from olf.scaffold._shared import ScaffoldError, ScaffoldFile, ScaffoldPlan, require_identifier, title_case, yaml_dq
 from olf.scaffold._templates import FloeEntitySpec
 
 
@@ -69,8 +69,8 @@ def build_domain_artifacts(
 
     domain_block = (
         f"  - name: {domain}\n"
-        f"    displayName: {display_name}\n"
-        f"    description: {display_name} domain.\n"
+        f"    displayName: {yaml_dq(display_name)}\n"
+        f"    description: {yaml_dq(display_name + ' domain.')}\n"
         "    status: planned\n"
         "    silver_tables:\n"
         "      tables:\n" + "\n".join(silver_table_lines) + "\n"

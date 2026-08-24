@@ -11,6 +11,7 @@ import shutil
 from pathlib import Path
 
 import pytest
+import yaml
 from openlakeforge_domain import load_lakehouse_inventory
 from typer.testing import CliRunner
 
@@ -408,6 +409,98 @@ def test_generated_product_artifacts_are_internally_consistent(tmp_path: Path) -
     dagster_module = (repo_root / "lakehouse_code" / "pipelines" / "dagster" / "campaign_performance.py").read_text()
     assert '"campaigns"' in dagster_module
     assert '("marketing_platform", "campaigns")' in dagster_module
+
+
+# --------------------------------------------------------------------------
+# YAML-safety and Superset-identity regressions
+# --------------------------------------------------------------------------
+
+
+def test_with_report_reuses_the_shared_superset_database_identity(tmp_path: Path) -> None:
+    """Every checked-in Superset bundle registers the same 'OpenLakeForge
+    Trino' database uuid; a generated bundle must attach to that same
+    connection rather than registering a second, disconnected one."""
+    repo_root = _seed_repo(tmp_path)
+    shared_uuid = "8a87434c-559e-545d-badd-3575affe0185"
+    existing_bundle = (
+        ROOT / "lakehouse_code" / "dashboards" / "superset" / "sales_order_revenue" / "databases"
+        / "openlakeforge_trino.yaml"
+    )
+    assert yaml.safe_load(existing_bundle.read_text())["uuid"] == shared_uuid
+
+    plan = plan_product_new(
+        repo_root,
+        target="sales/order_summary",
+        display_name=None,
+        silver_inputs=("orders",),
+        inputs=(),
+        gold_tables=("mart_order_summary",),
+        with_report=True,
+    )
+    commit_plan(repo_root, plan)
+
+    dashboard_dir = repo_root / "lakehouse_code" / "dashboards" / "superset" / "order_summary"
+    database_doc = yaml.safe_load((dashboard_dir / "databases" / "openlakeforge_trino.yaml").read_text())
+    dataset_doc = yaml.safe_load(
+        (dashboard_dir / "datasets" / "OpenLakeForge_Trino" / "mart_order_summary.yaml").read_text()
+    )
+    assert database_doc["uuid"] == shared_uuid
+    assert dataset_doc["database_uuid"] == shared_uuid
+
+
+@pytest.mark.parametrize("tricky_name", ["HR & Ops: Team #1", 'Say "hi"', "Back\\slash"])
+def test_display_name_with_yaml_metacharacters_round_trips(tmp_path: Path, tricky_name: str) -> None:
+    """A --display-name containing YAML metacharacters (':', '#', quotes,
+    backslashes) must not corrupt or break parsing of the generated
+    descriptor -- across all three commands."""
+    repo_root = _seed_repo(tmp_path)
+
+    source_plan = plan_source_new(repo_root, source="workday", display_name=tricky_name, resources=("employees",))
+    commit_plan(repo_root, source_plan)
+    domain_plan = plan_domain_new(
+        repo_root, domain="hr", display_name=tricky_name, inputs=(("workday", "employees"),)
+    )
+    commit_plan(repo_root, domain_plan)
+    product_plan = plan_product_new(
+        repo_root,
+        target="hr/headcount",
+        display_name=tricky_name,
+        silver_inputs=("employees",),
+        inputs=(),
+        gold_tables=("mart_headcount",),
+        with_report=False,
+    )
+    commit_plan(repo_root, product_plan)
+
+    inventory = load_lakehouse_inventory(repo_root)
+    assert "workday" in inventory.source_names
+    hr = next(d for d in inventory.domains if d.name == "hr")
+    assert hr.display_name == tricky_name
+    headcount = next(p for p in hr.products if p.id == "headcount")
+    assert headcount.display_name == tricky_name
+
+    source_doc = yaml.safe_load((repo_root / "lakehouse_code" / "bronze" / "workday" / "source.yaml").read_text())
+    assert source_doc["displayName"] == tricky_name
+
+
+def test_csv_header_with_yaml_metacharacters_produces_valid_floe_contract(tmp_path: Path) -> None:
+    """An example CSV header containing quotes/colons must not produce a
+    Floe contract that fails to parse as YAML."""
+    repo_root = _seed_repo(tmp_path)
+    source_plan = plan_source_new(repo_root, source="workday", display_name=None, resources=("employees",))
+    commit_plan(repo_root, source_plan)
+
+    tricky_column = 'employee "nickname": primary'
+    example_csv = repo_root / "lakehouse_code" / "bronze" / "workday" / "examples" / "employees.csv"
+    example_csv.write_text(f"employees_id,{tricky_column}\nemployees-001,Al\n", encoding="utf-8")
+
+    plan = plan_domain_new(repo_root, domain="hr", display_name=None, inputs=(("workday", "employees"),))
+    commit_plan(repo_root, plan)
+
+    contract_path = repo_root / "lakehouse_code" / "silver" / "hr" / "contracts" / "floe" / "hr.yml"
+    contract_doc = yaml.safe_load(contract_path.read_text())
+    columns = contract_doc["entities"][0]["schema"]["columns"]
+    assert {column["name"] for column in columns} == {"employees_id", tricky_column}
 
 
 # --------------------------------------------------------------------------

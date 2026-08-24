@@ -21,6 +21,7 @@ from olf.scaffold._shared import ScaffoldError, ScaffoldFile, ScaffoldPlan
 
 _SOURCE_YAML_SUFFIX = "source.yaml"
 _BRONZE_PREFIX = "lakehouse_code/bronze/"
+_YAML_SUFFIXES = (".yaml", ".yml")
 
 
 def check_no_existing_targets(repo_root: Path, files: tuple[ScaffoldFile, ...]) -> None:
@@ -29,7 +30,24 @@ def check_no_existing_targets(repo_root: Path, files: tuple[ScaffoldFile, ...]) 
         raise ScaffoldError("refusing to overwrite existing file(s): " + ", ".join(existing))
 
 
+def _check_yaml_well_formed(files: tuple[ScaffoldFile, ...]) -> None:
+    """Every generated/edited YAML file must at least parse. `lakehouse.yaml`
+    and `source.yaml` are already covered (more strictly) by the canonical
+    model and JSON Schema; this catches malformed YAML in the rest -- Floe
+    contracts, Superset bundles -- that those don't touch."""
+    for scaffold_file in files:
+        if not scaffold_file.relative_path.endswith(_YAML_SUFFIXES):
+            continue
+        try:
+            yaml.safe_load(scaffold_file.content)
+        except yaml.YAMLError as exc:
+            raise ScaffoldError(f"{scaffold_file.relative_path}: generated content is not valid YAML: {exc}") from exc
+
+
 def _verify(repo_root: Path, plan: ScaffoldPlan) -> None:
+    _check_yaml_well_formed(plan.files)
+    _check_yaml_well_formed(plan.edits)
+
     lakehouse_src = repo_root / "lakehouse_code"
     with tempfile.TemporaryDirectory(prefix="olf-scaffold-verify-") as tmp:
         verify_lakehouse = Path(tmp) / "lakehouse_code"
@@ -59,12 +77,6 @@ def _verify(repo_root: Path, plan: ScaffoldPlan) -> None:
             load_lakehouse_inventory(Path(tmp))
         except LakehouseDescriptorError as exc:
             raise ScaffoldError(str(exc)) from exc
-
-    for scaffold_file in plan.edits:
-        try:
-            yaml.safe_load(scaffold_file.content)
-        except yaml.YAMLError as exc:
-            raise ScaffoldError(f"{scaffold_file.relative_path}: edited content is not valid YAML: {exc}") from exc
 
 
 def _write(repo_root: Path, plan: ScaffoldPlan) -> None:
