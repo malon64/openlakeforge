@@ -13,6 +13,7 @@ long-lived, backgrounded forwards, so this module builds argv through
 
 from __future__ import annotations
 
+import os
 import signal
 import subprocess
 import time
@@ -71,10 +72,20 @@ class PortForwardSupervisor:
     def start(
         self, target: ForwardTarget, spec: ForwardSpec, *, env: Mapping[str, str] | None = None
     ) -> subprocess.Popen:
+        """Launch one forwarding child.
+
+        `env` is layered over the ambient process environment (matching
+        `ProcessRunner.run`'s `{**os.environ, **command.env}` merge), not
+        substituted for it - a bare `subprocess.Popen(..., env=dict(env))`
+        would replace the whole environment, dropping `PATH`/`HOME` and any
+        cloud credential-plugin config (`AWS_PROFILE`, Azure's config dir)
+        that EKS/AKS exec-based kubeconfigs need to authenticate.
+        """
         argv = self._kubectl_argv(target, spec)
         log_path = Path(f"{self._log_prefix}-{target.label}-port-forward.log")
         log_file = open(log_path, "w")  # noqa: SIM115 - lifetime tied to the child process
-        process = self._popen(argv, stdout=log_file, stderr=subprocess.STDOUT, env=dict(env) if env else None)
+        popen_env = {**os.environ, **env} if env else None
+        process = self._popen(argv, stdout=log_file, stderr=subprocess.STDOUT, env=popen_env)
         self._processes.append(process)
         self._log_files.append(log_file)
         self._targets.append(target)
