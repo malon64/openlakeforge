@@ -69,9 +69,9 @@ See [ADR 0028](../adr/0028-python-owns-repository-orchestration.md).
    `git tag v<version> && git push origin v<version>`. The tag push triggers
    the same workflow with `dry_run: false`, which builds, pushes, signs,
    attests, and publishes the GitHub Release.
-6. Run `scripts/release/verify-install.sh v<version>` (see below) to confirm
-   the published release is independently verifiable and installs from a
-   clean checkout.
+6. Run `uv run --project tools/olf --locked olf release verify-install --tag
+   v<version>` (see below) to confirm the published release is independently
+   verifiable and installs from a clean checkout.
 
 `make release-check` fails a release if:
 
@@ -91,8 +91,8 @@ See [ADR 0028](../adr/0028-python-owns-repository-orchestration.md).
   catalog.
 - Any Python lockfile declared in `components.python` is missing, or is out
   of sync with its sibling `pyproject.toml` -- checked with `uv lock --check`
-  and a seeded `uv pip compile` re-run (`scripts/test/check-lockfiles.sh`),
-  not a hand-rolled parser.
+  and a seeded `uv pip compile` re-run (`olf check lockfiles`), not a
+  hand-rolled parser.
 
 ## Consumer verification
 
@@ -150,17 +150,17 @@ sha256sum -c checksums.txt
 ### Verify a clean-checkout install
 
 ```sh
-scripts/release/verify-install.sh v0.1.0-alpha.1
+uv run --project tools/olf --locked olf release verify-install \
+  --tag v0.1.0-alpha.1
 ```
 
-This script downloads the release assets with `gh release download`, uses
-the keyless Sigstore bundle to authenticate `checksums.txt` before checking
-the assets, verifies the cosign signature on both published image digests,
-then does a fresh `git clone --branch v0.1.0-alpha.1` into a scratch directory
-and runs `scripts/test/check-structure.sh` and
-`scripts/test/check-components.sh` from that clean checkout — proving the
-tagged tree is self-consistent with no local state carried over. Pass
-`--pull-images` to additionally `docker pull` both published images by
+The command downloads the release assets with `gh release download`, uses the
+keyless Sigstore bundle to authenticate `checksums.txt` before checking the
+assets, verifies the cosign signature on both published image digests, then
+does a fresh `git clone --branch v0.1.0-alpha.1` into a scratch directory and
+runs `olf check structure` and `olf check components` from that clean checkout
+— proving the tagged tree is self-consistent with no local state carried over.
+Pass `--pull-images` to additionally `docker pull` both published images by
 digest.
 
 This script requires `git`, `gh`, `cosign`, `uv`, `docker` (only for
@@ -184,12 +184,13 @@ Because the tag-triggered run is the one that builds, pushes, signs, and attests
 the images, a failure in that stage would have failed the run; the successful
 conclusion above is the evidence for image publication and signing. To confirm
 independently, run the consumer verification commands in the section above, or
-`scripts/release/verify-install.sh v0.1.0-alpha.1 --pull-images`.
+`uv run --project tools/olf --locked olf release verify-install --tag
+v0.1.0-alpha.1 --pull-images`.
 
 Verification that is still outstanding, and should be recorded here when it
 runs:
 
-- An end-to-end execution of `scripts/release/verify-install.sh` against the
-  published tag by someone other than the release author.
+- An end-to-end execution of `olf release verify-install` against the published
+  tag by someone other than the release author.
 - A `workflow_dispatch` dry run ahead of the next tag, to exercise the dry-run
   path itself.

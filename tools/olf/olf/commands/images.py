@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
 
 import typer
 
@@ -17,7 +18,9 @@ from olf.deployment.local.images import build_project_code_image, build_superset
 app = typer.Typer(help="Build and load local runtime images.")
 
 
-def _local_config(cluster_name: str) -> tuple[LocalDeploymentConfig, Toolkit]:
+def _local_config(
+    cluster_name: str, *, environ: Mapping[str, str] | None = None
+) -> tuple[LocalDeploymentConfig, Toolkit]:
     context = DeploymentContext.for_provider(
         "local",
         repo_root=config.repo_root(),
@@ -26,7 +29,8 @@ def _local_config(cluster_name: str) -> tuple[LocalDeploymentConfig, Toolkit]:
         kubeconfig_path=config.repo_root() / ".tmp/kubeconfigs/local.yaml",
         profile=Profile.FULL,
     )
-    return LocalDeploymentConfig.from_environment(os.environ, context=context), Toolkit.default()
+    resolved_environ = os.environ if environ is None else environ
+    return LocalDeploymentConfig.from_environment(resolved_environ, context=context), Toolkit.default()
 
 
 @app.command("build")

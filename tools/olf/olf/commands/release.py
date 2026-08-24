@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import shutil
+from collections.abc import Mapping
 from pathlib import Path
 
 import typer
@@ -129,15 +131,17 @@ def build_bundle(
 
     root = config.repo_root()
     output = (root / output_dir).resolve()
-    settings, tools = _local_config("openlakeforge-local")
+    catalog = release_module.load_catalog(root / "release/component-catalog.yaml")
+    bundle_env = _bundle_environment(catalog)
+    settings, tools = _local_config("openlakeforge-local", environ=bundle_env)
     try:
         project = build_project_code_image(
             settings,
             tools,
-            env={},
+            env=bundle_env,
             revision=settings.images.project_code_revision,
         )
-        superset = build_superset_image(settings, tools, env={})
+        superset = build_superset_image(settings, tools, env=bundle_env)
         docker = str(tools.resolver.resolve("docker"))
         project_id = tools.runner.run([docker, "image", "inspect", "--format", "{{.Id}}", project]).stdout.strip()
         superset_id = tools.runner.run([docker, "image", "inspect", "--format", "{{.Id}}", superset]).stdout.strip()
@@ -147,7 +151,7 @@ def build_bundle(
         shutil.rmtree(output)
     output.mkdir(parents=True)
     manifest = release_module.build_manifest(
-        release_module.load_catalog(root / "release/component-catalog.yaml"),
+        catalog,
         git_sha=_git_sha(),
         image_digests={
             "project-code": f"{project}@{project_id} (local build, not pushed)",
@@ -155,7 +159,6 @@ def build_bundle(
         },
     )
     (output / "component-manifest.json").write_text(release_module.render_manifest(manifest, fmt="json"))
-    catalog = release_module.load_catalog(root / "release/component-catalog.yaml")
     (output / "compatibility-matrix.md").write_text(
         release_module.render_compatibility_matrix(catalog, root)
     )
@@ -164,6 +167,25 @@ def build_bundle(
     _write_local_sboms(output, images={"project-code": project, "superset": superset}, tools=tools)
     release_module.write_checksums(output)
     typer.echo(f"Release bundle written to {output}")
+
+
+def _bundle_environment(catalog: Mapping[str, object]) -> dict[str, str]:
+    """Return an isolated image configuration for a local release rehearsal."""
+    components = catalog.get("components")
+    images = components.get("images") if isinstance(components, Mapping) else None
+    if not isinstance(images, Mapping):
+        raise ValueError("component catalog has no components.images mapping")
+    project_code_base = images.get("project_code_base")
+    superset_base = images.get("superset_base")
+    if not isinstance(project_code_base, str) or not isinstance(superset_base, str):
+        raise ValueError("component catalog must pin project_code_base and superset_base images")
+    return {
+        **os.environ,
+        "PROJECT_CODE_IMAGE_TAG": "bundle",
+        "PROJECT_CODE_PYTHON_BASE_IMAGE": project_code_base,
+        "SUPERSET_IMAGE_TAG": "bundle",
+        "SUPERSET_BASE_IMAGE": superset_base,
+    }
 
 
 def _write_local_sboms(output: Path, *, images: dict[str, str], tools: Toolkit) -> None:

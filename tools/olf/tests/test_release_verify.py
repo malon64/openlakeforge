@@ -7,6 +7,7 @@ import pytest
 import typer
 
 from olf.commands import release
+from olf.deployment.local.config import ImageSettings
 
 
 class _Runner:
@@ -81,3 +82,31 @@ def test_write_local_sboms_uses_syft_before_checksums(tmp_path: Path) -> None:
         ["syft", "project", "-o", f"spdx-json={tmp_path / 'project-code.spdx.json'}"],
         ["syft", "superset", "-o", f"spdx-json={tmp_path / 'superset.spdx.json'}"],
     ]
+
+
+def test_bundle_environment_uses_catalog_pins_and_isolated_tags(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PROJECT_CODE_IMAGE_TAG", "local")
+    monkeypatch.setenv("PROJECT_CODE_PYTHON_BASE_IMAGE", "python:untrusted")
+    monkeypatch.setenv("SUPERSET_IMAGE_TAG", "local")
+    monkeypatch.setenv("SUPERSET_BASE_IMAGE", "superset:untrusted")
+
+    environment = release._bundle_environment(
+        {
+            "components": {
+                "images": {
+                    "project_code_base": "python:3.12@sha256:project",
+                    "superset_base": "superset:6@sha256:superset",
+                }
+            }
+        }
+    )
+
+    assert environment["PROJECT_CODE_IMAGE_TAG"] == "bundle"
+    assert environment["PROJECT_CODE_PYTHON_BASE_IMAGE"] == "python:3.12@sha256:project"
+    assert environment["SUPERSET_IMAGE_TAG"] == "bundle"
+    assert environment["SUPERSET_BASE_IMAGE"] == "superset:6@sha256:superset"
+    settings = ImageSettings.from_environment(environment)
+    assert settings.project_code_image.endswith(":bundle")
+    assert settings.project_code_python_base_image == "python:3.12@sha256:project"
+    assert settings.superset_image.endswith(":bundle")
+    assert settings.superset_base_image == "superset:6@sha256:superset"
