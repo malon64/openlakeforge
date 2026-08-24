@@ -146,7 +146,13 @@ def test_foundation_down_does_not_require_cloud_login_when_no_state_exists(tmp_p
 def test_foundation_down_calls_preflight_after_confirming_state_exists(tmp_path: Path) -> None:
     config = _config(tmp_path)
     backend = FakeCloudBackend(scope="aws", cluster_reachable_result=False)
-    runner = _ScriptedRunner(rules=[(lambda argv: "state" in argv, _ok())], default=_ok())
+    runner = _ScriptedRunner(
+        rules=[
+            (lambda argv: "state" in argv, _ok()),
+            (lambda argv: "namespace" in argv and "get" in argv, _fail()),
+        ],
+        default=_ok(),
+    )
     tools = _toolkit(runner)
 
     foundation.foundation_down(config, tools, backend, environ={}, env={})
@@ -188,16 +194,57 @@ def test_foundation_down_force_overrides_namespace_check(tmp_path: Path) -> None
     assert any(c.argv[2:3] == ["destroy"] for c in runner.calls if c.argv and c.argv[0] == "terraform")
 
 
-def test_foundation_down_skips_namespace_check_when_cluster_unreachable(tmp_path: Path) -> None:
+def test_foundation_down_skips_kubeconfig_refresh_but_still_checks_namespace_when_cluster_unreachable(
+    tmp_path: Path,
+) -> None:
+    """`update_kubeconfig` is skipped when the cloud probe says the cluster
+    is unreachable, but the namespace safety check still runs independently
+    (against whatever kubeconfig already exists) - it only waives the guard
+    when kubectl itself cannot reach the namespace, matching the removed
+    teardown scripts.
+    """
     config = _config(tmp_path)
     backend = FakeCloudBackend(scope="aws", cluster_reachable_result=False)
-    runner = _ScriptedRunner(rules=[(lambda argv: "state" in argv, _ok())], default=_ok())
+    runner = _ScriptedRunner(
+        rules=[
+            (lambda argv: "state" in argv, _ok()),
+            (lambda argv: "namespace" in argv and "get" in argv, _fail()),
+        ],
+        default=_ok(),
+    )
     tools = _toolkit(runner)
 
     foundation.foundation_down(config, tools, backend, environ={}, env={})
 
     assert "update_kubeconfig" not in backend.calls
+    assert any(c.argv and "namespace" in c.argv and "get" in c.argv for c in runner.calls)
     assert any(c.argv[2:3] == ["destroy"] for c in runner.calls if c.argv and c.argv[0] == "terraform")
+
+
+def test_foundation_down_refuses_when_cloud_probe_fails_but_namespace_is_still_reachable(
+    tmp_path: Path,
+) -> None:
+    """P1: a failed/transient `eks describe-cluster`/`aks show` probe must
+    not silently waive the namespace safety check - if kubectl (using
+    whatever kubeconfig already exists) can still reach the namespace, the
+    guard must fire exactly as if the probe had succeeded.
+    """
+    config = _config(tmp_path)
+    backend = FakeCloudBackend(scope="aws", cluster_reachable_result=False)
+    runner = _ScriptedRunner(
+        rules=[
+            (lambda argv: "state" in argv, _ok()),
+            (lambda argv: "namespace" in argv and "get" in argv, _ok()),
+        ],
+        default=_ok(),
+    )
+    tools = _toolkit(runner)
+
+    with pytest.raises(DeploymentPreconditionError, match="still exists"):
+        foundation.foundation_down(config, tools, backend, environ={}, env={})
+
+    assert "update_kubeconfig" not in backend.calls
+    assert not any(c.argv[2:3] == ["destroy"] for c in runner.calls if c.argv and c.argv[0] == "terraform")
 
 
 def test_require_foundation_facts_raises_when_state_file_missing(tmp_path: Path) -> None:

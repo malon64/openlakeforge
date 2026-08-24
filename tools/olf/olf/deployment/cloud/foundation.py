@@ -104,22 +104,29 @@ def foundation_down(
         config.paths.kubeconfig_path.parent.mkdir(parents=True, exist_ok=True)
         backend.update_kubeconfig(tools, facts, kubeconfig_path=config.paths.kubeconfig_path, env=env)
 
-        if not force:
-            namespace_result = tools.kubectl.get(
-                "namespace",
-                name=config.namespace,
-                context=facts.kube_context,
-                kubeconfig=config.paths.kubeconfig_path,
-                env=env,
-                check=False,
+    # Deliberately independent of cluster_reachable(): that cloud API probe
+    # can fail transiently (or on a permissions gap) without the cluster
+    # actually being gone. The removed teardown scripts ran this kubectl
+    # check unconditionally, so a failed/skipped kubeconfig refresh must not
+    # silently authorize destroying a foundation with platform resources
+    # still present - only kubectl itself failing to reach the namespace
+    # (e.g. because the cluster is genuinely gone) waives the guard.
+    if not force:
+        namespace_result = tools.kubectl.get(
+            "namespace",
+            name=config.namespace,
+            context=facts.kube_context,
+            kubeconfig=config.paths.kubeconfig_path,
+            env=env,
+            check=False,
+        )
+        if namespace_result.ok:
+            raise DeploymentPreconditionError(
+                f"namespace '{config.namespace}' still exists on '{facts.kube_context}'. Run "
+                f"'olf destroy --provider {backend.scope} --phase platform' before destroying the "
+                f"{backend.scope} foundation. Pass --force only if you intentionally want to delete "
+                "the foundation with platform resources still present."
             )
-            if namespace_result.ok:
-                raise DeploymentPreconditionError(
-                    f"namespace '{config.namespace}' still exists on '{facts.kube_context}'. Run "
-                    f"'olf destroy --provider {backend.scope} --phase platform' before destroying the "
-                    f"{backend.scope} foundation. Pass --force only if you intentionally want to delete "
-                    "the foundation with platform resources still present."
-                )
 
     log.step(f"Destroying Terraform {backend.scope} foundation...")
     tools.terraform.destroy(
