@@ -66,14 +66,17 @@ def _top_level_span(lines: list[str], key: str, *, source_label: str = "lakehous
     return start, end
 
 
-def append_to_top_level_list(text: str, key: str, addition: str, *, source_label: str) -> str:
+def append_to_top_level_list(text: str, key: str, addition: str, *, source_label: str, indent: str = "  ") -> str:
     """Append `addition` right before the next top-level key after `key:`
     -- or at end-of-file if `key:` is the document's last top-level key --
     rather than always appending at end-of-file. A hand-edited file (e.g. a
     Floe contract with a custom key placed after `entities:`) is not
-    guaranteed to keep any particular field last."""
+    guaranteed to keep any particular field last. Also converts `key:` from
+    flow style to block style first if needed, the same as every other
+    list this module appends to."""
     lines = _lines(text)
-    _, end = _top_level_span(lines, key, source_label=source_label)
+    start, end = _top_level_span(lines, key, source_label=source_label)
+    end = _ensure_block_style(lines, start, end, indent=indent)
     lines[end:end] = _lines(addition)
     return _join(lines)
 
@@ -137,7 +140,14 @@ def _render_flow_item_as_block(item: object, *, indent: str) -> list[str]:
     commas, since a naive split breaks on commas inside a nested
     mapping/list (`[{name: x, products: [a, b]}]`)."""
     if isinstance(item, str):
-        return [f"{indent}- {item}\n"]
+        # yaml.safe_dump(..., default_style=None) lets PyYAML decide
+        # whether the scalar needs quoting -- e.g. a source literally named
+        # "on" must round-trip as the string "on", not the plain scalar
+        # `on`, which YAML 1.1 loaders (including PyYAML's SafeLoader) read
+        # back as the boolean True. `splitlines()[0]` drops the `...`
+        # document-end marker safe_dump appends to a bare scalar document.
+        rendered_item = yaml.safe_dump(item, default_style=None).splitlines()[0]
+        return [f"{indent}- {rendered_item}\n"]
     dumped_lines = yaml.safe_dump(item, default_flow_style=False, sort_keys=False).splitlines()
     return [f"{indent}- {dumped_lines[0]}\n"] + [f"{indent}  {extra}\n" for extra in dumped_lines[1:]]
 

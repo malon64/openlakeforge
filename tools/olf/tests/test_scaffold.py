@@ -635,6 +635,70 @@ def test_product_new_inserts_a_floe_entity_before_a_trailing_extra_key(tmp_path:
     assert contract_doc["x_extra"] is True
 
 
+def test_source_new_quotes_a_yaml_special_scalar_in_a_flow_style_list(tmp_path: Path) -> None:
+    """`sources: [crm, erp, "on"]` is valid, schema-accepted YAML -- "on" is
+    a perfectly valid source identifier (`^[a-z][a-z0-9_]*$`). Converting
+    the flow list to block style must re-emit it as the quoted string "on",
+    not the bare scalar `on`, which YAML 1.1 loaders (including PyYAML's
+    SafeLoader) read back as the boolean True."""
+    repo_root = _seed_repo(tmp_path)
+    on_dir = repo_root / "lakehouse_code" / "bronze" / "on"
+    on_dir.mkdir(parents=True)
+    (on_dir / "source.yaml").write_text(
+        'apiVersion: openlakeforge.io/v1alpha3\nkind: Source\nname: "on"\ndisplayName: "On"\n'
+        'description: "On source system."\nstatus: planned\nresources:\n  - name: events\n'
+        '    description: Raw CSV events.\n',
+        encoding="utf-8",
+    )
+
+    lakehouse_path = repo_root / "lakehouse_code" / "lakehouse.yaml"
+    text = lakehouse_path.read_text(encoding="utf-8")
+    text = re.sub(r"sources:\n(  - \S+\n)+", 'sources: [crm, erp, "on"]\n', text)
+    lakehouse_path.write_text(text, encoding="utf-8")
+    assert yaml.safe_load(text)["sources"] == ["crm", "erp", "on"]
+
+    plan = plan_source_new(repo_root, source="marketing_platform", display_name=None, resources=("campaigns",))
+    commit_plan(repo_root, plan)
+
+    inventory = load_lakehouse_inventory(repo_root)
+    assert set(inventory.source_names) == {"crm", "erp", "on", "marketing_platform"}
+
+
+def test_product_new_converts_a_flow_style_entities_list_before_appending(tmp_path: Path) -> None:
+    """`entities: [{name: existing, ...}]` is valid, schema-accepted Floe
+    YAML; appending a new --input entity must convert it to block style
+    first, not splice a block-style entity after the already-closed flow
+    value."""
+    repo_root = _seed_repo(tmp_path)
+    source_plan = plan_source_new(repo_root, source="workday", display_name=None, resources=("employees", "absences"))
+    commit_plan(repo_root, source_plan)
+    domain_plan = plan_domain_new(repo_root, domain="hr", display_name="HR", inputs=(("workday", "employees"),))
+    commit_plan(repo_root, domain_plan)
+
+    contract_path = repo_root / "lakehouse_code" / "silver" / "hr" / "contracts" / "floe" / "hr.yml"
+    contract_doc = yaml.safe_load(contract_path.read_text(encoding="utf-8"))
+    dumped_entities = yaml.safe_dump(contract_doc["entities"], default_flow_style=True, width=10**9).strip()
+    flow_entities = f"entities: {dumped_entities}"
+    original_contract = contract_path.read_text(encoding="utf-8")
+    contract_text = re.sub(r"^entities:\n(.*\n)*$", flow_entities + "\n", original_contract, flags=re.MULTILINE)
+    contract_path.write_text(contract_text, encoding="utf-8")
+    assert yaml.safe_load(contract_text)["entities"][0]["name"] == "employees"
+
+    plan = plan_product_new(
+        repo_root,
+        target="hr/headcount",
+        display_name=None,
+        silver_inputs=("employees",),
+        inputs=(("workday", "absences"),),
+        gold_tables=("mart_headcount",),
+        with_report=False,
+    )
+    commit_plan(repo_root, plan)
+
+    contract_result = yaml.safe_load(contract_path.read_text(encoding="utf-8"))
+    assert {entity["name"] for entity in contract_result["entities"]} == {"employees", "absences"}
+
+
 def test_product_new_rejects_when_domain_missing_and_no_input_given(tmp_path: Path) -> None:
     repo_root = _seed_repo(tmp_path)
 
