@@ -76,9 +76,6 @@ def foundation_down(
 ) -> None:
     foundation_dir = config.paths.foundation_terraform_dir
 
-    log.step(f"Checking {backend.scope} foundation prerequisites...")
-    backend.preflight(tools, env=env)
-
     log.step(f"Initializing Terraform {backend.scope} foundation...")
     tools.terraform.init(foundation_dir, env=env)
 
@@ -88,6 +85,13 @@ def foundation_down(
     if not state_result.ok:
         log.step(f"No {backend.scope} foundation state exists.")
         return
+
+    # Deliberately checked after (not before) state existence: the removed
+    # teardown scripts never required a cloud login just to reach this
+    # already-clean no-op, so a cleanup run against expired credentials must
+    # not fail authentication before it can even see there's nothing to do.
+    log.step(f"Checking {backend.scope} foundation prerequisites...")
+    backend.preflight(tools, env=env)
 
     tfvars_file = backend.foundation_tfvars_file(
         environ, repo_root=config.paths.repo_root, foundation_terraform_dir=foundation_dir

@@ -118,6 +118,41 @@ def test_foundation_down_is_idempotent_when_no_state_exists(tmp_path: Path) -> N
 
     assert not any(c.argv[2:3] == ["destroy"] for c in runner.calls)
     assert "resolve_foundation_facts" not in backend.calls
+    assert "preflight" not in backend.calls
+
+
+def test_foundation_down_does_not_require_cloud_login_when_no_state_exists(tmp_path: Path) -> None:
+    """A cleanup run against an already-clean checkout (or one whose creation
+    failed before writing state) must reach the no-state no-op even with
+    expired/missing cloud credentials - the removed teardown scripts never
+    required a login just to discover there's nothing to tear down.
+    """
+    config = _config(tmp_path)
+
+    class _RaisingPreflightBackend(FakeCloudBackend):
+        def preflight(self, tools, *, env):  # noqa: ANN001, ARG002
+            self.calls.append("preflight")
+            raise DeploymentPreconditionError("not authenticated")
+
+    backend = _RaisingPreflightBackend(scope="aws")
+    runner = _ScriptedRunner(rules=[(lambda argv: "state" in argv, _fail())], default=_ok())
+    tools = _toolkit(runner)
+
+    foundation.foundation_down(config, tools, backend, environ={}, env={})
+
+    assert "preflight" not in backend.calls
+
+
+def test_foundation_down_calls_preflight_after_confirming_state_exists(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    backend = FakeCloudBackend(scope="aws", cluster_reachable_result=False)
+    runner = _ScriptedRunner(rules=[(lambda argv: "state" in argv, _ok())], default=_ok())
+    tools = _toolkit(runner)
+
+    foundation.foundation_down(config, tools, backend, environ={}, env={})
+
+    assert backend.calls[0] == "preflight"
+    assert backend.calls.index("preflight") < backend.calls.index("foundation_tfvars_file")
 
 
 def test_foundation_down_refuses_when_namespace_still_present(tmp_path: Path) -> None:
