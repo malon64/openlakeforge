@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import os
 import sys
+import tomllib
 from pathlib import Path
 
 import typer
@@ -27,6 +28,25 @@ def _run(argv: list[str], *, cwd: Path, env: dict[str, str] | None = None) -> No
         Toolkit.default().runner.run(argv, cwd=cwd, env=env, stream_output=True)
     except DeploymentError as exc:
         raise typer.Exit(code=fail(str(exc))) from exc
+
+
+def _uv_pip_install(*, target: Path, requirements: list[str], cwd: Path) -> None:
+    """Install a check-only dependency set without requiring pip in uv's venv."""
+    uv = str(Toolkit.default().resolver.resolve("uv"))
+    _run(
+        [
+            uv,
+            "pip",
+            "install",
+            "--python",
+            sys.executable,
+            "--target",
+            str(target),
+            "--no-compile",
+            *requirements,
+        ],
+        cwd=cwd,
+    )
 
 
 @app.command("structure")
@@ -156,20 +176,9 @@ def project_code(repo_root: str = typer.Option("", "--repo-root", help="Checkout
     site = cache / f"py{sys.version_info.major}{sys.version_info.minor}-{digest}" / "site"
     if not (site / ".complete").is_file():
         site.mkdir(parents=True, exist_ok=True)
-        _run(
-            [
-                sys.executable, "-m", "pip", "install", "--disable-pip-version-check",
-                "--no-compile", "--target", str(site), ".",
-            ],
-            cwd=root / "images/project-code",
-        )
-        _run(
-            [
-                sys.executable, "-m", "pip", "install", "--disable-pip-version-check",
-                "--no-compile", "--target", str(site), str(root / "packages/domain-model"),
-            ],
-            cwd=root,
-        )
+        pyproject = tomllib.loads((root / "images/project-code/pyproject.toml").read_text())
+        _uv_pip_install(target=site, requirements=pyproject["project"]["dependencies"], cwd=root)
+        _uv_pip_install(target=site, requirements=[str(root / "packages/domain-model")], cwd=root)
         (site / ".complete").touch()
     env = {
         "PYTHONPATH": f"{site}{os.pathsep}{root}",
@@ -206,13 +215,38 @@ def dbt(repo_root: str = typer.Option("", "--repo-root", help="Checkout root to 
     projects = discover_project_dirs(root / "lakehouse_code/gold")
     if not projects:
         raise typer.Exit(code=fail("no product dbt projects found"))
-    dbt_bin = str(Toolkit.default().resolver.resolve("dbt"))
+    cache = root / ".cache/dbt-check"
+    dependency_key = hashlib.sha256(b"dbt-trino==1.10.2\nopenlineage-dbt==1.45.0").hexdigest()[:16]
+    site = cache / f"py{sys.version_info.major}{sys.version_info.minor}-{dependency_key}" / "site"
+    if not (site / ".complete").is_file():
+        site.mkdir(parents=True, exist_ok=True)
+        _uv_pip_install(
+            target=site,
+            requirements=["dbt-trino==1.10.2", "openlineage-dbt==1.45.0"],
+            cwd=root,
+        )
+        (site / ".complete").touch()
+    dbt_bin = str(site / "bin/dbt")
+    env = {
+        "PATH": f"{site / 'bin'}{os.pathsep}{os.environ.get('PATH', '')}",
+        "PYTHONPATH": f"{site}{os.pathsep}{os.environ.get('PYTHONPATH', '')}",
+        "AWS_ACCESS_KEY_ID": "openlakeforge",
+        "AWS_SECRET_ACCESS_KEY": "openlakeforge",
+        "AWS_REGION": "us-east-1",
+        "AWS_DEFAULT_REGION": "us-east-1",
+        "AWS_ENDPOINT_URL_S3": "http://seaweedfs-s3:8333",
+        "OPENLAKEFORGE_QUERY_TRINO_HOST": "trino",
+        "OPENLAKEFORGE_QUERY_TRINO_PORT": "8080",
+        "OPENLAKEFORGE_QUERY_TRINO_CATALOG": "iceberg",
+        "OPENLAKEFORGE_CATALOG_NAME": "lakehouse_dev",
+    }
     for project in projects:
         write_profile(project, environment="local")
-        _run([dbt_bin, "deps", "--project-dir", str(project)], cwd=root)
+        _run([dbt_bin, "deps", "--project-dir", str(project)], cwd=root, env=env)
         _run(
             [dbt_bin, "parse", "--project-dir", str(project), "--profiles-dir", str(project), "--target", "local"],
             cwd=root,
+            env=env,
         )
         _run(
             [
@@ -228,6 +262,7 @@ def dbt(repo_root: str = typer.Option("", "--repo-root", help="Checkout root to 
                 "--no-populate-cache",
             ],
             cwd=root,
+            env=env,
         )
 
 
