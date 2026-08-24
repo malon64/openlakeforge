@@ -18,7 +18,7 @@ from olf.deployment.cloud.backend import FoundationFacts
 from olf.deployment.cloud.config import CloudDeploymentConfig
 from olf.deployment.cloud.provider import CloudProvider
 from olf.deployment.context import DeploymentContext
-from olf.deployment.engine import Toolkit
+from olf.deployment.engine import DeploymentPhase, Toolkit
 from olf.deployment.errors import DeploymentPreconditionError
 
 _FACTS = FoundationFacts(
@@ -142,3 +142,42 @@ def test_prepare_images_is_a_no_op(tmp_path: Path) -> None:
     provider = CloudProvider.create(config, backend, toolkit=_toolkit(), environ={})
 
     provider.prepare_images()  # must not raise, must not touch the foundation
+
+
+def test_foundation_doctor_does_not_require_or_probe_later_phase_tools(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = _config(tmp_path)
+    backend = FakeCloudBackend(scope="aws", facts=_FACTS)
+    provider = CloudProvider.create(config, backend, toolkit=_toolkit(), environ={})
+    required: list[str] = []
+    monkeypatch.setattr(
+        "olf.deployment.cloud.provider.base_report",
+        lambda **kwargs: required.extend(kwargs["required_tools"]) or [],
+    )
+    monkeypatch.setattr("olf.deployment.cloud.provider.docker_health", lambda *args, **kwargs: pytest.fail("no docker"))
+
+    provider.doctor(DeploymentPhase.FOUNDATION)
+
+    assert required == ["terraform", "kubectl", "aws"]
+
+
+def test_artifacts_doctor_requires_and_probes_docker(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    config = _config(tmp_path)
+    backend = FakeCloudBackend(scope="aws", facts=_FACTS)
+    provider = CloudProvider.create(config, backend, toolkit=_toolkit(), environ={})
+    required: list[str] = []
+    health_calls: list[str] = []
+    monkeypatch.setattr(
+        "olf.deployment.cloud.provider.base_report",
+        lambda **kwargs: required.extend(kwargs["required_tools"]) or [],
+    )
+    monkeypatch.setattr(
+        "olf.deployment.cloud.provider.docker_health",
+        lambda *args, **kwargs: health_calls.append("docker") or None,
+    )
+
+    provider.doctor(DeploymentPhase.ARTIFACTS)
+
+    assert required == ["terraform", "kubectl", "aws", "helm", "docker"]
+    assert health_calls == ["docker"]

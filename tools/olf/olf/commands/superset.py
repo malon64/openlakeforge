@@ -14,9 +14,24 @@ app = typer.Typer(help="Superset report deploy/export helpers.")
 
 
 @app.command("deploy-reports")
-def superset_deploy_reports() -> None:
-    """Build and import source-controlled Superset report bundles."""
-    deploy_superset_reports()
+def superset_deploy_reports(
+    provider: str = typer.Option("local", "--provider", help="Provider owning the deployed contracts."),
+    profile: str = typer.Option("full", "--profile", help="full or slim."),
+    namespace: str = typer.Option("", "--namespace", help="Kubernetes namespace override."),
+    cluster_name: str = typer.Option("", "--cluster-name", help="Local kind cluster name override."),
+    kubeconfig_path: str = typer.Option("", "--kubeconfig-path", help="Kubeconfig file path override."),
+) -> None:
+    """Build and import reports using the selected provider's Terraform contracts."""
+    from olf.commands.runtime import provider_contract_environment
+
+    with provider_contract_environment(
+        provider=provider,
+        profile=profile,
+        namespace=namespace,
+        cluster_name=cluster_name,
+        kubeconfig_path=kubeconfig_path,
+    ):
+        deploy_superset_reports()
 
 
 def deploy_superset_reports() -> None:
@@ -41,7 +56,27 @@ def deploy_superset_reports() -> None:
 
 
 @app.command("export-reports")
-def superset_export_reports() -> None:
+def superset_export_reports(
+    provider: str = typer.Option("local", "--provider", help="Provider owning the deployed contracts."),
+    profile: str = typer.Option("full", "--profile", help="full or slim."),
+    namespace: str = typer.Option("", "--namespace", help="Kubernetes namespace override."),
+    cluster_name: str = typer.Option("", "--cluster-name", help="Local kind cluster name override."),
+    kubeconfig_path: str = typer.Option("", "--kubeconfig-path", help="Kubeconfig file path override."),
+) -> None:
+    """Export reports using the selected provider's Terraform contracts."""
+    from olf.commands.runtime import provider_contract_environment
+
+    with provider_contract_environment(
+        provider=provider,
+        profile=profile,
+        namespace=namespace,
+        cluster_name=cluster_name,
+        kubeconfig_path=kubeconfig_path,
+    ):
+        export_superset_reports()
+
+
+def export_superset_reports() -> None:
     """Export a live Superset dashboard back into a source-controlled bundle."""
     import yaml
 

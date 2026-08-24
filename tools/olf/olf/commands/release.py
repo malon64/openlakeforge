@@ -13,7 +13,7 @@ import typer
 from olf import config
 from olf.commands._shared import fail
 from olf.deployment.engine import Toolkit
-from olf.deployment.errors import DeploymentError
+from olf.deployment.errors import DeploymentError, ExecutableNotFoundError
 
 app = typer.Typer(help="Release manifest, checksums, compatibility matrix, and readiness gate.")
 
@@ -161,8 +161,20 @@ def build_bundle(
     )
     shutil.copy2(root / "release/component-catalog.yaml", output / "component-catalog.yaml")
     shutil.copy2(root / "CHANGELOG.md", output / "CHANGELOG.md")
+    _write_local_sboms(output, images={"project-code": project, "superset": superset}, tools=tools)
     release_module.write_checksums(output)
     typer.echo(f"Release bundle written to {output}")
+
+
+def _write_local_sboms(output: Path, *, images: dict[str, str], tools: Toolkit) -> None:
+    """Add inspectable SPDX SBOMs when Syft is available on the maintainer host."""
+    try:
+        syft = str(tools.resolver.resolve("syft"))
+    except ExecutableNotFoundError:
+        typer.echo("WARN: syft is not installed; skipping local SBOM generation.", err=True)
+        return
+    for name, image in images.items():
+        tools.runner.run([syft, image, "-o", f"spdx-json={output / f'{name}.spdx.json'}"], stream_output=True)
 
 
 @app.command("verify-install")

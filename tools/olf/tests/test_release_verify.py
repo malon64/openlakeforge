@@ -57,3 +57,27 @@ def test_verify_release_assets_checks_all_local_hashes(tmp_path: Path, monkeypat
         repo_slug="malon64/openlakeforge",
         tools=_Tools(),
     )
+
+
+def test_write_local_sboms_uses_syft_before_checksums(tmp_path: Path) -> None:
+    calls: list[list[str]] = []
+
+    class Runner:
+        def run(self, argv, **kwargs):  # noqa: ANN001, ANN003
+            calls.append(argv)
+
+    class Resolver:
+        def resolve(self, name: str) -> Path:
+            assert name == "syft"
+            return Path("syft")
+
+    class Tools:
+        runner = Runner()
+        resolver = Resolver()
+
+    release._write_local_sboms(tmp_path, images={"project-code": "project", "superset": "superset"}, tools=Tools())
+
+    assert calls == [
+        ["syft", "project", "-o", f"spdx-json={tmp_path / 'project-code.spdx.json'}"],
+        ["syft", "superset", "-o", f"spdx-json={tmp_path / 'superset.spdx.json'}"],
+    ]

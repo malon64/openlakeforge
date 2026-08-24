@@ -180,10 +180,16 @@ class CloudProvider:
         return changes
 
     def doctor(self, phase: DeploymentPhase) -> DoctorReport:
-        required = ["terraform", "helm", "kubectl", "docker", self.backend.scope == "aws" and "aws" or "az"]
+        provider_cli = "aws" if self.backend.scope == "aws" else "az"
+        required = ["terraform", "kubectl", provider_cli]
+        if phase in (DeploymentPhase.ALL, DeploymentPhase.PLATFORM, DeploymentPhase.ARTIFACTS):
+            required.append("helm")
+        if phase in (DeploymentPhase.ALL, DeploymentPhase.ARTIFACTS):
+            required.append("docker")
         items = base_report(repo_root=self.config.paths.repo_root, tools=self.tools, required_tools=required)
         env = self.context.command_env()
-        items.append(docker_health(self.tools, env=env))
+        if phase in (DeploymentPhase.ALL, DeploymentPhase.ARTIFACTS):
+            items.append(docker_health(self.tools, env=env))
         try:
             self.backend.preflight(self.tools, env=env)
         except Exception as exc:  # provider adapters provide the actionable message

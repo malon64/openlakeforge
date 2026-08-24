@@ -1,3 +1,4 @@
+from contextlib import nullcontext
 from pathlib import Path
 
 import pytest
@@ -40,6 +41,38 @@ def test_artifacts_deploy_optional_layers_skips_disabled_layers(monkeypatch: pyt
     assert "Skipping OpenMetadata governance metadata" in result.output
 
 
+def test_superset_deploy_reports_hydrates_selected_provider_contracts(monkeypatch: pytest.MonkeyPatch) -> None:
+    options: dict[str, str] = {}
+    calls: list[str] = []
+    monkeypatch.setattr(
+        "olf.commands.runtime.provider_contract_environment",
+        lambda **kwargs: options.update(kwargs) or nullcontext(),
+    )
+    monkeypatch.setattr("olf.commands.superset.deploy_superset_reports", lambda: calls.append("reports"))
+
+    result = runner.invoke(app, ["superset", "deploy-reports", "--provider", "aws"])
+
+    assert result.exit_code == 0
+    assert options["provider"] == "aws"
+    assert calls == ["reports"]
+
+
+def test_openmetadata_deploy_hydrates_selected_provider_contracts(monkeypatch: pytest.MonkeyPatch) -> None:
+    options: dict[str, str] = {}
+    calls: list[str] = []
+    monkeypatch.setattr(
+        "olf.commands.runtime.provider_contract_environment",
+        lambda **kwargs: options.update(kwargs) or nullcontext(),
+    )
+    monkeypatch.setattr("olf.commands.openmetadata.deploy_openmetadata_metadata", lambda: calls.append("metadata"))
+
+    result = runner.invoke(app, ["openmetadata", "deploy-metadata", "--provider", "azure"])
+
+    assert result.exit_code == 0
+    assert options["provider"] == "azure"
+    assert calls == ["metadata"]
+
+
 def test_revision_compute_command_prints_runtime_artifact_revision(tmp_path: Path) -> None:
     path = tmp_path / "manifests/sales/sales.manifest.json"
     path.parent.mkdir(parents=True)
@@ -64,6 +97,7 @@ def test_superset_export_reports_defaults_come_from_the_first_dashboard(monkeypa
         "olf.superset.export_report",
         lambda *args, **kwargs: calls.append(kwargs),
     )
+    monkeypatch.setattr("olf.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
 
     result = runner.invoke(app, ["superset", "export-reports"])
 
@@ -135,6 +169,7 @@ dashboards:
     monkeypatch.setenv("OPENLAKEFORGE_REPO_ROOT", str(tmp_path))
     calls: list[dict] = []
     monkeypatch.setattr("olf.superset.export_report", lambda *args, **kwargs: calls.append(kwargs))
+    monkeypatch.setattr("olf.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
 
     result = runner.invoke(app, ["superset", "export-reports"])
 

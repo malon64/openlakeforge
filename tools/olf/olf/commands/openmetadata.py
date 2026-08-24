@@ -13,9 +13,24 @@ app = typer.Typer(help="OpenMetadata governance metadata helpers.")
 
 
 @app.command("deploy-metadata")
-def openmetadata_deploy_metadata() -> None:
-    """Seed OpenMetadata domains, data products, and medallion containers."""
-    deploy_openmetadata_metadata()
+def openmetadata_deploy_metadata(
+    provider: str = typer.Option("local", "--provider", help="Provider owning the deployed contracts."),
+    profile: str = typer.Option("full", "--profile", help="full or slim."),
+    namespace: str = typer.Option("", "--namespace", help="Kubernetes namespace override."),
+    cluster_name: str = typer.Option("", "--cluster-name", help="Local kind cluster name override."),
+    kubeconfig_path: str = typer.Option("", "--kubeconfig-path", help="Kubeconfig file path override."),
+) -> None:
+    """Seed metadata using the selected provider's Terraform contracts."""
+    from olf.commands.runtime import provider_contract_environment
+
+    with provider_contract_environment(
+        provider=provider,
+        profile=profile,
+        namespace=namespace,
+        cluster_name=cluster_name,
+        kubeconfig_path=kubeconfig_path,
+    ):
+        deploy_openmetadata_metadata()
 
 
 def deploy_openmetadata_metadata() -> None:
