@@ -3,6 +3,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+import pytest
+
 from olf.deployment.context import DeploymentContext, Profile, Provider
 
 
@@ -35,6 +37,37 @@ def test_local_kubeconfig_path_override_is_resolved_to_an_absolute_path(tmp_path
     ctx = DeploymentContext.local(repo_root=tmp_path, kubeconfig_path=Path("relative/kubeconfig.yaml"))
 
     assert ctx.paths.kubeconfig_path.is_absolute()
+
+
+def test_foundation_state_path_defaults_under_the_foundation_terraform_dir(tmp_path: Path) -> None:
+    ctx = DeploymentContext.aws(repo_root=tmp_path)
+
+    assert ctx.paths.foundation_state_path == ctx.paths.foundation_terraform_dir / "terraform.tfstate"
+
+
+def test_foundation_state_path_honors_env_override(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every removed provider's stack scripts honored FOUNDATION_STATE_PATH,
+    used both for the state-missing precondition check and as the
+    `foundation_state_path` Terraform variable supplied to the platform
+    root - a non-default foundation state must not be rejected.
+    """
+    override = tmp_path / "custom" / "foundation.tfstate"
+    monkeypatch.setenv("FOUNDATION_STATE_PATH", str(override))
+
+    ctx = DeploymentContext.aws(repo_root=tmp_path)
+
+    assert ctx.paths.foundation_state_path == override
+
+
+def test_foundation_state_path_override_applies_to_every_provider(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    override = tmp_path / "custom" / "foundation.tfstate"
+    monkeypatch.setenv("FOUNDATION_STATE_PATH", str(override))
+
+    assert DeploymentContext.local(repo_root=tmp_path).paths.foundation_state_path == override
+    assert DeploymentContext.aws(repo_root=tmp_path).paths.foundation_state_path == override
+    assert DeploymentContext.azure(repo_root=tmp_path).paths.foundation_state_path == override
 
 
 def test_aws_kubeconfig_path_override(tmp_path: Path) -> None:
