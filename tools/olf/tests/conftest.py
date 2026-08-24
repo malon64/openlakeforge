@@ -80,6 +80,8 @@ data_products:
 
 
 def write_dashboard_fixture(repo_root: Path, report_source_dir: str, file_name: str, *, slug: str, title: str) -> None:
-    dashboards_dir = repo_root / report_source_dir / "dashboards"
+    report_dir = repo_root / report_source_dir
+    dashboards_dir = report_dir / "dashboards"
     dashboards_dir.mkdir(parents=True, exist_ok=True)
+    (report_dir / "metadata.yaml").write_text("type: assets\n", encoding="utf-8")
     (dashboards_dir / file_name).write_text(f"dashboard_title: {title}\nslug: {slug}\n", encoding="utf-8")

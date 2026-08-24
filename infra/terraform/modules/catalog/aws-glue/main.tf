@@ -3,7 +3,8 @@ locals {
 }
 
 # Database lifecycle moved to Phase 2 (ADR 0022): `olf catalog sync-namespaces`
-# reconciles Glue databases from domains/*/domain.yaml during artifacts-deploy,
+# reconciles Glue databases from the lakehouse descriptors
+# (lakehouse_code/lakehouse.yaml + bronze source.yaml) during artifacts-deploy,
 # the same way it already reconciles Polaris namespaces. This root no longer
 # creates or destroys databases -- it only stands up the catalog service.
 #

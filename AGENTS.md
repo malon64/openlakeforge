@@ -35,7 +35,12 @@ labels expressing intended sequence within a milestone.
 
 | Path | Contains |
 | --- | --- |
-| `domains/<domain>/` | Business logic: descriptor, Floe contracts, dlt extract, dbt project, Dagster module, Superset reports, example CSVs |
+| `lakehouse_code/bronze/<source>/` | Source-owned: `source.yaml` descriptor plus dlt extract |
+| `lakehouse_code/silver/<domain>/` | Domain-owned: Floe contracts and transformations |
+| `lakehouse_code/gold/<product>/` | Product-owned: dbt project |
+| `lakehouse_code/dashboards/superset/<dashboard>/` | Consumption-owned: Superset reports |
+| `lakehouse_code/pipelines/dagster/` | User-maintained Dagster orchestration code |
+| `lakehouse_code/lakehouse.yaml` | Canonical domain/product business metadata descriptor |
 | `libs/` | Shared runtime Python imported by the project-code image |
 | `packages/domain-model/` | Canonical provider-neutral descriptor and inventory package |
 | `tools/olf/` | The `olf` CLI — uv-managed deploy tooling, contracts, artifacts, e2e |
@@ -46,7 +51,7 @@ labels expressing intended sequence within a milestone.
 | `images/project-code/` | The Dagster runtime image |
 | `scripts/test/` | Structure, contract, component, and lockfile checks |
 | `release/component-catalog.yaml` | Immutable version and digest pins |
-| `docs/schema/domain.schema.json` | Schema every `domain.yaml` validates against |
+| `docs/schema/lakehouse.schema.json`, `docs/schema/source.schema.json` | Schemas `lakehouse.yaml` and `source.yaml` validate against |
 
 ## Architectural rules
 
@@ -55,9 +60,12 @@ These are load-bearing. Breaking one means the change is wrong even if it works.
 1. **Contracts before providers.** Components communicate through the provider
    contracts in `contracts.tf`, never directly with a provider. Adding a
    capability means extending the contract, then writing an adapter.
-2. **Descriptors stay provider-neutral.** `domains/<domain>/domain.yaml` must not
-   name Polaris, Glue, S3, or SeaweedFS. However some path are absolute and can mention vendor filesystem
-   `docs/schema/domain.schema.json`.
+2. **Descriptors stay provider-neutral.** `lakehouse_code/lakehouse.yaml` and
+   `lakehouse_code/bronze/<source>/source.yaml` must not name Polaris, Glue, S3,
+   or SeaweedFS. Physical catalog and object-store names are derived from these
+   logical identities by provider/deployment contracts, never embedded in the
+   descriptors themselves — see `docs/schema/lakehouse.schema.json` and
+   `docs/schema/source.schema.json`.
 3. **Two-phase deploy** (ADR 0008). Phase 1 is the static platform
    (`make <env>-platform-up`); Phase 2 is dynamic artifacts
    (`make <env>-artifacts-deploy`). Static Terraform resources belong to
@@ -146,8 +154,8 @@ confirms ops-bucket artifacts exist.
 
 - Never commit to `main`. Branch, then open a pull request.
 - Never edit generated Floe manifests under
-  `domains/<domain>/contracts/floe/manifests/`. They are produced by
-  `scripts/artifacts/floe-manifest.sh` and owned by Floe.
+  `lakehouse_code/silver/<domain>/contracts/floe/manifests/`. They are produced
+  by `scripts/artifacts/floe-manifest.sh` and owned by Floe.
 - Never unpin an image or chart to make something work.
 - Never widen scope beyond the issue. Note adjacent problems in the pull request
   body instead of fixing them silently.

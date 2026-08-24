@@ -13,48 +13,44 @@ def _repo_with_schemas(tmp_path: Path) -> Path:
     """A synthetic repo root carrying the real, unmodified schema files."""
     schema_dir = tmp_path / "docs" / "schema"
     schema_dir.mkdir(parents=True)
-    shutil.copy(ROOT / "docs/schema/domain.schema.json", schema_dir / "domain.schema.json")
-    shutil.copy(ROOT / "docs/schema/domain.v1alpha1.schema.json", schema_dir / "domain.v1alpha1.schema.json")
+    shutil.copy(ROOT / "docs/schema/lakehouse.schema.json", schema_dir / "lakehouse.schema.json")
+    shutil.copy(ROOT / "docs/schema/source.schema.json", schema_dir / "source.schema.json")
     return tmp_path
 
 
-def _write_descriptor(repo_root: Path, domain: str, fixture_name: str) -> None:
-    domain_dir = repo_root / "domains" / domain
-    domain_dir.mkdir(parents=True, exist_ok=True)
-    (domain_dir / "domain.yaml").write_text((FIXTURES / "descriptors" / fixture_name).read_text())
+def _write_descriptor(repo_root: Path, lakehouse_fixture: str, source_fixture: str = "valid_source.yaml") -> None:
+    """Write the canonical lakehouse layout: lakehouse.yaml plus one source."""
+    lakehouse_code = repo_root / "lakehouse_code"
+    source_dir = lakehouse_code / "bronze" / "crm"
+    source_dir.mkdir(parents=True, exist_ok=True)
+    (lakehouse_code / "lakehouse.yaml").write_text(
+        (FIXTURES / "descriptors" / lakehouse_fixture).read_text()
+    )
+    (source_dir / "source.yaml").write_text((FIXTURES / "descriptors" / source_fixture).read_text())
 
 
-def test_descriptor_schema_conformance_passes_for_valid_v1alpha2(tmp_path: Path) -> None:
+def test_descriptor_schema_conformance_passes_for_valid_lakehouse(tmp_path: Path) -> None:
     repo_root = _repo_with_schemas(tmp_path)
-    _write_descriptor(repo_root, "sales", "valid_v1alpha2.yaml")
+    _write_descriptor(repo_root, "valid_lakehouse.yaml")
 
     result = contracts_check._check_descriptor_schema_conformance(repo_root)
 
     assert result.ok, result.detail
 
 
-def test_descriptor_schema_conformance_passes_for_valid_v1alpha1(tmp_path: Path) -> None:
+def test_descriptor_schema_conformance_rejects_missing_source_mapping(tmp_path: Path) -> None:
     repo_root = _repo_with_schemas(tmp_path)
-    _write_descriptor(repo_root, "sales", "valid_v1alpha1_legacy.yaml")
-
-    result = contracts_check._check_descriptor_schema_conformance(repo_root)
-
-    assert result.ok, result.detail
-
-
-def test_descriptor_schema_conformance_rejects_missing_bronze(tmp_path: Path) -> None:
-    repo_root = _repo_with_schemas(tmp_path)
-    _write_descriptor(repo_root, "sales", "invalid_v1alpha2_missing_bronze.yaml")
+    _write_descriptor(repo_root, "invalid_lakehouse_missing_bronze.yaml")
 
     result = contracts_check._check_descriptor_schema_conformance(repo_root)
 
     assert not result.ok
-    assert "bronze" in result.detail
+    assert "source" in result.detail
 
 
 def test_descriptor_schema_conformance_rejects_physical_fqn(tmp_path: Path) -> None:
     repo_root = _repo_with_schemas(tmp_path)
-    _write_descriptor(repo_root, "sales", "invalid_v1alpha2_physical_fqn.yaml")
+    _write_descriptor(repo_root, "invalid_lakehouse_physical_fqn.yaml")
 
     result = contracts_check._check_descriptor_schema_conformance(repo_root)
 
@@ -62,9 +58,69 @@ def test_descriptor_schema_conformance_rejects_physical_fqn(tmp_path: Path) -> N
     assert "fqn" in result.detail.lower() or "physical" in result.detail.lower()
 
 
-def test_descriptor_schema_conformance_fails_when_no_domains_found(tmp_path: Path) -> None:
+def test_descriptor_schema_conformance_rejects_physical_path_in_lakehouse_table(tmp_path: Path) -> None:
     repo_root = _repo_with_schemas(tmp_path)
-    (repo_root / "domains").mkdir()
+    _write_descriptor(repo_root, "invalid_lakehouse_physical_path.yaml")
+
+    result = contracts_check._check_descriptor_schema_conformance(repo_root)
+
+    assert not result.ok
+    assert "path" in result.detail.lower() or "physical" in result.detail.lower()
+
+
+def test_descriptor_schema_conformance_rejects_non_identifier_table_name(tmp_path: Path) -> None:
+    repo_root = _repo_with_schemas(tmp_path)
+    _write_descriptor(repo_root, "invalid_lakehouse_table_name.yaml")
+
+    result = contracts_check._check_descriptor_schema_conformance(repo_root)
+
+    assert not result.ok
+    assert "name" in result.detail.lower() or "pattern" in result.detail.lower()
+
+
+def test_descriptor_schema_conformance_rejects_provider_field_in_lakehouse_table(tmp_path: Path) -> None:
+    repo_root = _repo_with_schemas(tmp_path)
+    _write_descriptor(repo_root, "invalid_lakehouse_provider_field.yaml")
+
+    result = contracts_check._check_descriptor_schema_conformance(repo_root)
+
+    assert not result.ok
+    assert "catalog" in result.detail.lower() or "provider-neutral" in result.detail.lower()
+
+
+def test_descriptor_schema_conformance_rejects_provider_field_at_lakehouse_root(tmp_path: Path) -> None:
+    repo_root = _repo_with_schemas(tmp_path)
+    _write_descriptor(repo_root, "invalid_lakehouse_provider_field_root.yaml")
+
+    result = contracts_check._check_descriptor_schema_conformance(repo_root)
+
+    assert not result.ok
+    assert "catalog" in result.detail.lower() or "provider-neutral" in result.detail.lower()
+
+
+def test_descriptor_schema_conformance_rejects_provider_field_on_table_group(tmp_path: Path) -> None:
+    repo_root = _repo_with_schemas(tmp_path)
+    _write_descriptor(repo_root, "invalid_lakehouse_table_group_field.yaml")
+
+    result = contracts_check._check_descriptor_schema_conformance(repo_root)
+
+    assert not result.ok
+    assert "catalog" in result.detail.lower() or "provider-neutral" in result.detail.lower()
+
+
+def test_descriptor_schema_conformance_rejects_physical_path_in_source(tmp_path: Path) -> None:
+    repo_root = _repo_with_schemas(tmp_path)
+    _write_descriptor(repo_root, "valid_lakehouse.yaml", source_fixture="invalid_source_physical_path.yaml")
+
+    result = contracts_check._check_descriptor_schema_conformance(repo_root)
+
+    assert not result.ok
+    assert "path" in result.detail.lower() or "physical" in result.detail.lower()
+
+
+def test_descriptor_schema_conformance_fails_when_no_lakehouse_found(tmp_path: Path) -> None:
+    repo_root = _repo_with_schemas(tmp_path)
+    (repo_root / "lakehouse_code").mkdir()
 
     result = contracts_check._check_descriptor_schema_conformance(repo_root)
 
@@ -196,7 +252,7 @@ def test_floe_rendered_profile_passes_against_real_repo() -> None:
 
 
 def _write_floe_contract(repo_root: Path, domain: str, filename: str, fixture_name: str) -> None:
-    contracts_dir = repo_root / "domains" / domain / "contracts" / "floe"
+    contracts_dir = repo_root / "lakehouse_code" / "silver" / domain / "contracts" / "floe"
     contracts_dir.mkdir(parents=True, exist_ok=True)
     (contracts_dir / filename).write_text((FIXTURES / "floe" / fixture_name).read_text())
 

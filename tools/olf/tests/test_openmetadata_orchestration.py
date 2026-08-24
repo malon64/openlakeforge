@@ -7,7 +7,10 @@ from olf import openmetadata as om
 
 def test_storage_bucket_specs_dedup() -> None:
     cfg = om.OpenMetadataConfig.from_environment(
-        {},
+        {
+            "OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON": "{}",
+            "OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON": "{}",
+        },
         base_url="http://x",
         admin_email="a",
         admin_password="p",
@@ -27,7 +30,7 @@ def test_product_assets_use_provider_schema_fqns_and_dedup() -> None:
     cfg = om.OpenMetadataConfig.from_environment(
         {
             "OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON": (
-                '{"sales_order_revenue": "aws_glue.lakehouse_dev.sales_order_revenue_silver"}'
+                '{"sales": "aws_glue.lakehouse_dev.sales_silver"}'
             ),
             "OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON": (
                 '{"sales_order_revenue": "aws_glue.lakehouse_dev.sales_order_revenue_gold"}'
@@ -46,6 +49,7 @@ def test_product_assets_use_provider_schema_fqns_and_dedup() -> None:
     deployer = om.OpenMetadataDeployer(cfg, om.OpenMetadataClient(cfg.base_url))
     product = {
         "name": "sales_order_revenue",
+        "domain": "sales",
         "silver_tables": {
             "schema": "polaris.lakehouse_dev.sales_order_revenue_silver",
             "tables": [{"name": "order_revenue_silver"}],
@@ -68,7 +72,7 @@ def test_product_assets_use_provider_schema_fqns_and_dedup() -> None:
     assert assets == [
         {
             "type": "table",
-            "fqn": "aws_glue.lakehouse_dev.sales_order_revenue_silver.order_revenue_silver",
+            "fqn": "aws_glue.lakehouse_dev.sales_silver.order_revenue_silver",
         },
         {
             "type": "table",
@@ -80,6 +84,7 @@ def test_product_assets_use_provider_schema_fqns_and_dedup() -> None:
 def test_logical_asset_name_resolves_through_provider_contract() -> None:
     cfg = om.OpenMetadataConfig.from_environment(
         {
+            "OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON": "{}",
             "OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON":
             '{"sales_order_revenue": "aws_glue.lakehouse_dev.sales_order_revenue_gold"}',
         },
@@ -107,7 +112,10 @@ def test_logical_asset_name_resolves_through_provider_contract() -> None:
 
 def test_deployment_input_validation_rejects_new_product_without_contract() -> None:
     cfg = om.OpenMetadataConfig.from_environment(
-        {},
+        {
+            "OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON": "{}",
+            "OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON": "{}",
+        },
         base_url="http://x",
         admin_email="a",
         admin_password="p",
@@ -142,6 +150,7 @@ def test_deployment_input_validation_rejects_new_product_without_contract() -> N
 def test_deployment_input_validation_rejects_unknown_logical_asset() -> None:
     cfg = om.OpenMetadataConfig.from_environment(
         {
+            "OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON": "{}",
             "OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON": (
                 '{"sales_order_revenue": "polaris.lakehouse_dev.sales_order_revenue_gold"}'
             )
@@ -180,7 +189,10 @@ def test_deployment_input_validation_rejects_unknown_logical_asset() -> None:
 
 def test_deployment_input_validation_rejects_malformed_bronze_before_writes() -> None:
     cfg = om.OpenMetadataConfig.from_environment(
-        {},
+        {
+            "OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON": "{}",
+            "OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON": "{}",
+        },
         base_url="http://x",
         admin_email="a",
         admin_password="p",
@@ -206,34 +218,121 @@ def test_deployment_input_validation_rejects_malformed_bronze_before_writes() ->
         deployer.validate_deployment_inputs(domain_specs)
 
 
+def test_domain_specs_validate_composite_inventory_with_provider_schema_fqns(tmp_path: Path) -> None:
+    (tmp_path / "bronze" / "crm").mkdir(parents=True)
+    (tmp_path / "bronze" / "crm" / "source.yaml").write_text(
+        """apiVersion: openlakeforge.io/v1alpha3
+kind: Source
+name: crm
+displayName: CRM
+description: CRM source.
+status: active
+resources:
+  - name: customers
+"""
+    )
+    (tmp_path / "lakehouse.yaml").write_text(
+        """apiVersion: openlakeforge.io/v1alpha3
+kind: Lakehouse
+name: test
+displayName: Test
+description: Test lakehouse.
+status: active
+sources: [crm]
+domains:
+  - name: sales
+    displayName: Sales
+    description: Sales domain.
+    status: active
+    silver_tables:
+      tables:
+        - name: accounts
+          source: crm
+          resource: accounts
+    products:
+      - id: customer_health
+        displayName: Customer Health
+        description: Customer health product.
+        status: active
+        silver_inputs: [accounts]
+        gold_tables:
+          tables:
+            - name: mart_customer_health
+dashboards: []
+"""
+    )
+    cfg = om.OpenMetadataConfig.from_environment(
+        {
+            "OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON": (
+                '{"sales": "polaris.lakehouse_dev.sales_silver"}'
+            ),
+            "OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON": (
+                '{"customer_health": "polaris.lakehouse_dev.customer_health_gold"}'
+            ),
+        },
+        base_url="http://x",
+        admin_email="a",
+        admin_password="p",
+        metadata_root=str(tmp_path),
+        metadata_source_dir="",
+        allow_missing_assets=False,
+        catalog_service="polaris",
+        catalog_database="lakehouse_dev",
+        cleanup_legacy_default_database=False,
+    )
+
+    with pytest.raises(
+        om.OpenMetadataError,
+        match="Silver table 'accounts' references unknown resource 'accounts' of source 'crm'",
+    ):
+        om.OpenMetadataDeployer(cfg, om.OpenMetadataClient(cfg.base_url))._domain_specs()
+
+
 def test_deploy_seeds_medallion_buckets_and_bronze_source_hierarchy(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    (tmp_path / "sales").mkdir()
-    (tmp_path / "sales" / "domain.yaml").write_text(
-        """apiVersion: openlakeforge.io/v1alpha2
-kind: Domain
-name: sales
-displayName: Sales
-description: Sales domain
+    (tmp_path / "bronze" / "crm").mkdir(parents=True)
+    (tmp_path / "bronze" / "crm" / "source.yaml").write_text(
+        """apiVersion: openlakeforge.io/v1alpha3
+kind: Source
+name: crm
+displayName: CRM
+description: crm source.
 status: active
-data_products:
-  - id: sales_order_revenue
-    name: sales_order_revenue
-    displayName: Sales Order Revenue
-    description: Revenue from orders.
+resources:
+  - name: orders
+    description: Raw sales orders.
+"""
+    )
+    (tmp_path / "lakehouse.yaml").write_text(
+        """apiVersion: openlakeforge.io/v1alpha3
+kind: Lakehouse
+name: test
+displayName: Test
+description: Test lakehouse.
+status: active
+sources:
+  - crm
+domains:
+  - name: sales
+    displayName: Sales
+    description: Sales domain
     status: active
-    asset_prefix: sales_order_revenue
-    bronze:
-      - name: raw_orders
-        path: s3://lakehouse-bronze/sales/order_revenue/orders
-        description: Raw sales orders.
     silver_tables:
       tables:
         - name: raw_orders
-    gold_tables:
-      tables:
-        - name: mart_order_revenue
+          source: crm
+          resource: orders
+    products:
+      - id: order_revenue
+        displayName: Sales Order Revenue
+        description: Revenue from orders.
+        status: active
+        silver_inputs: [raw_orders]
+        gold_tables:
+          tables:
+            - name: mart_order_revenue
+dashboards: []
 """
     )
     cfg = om.OpenMetadataConfig.from_environment(
@@ -281,48 +380,62 @@ data_products:
         ("lakehouse-bronze", None, "s3://lakehouse-bronze"),
         ("lakehouse-silver", None, "s3://lakehouse-silver"),
         ("lakehouse-gold", None, "s3://lakehouse-gold"),
-        ("sales", "seaweedfs.lakehouse-bronze", "s3://lakehouse-bronze/sales"),
-        (
-            "order_revenue",
-            "seaweedfs.lakehouse-bronze.sales",
-            "s3://lakehouse-bronze/sales/order_revenue",
-        ),
+        ("crm", "seaweedfs.lakehouse-bronze", "s3://lakehouse-bronze/crm"),
         (
             "orders",
-            "seaweedfs.lakehouse-bronze.sales.order_revenue",
-            "s3://lakehouse-bronze/sales/order_revenue/orders",
+            "seaweedfs.lakehouse-bronze.crm",
+            "s3://lakehouse-bronze/crm/orders",
         ),
     ]
     assert seeded_containers[-1][3] == "Raw sales orders."
 
 
 def _single_product_deployer(tmp_path: Path) -> om.OpenMetadataDeployer:
-    (tmp_path / "sales").mkdir()
-    (tmp_path / "sales" / "domain.yaml").write_text(
-        """apiVersion: openlakeforge.io/v1alpha2
-kind: Domain
-name: sales
-displayName: Sales
-description: Sales domain
+    (tmp_path / "bronze" / "crm").mkdir(parents=True)
+    (tmp_path / "bronze" / "crm" / "source.yaml").write_text(
+        """apiVersion: openlakeforge.io/v1alpha3
+kind: Source
+name: crm
+displayName: CRM
+description: crm source.
 status: active
-data_products:
-  - id: sales_order_revenue
-    name: sales_order_revenue
-    displayName: Sales Order Revenue
-    description: Revenue from orders.
+resources:
+  - name: orders
+    description: Raw sales orders.
+"""
+    )
+    (tmp_path / "lakehouse.yaml").write_text(
+        """apiVersion: openlakeforge.io/v1alpha3
+kind: Lakehouse
+name: test
+displayName: Test
+description: Test lakehouse.
+status: active
+sources:
+  - crm
+domains:
+  - name: sales
+    displayName: Sales
+    description: Sales domain
     status: active
-    asset_prefix: sales_order_revenue
-    bronze:
-      - name: raw_orders
-        path: s3://lakehouse-bronze/sales/order_revenue/orders
-        description: Raw sales orders.
     silver_tables:
       tables:
         - name: raw_orders
+          source: crm
+          resource: orders
         - name: raw_order_lines
-    gold_tables:
-      tables:
-        - name: mart_order_revenue
+          source: crm
+          resource: orders
+    products:
+      - id: order_revenue
+        displayName: Sales Order Revenue
+        description: Revenue from orders.
+        status: active
+        silver_inputs: [raw_orders, raw_order_lines]
+        gold_tables:
+          tables:
+            - name: mart_order_revenue
+dashboards: []
 """
     )
     cfg = om.OpenMetadataConfig.from_environment(
@@ -373,8 +486,8 @@ def test_deploy_creates_each_schema_before_seeding_its_tables(
 
     deployer.deploy()
 
-    silver = "polaris.lakehouse_dev.sales_order_revenue_silver"
-    gold = "polaris.lakehouse_dev.sales_order_revenue_gold"
+    silver = "polaris.lakehouse_dev.sales_silver"
+    gold = "polaris.lakehouse_dev.order_revenue_gold"
     assert ordered == [
         f"schema:{silver}",
         f"table:{silver}.raw_orders",

@@ -112,6 +112,7 @@ def _default_catalog_namespace_json(env: _Env, repo_root: Path) -> tuple[str, st
     """
     physical = inventory_for(repo_root).resolve_physical_names(
         catalog_database_fqn="",
+        bronze_bucket=env.get("OPENLAKEFORGE_STORAGE_BRONZE_BUCKET"),
         silver_bucket=env.get("OPENLAKEFORGE_STORAGE_SILVER_BUCKET"),
         gold_bucket=env.get("OPENLAKEFORGE_STORAGE_GOLD_BUCKET"),
         manifest_base_uri="",
@@ -161,7 +162,7 @@ def _apply_default_contract_env(env: _Env, base: Mapping[str, str], repo_root: P
     env.default("OPENLAKEFORGE_CATALOG_GLUE_REST_WAREHOUSE", env.get("OPENLAKEFORGE_CATALOG_GLUE_CATALOG_ID"))
     env.default("OPENLAKEFORGE_CATALOG_GLUE_DATABASE", "")
     env.default("OPENLAKEFORGE_CATALOG_GLUE_WAREHOUSE_PREFIX", "warehouse/iceberg")
-    env.default("OPENLAKEFORGE_CATALOG_NAMESPACE_MODEL", "product-layer")
+    env.default("OPENLAKEFORGE_CATALOG_NAMESPACE_MODEL", "medallion-owner")
     default_catalog_namespaces_json, default_silver_namespaces_json, default_gold_namespaces_json = (
         _default_catalog_namespace_json(env, repo_root)
     )
@@ -446,6 +447,7 @@ def build_contract_env(
     database_fqn = f"{catalog_om_service_name}.{catalog_name}"
     schema_fqn_physical = inventory_for(repo_root).resolve_physical_names(
         catalog_database_fqn=database_fqn,
+        bronze_bucket=env.get("OPENLAKEFORGE_STORAGE_BRONZE_BUCKET"),
         silver_bucket=env.get("OPENLAKEFORGE_STORAGE_SILVER_BUCKET"),
         gold_bucket=env.get("OPENLAKEFORGE_STORAGE_GOLD_BUCKET"),
         manifest_base_uri=env.get("OPENLAKEFORGE_FLOE_MANIFEST_BASE_URI"),

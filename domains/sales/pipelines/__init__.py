@@ -1,1 +1,0 @@
-"""Sales domain pipeline definitions."""

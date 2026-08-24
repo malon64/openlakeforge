@@ -1,0 +1,10 @@
+apiVersion: openlakeforge.io/v1alpha3
+kind: Source
+name: crm
+displayName: CRM
+description: Fixture source leaking a physical Bronze path.
+status: planned
+resources:
+  - name: orders
+    description: Raw orders.
+    path: s3://lakehouse-bronze/crm/orders

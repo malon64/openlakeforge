@@ -1,4 +1,4 @@
-"""Provider-neutral product Floe manifest generation.
+"""Provider-neutral domain Floe manifest generation.
 
 Port of `scripts/artifacts/floe-manifest.sh`, kept out of
 `olf.deployment.local` so the AWS/Azure providers (#125) reuse it
@@ -13,9 +13,9 @@ is why it's a `ProfileStrategy` seam rather than a branch inside
 `generate_manifests`:
 
 - Local and Azure (`RenderedProfileStrategy`) copy the same pre-resolved
-  `local-k8s.yml` profile into every product's profile directory.
-- AWS (`AwsGlueProfileStrategy`) renders a *fresh* profile per product,
-  pointed at that product's own Glue Silver database - port of
+  `local-k8s.yml` profile into every domain's profile directory.
+- AWS (`AwsGlueProfileStrategy`) renders a *fresh* profile per domain,
+  pointed at that domain's own Glue Silver database - port of
   `profile_for_config`'s AWS branch in the shell script.
 """
 
@@ -77,27 +77,26 @@ class FloeManifestSettings:
 @dataclass(frozen=True)
 class _GeneratedManifest:
     domain: str
-    product: str
     manifest_path: Path
 
 
 class ProfileStrategy(Protocol):
-    def profile_for(self, *, domain: str, product: str, profile_dir: Path) -> Path:
-        """Write this product's profile into `profile_dir` and return its path."""
+    def profile_for(self, *, domain: str, profile_dir: Path) -> Path:
+        """Write this domain's profile into `profile_dir` and return its path."""
 
 
 @dataclass(frozen=True)
 class RenderedProfileStrategy:
-    """Copies one pre-resolved profile into every product's profile directory.
+    """Copies one pre-resolved profile into every domain's profile directory.
 
     Used by local and Azure - both consume the checked-in or rendered
     `local-k8s.yml` profile from `_resolve_base_profile`, unchanged per
-    product.
+    domain.
     """
 
     base_profile: Path
 
-    def profile_for(self, *, domain: str, product: str, profile_dir: Path) -> Path:  # noqa: ARG002
+    def profile_for(self, *, domain: str, profile_dir: Path) -> Path:  # noqa: ARG002
         profile_dir.mkdir(parents=True, exist_ok=True)
         profile_path = profile_dir / self.base_profile.name
         profile_path.write_text(self.base_profile.read_text())
@@ -106,28 +105,27 @@ class RenderedProfileStrategy:
 
 @dataclass(frozen=True)
 class AwsGlueProfileStrategy:
-    """Renders a fresh profile per product, pointed at that product's Glue database.
+    """Renders a fresh profile per domain, pointed at that domain's Glue database.
 
     Port of `scripts/artifacts/floe-manifest.sh::profile_for_config`'s AWS
-    Glue branch: each product's profile sets `OPENLAKEFORGE_CATALOG_GLUE_
-    DATABASE` to its own Silver namespace, read from `OPENLAKEFORGE_CATALOG_
-    SILVER_NAMESPACES_JSON`.
+    Glue branch: each domain's profile sets `OPENLAKEFORGE_CATALOG_GLUE_
+    DATABASE` to its own `<domain>_silver` namespace, read from
+    `OPENLAKEFORGE_CATALOG_SILVER_NAMESPACES_JSON`.
     """
 
     environ: Mapping[str, str]
     profile_filename: str = _AWS_PROFILE_FILENAME
 
-    def profile_for(self, *, domain: str, product: str, profile_dir: Path) -> Path:
-        product_key = f"{domain}_{product}"
-        silver_namespace = self._silver_namespace_for_product(product_key)
-        log.step(f"Rendering AWS Floe profile for {product_key} with Glue database {silver_namespace}...")
+    def profile_for(self, *, domain: str, profile_dir: Path) -> Path:
+        silver_namespace = self._silver_namespace_for_domain(domain)
+        log.step(f"Rendering AWS Floe profile for {domain} with Glue database {silver_namespace}...")
         profile_dir.mkdir(parents=True, exist_ok=True)
         profile_path = profile_dir / self.profile_filename
         rendered_environ = {**self.environ, "OPENLAKEFORGE_CATALOG_GLUE_DATABASE": silver_namespace}
         profile_path.write_text(floe_module.render_profile(rendered_environ))
         return profile_path
 
-    def _silver_namespace_for_product(self, product_key: str) -> str:
+    def _silver_namespace_for_domain(self, domain: str) -> str:
         raw = self.environ.get("OPENLAKEFORGE_CATALOG_SILVER_NAMESPACES_JSON", "{}")
         try:
             namespaces = json.loads(raw)
@@ -135,14 +133,29 @@ class AwsGlueProfileStrategy:
             raise DeploymentPreconditionError(
                 f"invalid OPENLAKEFORGE_CATALOG_SILVER_NAMESPACES_JSON: {exc}"
             ) from exc
-        namespace = namespaces.get(product_key)
+        namespace = namespaces.get(domain)
         if not namespace:
-            raise DeploymentPreconditionError(f"missing Silver catalog namespace for product {product_key}")
+            raise DeploymentPreconditionError(f"missing Silver catalog namespace for domain {domain}")
         return namespace
 
 
 def discover_floe_configs(repo_root: Path) -> list[Path]:
-    return sorted((repo_root / "domains").glob("*/contracts/floe/*.yml"))
+    return sorted((repo_root / "lakehouse_code" / "silver").glob("*/contracts/floe/*.yml"))
+
+
+def _domain_for_config(config_path: Path) -> str:
+    return config_path.parents[2].name
+
+
+def _validate_one_config_per_domain(configs: list[Path]) -> None:
+    domains = [_domain_for_config(config_path) for config_path in configs]
+    duplicates = sorted({domain for domain in domains if domains.count(domain) > 1})
+    if duplicates:
+        raise DeploymentPreconditionError(
+            "each domain must have exactly one Floe configuration under "
+            "lakehouse_code/silver/<domain>/contracts/floe/; duplicate configs found for: "
+            + ", ".join(duplicates)
+        )
 
 
 def _container_path(repo_root: Path, path: Path) -> str:
@@ -175,7 +188,7 @@ def _resolve_base_profile(
 
 
 def _prepare_runtime_root_and_discover_configs(settings: FloeManifestSettings, *, repo_root: Path) -> list[Path]:
-    """Wipe and recreate the runtime artifact tree, then discover product configs.
+    """Wipe and recreate the runtime artifact tree, then discover domain configs.
 
     Must run before any profile is resolved into `settings.runtime_artifact_
     dir` - the wipe would otherwise delete a profile written before this
@@ -189,7 +202,10 @@ def _prepare_runtime_root_and_discover_configs(settings: FloeManifestSettings, *
 
     configs = discover_floe_configs(repo_root)
     if not configs:
-        raise DeploymentPreconditionError("no product Floe configs found under domains/*/contracts/floe/*.yml.")
+        raise DeploymentPreconditionError(
+            "no domain Floe configs found under lakehouse_code/silver/*/contracts/floe/*.yml."
+        )
+    _validate_one_config_per_domain(configs)
     return configs
 
 
@@ -208,25 +224,23 @@ def _generate_manifests_for_configs(
     generated: list[_GeneratedManifest] = []
 
     for config_path in configs:
-        domain_dir = config_path.parent.parent.parent
-        domain = domain_dir.name
-        product = config_path.stem
+        domain = _domain_for_config(config_path)
 
-        profile_dir = runtime_root / "profiles" / domain / product
-        profile_path = profile_strategy.profile_for(domain=domain, product=product, profile_dir=profile_dir)
+        profile_dir = runtime_root / "profiles" / domain
+        profile_path = profile_strategy.profile_for(domain=domain, profile_dir=profile_dir)
 
-        runtime_config_dir = runtime_root / "configs" / domain / product
+        runtime_config_dir = runtime_root / "configs" / domain
         runtime_config_dir.mkdir(parents=True, exist_ok=True)
         runtime_config_path = runtime_config_dir / config_path.name
         runtime_config_path.write_text(config_path.read_text())
 
-        manifest_dir = runtime_root / "manifests" / domain / product
+        manifest_dir = runtime_root / "manifests" / domain
         manifest_dir.mkdir(parents=True, exist_ok=True)
         # The Floe image runs as its own non-root user. Give that user
         # access to the bind-mounted output directory, or manifest
         # generation fails with EACCES on hosted CI runners.
         manifest_dir.chmod(0o777)
-        manifest_path = manifest_dir / f"{product}.manifest.json"
+        manifest_path = manifest_dir / f"{domain}.manifest.json"
 
         floe_config_path = _container_path(repo_root, runtime_config_path)
         floe_profile_path = _container_path(repo_root, profile_path)
@@ -255,9 +269,9 @@ def _generate_manifests_for_configs(
                 floe_profile_path,
                 "--deterministic",
                 "--manifest-name",
-                f"{domain}.{product}.local",
+                f"{domain}.local",
                 "--default-domain",
-                f"{domain}_{product}",
+                domain,
                 "--manifest-path-mode",
                 "resolved-uri",
                 "--runtime",
@@ -272,7 +286,7 @@ def _generate_manifests_for_configs(
             env=env,
         )
         log.step(f"Generated {manifest_path}")
-        generated.append(_GeneratedManifest(domain=domain, product=product, manifest_path=manifest_path))
+        generated.append(_GeneratedManifest(domain=domain, manifest_path=manifest_path))
 
     return [item.manifest_path for item in generated]
 

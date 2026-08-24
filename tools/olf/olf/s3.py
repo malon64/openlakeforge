@@ -1,4 +1,4 @@
-"""Object-storage helpers for publishing product Floe runtime artifacts.
+"""Object-storage helpers for publishing domain Floe runtime artifacts.
 
 Replaces scripts/local/artifacts/upload-floe-manifest.sh (SeaweedFS via
 kubectl port-forward) and upload_floe_manifests_to_s3() from the AWS artifact
@@ -29,43 +29,36 @@ class ManifestUpload:
     key: str
 
 
-def manifest_key(domain: str, product: str) -> str:
-    return f"floe/manifests/{domain}/{product}/{product}.manifest.json"
+def manifest_key(domain: str) -> str:
+    return f"floe/manifests/{domain}/{domain}.manifest.json"
 
 
-def config_key(domain: str, product: str, filename: str) -> str:
-    return f"floe/configs/{domain}/{product}/{filename}"
+def config_key(domain: str, filename: str) -> str:
+    return f"floe/configs/{domain}/{filename}"
 
 
-def profile_key(domain: str, product: str, filename: str) -> str:
-    return f"floe/profiles/{domain}/{product}/{filename}"
+def profile_key(domain: str, filename: str) -> str:
+    return f"floe/profiles/{domain}/{filename}"
 
 
 def discover_tracked_manifests(repo_root: Path) -> list[ManifestUpload]:
-    """Source-controlled manifests under domains/*/contracts/floe/manifests/."""
+    """Source-controlled manifests under lakehouse_code/silver/*/contracts/floe/manifests/."""
     uploads: list[ManifestUpload] = []
-    root = repo_root / "domains"
+    root = repo_root / "lakehouse_code" / "silver"
     for manifest_path in sorted(root.glob("*/contracts/floe/manifests/*.manifest.json")):
         domain = manifest_path.parents[3].name
-        product = manifest_path.name[: -len(".manifest.json")]
-        uploads.append(ManifestUpload(manifest_path, manifest_key(domain, product)))
+        uploads.append(ManifestUpload(manifest_path, manifest_key(domain)))
     return uploads
 
 
 def discover_runtime_manifests(manifest_root: Path) -> list[ManifestUpload]:
-    """Rendered manifests under <artifact-dir>/manifests/<domain>/<product>/<product>.manifest.json.
-
-    floe-manifest.sh persists the two-level ``<domain>/<product>/`` layout, so
-    the search recurses and takes the domain from the first path segment
-    relative to the manifest root (matching the original find-based upload).
-    """
+    """Rendered manifests under <artifact-dir>/manifests/<domain>/<domain>.manifest.json."""
     uploads: list[ManifestUpload] = []
     for manifest_path in sorted(manifest_root.rglob("*.manifest.json")):
         if not manifest_path.is_file():
             continue
         domain = manifest_path.relative_to(manifest_root).parts[0]
-        product = manifest_path.name[: -len(".manifest.json")]
-        uploads.append(ManifestUpload(manifest_path, manifest_key(domain, product)))
+        uploads.append(ManifestUpload(manifest_path, manifest_key(domain)))
     return uploads
 
 
@@ -77,19 +70,19 @@ def discover_runtime_artifacts(runtime_root: Path) -> list[ManifestUpload]:
         if not config_path.is_file():
             continue
         relative = config_path.relative_to(runtime_root / "configs")
-        if len(relative.parts) < 3:
+        if len(relative.parts) < 2:
             continue
-        domain, product = relative.parts[0], relative.parts[1]
-        uploads.append(ManifestUpload(config_path, config_key(domain, product, config_path.name)))
+        domain = relative.parts[0]
+        uploads.append(ManifestUpload(config_path, config_key(domain, config_path.name)))
 
     for profile_path in sorted((runtime_root / "profiles").rglob("*.yml")):
         if not profile_path.is_file():
             continue
         relative = profile_path.relative_to(runtime_root / "profiles")
-        if len(relative.parts) < 3:
+        if len(relative.parts) < 2:
             continue
-        domain, product = relative.parts[0], relative.parts[1]
-        uploads.append(ManifestUpload(profile_path, profile_key(domain, product, profile_path.name)))
+        domain = relative.parts[0]
+        uploads.append(ManifestUpload(profile_path, profile_key(domain, profile_path.name)))
 
     uploads.extend(discover_runtime_manifests(runtime_root / "manifests"))
     return uploads

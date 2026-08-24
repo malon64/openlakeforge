@@ -1,0 +1,19 @@
+apiVersion: openlakeforge.io/v1alpha3
+kind: Source
+name: erp
+displayName: ERP
+description: Enterprise resource planning source system for the Supply Chain data product.
+status: planned
+resources:
+  - name: inventory_snapshots
+    description: Raw CSV inventory snapshots.
+  - name: purchase_orders
+    description: Raw CSV purchase orders.
+  - name: shipments
+    description: Raw CSV shipments.
+  - name: stockout_events
+    description: Raw CSV stockout events.
+  - name: suppliers
+    description: Raw CSV supplier dimension.
+  - name: warehouses
+    description: Raw CSV warehouse dimension.

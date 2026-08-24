@@ -83,7 +83,7 @@ make local-artifacts-deploy
 `make local-artifacts-deploy` owns the local/CD artifacts:
 
 - project-code image build/load
-- product Floe manifest generation and upload to the local ops bucket
+- domain Floe manifest generation and upload to the local ops bucket
 - product Superset report import
 - OpenMetadata domain, data-product, Bronze, Silver, and Gold metadata from domain YAML files
 - Dagster rollout after dynamic artifacts are available

@@ -91,6 +91,7 @@ echo "==> Loading domain Dagster product definitions"
 PATH="${site_dir}/bin:${PATH}" PYTHONPATH="${site_dir}:${PWD}" "${PYTHON_BIN}" - <<'PY'
 import json
 import os
+from collections import Counter
 from hashlib import sha256
 from pathlib import Path
 
@@ -109,45 +110,78 @@ os.environ.setdefault("OPENLAKEFORGE_RUN_ARTIFACT_BASE_URI", "s3://openlakeforge
 
 from importlib import import_module
 
-from domains.definitions import defs as merged_defs
+from lakehouse_code.definitions import defs as merged_defs
+from dagster import Definitions
 import libs.product_dagster as product_dagster_lib
-from openlakeforge_domain import load_domain_inventory
+from openlakeforge_domain import load_lakehouse_inventory
 
 
-def _dlt_entities(descriptor_product) -> tuple[str, ...]:
-    """Read the *_ENTITIES tuple the product's dlt loader declares.
+def _silver_inputs(descriptor_product) -> tuple[str, ...]:
+    """Read the Silver inputs selected by a product job.
 
-    This is a code fact, not descriptor data, so it stays a plain module
-    lookup by naming convention rather than something domain.yaml carries.
+    ``*_SILVER_INPUTS`` is the documented contract. ``*_ENTITIES`` remains a
+    fallback for seed modules created before that name was documented.
     """
-    module = import_module(f"domains.{descriptor_product.domain_name}.extract.dlt.{descriptor_product.id}")
-    const_name = f"{descriptor_product.id.upper()}_ENTITIES"
+    module = import_module(f"lakehouse_code.pipelines.dagster.{descriptor_product.id}")
+    const_name = f"{descriptor_product.id.upper()}_SILVER_INPUTS"
+    inputs = getattr(module, const_name, None)
+    if inputs is None:
+        legacy_name = f"{descriptor_product.id.upper()}_ENTITIES"
+        inputs = getattr(module, legacy_name, None)
+    if inputs is None:
+        raise SystemExit(f"{module.__name__} does not define {const_name}")
+    return tuple(inputs)
+
+
+def _source_entities(source_name: str) -> tuple[str, ...]:
+    """Read the *_ENTITIES tuple the product's Bronze source loader declares.
+
+    Bronze loaders are source-scoped (one module per source), so a product may
+    only reference resources its source loader knows how to ingest.
+    """
+    module = import_module(f"lakehouse_code.bronze.{source_name}.dlt.{source_name}")
+    const_name = f"{source_name.upper()}_ENTITIES"
     entities = getattr(module, const_name, None)
     if entities is None:
         raise SystemExit(f"{module.__name__} does not define {const_name}")
     return tuple(entities)
 
 
+INVENTORY = load_lakehouse_inventory("lakehouse_code")
 PRODUCTS = []
-for _descriptor_product in load_domain_inventory("domains").products:
-    _entities = _dlt_entities(_descriptor_product)
-    bronze_names = {table.name for table in _descriptor_product.bronze_tables}
-    if bronze_names != set(_entities):
+for _descriptor_product in INVENTORY.products:
+    _inputs = _silver_inputs(_descriptor_product)
+    resolved_silver_tables = INVENTORY.resolved_silver_tables(_descriptor_product)
+    expected_silver_inputs = {table.name for table in resolved_silver_tables}
+    if set(_inputs) != expected_silver_inputs:
         raise SystemExit(
-            f"{_descriptor_product.domain_name}/domain.yaml: product {_descriptor_product.id!r} bronze names "
-            f"{sorted(bronze_names)} do not match dlt entities {sorted(_entities)}"
+            f"lakehouse_code/lakehouse.yaml: product {_descriptor_product.id!r} Silver inputs "
+            f"{sorted(expected_silver_inputs)} do not match pipeline Silver inputs {sorted(_inputs)}"
         )
+    bronze_resources = INVENTORY.bronze_resources_for_product(_descriptor_product)
+    for source_name in {table.source for table in bronze_resources}:
+        source_resources = {table.name for table in bronze_resources if table.source == source_name}
+        missing_in_source = source_resources - set(_source_entities(source_name))
+        if missing_in_source:
+            raise SystemExit(
+                f"lakehouse_code/lakehouse.yaml: product {_descriptor_product.id!r} Bronze resources "
+                f"{sorted(missing_in_source)} are not declared by source loader {source_name!r}"
+            )
     PRODUCTS.append(
         {
             "domain": _descriptor_product.domain_name,
             "product": _descriptor_product.id,
-            "prefix": _descriptor_product.asset_prefix,
+            "prefix": _descriptor_product.id,
             "job": _descriptor_product.job_name,
+            "bronze_inputs": {(table.source, table.name) for table in bronze_resources},
             "manifest": Path(
-                f"domains/{_descriptor_product.domain_name}/contracts/floe/manifests/"
-                f"{_descriptor_product.id}.manifest.json"
+                f"lakehouse_code/silver/{_descriptor_product.domain_name}/contracts/floe/manifests/"
+                f"{_descriptor_product.domain_name}.manifest.json"
             ),
-            "entities": _entities,
+            "silver_inputs": _inputs,
+            "domain_entities": {
+                table.name for table in INVENTORY.domain_for_product(_descriptor_product).silver_tables
+            },
             "gold": {table.name for table in _descriptor_product.gold_tables},
         }
     )
@@ -155,58 +189,70 @@ for _descriptor_product in load_domain_inventory("domains").products:
 if os.environ["OPENLAKEFORGE_FLOE_MANIFEST_ACCESS_MODE"].strip().lower() != "remote":
     raise SystemExit("project-code check must load Dagster definitions in remote Floe manifest mode")
 
-discovered_domains = sorted({product["domain"] for product in PRODUCTS})
-domain_product_prefixes = {
-    domain_name: {product["prefix"] for product in PRODUCTS if product["domain"] == domain_name}
-    for domain_name in discovered_domains
-}
-
-domain_definitions_modules = [f"domains.{domain_name}.definitions" for domain_name in discovered_domains]
-for module_name in ["domains.definitions", *domain_definitions_modules]:
+discovered_products = sorted({product["product"] for product in PRODUCTS})
+product_definitions_modules = [f"lakehouse_code.pipelines.dagster.{product}" for product in discovered_products]
+for module_name in ["lakehouse_code.definitions", *product_definitions_modules]:
     module_targets = loadable_targets_from_python_module(module_name, ".")
     if len(module_targets) != 1 or module_targets[0].attribute != "defs":
         raise SystemExit(f"{module_name} should expose exactly one defs target")
 
-domain_defs = {
-    domain_name: import_module(f"domains.{domain_name}.definitions").defs for domain_name in discovered_domains
+product_defs = {
+    product: import_module(f"lakehouse_code.pipelines.dagster.{product}").defs for product in discovered_products
 }
-asset_key_list = [
+product_asset_key_list = [
     tuple(key.path)
-    for definitions in domain_defs.values()
+    for definitions in product_defs.values()
     for asset_def in definitions.assets
     if hasattr(asset_def, "keys")
     for key in asset_def.keys
 ]
-asset_keys = set(asset_key_list)
+product_asset_keys_all = set(product_asset_key_list)
 merged_asset_keys = {
     tuple(key.path)
     for asset_def in merged_defs.assets
     if hasattr(asset_def, "keys")
     for key in asset_def.keys
 }
-source_asset_keys = {
-    tuple(asset.key.path)
-    for definitions in domain_defs.values()
-    for asset in definitions.assets
-    if not hasattr(asset, "keys")
-}
-domain_asset_keys = {
-    domain_name: {
+asset_key_list = [
+    tuple(key.path)
+    for asset_def in merged_defs.assets
+    if hasattr(asset_def, "keys")
+    for key in asset_def.keys
+]
+asset_keys = set(asset_key_list)
+source_multi_assets = [
+    asset_def
+    for asset_def in merged_defs.assets
+    if any(tuple(key.path)[0] in INVENTORY.source_names for key in getattr(asset_def, "keys", ()))
+]
+if len(source_multi_assets) != len(INVENTORY.sources):
+    raise SystemExit("each Source must have exactly one executable Bronze multi-asset")
+for source_asset in source_multi_assets:
+    if not source_asset.can_subset:
+        raise SystemExit("Source Bronze multi-assets must support product-specific subsets")
+    required_outputs = [output.name for output in source_asset.op.output_defs if output.is_required]
+    if required_outputs:
+        raise SystemExit(
+            "subsettable Source Bronze multi-assets must have optional outputs; "
+            f"required outputs: {required_outputs}"
+        )
+product_asset_keys = {
+    product: {
         tuple(key.path)
         for asset_def in definitions.assets
         if hasattr(asset_def, "keys")
         for key in asset_def.keys
     }
-    for domain_name, definitions in domain_defs.items()
+    for product, definitions in product_defs.items()
 }
 
 for product in PRODUCTS:
     prefix = product["prefix"]
-    env_key = prefix.upper()
+    env_key = product["domain"].upper()
     base_uri = os.environ["OPENLAKEFORGE_FLOE_MANIFEST_BASE_URI"].rstrip("/")
     remote_uri = os.environ.get(
         f"OPENLAKEFORGE_FLOE_MANIFEST_URI_{env_key}",
-        f"{base_uri}/{product['domain']}/{product['product']}/{product['product']}.manifest.json",
+        f"{base_uri}/{product['domain']}/{product['domain']}.manifest.json",
     )
     if not remote_uri.startswith(("s3://", "gs://", "abfs://")):
         raise SystemExit(f"{prefix} remote Floe manifest URI is not a supported remote URI")
@@ -215,7 +261,7 @@ for product in PRODUCTS:
 
     manifest = load_manifest(product["manifest"])
     if not str(getattr(manifest, "report_base_uri", "")).startswith(
-        f"s3://openlakeforge-ops/floe/reports/{product['domain']}/{product['product']}"
+        f"s3://openlakeforge-ops/floe/reports/{product['domain']}"
     ):
         raise SystemExit(f"{prefix} Floe manifest must write reports to the ops bucket")
     expected_base_args = [
@@ -231,8 +277,8 @@ for product in PRODUCTS:
         raise SystemExit(f"{prefix} Floe manifest does not use the runtime manifest_uri placeholder")
     if manifest.execution.orchestration is None or manifest.execution.orchestration.strategy != "sequential":
         raise SystemExit(f"{prefix} Floe manifest should use sequential orchestration locally")
-    if {entity.name for entity in manifest.entities} != set(product["entities"]):
-        raise SystemExit(f"{prefix} Floe manifest entities do not match product entities")
+    if {entity.name for entity in manifest.entities} != product["domain_entities"]:
+        raise SystemExit(f"{prefix} Floe manifest entities do not match domain Silver tables")
 
     job = merged_defs.resolve_job_def(product["job"])
     if job.name != product["job"]:
@@ -240,20 +286,57 @@ for product in PRODUCTS:
     if job.run_config["execution"]["config"]["multiprocess"]["max_concurrent"] != 1:
         raise SystemExit(f"{product['job']} did not inherit Floe orchestration concurrency")
 
-    for entity in product["entities"]:
-        if (prefix, f"{entity}_source") not in asset_keys:
-            raise SystemExit(f"missing Bronze source asset for {prefix}/{entity}")
-        if (prefix, entity) not in asset_keys:
-            raise SystemExit(f"missing Floe Silver asset for {prefix}/{entity}")
-        if (prefix, f"{entity}_source") in source_asset_keys:
-            raise SystemExit(f"Floe registered a duplicate source asset for {prefix}/{entity}")
+    selected_asset_keys = {tuple(key.path) for key in job.asset_layer.selected_asset_keys}
+    canonical_bronze_keys = {
+        (source.name, resource.name)
+        for source in INVENTORY.sources
+        for resource in source.resources
+    }
+    selected_bronze_keys = selected_asset_keys & canonical_bronze_keys
+    if selected_bronze_keys != product["bronze_inputs"]:
+        raise SystemExit(
+            f"{product['job']} selected Bronze assets {sorted(selected_bronze_keys)}; "
+            f"expected {sorted(product['bronze_inputs'])}"
+        )
+    canonical_silver_keys = {
+        (domain.name, table.name)
+        for domain in INVENTORY.domains
+        for table in domain.silver_tables
+    }
+    selected_silver_keys = selected_asset_keys & canonical_silver_keys
+    expected_silver_keys = {(product["domain"], entity) for entity in product["silver_inputs"]}
+    if selected_silver_keys != expected_silver_keys:
+        raise SystemExit(
+            f"{product['job']} selected Silver assets {sorted(selected_silver_keys)}; "
+            f"expected {sorted(expected_silver_keys)}"
+        )
+    canonical_gold_keys = {
+        (inventory_product.id, table.name)
+        for inventory_product in INVENTORY.products
+        for table in inventory_product.gold_tables
+    }
+    selected_gold_keys = selected_asset_keys & canonical_gold_keys
+    expected_gold_keys = {(prefix, asset_name) for asset_name in product["gold"]}
+    if selected_gold_keys != expected_gold_keys:
+        raise SystemExit(
+            f"{product['job']} selected Gold assets {sorted(selected_gold_keys)}; "
+            f"expected {sorted(expected_gold_keys)}"
+        )
 
+    for source, resource in product["bronze_inputs"]:
+        if (source, resource) not in asset_keys:
+            raise SystemExit(f"missing Bronze source asset for {source}/{resource}")
+    for entity in product["silver_inputs"]:
+        if (product["domain"], entity) not in asset_keys:
+            raise SystemExit(f"missing Floe Silver asset for {product['domain']}/{entity}")
+
+    for entity in product["silver_inputs"]:
         matching_entities = [item for item in manifest.entities if item.name == entity]
         if not matching_entities:
             raise SystemExit(f"missing Floe manifest entity for {prefix}/{entity}")
-        if matching_entities[0].group_name != prefix:
-            raise SystemExit(f"Floe manifest entity {entity} is not in group {prefix}")
-        if matching_entities[0].asset_key != [prefix, entity]:
+        if matching_entities[0].group_name != product["domain"]:
+            raise SystemExit(f"Floe manifest entity {entity} is not in group {product['domain']}")
+        if matching_entities[0].asset_key != [product["domain"], entity]:
             raise SystemExit(f"Floe manifest entity {entity} has wrong asset key")
 
     for asset_name in product["gold"]:
@@ -289,14 +372,9 @@ os.environ["OPENLAKEFORGE_CATALOG_PROVIDER"] = "aws-glue"
 os.environ["OPENLAKEFORGE_FLOE_MANIFEST_CACHE_DIR"] = ".tmp/project-code-check-floe-manifests"
 product_dagster_lib.read_text_uri = lambda uri: json.dumps(remote_payload)
 try:
-    sample_spec = product_dagster_lib.ProductDefinitionSpec(
+    sample_spec = product_dagster_lib.DomainDefinitionSpec(
         domain=sample_product["domain"],
-        product=sample_product["product"],
-        asset_prefix=sample_product["prefix"],
-        entities=tuple(sample_product["entities"]),
-        gold_assets=tuple(sample_product["gold"]),
-        domain_dir=Path("domains") / sample_product["domain"],
-        bronze_loader=lambda: {},
+        tables=(),
     )
     cached_manifest_path = product_dagster_lib._manifest_path_for_dagster(sample_spec)
     cached_manifest = load_manifest(cached_manifest_path)
@@ -304,8 +382,7 @@ try:
         raise SystemExit("AWS remote Floe manifest was not used for Dagster manifest replay args")
 
     artifact_key = (
-        f"floe/manifests/{sample_product['domain']}/{sample_product['product']}/"
-        f"{sample_product['product']}.manifest.json"
+        f"floe/manifests/{sample_product['domain']}/{sample_product['domain']}.manifest.json"
     )
     entries = {artifact_key: sha256(json.dumps(remote_payload).encode()).hexdigest()}
     revision = product_dagster_lib._aggregate_revision(entries)
@@ -347,23 +424,53 @@ finally:
         else:
             os.environ[key] = value
 
-for domain_name, own_asset_keys in domain_asset_keys.items():
-    own_prefixes = domain_product_prefixes[domain_name]
-    foreign_prefixes = {
-        prefix
-        for other_domain, prefixes in domain_product_prefixes.items()
-        if other_domain != domain_name
-        for prefix in prefixes
-    }
-    if not any(key[0] in own_prefixes for key in own_asset_keys):
-        raise SystemExit(f"{domain_name} domain definitions did not load its own product assets")
+for product in PRODUCTS:
+    own_prefix = product["prefix"]
+    foreign_prefixes = {other["prefix"] for other in PRODUCTS if other["prefix"] != own_prefix}
+    own_asset_keys = product_asset_keys[product["product"]]
+    if not any(key[0] == own_prefix for key in own_asset_keys):
+        raise SystemExit(f"{product['product']} product definitions did not load its own product assets")
     if any(key[0] in foreign_prefixes for key in own_asset_keys):
-        raise SystemExit(f"{domain_name} domain definitions must not load other domains' assets")
+        raise SystemExit(f"{product['product']} product definitions must not load other products' assets")
 
 if len(asset_key_list) != len(asset_keys):
     raise SystemExit("duplicate Dagster asset keys found")
-if merged_asset_keys != asset_keys:
-    raise SystemExit("merged Dagster definitions do not match all domain asset keys")
+if not product_asset_keys_all.issubset(merged_asset_keys):
+    raise SystemExit("merged Dagster definitions do not contain every product Gold asset")
 
-print("Merged and domain product Dagster definitions loaded.")
+bronze_reference_counts = Counter(
+    (resource.source, resource.name)
+    for descriptor_product in INVENTORY.products
+    for resource in INVENTORY.bronze_resources_for_product(descriptor_product)
+)
+silver_reference_counts = Counter(
+    (table.domain, table.name)
+    for descriptor_product in INVENTORY.products
+    for table in INVENTORY.resolved_silver_tables(descriptor_product)
+)
+shared_asset_keys = {
+    key
+    for reference_counts in (bronze_reference_counts, silver_reference_counts)
+    for key, count in reference_counts.items()
+    if count > 1
+}
+for shared_key in shared_asset_keys:
+    if asset_key_list.count(shared_key) != 1:
+        raise SystemExit(f"shared asset {shared_key[0]}/{shared_key[1]} must have exactly one definition")
+
+legacy_keys = {
+    key for key in asset_keys if key[0] in discovered_products and (key[1].endswith("_source") or key[1] in {
+        table.name for product in INVENTORY.products for table in INVENTORY.resolved_silver_tables(product)
+    })
+}
+if legacy_keys:
+    raise SystemExit(f"old product-scoped Bronze/Silver asset keys remain: {sorted(legacy_keys)}")
+
+# Dagster's gRPC server eagerly resolves every asset job.  Keeping this check
+# eager is essential: lazily resolving only the named jobs previously let
+# conflicting shared Silver definitions reach the deployment smoke test.
+Definitions.validate_loadable(merged_defs)
+merged_defs.get_repository_def().load_all_definitions()
+
+print("Merged and product Dagster definitions loaded.")
 PY

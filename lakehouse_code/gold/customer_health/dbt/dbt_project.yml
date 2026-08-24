@@ -1,0 +1,21 @@
+name: customer_health
+version: "1.0.0"
+config-version: 2
+
+profile: customer_health
+
+model-paths: ["models"]
+macro-paths: []
+target-path: "target"
+clean-targets: ["target", "dbt_packages"]
+
+models:
+  customer_health:
+    +database: "{{ env_var('OPENLAKEFORGE_CATALOG_NAME', 'lakehouse_dev') }}"
+    +materialized: table
+    +on_table_exists: replace
+    +meta:
+      dagster:
+        group: customer_health
+    gold:
+      +tags: ["sales", "customer_health", "gold"]

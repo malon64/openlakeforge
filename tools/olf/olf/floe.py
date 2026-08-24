@@ -184,7 +184,8 @@ def render_profile(environ: Mapping[str, str]) -> str:
     elif catalog_type == "glue" and catalog_provider == "aws-glue":
         if not catalog_glue_database:
             raise SystemExit(
-                "ERROR: OPENLAKEFORGE_CATALOG_GLUE_DATABASE must be set to the target product-layer Glue database."
+                "ERROR: OPENLAKEFORGE_CATALOG_GLUE_DATABASE must be set to the target domain-scoped Glue database "
+                "(for example sales_silver)."
             )
         catalog_definition = f"""    - name: "{catalog_name}"
       type: "glue"

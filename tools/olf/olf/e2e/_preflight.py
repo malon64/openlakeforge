@@ -36,7 +36,11 @@ def check_aws_storage_and_glue(cfg: E2EConfig) -> None:
     provider_contracts = load_provider_contracts_or_raise(cfg)
     bucket = provider_contracts["artifact_bucket"]["bucket_name"]
     region = aws_stack_region(cfg)
-    expected_schemas = cfg.inventory.silver_namespace_names | cfg.inventory.gold_namespace_names
+    expected_schemas = (
+        cfg.inventory.bronze_namespace_names
+        | cfg.inventory.silver_namespace_names
+        | cfg.inventory.gold_namespace_names
+    )
     _run(["aws", "s3api", "head-bucket", "--bucket", bucket], capture=True)
     for database in sorted(expected_schemas):
         _run(["aws", "glue", "get-database", "--region", region, "--name", database], capture=True)

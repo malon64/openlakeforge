@@ -39,7 +39,7 @@ Environment-neutral shell lives outside `scripts/local/`:
 
 - `scripts/contracts/load-runtime-env.sh` — sourced by every phase; evaluates
   `olf contracts env` to export the provider-contract runtime environment.
-- `scripts/artifacts/floe-manifest.sh` — generates manifest-first product Floe
+- `scripts/artifacts/floe-manifest.sh` — generates manifest-first domain Floe
   contracts from the shared profile in `libs/floe/profiles/`.
 - `scripts/artifacts/dbt-parse.sh` — renders product dbt profiles from
   `libs/dbt/profiles/` before parsing.

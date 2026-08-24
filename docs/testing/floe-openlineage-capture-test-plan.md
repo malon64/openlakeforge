@@ -32,7 +32,7 @@ being constructed without entity metadata.
 | Floe runner image | Rendered profile and generated manifests use the current configured Floe runner image. |
 | OpenLineage proxy | Not deployed. The test uses a temporary capture endpoint. |
 | dbt OpenLineage | Disabled. The test isolates Floe events only. |
-| Target product | Start with one small path, preferably `sales_order_revenue_pipeline`. |
+| Target product | Start with one small path, preferably `order_revenue_pipeline`. |
 
 ## Capture Endpoint
 
@@ -56,13 +56,13 @@ container is enough. It does not need authentication for the first capture pass.
 | 2 | Render a temporary Floe profile with a `lineage` block pointing at `http://openlineage-capture:5000/api/v1/lineage`. | The generated profile differs only by lineage settings. |
 | 3 | Regenerate one product manifest with the temporary lineage-enabled profile. | The manifest still uses the configured Floe runner image and the normal OpenLakeForge storage/catalog contracts. |
 | 4 | Upload the temporary manifest to the ops bucket path that Dagster passes to the Floe runner. | The runner can read the same manifest URI Dagster launches. |
-| 5 | Launch a narrow Dagster run, preferably `sales_order_revenue_pipeline`. | Bronze and Silver assets succeed, and the capture endpoint receives OpenLineage events. |
+| 5 | Launch a narrow Dagster run, preferably `order_revenue_pipeline`. | Bronze and Silver assets succeed, and the capture endpoint receives OpenLineage events. |
 | 6 | Copy captured event JSON from the capture pod. | The event payloads are available locally for validation. |
 | 7 | Validate `run.runId` on every event with a UUID parser. | No event uses an old `mfv1-...` style run ID. |
 | 8 | Validate COMPLETE events have non-empty `inputs` and `outputs`. | Bronze source datasets and Silver Iceberg output datasets are present. |
-| 9 | Validate S3 input dataset names. | Names are bucket-relative paths such as `bronze/sales/...`, never `/bronze/sales/...`. |
+| 9 | Validate S3 input dataset names. | Names are bucket-relative paths such as `bronze/crm/...`, never `/bronze/crm/...`. |
 | 10 | Validate job naming. | `job.namespace` carries the namespace and `job.name` is not prefixed by the Polaris REST URI. |
-| 11 | Validate Iceberg output dataset naming. | Output datasets can be mapped to OpenMetadata's `polaris.<catalog>.<product>_silver.<table>` entities. |
+| 11 | Validate Iceberg output dataset naming. | Output datasets can be mapped to OpenMetadata's `polaris.<catalog>.<domain>_silver.<table>` entities. |
 | 12 | Restore the normal lineage-disabled manifest/profile and rerun artifact deploy if needed. | Normal local stack behavior is restored. |
 
 ## Optional OpenMetadata Acceptance Pass

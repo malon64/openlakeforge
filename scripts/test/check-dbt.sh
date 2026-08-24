@@ -61,7 +61,7 @@ projects=()
 while IFS= read -r project_dir; do
   projects+=("${project_dir}")
 done < <(
-  find domains -path "*/transformations/dbt/*/dbt_project.yml" -type f \
+  find lakehouse_code/gold -path "*/dbt/dbt_project.yml" -type f \
     -exec dirname {} \; | sort
 )
 
@@ -90,16 +90,28 @@ import os
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path("packages/domain-model").resolve()))
+
+from openlakeforge_domain import load_lakehouse_inventory
+
 project_dir = Path(sys.argv[1])
 manifest_path = project_dir / "target" / "manifest.json"
 expected_database = os.environ["OPENLAKEFORGE_CATALOG_NAME"]
 parts = project_dir.parts
 try:
-    domain = parts[parts.index("domains") + 1]
+    product = parts[parts.index("gold") + 1]
 except (ValueError, IndexError) as exc:
-    raise SystemExit(f"Cannot derive domain from dbt project path: {project_dir}") from exc
-expected_schema = f"{domain}_{project_dir.name}_gold"
-expected_source_schema = f"{domain}_{project_dir.name}_silver"
+    raise SystemExit(f"Cannot derive product from dbt project path: {project_dir}") from exc
+
+# Gold paths are product-scoped (lakehouse_code/gold/<product>/dbt); resolve
+# their domain-owned Silver source schema from the canonical inventory.
+inventory = load_lakehouse_inventory("lakehouse_code")
+matching_products = [candidate for candidate in inventory.products if candidate.id == product]
+if len(matching_products) != 1:
+    raise SystemExit(f"Cannot resolve product {product} from lakehouse_code/lakehouse.yaml")
+domain = matching_products[0].domain_name
+expected_schema = f"{product}_gold"
+expected_source_schema = f"{domain}_silver"
 
 manifest = json.loads(manifest_path.read_text())
 violations = []

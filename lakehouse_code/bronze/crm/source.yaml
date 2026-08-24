@@ -1,0 +1,25 @@
+apiVersion: openlakeforge.io/v1alpha3
+kind: Source
+name: crm
+displayName: CRM
+description: Customer relationship management source system shared by the Sales data products.
+status: planned
+resources:
+  - name: accounts
+    description: Raw CSV customer accounts.
+  - name: channels
+    description: Raw CSV sales channel dimension.
+  - name: nps_responses
+    description: Raw CSV NPS responses.
+  - name: order_lines
+    description: Raw CSV sales order lines.
+  - name: orders
+    description: Raw CSV sales order headers.
+  - name: products
+    description: Raw CSV revenue product catalog.
+  - name: promotions
+    description: Raw CSV promotion dimension.
+  - name: subscriptions
+    description: Raw CSV subscriptions.
+  - name: support_tickets
+    description: Raw CSV support tickets.

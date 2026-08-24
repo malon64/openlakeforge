@@ -68,7 +68,7 @@ def artifacts_deploy(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapp
         log.step("Reconciling Polaris namespaces from the domain descriptors...")
         sync_catalog_namespaces()
 
-        log.step(f"Generating local product Floe manifests for namespace '{config.namespace}'...")
+        log.step(f"Generating local domain Floe manifests for namespace '{config.namespace}'...")
         generate_local_manifests(
             config.floe,
             tools,

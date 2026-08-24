@@ -87,9 +87,9 @@ The catalog module owns:
 - local catalog provider `polaris`
 - root bootstrap credentials in `polaris-bootstrap-credentials`
 - the `lakehouse_dev` warehouse with `default-base-location: s3://lakehouse-silver/`
-- product Silver namespaces such as `sales_order_revenue_silver` with storage
+- product Silver namespaces such as `sales_silver` with storage
   locations under `s3://lakehouse-silver/<namespace>/`
-- product Gold namespaces such as `sales_order_revenue_gold` with storage
+- product Gold namespaces such as `order_revenue_gold` with storage
   locations under `s3://lakehouse-gold/<namespace>/`
 - allowed S3 locations `s3://lakehouse-silver/` and `s3://lakehouse-gold/`
 - the Trino service principal and role grants
@@ -131,9 +131,9 @@ http://superset:8088
 ```
 
 Superset uses the shared PostgreSQL service for metadata and chart-managed Redis
-for local cache and worker support. Product report assets are not seeded by
+for local cache and worker support. Report assets are not seeded by
 Terraform bootstrap. They are source-controlled under
-`domains/<domain>/reports/superset/<product>/`, copied into the
+`lakehouse_code/dashboards/superset/<dashboard>/`, copied into the
 Superset ephemeral staging volume at `/app/openlakeforge/reports`, and imported by the
 local/CD report deployment step.
 
@@ -159,19 +159,19 @@ The orchestration module owns:
 
 - the Dagster Helm release
 - shared PostgreSQL credentials for Dagster metadata
-- the `openlakeforge-dagster` code location loading `domains.definitions`
+- the `openlakeforge-dagster` code location loading `lakehouse_code.definitions`
 - one user-code pod by default; a multi-entry `code_locations` configuration
   remains available when domains need isolated code-location loading and restarts
 - the Kubernetes run launcher
 - the local project-code image reference `ghcr.io/openlakeforge/project-code:local`
-- the product Floe manifest base URI `s3://openlakeforge-ops/floe/manifests`
+- the domain Floe manifest base URI `s3://openlakeforge-ops/floe/manifests`
 - S3-backed Dagster compute logs under `s3://openlakeforge-ops/logs/dagster/compute`
 
 Local development uses `make local-platform-up` for Terraform-managed platform
 resources and `make local-artifacts-deploy` for dynamic domain artifacts.
 Dagster loads the Floe asset graphs from manifests baked into the project-code
 image. Terraform provisions the ops bucket and passes remote artifact base URIs
-to Dagster; the artifact deploy phase publishes generated product Floe
+to Dagster; the artifact deploy phase publishes generated domain Floe
 manifests under `floe/manifests/` so the separate Floe runner pod can read them.
 Dagster launches Floe Kubernetes jobs from the image declared in the generated
 Floe manifests.

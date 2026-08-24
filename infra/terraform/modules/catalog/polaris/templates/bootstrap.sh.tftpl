@@ -53,6 +53,7 @@
     exit 1
   fi
 
+  bronze_bucket="${bronze_bucket_name}"
   silver_bucket="${silver_bucket_name}"
   gold_bucket="${gold_bucket_name}"
 
@@ -64,7 +65,7 @@
     },
     \"storageConfigInfo\": {
       \"storageType\": \"S3\",
-      \"allowedLocations\": [\"s3://$silver_bucket/\", \"s3://$gold_bucket/\"],
+      \"allowedLocations\": [\"s3://$bronze_bucket/\", \"s3://$silver_bucket/\", \"s3://$gold_bucket/\"],
       \"pathStyleAccess\": true,
       \"stsUnavailable\": true
     }

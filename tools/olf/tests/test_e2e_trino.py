@@ -11,11 +11,11 @@ def test_check_catalog_namespaces_reports_missing_descriptor_namespace(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     available = E2E_INVENTORY.silver_namespace_names | (
-        E2E_INVENTORY.gold_namespace_names - {"sales_order_revenue_gold"}
+        E2E_INVENTORY.gold_namespace_names - {"order_revenue_gold"}
     )
     monkeypatch.setattr(_trino, "trino_query", lambda _cfg, _sql: "\n".join(sorted(available)))
 
-    with pytest.raises(E2EError, match="sales_order_revenue_gold"):
+    with pytest.raises(E2EError, match="order_revenue_gold"):
         _trino.check_catalog_namespaces(e2e_cfg(tmp_path))
 
 
@@ -23,8 +23,10 @@ def test_smoke_product_table_check_fails_for_an_empty_gold_mart(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     product = E2E_INVENTORY.default_product
-    values = iter((str(len(product.silver_tables)), str(len(product.gold_tables)), "0"))
+    silver_table_names = "\n".join(table.name for table in E2E_INVENTORY.resolved_silver_tables(product))
+    values = iter((str(len(product.gold_tables)), "0"))
     monkeypatch.setattr(_trino, "check_trino_catalog", lambda _cfg: None)
+    monkeypatch.setattr(_trino, "trino_query", lambda _cfg, _sql: silver_table_names)
     monkeypatch.setattr(_trino, "trino_scalar", lambda _cfg, _sql: next(values))
 
     with pytest.raises(E2EError, match="expected iceberg"):

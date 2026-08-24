@@ -1,1 +1,0 @@
-"""Supply Chain extraction code."""
