@@ -80,14 +80,22 @@ The rest of this tutorial builds the same `campaign_performance` product by hand
 by file. Read it to understand *what* the scaffold generates and *why* — the file tree
 and ownership model are identical either way, but the **content** is not: the scaffold
 can't invent business logic, so it writes a one-column placeholder example CSV
-(`campaigns_id`) and a Gold model that is a literal `select * from` its Silver source
-with a `# TODO` to fill in the real transformation. The hand-built walkthrough below
-uses real columns (`channel`, `spend`, `conversions`, ...) and a real aggregation, and
-later steps — notably [step 17's query](#17-query-the-gold-table), which selects a
-`channel` column — assume that real schema. If you took the fast path, either replace
-the generated example CSV and `dbt/models/gold/*.sql` with this tutorial's versions
-before deploying, or treat steps 9 onward as a reference rather than commands to run
-verbatim against the scaffolded output.
+(`campaigns_id`), a Floe contract inferred from that same placeholder (`campaigns_id`
+as the sole, required column), and a Gold model that is a literal `select * from` its
+Silver source with a `# TODO` to fill in the real transformation. The hand-built
+walkthrough below uses real columns (`channel`, `spend`, `conversions`, ...) and a real
+aggregation, and later steps — notably [step 17's query](#17-query-the-gold-table),
+which selects a `channel` column — assume that real schema.
+
+If you took the fast path and want to continue into this real schema, **replace the
+example CSV before running `product new`**: the Floe contract's columns are inferred
+from `lakehouse_code/bronze/marketing_platform/examples/campaigns.csv` at the moment
+the domain is created, so swapping it in afterward leaves a contract that still expects
+`campaigns_id` and rejects the real data. Run `source new`, replace that CSV with
+[step 4](#4-add-some-source-data)'s version below, *then* run `product new`; afterward,
+still replace the generated `dbt/models/gold/*.sql` with [step 9](#9-create-the-gold-model)'s
+aggregation. Otherwise, treat the rest of the tutorial as a reference rather than
+commands to run verbatim against the scaffolded output.
 
 ---
 
