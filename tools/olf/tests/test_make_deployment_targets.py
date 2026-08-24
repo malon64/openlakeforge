@@ -4,11 +4,25 @@ Item 10 of issue #124 (local) and issue #125 (AWS/Azure) require that Make
 contain no Terraform/Docker/kubectl/Helm/deployment-shell orchestration -
 every deployment-lifecycle target's recipe must be a single `olf` (or a
 `$(MAKE)` re-invocation of another deployment target) delegation.
+
+Verified behaviorally via `make -n <target>` (GNU Make's own recipe
+expansion, run with `--just-print` so nothing actually executes) rather
+than by inspecting the Makefile's raw text: AGENTS.md's "Python for
+behaviour, shell for structure" rule explicitly forbids assertions that
+grep source text, and a raw-text check is also blind to indirection - a
+recipe written as `TF = terraform` then `$(TF) apply` would read clean to
+a substring search while still shelling out to Terraform. `make -n`
+expands every variable exactly as a real invocation would and prints the
+final command line, closing that gap; `$(MAKE)` re-invocations recurse
+automatically under `-n` (GNU Make propagates `-n` to sub-makes via
+MAKEFLAGS), so a `local-slim-up`-style wrapper is verified all the way
+through to its terminal `olf` invocation.
 """
 
 from __future__ import annotations
 
 import re
+import subprocess
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -27,37 +41,41 @@ _FORBIDDEN_TOKENS = (
 _TARGET_PREFIX_PATTERN = r"^((?:local|azure|aws)-[A-Za-z0-9_-]+):"
 
 
-def _deployment_target_recipes() -> dict[str, list[str]]:
+def _deployment_target_names() -> list[str]:
+    """Enumerate target names only - no assertions are made on this text.
+
+    Behavior is verified separately via `make -n`; this just answers "which
+    targets exist" so every one can be dry-run.
+    """
     makefile_text = (_REPO_ROOT / "Makefile").read_text()
-    targets: dict[str, list[str]] = {}
-    current: str | None = None
-    for line in makefile_text.splitlines():
-        match = re.match(_TARGET_PREFIX_PATTERN, line)
-        if match:
-            current = match.group(1)
-            targets[current] = []
-            continue
-        if current is not None:
-            if line.startswith("\t"):
-                targets[current].append(line)
-            elif line.strip() == "" or not line.startswith("\t"):
-                current = None
-    return targets
+    return re.findall(_TARGET_PREFIX_PATTERN, makefile_text, re.MULTILINE)
+
+
+def _dry_run(target: str) -> str:
+    """`make -n <target>`: GNU Make's real recipe expansion, executing nothing."""
+    result = subprocess.run(
+        ["make", "-n", target],
+        cwd=_REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return result.stdout
 
 
 def test_every_deployment_target_delegates_to_olf_or_another_deployment_target() -> None:
-    targets = _deployment_target_recipes()
-    assert targets, "expected at least one local-*/azure-*/aws-* Makefile target"
-    assert any(name.startswith("azure-") for name in targets)
-    assert any(name.startswith("aws-") for name in targets)
+    names = _deployment_target_names()
+    assert names, "expected at least one local-*/azure-*/aws-* Makefile target"
+    assert any(name.startswith("azure-") for name in names)
+    assert any(name.startswith("aws-") for name in names)
 
-    for name, recipe_lines in targets.items():
-        joined = "\n".join(recipe_lines)
-        assert "OLF_BIN" in joined or "olf " in joined or re.search(r"\$\(MAKE\) (local|azure|aws)-", joined), (
-            f"{name}: recipe has no olf/deployment-target delegation:\n{joined}"
-        )
+    for name in names:
+        expanded = _dry_run(name)
+        assert "uv run --project tools/olf --locked olf " in expanded or re.search(
+            r"\bmake\b.* (local|azure|aws)-", expanded
+        ), f"{name}: dry-run recipe has no olf/deployment-target delegation:\n{expanded}"
         for token in _FORBIDDEN_TOKENS:
-            assert token not in joined, f"{name}: recipe still orchestrates via {token!r}:\n{joined}"
+            assert token not in expanded, f"{name}: dry-run recipe still orchestrates via {token!r}:\n{expanded}"
 
 
 def test_status_targets_exist_for_every_provider() -> None:
@@ -66,8 +84,8 @@ def test_status_targets_exist_for_every_provider() -> None:
     also exist or the documented `olf deploy|destroy|status|forward
     --provider local|aws|azure` surface would be a lie for `status`.
     """
-    targets = _deployment_target_recipes()
+    names = _deployment_target_names()
 
-    assert "local-status" in targets
-    assert "azure-status" in targets
-    assert "aws-status" in targets
+    assert "local-status" in names
+    assert "azure-status" in names
+    assert "aws-status" in names
