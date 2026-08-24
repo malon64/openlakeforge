@@ -83,9 +83,17 @@ def _render_flow_item_as_block(item: object, *, indent: str) -> list[str]:
 
 def _ensure_block_style(lines: list[str], start: int, end: int, *, indent: str = "  ") -> int:
     """If the list at `lines[start]` is flow style (`key: [a, b]`, including
-    the empty `key: []`), rewrite `lines[start:end]` in place as block style
-    with items indented by `indent`. Returns the (possibly updated) end
-    index. A no-op when it is already block style."""
+    the empty `key: []`), rewrite that one line in place as block style with
+    items indented by `indent`. Returns the index right after the converted
+    block -- where a caller should insert a new item, immediately following
+    the existing ones. A no-op (returns `end` unchanged) when it is already
+    block style.
+
+    Only `lines[start]` is replaced, never the full `lines[start:end]` span:
+    `end` is "next top-level key", so anything between the flow-list line
+    and `end` -- trailing comments, blank lines -- is unrelated content that
+    must survive untouched, not be deleted along with the flow line.
+    """
     stripped = lines[start].rstrip("\n")
     match = _FLOW_LIST_KEY.match(stripped)
     if match is None:
@@ -95,7 +103,7 @@ def _ensure_block_style(lines: list[str], start: int, end: int, *, indent: str =
     block_lines = [f"{leading}{key}:\n"]
     for item in items:
         block_lines.extend(_render_flow_item_as_block(item, indent=indent))
-    lines[start:end] = block_lines
+    lines[start : start + 1] = block_lines
     return start + len(block_lines)
 
 
@@ -189,9 +197,19 @@ def add_dashboard(text: str, dashboard_block: str) -> str:
     a flow-style list (most commonly the inline-empty `dashboards: []`) to
     block style first if needed. Unlike `sources:`/`domains:`,
     `dashboards:` has no schema minimum, so a fresh lakehouse.yaml
-    legitimately starts out as `dashboards: []`."""
+    legitimately starts out as `dashboards: []`.
+
+    `dashboards:` is always the document's last top-level key, so `end` is
+    always end-of-file here (unlike every other `add_*` insertion point,
+    which is always followed by more document content). If the file itself
+    doesn't end in a newline, the last line must be newline-terminated
+    before splicing the new dashboard in, or it concatenates directly onto
+    that line instead of starting a new one.
+    """
     lines = _lines(text)
     start, end = _top_level_span(lines, "dashboards")
     end = _ensure_block_style(lines, start, end)
+    if end > 0 and not lines[end - 1].endswith("\n"):
+        lines[end - 1] += "\n"
     lines[end:end] = _lines(dashboard_block)
     return _join(lines)

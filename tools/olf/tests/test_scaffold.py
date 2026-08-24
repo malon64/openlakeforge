@@ -182,6 +182,55 @@ def test_product_new_handles_a_flow_style_non_empty_products_list(tmp_path: Path
     assert {p.id for p in sales.products} == {"order_revenue", "customer_health", "order_summary"}
 
 
+def test_source_new_preserves_a_trailing_comment_after_a_flow_style_list(tmp_path: Path) -> None:
+    """Converting a flow-style `sources: [crm, erp]` to block style must not
+    delete unrelated content (a comment, a blank line) that sits between the
+    flow-list line and the next top-level key."""
+    repo_root = _seed_repo(tmp_path)
+    lakehouse_path = repo_root / "lakehouse_code" / "lakehouse.yaml"
+    text = lakehouse_path.read_text(encoding="utf-8")
+    text = re.sub(
+        r"sources:\n(  - \w+\n)+",
+        "sources: [crm, erp]\n# TODO: add the marketing source once it's ready.\n\n",
+        text,
+    )
+    lakehouse_path.write_text(text, encoding="utf-8")
+
+    plan = plan_source_new(repo_root, source="marketing_platform", display_name=None, resources=("campaigns",))
+    commit_plan(repo_root, plan)
+
+    result_text = lakehouse_path.read_text(encoding="utf-8")
+    assert "# TODO: add the marketing source once it's ready." in result_text
+    inventory = load_lakehouse_inventory(repo_root)
+    assert set(inventory.source_names) == {"crm", "erp", "marketing_platform"}
+
+
+def test_product_new_with_report_handles_a_lakehouse_missing_its_final_newline(tmp_path: Path) -> None:
+    """`dashboards:` is the document's last top-level key, so appending to
+    it is the one insertion point that can land at true end-of-file. If the
+    file itself doesn't end in a newline, the new dashboard must not be
+    concatenated directly onto the unterminated last line."""
+    repo_root = _seed_repo(tmp_path)
+    lakehouse_path = repo_root / "lakehouse_code" / "lakehouse.yaml"
+    text = lakehouse_path.read_text(encoding="utf-8")
+    assert text.endswith("\n")
+    lakehouse_path.write_text(text.rstrip("\n"), encoding="utf-8")
+
+    plan = plan_product_new(
+        repo_root,
+        target="sales/order_summary",
+        display_name=None,
+        silver_inputs=("orders",),
+        inputs=(),
+        gold_tables=("mart_order_summary",),
+        with_report=True,
+    )
+    commit_plan(repo_root, plan)
+
+    inventory = load_lakehouse_inventory(repo_root)
+    assert any(d.name == "order_summary" for d in inventory.dashboards)
+
+
 def test_source_new_rejects_bad_identifier_and_writes_nothing(tmp_path: Path) -> None:
     repo_root = _seed_repo(tmp_path)
     before = _tree(repo_root)
