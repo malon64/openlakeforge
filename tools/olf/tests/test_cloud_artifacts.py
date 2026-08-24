@@ -84,9 +84,46 @@ def test_artifacts_deploy_preserves_step_order(monkeypatch: pytest.MonkeyPatch, 
         "activate(direct)",
         "build_push(revision=sha256:abc)",
         "upload(direct)",
-        "set_image",
         "deploy_optional_layers",
+        "set_image",
     ]
+
+
+def test_artifacts_deploy_does_not_switch_dagster_image_when_optional_layers_fail(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The removed cloud deploy-artifacts.sh ran deploy-optional-layers
+    before set-project-code-image, so a failed Superset/OpenMetadata deploy
+    left the running Dagster deployment unchanged. Preserve that failure
+    boundary.
+    """
+    config = _config(tmp_path)
+    tools = _toolkit()
+    backend = FakeCloudBackend(scope="aws", transport="direct")
+    set_image_called = False
+
+    monkeypatch.setattr(artifacts.contract_env, "applied_contract_environment", _fake_contract_env(lambda: None))
+    monkeypatch.setattr(artifacts, "sync_catalog_namespaces", lambda: None)
+    monkeypatch.setattr(artifacts, "activate_runtime_revision", lambda root, *, via: "sha256:abc")
+    monkeypatch.setattr(artifacts, "build_and_push_project_code_image", lambda *a, **k: None)
+    monkeypatch.setattr(artifacts, "upload_runtime_manifests", lambda root, *, via: None)
+
+    def _raise(environ):  # noqa: ANN001, ARG001
+        raise RuntimeError("optional layer deploy failed")
+
+    monkeypatch.setattr(artifacts, "deploy_optional_layer_artifacts", _raise)
+
+    def _set_image(image, namespace):  # noqa: ANN001, ARG001
+        nonlocal set_image_called
+        set_image_called = True
+
+    monkeypatch.setattr(artifacts.k8s, "set_project_code_image", _set_image)
+    backend.generate_floe_manifests = lambda *a, **k: []
+
+    with pytest.raises(RuntimeError, match="optional layer deploy failed"):
+        artifacts.artifacts_deploy(config, tools, backend, _FACTS, env={})
+
+    assert set_image_called is False
 
 
 def test_artifacts_deploy_passes_backend_transport_to_artifact_steps(

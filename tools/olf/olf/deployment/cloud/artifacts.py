@@ -82,11 +82,15 @@ def artifacts_deploy(
         log.step(f"Publishing product Floe runtime artifacts to the {backend.scope} ops bucket...")
         upload_runtime_manifests(config.floe.runtime_artifact_dir, via=transport)
 
+        # Deliberately before the Dagster image switch: the removed
+        # deploy-artifacts.sh ran deploy-optional-layers first, so a failed
+        # Superset/OpenMetadata deploy leaves the running Dagster deployment
+        # unchanged instead of already pointed at the new image.
+        os.environ.setdefault("OPENMETADATA_ALLOW_MISSING_ASSETS", "true")
+        deploy_optional_layer_artifacts(os.environ)
+
         project_code_image = resolve_effective_images(config.images, facts).project_code_image
         log.step(f"Pointing Dagster at project-code image {project_code_image}...")
         k8s.set_project_code_image(project_code_image, config.namespace)
-
-        os.environ.setdefault("OPENMETADATA_ALLOW_MISSING_ASSETS", "true")
-        deploy_optional_layer_artifacts(os.environ)
 
         log.step(f"Dynamic OpenLakeForge {backend.scope} artifacts are deployed.")
