@@ -25,20 +25,20 @@ def _resolve_foundation_tfvars_file(
     """Honor an explicit `--var-file` CLI override for foundation operations.
 
     Checked in order:
-    1. `foundation_var_file` - an explicit CLI `--var-file` on Azure, which
-       must never populate `var_file` (that field also feeds the platform
-       apply, and Azure's platform Terraform root rejects a tfvars file
-       entirely per ADR 0027).
-    2. `var_file` - AWS's case, whether from an explicit `--var-file` or
-       its env-derived `AWS_TFVARS_FILE` default; AWS deliberately reuses
-       the same file for both foundation and platform.
-    3. The backend's own `AWS_TFVARS_FILE`/`AZURE_TFVARS_FILE` resolution,
-       when no explicit override was given at all.
+    1. `foundation_var_file` - an explicit CLI `--var-file`, for either
+       provider. Never falls through to `config.terraform.var_file`: that
+       field is the *platform* apply's var-file, auto-discovered from the
+       platform Terraform root's own `sandbox.tfvars` (AWS) - a file that
+       can legitimately differ from the foundation root's `sandbox.tfvars`
+       when both exist side by side (the documented AWS setup instructs
+       exactly this). Falling through to it would silently apply the
+       platform's tags/settings to the foundation, or - for Azure - the
+       ADR-0027-forbidden platform var-file into the foundation apply.
+    2. The backend's own `AWS_TFVARS_FILE`/`AZURE_TFVARS_FILE` resolution,
+       scoped to the foundation root, when no explicit override was given.
     """
     if config.terraform.foundation_var_file is not None:
         return config.terraform.foundation_var_file
-    if config.terraform.var_file is not None:
-        return config.terraform.var_file
     return backend.foundation_tfvars_file(
         environ, repo_root=config.paths.repo_root, foundation_terraform_dir=foundation_dir
     )

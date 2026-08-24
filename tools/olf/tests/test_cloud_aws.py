@@ -76,9 +76,25 @@ def test_foundation_apply_and_destroy_variables_are_identical_and_wrap_bare_inst
     destroy_vars = backend.foundation_destroy_variables(config, {})
 
     assert apply_vars == destroy_vars
-    assert apply_vars["cluster_name"] == "eks-openlakeforge-poc"
+    assert apply_vars["cluster_name"] == "limited-eks-openlakeforge-poc"
     assert apply_vars["aws_region"] == "eu-west-1"
     assert apply_vars["node_instance_types"] == '["m7i.large"]'
+
+
+def test_default_cluster_name_matches_the_e2e_default(tmp_path: Path) -> None:
+    """A direct `olf deploy --provider aws` (no AWS_CLUSTER_NAME set)
+    creates this cluster; `olf e2e run --env aws` (also unset) must target
+    the same one - see the cross-reference comment on
+    AwsBackend/`_DEFAULT_CLUSTER_NAME` and `commands.e2e._default_kube_context`.
+    """
+    from olf.commands.e2e import _default_kube_context
+
+    config = _config(tmp_path)
+    backend = AwsBackend()
+
+    deployed_cluster_name = backend.foundation_apply_variables(config, {})["cluster_name"]
+
+    assert deployed_cluster_name == _default_kube_context("aws")
 
 
 def test_foundation_variables_pass_through_a_bracketed_instance_type_list(tmp_path: Path) -> None:

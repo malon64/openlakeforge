@@ -50,6 +50,9 @@ def _default_kube_context(env: str) -> str:
         return f"kind-{cluster_name}"
     if env == "azure":
         return config.env("AZURE_CLUSTER_NAME", "aks-openlakeforge-poc")
+    # Must match `cloud/aws.py::_DEFAULT_CLUSTER_NAME` - a direct
+    # `olf deploy --provider aws` with no AWS_CLUSTER_NAME set creates this
+    # cluster; e2e (also unset) must target the same one.
     return config.env("AWS_CLUSTER_NAME", "limited-eks-openlakeforge-poc")
 
 

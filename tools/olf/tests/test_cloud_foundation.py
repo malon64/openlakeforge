@@ -7,6 +7,7 @@ from _cloud_support import FakeCloudBackend
 from _tooling_support import RecordedCall, RecordingRunner
 
 from olf.deployment.cloud import foundation
+from olf.deployment.cloud.aws import AwsBackend
 from olf.deployment.cloud.backend import FoundationFacts
 from olf.deployment.cloud.config import CloudDeploymentConfig
 from olf.deployment.context import DeploymentContext
@@ -153,6 +154,34 @@ def test_foundation_up_falls_back_to_backend_resolution_when_no_explicit_var_fil
     apply_call = next(c for c in runner.calls if c.argv[2:3] == ["apply"])
     assert f"-var-file={tfvars}" in apply_call.argv
     assert "foundation_tfvars_file" in backend.calls
+
+
+def test_resolve_foundation_tfvars_file_uses_the_foundation_roots_own_file_when_platform_root_also_has_one(
+    tmp_path: Path,
+) -> None:
+    """The documented AWS setup instructs creating a `sandbox.tfvars` under
+    both the foundation and platform Terraform roots. With no explicit
+    `--var-file`/`AWS_TFVARS_FILE`, `config.terraform.var_file` auto-
+    discovers the *platform* root's file (used for the platform apply) -
+    that must never leak into the foundation apply, which needs its own
+    root's file (mandatory tags, foundation-only settings like
+    `public_access_cidrs`/`kubernetes_version`).
+    """
+    context = DeploymentContext.aws(repo_root=tmp_path)
+    platform_tfvars = context.paths.platform_terraform_dir / "sandbox.tfvars"
+    platform_tfvars.parent.mkdir(parents=True, exist_ok=True)
+    platform_tfvars.write_text('project_code_image_tag = "platform"\n')
+    foundation_tfvars = context.paths.foundation_terraform_dir / "sandbox.tfvars"
+    foundation_tfvars.parent.mkdir(parents=True, exist_ok=True)
+    foundation_tfvars.write_text('kubernetes_version = "1.30"\n')
+    config = CloudDeploymentConfig.from_environment({}, context=context)
+    assert config.terraform.var_file == platform_tfvars, "test setup: platform auto-discovery must have kicked in"
+
+    resolved = foundation._resolve_foundation_tfvars_file(
+        config, AwsBackend(), {}, context.paths.foundation_terraform_dir
+    )
+
+    assert resolved == foundation_tfvars
 
 
 def test_foundation_up_includes_tfvars_file_when_backend_resolves_one(tmp_path: Path) -> None:

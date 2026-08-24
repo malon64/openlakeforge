@@ -19,7 +19,18 @@ from olf.deployment.errors import CommandExecutionError, DeploymentPreconditionE
 from olf.deployment.floe_manifests import generate_aws_manifests
 from olf.deployment.portforward import ForwardTarget
 
-_DEFAULT_CLUSTER_NAME = "eks-openlakeforge-poc"
+# Must match the AWS default in `olf.commands.e2e._default_kube_context`,
+# `olf.e2e._runner`, and the Makefile's `AWS_CLUSTER_NAME ?=` - a direct
+# `olf deploy --provider aws` (no AWS_CLUSTER_NAME set) creates this
+# cluster; `olf e2e run --env aws` (also no AWS_CLUSTER_NAME) must target
+# the same one, or e2e looks for a kubeconfig context the deployment never
+# created. The removed foundation/up.sh's own bare default was
+# "eks-openlakeforge-poc" (no "limited-" prefix), but that default was
+# never actually reachable through `make aws-up` - the Makefile always
+# passed AWS_CLUSTER_NAME explicitly - so this is a rename to the value
+# that was already load-bearing everywhere else, not a behavior change for
+# any existing Make-based workflow.
+_DEFAULT_CLUSTER_NAME = "limited-eks-openlakeforge-poc"
 
 
 class AwsBackend:
