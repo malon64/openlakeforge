@@ -157,6 +157,21 @@ def test_domain_new_requires_at_least_one_input(tmp_path: Path) -> None:
         plan_domain_new(repo_root, domain="hr", display_name=None, inputs=())
 
 
+def test_domain_new_rejects_a_dagster_asset_key_collision_with_bronze(tmp_path: Path) -> None:
+    """A domain named after an existing source, consuming a table named after
+    one of that source's resources, produces a Silver asset key identical to
+    the existing Bronze asset key -- Dagster's code location cannot load two
+    assets sharing one key. Nothing should be written."""
+    repo_root = _seed_repo(tmp_path)
+    before = _tree(repo_root)
+
+    with pytest.raises(ScaffoldError, match=r"asset key \('crm', 'orders'\) is claimed by both"):
+        plan = plan_domain_new(repo_root, domain="crm", display_name=None, inputs=(("crm", "orders"),))
+        commit_plan(repo_root, plan)
+
+    assert _tree(repo_root) == before
+
+
 # --------------------------------------------------------------------------
 # olf product new
 # --------------------------------------------------------------------------
@@ -362,6 +377,33 @@ def test_product_new_with_report_generates_superset_skeleton_and_registers_dashb
 
     inventory = load_lakehouse_inventory(repo_root)
     assert any(d.name == "order_summary" and d.products == ("order_summary",) for d in inventory.dashboards)
+
+
+def test_product_new_with_report_handles_an_inline_empty_dashboards_list(tmp_path: Path) -> None:
+    """`dashboards:` has no schema minimum, so a lakehouse.yaml with no
+    dashboards yet legitimately spells it `dashboards: []`. Appending the
+    first dashboard must convert that to block style, not splice a list item
+    directly after the inline empty list (which is invalid YAML)."""
+    repo_root = _seed_repo(tmp_path)
+    lakehouse_path = repo_root / "lakehouse_code" / "lakehouse.yaml"
+    text = lakehouse_path.read_text(encoding="utf-8")
+    text = text[: text.index("dashboards:")] + "dashboards: []\n"
+    lakehouse_path.write_text(text, encoding="utf-8")
+    assert yaml.safe_load(text)["dashboards"] == []
+
+    plan = plan_product_new(
+        repo_root,
+        target="sales/order_summary",
+        display_name=None,
+        silver_inputs=("orders",),
+        inputs=(),
+        gold_tables=("mart_order_summary",),
+        with_report=True,
+    )
+    commit_plan(repo_root, plan)
+
+    inventory = load_lakehouse_inventory(repo_root)
+    assert [d.name for d in inventory.dashboards] == ["order_summary"]
 
 
 def test_running_the_same_command_twice_is_refused_not_reapplied(tmp_path: Path) -> None:

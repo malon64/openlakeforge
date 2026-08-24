@@ -131,8 +131,14 @@ def add_product(text: str, domain_name: str, product_block: str) -> str:
 
 
 def add_dashboard(text: str, dashboard_block: str) -> str:
-    """Append a fully-rendered dashboard entry to the end of `dashboards:`."""
+    """Append a fully-rendered dashboard entry to `dashboards:`, converting
+    an inline `dashboards: []` to block style first if needed. Unlike
+    `sources:`/`domains:`, `dashboards:` has no schema minimum, so a fresh
+    lakehouse.yaml legitimately starts out as `dashboards: []`."""
     lines = _lines(text)
-    _, end = _top_level_span(lines, "dashboards")
+    start, end = _top_level_span(lines, "dashboards")
+    if lines[start].rstrip("\n").endswith("[]"):
+        lines[start] = "dashboards:\n"
+        end = start + 1
     lines[end:end] = _lines(dashboard_block)
     return _join(lines)

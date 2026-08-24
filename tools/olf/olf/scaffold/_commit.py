@@ -14,7 +14,7 @@ import tempfile
 from pathlib import Path
 
 import yaml
-from openlakeforge_domain import LakehouseDescriptorError, load_lakehouse_inventory
+from openlakeforge_domain import LakehouseDescriptorError, LakehouseInventory, load_lakehouse_inventory
 
 from olf.contracts_check import descriptor_schema_errors
 from olf.scaffold._shared import ScaffoldError, ScaffoldFile, ScaffoldPlan
@@ -42,6 +42,41 @@ def _check_yaml_well_formed(files: tuple[ScaffoldFile, ...]) -> None:
             yaml.safe_load(scaffold_file.content)
         except yaml.YAMLError as exc:
             raise ScaffoldError(f"{scaffold_file.relative_path}: generated content is not valid YAML: {exc}") from exc
+
+
+def _check_asset_key_collisions(inventory: LakehouseInventory) -> None:
+    """Dagster's `lakehouse_code/definitions.py` merges every source's Bronze
+    assets (keyed `[source, resource]`), every domain's Silver assets (keyed
+    `[domain, silver_table]`), and every product's Gold assets (keyed
+    `[product, gold_table]`) into one code location. Two of those three key
+    families colliding -- e.g. a domain named after an existing source,
+    consuming a table named after one of that source's resources -- makes
+    two distinct assets claim the same key, and the code location fails to
+    load. The canonical model has no opinion on this (asset keys aren't part
+    of the descriptor), so the scaffold checks it directly.
+    """
+    owners: dict[tuple[str, str], str] = {}
+    collisions: list[str] = []
+
+    def register(key: tuple[str, str], owner: str) -> None:
+        existing = owners.get(key)
+        if existing is not None and existing != owner:
+            collisions.append(f"asset key {key!r} is claimed by both {existing} and {owner}")
+        else:
+            owners[key] = owner
+
+    for source in inventory.sources:
+        for resource in source.resources:
+            register((source.name, resource.name), f"Bronze resource {source.name}/{resource.name}")
+    for domain in inventory.domains:
+        for table in domain.silver_tables:
+            register((domain.name, table.name), f"Silver table {domain.name}/{table.name}")
+    for product in inventory.products:
+        for table in product.gold_tables:
+            register((product.id, table.name), f"Gold table {product.id}/{table.name}")
+
+    if collisions:
+        raise ScaffoldError("; ".join(collisions))
 
 
 def _verify(repo_root: Path, plan: ScaffoldPlan) -> None:
@@ -74,9 +109,10 @@ def _verify(repo_root: Path, plan: ScaffoldPlan) -> None:
         if errors:
             raise ScaffoldError("; ".join(errors))
         try:
-            load_lakehouse_inventory(Path(tmp))
+            inventory = load_lakehouse_inventory(Path(tmp))
         except LakehouseDescriptorError as exc:
             raise ScaffoldError(str(exc)) from exc
+        _check_asset_key_collisions(inventory)
 
 
 def _write(repo_root: Path, plan: ScaffoldPlan) -> None:
