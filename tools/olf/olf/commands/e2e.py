@@ -18,6 +18,23 @@ _DEFAULT_CONTRACT_TERRAFORM_DIRS = {
 }
 
 
+def _resolve_kubeconfig_path(env: str, repo_root: Path) -> Path:
+    """Mirror `olf.e2e._runner.configure_kubeconfig`'s override precedence.
+
+    This command exports `KUBECONFIG` via `applied_contract_environment`
+    before `e2e.run()` (and thus `_runner.configure_kubeconfig`) ever runs -
+    if it only consulted the bare `KUBECONFIG` env var here, it would shadow
+    the documented per-provider override (`AWS_KUBECONFIG_PATH`/
+    `AZURE_KUBECONFIG_PATH`) with the plain default path before `_runner`
+    gets a chance to fall back to it.
+    """
+    provider_override = config.env(f"{env.upper()}_KUBECONFIG_PATH")
+    configured = config.env("KUBECONFIG") or provider_override
+    if configured:
+        return Path(configured)
+    return repo_root / f".tmp/kubeconfigs/{env}.yaml"
+
+
 def _default_kube_context(env: str) -> str:
     """Mirror `olf.e2e._runner`'s own per-environment `KUBE_CONTEXT` fallback.
 
@@ -62,7 +79,7 @@ def e2e_run(
     contract_dir = Path(
         config.env("OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR", str(repo_root / _DEFAULT_CONTRACT_TERRAFORM_DIRS[env]))
     )
-    kubeconfig_path = Path(config.env("KUBECONFIG", str(repo_root / f".tmp/kubeconfigs/{env}.yaml")))
+    kubeconfig_path = _resolve_kubeconfig_path(env, repo_root)
     port_forward_log_prefix = Path(
         config.env("OPENLAKEFORGE_PORT_FORWARD_LOG_PREFIX", f"/tmp/openlakeforge-{env}")
     )

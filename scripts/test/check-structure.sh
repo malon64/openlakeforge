@@ -171,6 +171,12 @@ required_paths=(
   "tools/olf/olf/deployment/cloud/backend.py"
   "tools/olf/olf/deployment/cloud/aws.py"
   "tools/olf/olf/deployment/cloud/azure.py"
+  "tools/olf/olf/deployment/cloud/foundation.py"
+  "tools/olf/olf/deployment/cloud/platform.py"
+  "tools/olf/olf/deployment/cloud/artifacts.py"
+  "tools/olf/olf/deployment/cloud/teardown.py"
+  "tools/olf/olf/deployment/cloud/forward.py"
+  "tools/olf/olf/deployment/cloud/images.py"
 )
 
 forbidden_paths=(

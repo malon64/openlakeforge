@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -87,6 +88,31 @@ def test_e2e_run_falls_back_to_provider_cluster_name_when_kube_context_unset(
 
     assert result.exit_code == 0, result.output
     assert calls == [{"kube_context": "limited-eks-openlakeforge-poc"}]
+
+
+def test_e2e_run_honors_provider_kubeconfig_path_override(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """A direct `olf e2e run --env aws` invocation with only the documented
+    `AWS_KUBECONFIG_PATH` override set (no bare `KUBECONFIG`) must still
+    target that file - this command exports `KUBECONFIG` via
+    `applied_contract_environment` before `_runner.configure_kubeconfig`
+    ever runs, so it has to resolve the same provider-override precedence
+    itself or it would shadow the override with the plain default path.
+    """
+    override = tmp_path / "custom/aws-kubeconfig.yaml"
+    seen: dict = {}
+
+    def _fake_run(env, *, suite, namespace, kube_context, repo_root):  # noqa: ANN001, ARG001
+        seen["kubeconfig"] = os.environ.get("KUBECONFIG")
+
+    monkeypatch.setenv("OPENLAKEFORGE_REPO_ROOT", str(tmp_path))
+    monkeypatch.setenv("AWS_KUBECONFIG_PATH", str(override))
+    monkeypatch.delenv("KUBECONFIG", raising=False)
+    monkeypatch.setattr("olf.e2e.run", _fake_run)
+
+    result = runner.invoke(app, ["e2e", "run", "--env", "aws"])
+
+    assert result.exit_code == 0, result.output
+    assert seen["kubeconfig"] == str(override)
 
 
 def test_e2e_run_maps_e2e_error_to_exit_1(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
