@@ -56,6 +56,8 @@ def _uv_pip_install(*, target: Path, requirements: list[str], cwd: Path) -> None
 @app.command("structure")
 def structure(repo_root: str = typer.Option("", "--repo-root", help="Checkout root to validate.")) -> None:
     """Validate the essential repository skeleton and prohibit shell scripts."""
+    from olf.dashboard_checks import validate_superset_assets
+
     root = _root(repo_root)
     required = (
         "README.md",
@@ -84,6 +86,9 @@ def structure(repo_root: str = typer.Option("", "--repo-root", help="Checkout ro
             *(f"shell script is forbidden: {path.relative_to(root)}" for path in scripts),
         ]
         raise typer.Exit(code=fail("\n".join(details)))
+    dashboard_errors = validate_superset_assets(root)
+    if dashboard_errors:
+        raise typer.Exit(code=fail("\n".join(dashboard_errors)))
     typer.echo("Repository structure is valid.")
 
 
@@ -131,7 +136,11 @@ def infra(repo_root: str = typer.Option("", "--repo-root", help="Checkout root t
     tools.runner.run([terraform, "fmt", "-check", "-recursive", str(root / "infra/terraform")], stream_output=True)
     for relative in roots:
         directory = root / relative
-        tools.terraform.init(directory, extra_args=("-backend=false", "-input=false"), env=env)
+        tools.terraform.init(
+            directory,
+            extra_args=("-backend=false", "-input=false", "-lockfile=readonly"),
+            env=env,
+        )
         tools.runner.run([terraform, f"-chdir={directory}", "validate"], env=env, stream_output=True)
     charts = (
         ("seaweedfs", "seaweedfs/seaweedfs", "4.23.0", "infra/helm/values/local/seaweedfs.yaml"),
@@ -152,16 +161,83 @@ def infra(repo_root: str = typer.Option("", "--repo-root", help="Checkout root t
     tools.helm.repo_update(env=env)
     helm = str(tools.resolver.resolve("helm"))
     for release_name, chart, version, values in charts:
+        args = [
+            helm,
+            "template",
+            release_name,
+            chart,
+            "--version",
+            version,
+            "--namespace",
+            "lakehouse",
+            "--values",
+            str(root / values),
+        ]
+        if release_name == "superset":
+            args.extend(_superset_template_overrides())
         result = tools.runner.run(
-            [
-                helm, "template", release_name, chart, "--version", version,
-                "--namespace", "lakehouse", "--values", str(root / values),
-            ],
+            args,
             env=env,
         )
         if release_name == "polaris" and "polaris.persistence.type=relational-jdbc" not in result.stdout:
             raise typer.Exit(code=fail("rendered Polaris chart is not configured for relational JDBC persistence"))
+        if release_name == "superset":
+            _validate_superset_render(result.stdout)
     typer.echo("Infrastructure checks passed.")
+
+
+def _superset_template_overrides() -> list[str]:
+    """Mirror the Terraform Helm release inputs for local Superset rendering."""
+    return [
+        "--set",
+        "image.repository=ghcr.io/openlakeforge/superset",
+        "--set",
+        "image.tag=local",
+        "--set",
+        "image.pullPolicy=Never",
+        "--set",
+        "extraSecretEnv.SUPERSET_SECRET_KEY=check",
+        "--set",
+        "supersetNode.connections.db_host=postgresql",
+        "--set",
+        "supersetNode.connections.db_port=5432",
+        "--set",
+        "supersetNode.connections.db_user=superset",
+        "--set",
+        "supersetNode.connections.db_pass=check",
+        "--set",
+        "supersetNode.connections.db_name=superset",
+        "--set-json",
+        'extraVolumes=[{"name":"superset-reports","emptyDir":{"sizeLimit":"1Gi"}}]',
+        "--set-json",
+        'extraVolumeMounts=[{"name":"superset-reports","mountPath":"/app/openlakeforge/reports"}]',
+    ]
+
+
+def _validate_superset_render(rendered: str) -> None:
+    """Require the Terraform-owned ephemeral reports volume in rendered manifests."""
+    documents = [item for item in yaml.safe_load_all(rendered) if isinstance(item, dict)]
+    reports_volume = False
+    reports_mount = False
+    reports_pvc = False
+    for document in documents:
+        metadata = document.get("metadata", {})
+        if document.get("kind") == "PersistentVolumeClaim" and metadata.get("name") == "superset-reports":
+            reports_pvc = True
+        pod_spec = document.get("spec", {}).get("template", {}).get("spec", {})
+        for volume in pod_spec.get("volumes", []):
+            if volume.get("name") == "superset-reports" and "emptyDir" in volume:
+                reports_volume = True
+        for container in pod_spec.get("containers", []):
+            for mount in container.get("volumeMounts", []):
+                if mount.get("name") == "superset-reports" and mount.get("mountPath") == "/app/openlakeforge/reports":
+                    reports_mount = True
+    if not reports_volume or not reports_mount or reports_pvc:
+        raise typer.Exit(
+            code=fail(
+                "rendered Superset chart must include the superset-reports emptyDir and mount, without a reports PVC"
+            )
+        )
 
 
 @app.command("lockfiles")
@@ -213,9 +289,17 @@ def _check_compiled_lock(path: Path, *, uv: str, root: Path) -> None:
 def project_code(repo_root: str = typer.Option("", "--repo-root", help="Checkout root to validate.")) -> None:
     """Load the merged Dagster definitions in the project-code dependency set."""
     root = _root(repo_root)
+    if sys.version_info[:2] != (3, 12):
+        raise typer.Exit(
+            code=fail(
+                "project-code check requires Python >=3.12,<3.13; "
+                f"found {sys.version_info[0]}.{sys.version_info[1]}"
+            )
+        )
     cache = root / ".cache/project-code-check"
-    digest = hashlib.sha256((root / "images/project-code/pyproject.toml").read_bytes()).hexdigest()[:16]
-    site = cache / f"py{sys.version_info.major}{sys.version_info.minor}-{digest}" / "site"
+    project_digest = hashlib.sha256((root / "images/project-code/pyproject.toml").read_bytes()).hexdigest()[:16]
+    domain_digest = _source_tree_digest(root / "packages/domain-model")
+    site = cache / f"py{sys.version_info.major}{sys.version_info.minor}-{project_digest}-{domain_digest}" / "site"
     if not (site / ".complete").is_file():
         site.mkdir(parents=True, exist_ok=True)
         pyproject = tomllib.loads((root / "images/project-code/pyproject.toml").read_text())
@@ -235,6 +319,15 @@ def project_code(repo_root: str = typer.Option("", "--repo-root", help="Checkout
         "OPENLAKEFORGE_RUN_ARTIFACT_BASE_URI": "s3://openlakeforge-ops/runs",
     }
     _run([sys.executable, "-m", "olf.project_code_check", str(root)], cwd=root, env=env)
+
+
+def _source_tree_digest(directory: Path) -> str:
+    """Hash source paths and contents so editable project dependencies cannot go stale."""
+    digest = hashlib.sha256()
+    for path in sorted(item for item in directory.rglob("*") if item.is_file()):
+        digest.update(path.relative_to(directory).as_posix().encode())
+        digest.update(path.read_bytes())
+    return digest.hexdigest()[:16]
 
 
 @app.command("dbt")
