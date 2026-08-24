@@ -864,6 +864,65 @@ def test_running_the_same_command_twice_is_refused_not_reapplied(tmp_path: Path)
     assert (repo_root / "lakehouse_code" / "lakehouse.yaml").read_text() == lakehouse_after_first
 
 
+def test_write_rolls_back_a_partial_write_on_filesystem_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`_verify` proves a plan valid, but a filesystem-level failure
+    (permission denied, disk full, ...) partway through the real write is
+    still possible and can't be pre-checked. On that failure, every file
+    already created this call must be deleted, and every edited file's
+    original content restored -- not left stranded for a retry to trip
+    over "refusing to overwrite existing file(s)"."""
+    repo_root = _seed_repo(tmp_path)
+    source_plan = plan_source_new(repo_root, source="workday", display_name=None, resources=("employees", "absences"))
+    commit_plan(repo_root, source_plan)
+    domain_plan = plan_domain_new(repo_root, domain="hr", display_name="HR", inputs=(("workday", "employees"),))
+    commit_plan(repo_root, domain_plan)
+
+    plan = plan_product_new(
+        repo_root,
+        target="hr/headcount",
+        display_name=None,
+        silver_inputs=("employees",),
+        inputs=(("workday", "absences"),),
+        gold_tables=("mart_headcount",),
+        with_report=False,
+    )
+    assert plan.edits, "expected the Floe contract edit to exercise the edit-rollback path too"
+    contract_target = repo_root / plan.edits[0].relative_path
+    original_contract = contract_target.read_text(encoding="utf-8")
+    lakehouse_before = (repo_root / "lakehouse_code" / "lakehouse.yaml").read_text(encoding="utf-8")
+
+    from pathlib import Path as PathClass
+
+    real_write_text = PathClass.write_text
+    calls = {"count": 0}
+
+    def flaky_write_text(self, *args, **kwargs):
+        calls["count"] += 1
+        if calls["count"] == 3:
+            raise OSError("simulated disk failure")
+        return real_write_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(PathClass, "write_text", flaky_write_text)
+
+    with pytest.raises(OSError, match="simulated disk failure"):
+        commit_plan(repo_root, plan)
+
+    monkeypatch.undo()
+
+    for scaffold_file in plan.files:
+        assert not (repo_root / scaffold_file.relative_path).exists(), scaffold_file.relative_path
+    assert contract_target.read_text(encoding="utf-8") == original_contract
+    assert (repo_root / "lakehouse_code" / "lakehouse.yaml").read_text(encoding="utf-8") == lakehouse_before
+
+    # A retry after the transient failure clears must succeed cleanly.
+    commit_plan(repo_root, plan)
+    inventory = load_lakehouse_inventory(repo_root)
+    hr = next(d for d in inventory.domains if d.name == "hr")
+    assert "headcount" in {p.id for p in hr.products}
+
+
 # --------------------------------------------------------------------------
 # Cross-artifact consistency
 # --------------------------------------------------------------------------

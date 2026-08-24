@@ -116,11 +116,36 @@ def _verify(repo_root: Path, plan: ScaffoldPlan) -> None:
 
 
 def _write(repo_root: Path, plan: ScaffoldPlan) -> None:
-    for scaffold_file in (*plan.files, *plan.edits):
-        target = repo_root / scaffold_file.relative_path
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(scaffold_file.content, encoding="utf-8")
-    (repo_root / "lakehouse_code" / "lakehouse.yaml").write_text(plan.lakehouse_yaml, encoding="utf-8")
+    """Write every file in `plan`. `_verify` already proved the plan valid,
+    so failure here means a filesystem-level problem (permission denied,
+    disk full, a target that changed underneath us) that pre-checking
+    `.exists()` can't catch in advance. On any such failure, undo every
+    write already made this call -- delete each brand-new file
+    (`plan.files`), restore the pre-existing content of each edited file
+    (`plan.edits`) -- so a partial write never strands the repository in a
+    state a retry can't cleanly build on top of.
+    """
+    created: list[Path] = []
+    original_edit_content: dict[Path, str] = {}
+    try:
+        for scaffold_file in plan.edits:
+            target = repo_root / scaffold_file.relative_path
+            original_edit_content[target] = target.read_text(encoding="utf-8")
+        for scaffold_file in plan.files:
+            target = repo_root / scaffold_file.relative_path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(scaffold_file.content, encoding="utf-8")
+            created.append(target)
+        for scaffold_file in plan.edits:
+            target = repo_root / scaffold_file.relative_path
+            target.write_text(scaffold_file.content, encoding="utf-8")
+        (repo_root / "lakehouse_code" / "lakehouse.yaml").write_text(plan.lakehouse_yaml, encoding="utf-8")
+    except OSError:
+        for target in created:
+            target.unlink(missing_ok=True)
+        for target, content in original_edit_content.items():
+            target.write_text(content, encoding="utf-8")
+        raise
 
 
 def commit_plan(repo_root: Path, plan: ScaffoldPlan) -> None:
