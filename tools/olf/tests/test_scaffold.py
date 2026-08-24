@@ -377,6 +377,12 @@ def test_product_new_with_report_generates_superset_skeleton_and_registers_dashb
 
     inventory = load_lakehouse_inventory(repo_root)
     assert any(d.name == "order_summary" and d.products == ("order_summary",) for d in inventory.dashboards)
+    # This dashboard is not inventory.dashboards[0] (two dashboards already exist),
+    # so `export-reports`' default-to-first-dashboard behavior would silently target
+    # the wrong bundle unless the README tells the user to pin SUPERSET_REPORT_SOURCE_DIR.
+    assert inventory.dashboards[0].name != "order_summary"
+    readme = (dashboard_dir / "README.md").read_text(encoding="utf-8")
+    assert "SUPERSET_REPORT_SOURCE_DIR=lakehouse_code/dashboards/superset/order_summary" in readme
 
 
 def test_product_new_with_report_handles_an_inline_empty_dashboards_list(tmp_path: Path) -> None:

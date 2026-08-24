@@ -47,11 +47,12 @@ mart_campaign_performance
 
 # Fast path: the scaffold
 
-`olf` generates this exact file tree for you:
+`olf` generates this exact file tree for you. Run it via `uv run --project tools/olf
+olf ...` (there is no repository-wide `olf` install on `PATH`):
 
 ```bash
-olf source new marketing_platform --resource campaigns
-olf product new marketing/campaign_performance \
+uv run --project tools/olf olf source new marketing_platform --resource campaigns
+uv run --project tools/olf olf product new marketing/campaign_performance \
   --input marketing_platform/campaigns \
   --gold-table mart_campaign_performance
 ```
@@ -64,14 +65,15 @@ A domain can also be created up front, ahead of any product — useful when you 
 Silver tables you want before you know what will consume them:
 
 ```bash
-olf domain new hr --input workday/employees
+uv run --project tools/olf olf domain new hr --input workday/employees
 # ... later, once you know what product to build:
-olf product new hr/headcount --silver-input employees --gold-table mart_headcount_by_org
+uv run --project tools/olf olf product new hr/headcount \
+  --silver-input employees --gold-table mart_headcount_by_org
 ```
 
-Run `olf source new --help`, `olf domain new --help`, and `olf product new --help` for
-the full flag reference, including `--with-report` to also scaffold a Superset report
-skeleton.
+Run `uv run --project tools/olf olf source new --help` (and the `domain`/`product`
+equivalents) for the full flag reference, including `--with-report` to also scaffold a
+Superset report skeleton.
 
 The rest of this tutorial builds the same `campaign_performance` product by hand, file
 by file. Read it to understand *what* the scaffold generates and *why* — the generated

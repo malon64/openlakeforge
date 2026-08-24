@@ -232,7 +232,9 @@ def plan_product_new(
         product_files.append(
             ScaffoldFile(
                 f"{dashboard_dir}/README.md",
-                _templates.render_superset_readme(display_name=resolved_display_name),
+                _templates.render_superset_readme(
+                    display_name=resolved_display_name, report_source_dir=dashboard_dir
+                ),
             )
         )
         lakehouse_text = _lakehouse_edit.add_dashboard(

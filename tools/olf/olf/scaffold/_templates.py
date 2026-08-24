@@ -349,14 +349,22 @@ database_uuid: {_SUPERSET_TRINO_DATABASE_UUID}
 '''
 
 
-def render_superset_readme(*, display_name: str) -> str:
+def render_superset_readme(*, display_name: str, report_source_dir: str) -> str:
     return f"""# {display_name} Superset Assets
 
 Scaffolded by `olf product new --with-report`. This bundle registers the
 Gold mart dataset(s) and a Trino database connection; it does not include a
 dashboard layout or charts, which the scaffold cannot generate meaningfully.
 
-Build the dashboard in Superset, then export it back into this directory
-(`olf superset export-reports`) so it round-trips through version control like
-the other checked-in dashboards.
+Build the dashboard in Superset, then export it back into this directory.
+`export-reports` defaults to the lakehouse's *first* declared dashboard, so
+target this one explicitly with `SUPERSET_REPORT_SOURCE_DIR` -- otherwise it
+silently re-exports into an unrelated, already-checked-in bundle instead of
+this one:
+
+```bash
+SUPERSET_REPORT_SOURCE_DIR={report_source_dir} \\
+SUPERSET_DASHBOARD_TITLE="<the title you gave it in Superset>" \\
+uv run --project tools/olf olf superset export-reports
+```
 """
