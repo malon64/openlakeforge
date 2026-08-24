@@ -65,6 +65,7 @@ A domain can also be created up front, ahead of any product — useful when you 
 Silver tables you want before you know what will consume them:
 
 ```bash
+uv run --project tools/olf olf source new workday --resource employees
 uv run --project tools/olf olf domain new hr --input workday/employees
 # ... later, once you know what product to build:
 uv run --project tools/olf olf product new hr/headcount \

@@ -923,6 +923,45 @@ def test_write_rolls_back_a_partial_write_on_filesystem_failure(
     assert "headcount" in {p.id for p in hr.products}
 
 
+def test_write_restores_lakehouse_yaml_when_its_own_write_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """lakehouse.yaml's write is the last step of `_write`, not a special
+    case exempt from rollback -- if it fails partway through (e.g. the disk
+    fills while writing it), its own original content must be restored too,
+    not just the new files created earlier in the same call."""
+    repo_root = _seed_repo(tmp_path)
+    lakehouse_path = repo_root / "lakehouse_code" / "lakehouse.yaml"
+    lakehouse_before = lakehouse_path.read_text(encoding="utf-8")
+
+    plan = plan_source_new(repo_root, source="marketing_platform", display_name=None, resources=("campaigns",))
+
+    from pathlib import Path as PathClass
+
+    real_write_text = PathClass.write_text
+
+    def flaky_write_text(self, *args, **kwargs):
+        if self == lakehouse_path:
+            raise OSError("simulated disk failure writing lakehouse.yaml")
+        return real_write_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(PathClass, "write_text", flaky_write_text)
+
+    with pytest.raises(OSError, match="simulated disk failure writing lakehouse.yaml"):
+        commit_plan(repo_root, plan)
+
+    monkeypatch.undo()
+
+    assert lakehouse_path.read_text(encoding="utf-8") == lakehouse_before
+    for scaffold_file in plan.files:
+        assert not (repo_root / scaffold_file.relative_path).exists(), scaffold_file.relative_path
+
+    # A retry after the transient failure clears must succeed cleanly.
+    commit_plan(repo_root, plan)
+    inventory = load_lakehouse_inventory(repo_root)
+    assert "marketing_platform" in inventory.source_names
+
+
 # --------------------------------------------------------------------------
 # Cross-artifact consistency
 # --------------------------------------------------------------------------

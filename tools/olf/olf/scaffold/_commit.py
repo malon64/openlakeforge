@@ -125,8 +125,13 @@ def _write(repo_root: Path, plan: ScaffoldPlan) -> None:
     (`plan.edits`) -- so a partial write never strands the repository in a
     state a retry can't cleanly build on top of.
     """
+    lakehouse_target = repo_root / "lakehouse_code" / "lakehouse.yaml"
     created: list[Path] = []
-    original_edit_content: dict[Path, str] = {}
+    # lakehouse.yaml is itself an edit to a pre-existing file -- its
+    # original content must be saved and restorable exactly like the other
+    # edits (e.g. a Floe contract), not treated as a special last step that
+    # a failure partway through its own write would leave corrupted.
+    original_edit_content: dict[Path, str] = {lakehouse_target: lakehouse_target.read_text(encoding="utf-8")}
     try:
         for scaffold_file in plan.edits:
             target = repo_root / scaffold_file.relative_path
@@ -139,7 +144,7 @@ def _write(repo_root: Path, plan: ScaffoldPlan) -> None:
         for scaffold_file in plan.edits:
             target = repo_root / scaffold_file.relative_path
             target.write_text(scaffold_file.content, encoding="utf-8")
-        (repo_root / "lakehouse_code" / "lakehouse.yaml").write_text(plan.lakehouse_yaml, encoding="utf-8")
+        lakehouse_target.write_text(plan.lakehouse_yaml, encoding="utf-8")
     except OSError:
         for target in created:
             target.unlink(missing_ok=True)
