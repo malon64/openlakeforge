@@ -158,6 +158,37 @@ def test_resolve_foundation_facts_falls_back_to_acr_login_server_prefix_when_acr
     assert facts.superset_repository == "openlakeforgepoc.azurecr.io/openlakeforge/superset"
 
 
+def test_resolve_foundation_facts_tolerates_missing_acr_login_server_output(tmp_path: Path) -> None:
+    """A foundation apply that failed before `acr_login_server` was
+    recorded (or an older/custom foundation that omits it) must not block
+    teardown/status/forward/platform-down - none of those operations ever
+    reads the registry facts; only resolve_effective_images does, as an
+    optional fallback behind explicit repository overrides.
+    """
+    backend = AzureBackend()
+    foundation_dir = tmp_path / "infra/terraform/foundations/azure-aks"
+
+    class _PartialOutputRunner(RecordingRunner):
+        def run(self, command, **kwargs):  # type: ignore[override]
+            argv = list(command.argv) if hasattr(command, "argv") else [str(p) for p in command]
+            self.calls.append(RecordedCall(argv=argv, kwargs=kwargs))
+            name = argv[-1]
+            if name in ("acr_login_server", "acr_name"):
+                raise CommandExecutionError(argv, 1, stderr=f"no output named {name!r}")
+            outputs = {"resource_group_name": "openlakeforge-poc-rg", "cluster_name": "aks-openlakeforge-poc"}
+            return _ok(outputs[name])
+
+    tools = _toolkit(_PartialOutputRunner())
+
+    facts = backend.resolve_foundation_facts(tools, foundation_terraform_dir=foundation_dir, env={})
+
+    assert facts.cluster_name == "aks-openlakeforge-poc"
+    assert facts.azure_resource_group == "openlakeforge-poc-rg"
+    assert facts.azure_acr_name == ""
+    assert facts.project_code_repository == "/openlakeforge/project-code"
+    assert facts.superset_repository == "/openlakeforge/superset"
+
+
 def test_resolve_foundation_facts_uses_acr_name_output_when_present(tmp_path: Path) -> None:
     backend = AzureBackend()
     foundation_dir = tmp_path / "infra/terraform/foundations/azure-aks"

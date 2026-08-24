@@ -11,7 +11,7 @@ from collections.abc import Mapping
 from pathlib import Path
 
 from olf import log
-from olf.deployment.cloud.backend import FoundationFacts
+from olf.deployment.cloud.backend import FoundationFacts, output_raw_or_empty
 from olf.deployment.cloud.config import CloudDeploymentConfig
 from olf.deployment.engine import Toolkit
 from olf.deployment.env_settings import env as _env
@@ -73,13 +73,26 @@ class AwsBackend:
     def resolve_foundation_facts(
         self, tools: Toolkit, *, foundation_terraform_dir: Path, env: Mapping[str, str]
     ) -> FoundationFacts:
+        """Resolve cluster identity strictly; resolve registry endpoints leniently.
+
+        `cluster_name`/`aws_region` are required by every operation (they
+        drive the kubeconfig/kube_context every command needs). The ECR
+        repository outputs are only ever consumed as a fallback in
+        `resolve_effective_images`, used solely by `platform_up`/
+        `artifacts_deploy` - the removed `teardown.sh`/`platform-down`/
+        status/forward paths never read them. A foundation apply that left
+        the cluster in state but failed before those outputs were recorded
+        (or an older/custom foundation that omits them, with explicit image
+        overrides supplied instead) must not block recovery commands that
+        don't need a registry at all.
+        """
         cluster_name = tools.terraform.output_raw(foundation_terraform_dir, "cluster_name", env=env)
         aws_region = tools.terraform.output_raw(foundation_terraform_dir, "aws_region", env=env)
-        project_code_repository = tools.terraform.output_raw(
-            foundation_terraform_dir, "project_code_ecr_repository_url", env=env
+        project_code_repository = output_raw_or_empty(
+            tools, foundation_terraform_dir, "project_code_ecr_repository_url", env=env
         )
-        superset_repository = tools.terraform.output_raw(
-            foundation_terraform_dir, "superset_ecr_repository_url", env=env
+        superset_repository = output_raw_or_empty(
+            tools, foundation_terraform_dir, "superset_ecr_repository_url", env=env
         )
         return FoundationFacts(
             cluster_name=cluster_name,

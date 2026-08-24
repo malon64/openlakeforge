@@ -12,7 +12,7 @@ from collections.abc import Mapping
 from pathlib import Path
 
 from olf import log
-from olf.deployment.cloud.backend import FoundationFacts
+from olf.deployment.cloud.backend import FoundationFacts, output_raw_or_empty
 from olf.deployment.cloud.config import CloudDeploymentConfig
 from olf.deployment.engine import Toolkit
 from olf.deployment.env_settings import env as _env
@@ -77,13 +77,21 @@ class AzureBackend:
     def resolve_foundation_facts(
         self, tools: Toolkit, *, foundation_terraform_dir: Path, env: Mapping[str, str]
     ) -> FoundationFacts:
+        """Resolve cluster identity strictly; resolve registry endpoints leniently.
+
+        `resource_group_name`/`cluster_name` are required by every
+        operation (they drive the kubeconfig/kube_context every command
+        needs). `acr_login_server`/`acr_name` are only ever consumed as a
+        fallback in `resolve_effective_images`, used solely by
+        `platform_up`/`artifacts_deploy` - the removed `teardown.sh`/
+        `platform-down`/status/forward paths never read them, so a
+        foundation missing (or not yet recording) that output must not
+        block recovery commands that don't need a registry at all.
+        """
         resource_group = tools.terraform.output_raw(foundation_terraform_dir, "resource_group_name", env=env)
         cluster_name = tools.terraform.output_raw(foundation_terraform_dir, "cluster_name", env=env)
-        acr_login_server = tools.terraform.output_raw(foundation_terraform_dir, "acr_login_server", env=env)
-        try:
-            acr_name = tools.terraform.output_raw(foundation_terraform_dir, "acr_name", env=env)
-        except CommandExecutionError:
-            acr_name = ""
+        acr_login_server = output_raw_or_empty(tools, foundation_terraform_dir, "acr_login_server", env=env)
+        acr_name = output_raw_or_empty(tools, foundation_terraform_dir, "acr_name", env=env)
         if not acr_name:
             acr_name = acr_login_server.split(".", 1)[0]
 

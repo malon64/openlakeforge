@@ -137,6 +137,37 @@ def test_resolve_foundation_facts_reads_all_four_outputs(tmp_path: Path) -> None
     assert facts.superset_repository == "123.dkr.ecr.eu-west-1.amazonaws.com/superset"
 
 
+def test_resolve_foundation_facts_tolerates_missing_registry_outputs(tmp_path: Path) -> None:
+    """A foundation apply that left the cluster in state but failed before
+    the ECR repository outputs were recorded (or an older/custom foundation
+    that omits them) must not block teardown/status/forward/platform-down -
+    none of those operations ever reads the registry facts; only
+    resolve_effective_images does, as an optional fallback behind explicit
+    repository overrides.
+    """
+    backend = AwsBackend()
+    foundation_dir = tmp_path / "infra/terraform/foundations/aws-eks"
+
+    class _PartialOutputRunner(RecordingRunner):
+        def run(self, command, **kwargs):  # type: ignore[override]
+            argv = list(command.argv) if hasattr(command, "argv") else [str(p) for p in command]
+            self.calls.append(RecordedCall(argv=argv, kwargs=kwargs))
+            name = argv[-1]
+            if name in ("project_code_ecr_repository_url", "superset_ecr_repository_url"):
+                raise CommandExecutionError(argv, 1, stderr=f"no output named {name!r}")
+            outputs = {"cluster_name": "eks-openlakeforge-poc", "aws_region": "eu-west-1"}
+            return _ok(outputs[name])
+
+    tools = _toolkit(_PartialOutputRunner())
+
+    facts = backend.resolve_foundation_facts(tools, foundation_terraform_dir=foundation_dir, env={})
+
+    assert facts.cluster_name == "eks-openlakeforge-poc"
+    assert facts.aws_region == "eu-west-1"
+    assert facts.project_code_repository == ""
+    assert facts.superset_repository == ""
+
+
 def test_update_kubeconfig_uses_eks_update_kubeconfig_with_alias(tmp_path: Path) -> None:
     backend = AwsBackend()
     runner = RecordingRunner(_ok())

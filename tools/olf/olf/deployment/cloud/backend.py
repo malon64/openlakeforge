@@ -20,7 +20,25 @@ from typing import Protocol
 
 from olf.deployment.cloud.config import CloudDeploymentConfig
 from olf.deployment.engine import Toolkit
+from olf.deployment.errors import CommandExecutionError
 from olf.deployment.portforward import ForwardTarget
+
+
+def output_raw_or_empty(tools: Toolkit, terraform_dir: Path, name: str, *, env: Mapping[str, str]) -> str:
+    """`terraform output -raw`, treating a missing/unset output as absent rather than fatal.
+
+    Used only for registry-related foundation outputs (ECR repository URLs,
+    Azure's `acr_login_server`) - facts that `resolve_effective_images`
+    treats as an optional fallback behind explicit repository overrides,
+    and that recovery commands (teardown, status, forward, platform-down)
+    never need at all. Cluster-identity outputs (`cluster_name`,
+    `aws_region`, `resource_group_name`) stay required via the plain
+    `output_raw` call - every command needs them to reach the cluster.
+    """
+    try:
+        return tools.terraform.output_raw(terraform_dir, name, env=env)
+    except CommandExecutionError:
+        return ""
 
 
 @dataclass(frozen=True)
