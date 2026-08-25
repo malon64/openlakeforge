@@ -135,3 +135,18 @@ def test_verify_clean_checkout_uses_a_fresh_temporary_directory_per_run(tmp_path
     assert len(clone_paths) == 2
     assert clone_paths[0] != clone_paths[1]
     assert all(not path.exists() for path in clone_paths)
+
+
+def test_cached_release_assets_are_refreshed_when_the_tag_changes(tmp_path: Path) -> None:
+    (tmp_path / "checksums.txt").write_text("checksum")
+    (tmp_path / "component-manifest.json").write_text('{"distribution": {"tag": "v0.1.0"}}')
+
+    assert release._cached_assets_match_tag(tmp_path, "v0.1.0") is True
+    assert release._cached_assets_match_tag(tmp_path, "v0.2.0") is False
+
+
+def test_cached_release_assets_without_a_valid_manifest_are_refreshed(tmp_path: Path) -> None:
+    (tmp_path / "checksums.txt").write_text("checksum")
+    (tmp_path / "component-manifest.json").write_text("not json")
+
+    assert release._cached_assets_match_tag(tmp_path, "v0.1.0") is False

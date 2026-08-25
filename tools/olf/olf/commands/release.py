@@ -217,7 +217,7 @@ def verify_install(
     resolved_tag = tag or f"v{catalog['distribution']['version']}"
     tools = Toolkit.default()
     try:
-        if not (directory / "checksums.txt").is_file():
+        if not _cached_assets_match_tag(directory, resolved_tag):
             directory.mkdir(parents=True, exist_ok=True)
             tools.runner.run(
                 [
@@ -252,6 +252,18 @@ def verify_install(
     except DeploymentError as exc:
         raise typer.Exit(code=fail(str(exc))) from exc
     typer.echo(f"Verified authenticated OpenLakeForge release {resolved_tag}.")
+
+
+def _cached_assets_match_tag(directory: Path, tag: str) -> bool:
+    """Return whether a persistent release-asset cache belongs to ``tag``."""
+    if not (directory / "checksums.txt").is_file():
+        return False
+    try:
+        manifest = json.loads((directory / "component-manifest.json").read_text())
+    except (OSError, json.JSONDecodeError):
+        return False
+    distribution = manifest.get("distribution") if isinstance(manifest, dict) else None
+    return isinstance(distribution, dict) and distribution.get("tag") == tag
 
 
 def _release_identity(repo_slug: str, tag: str) -> str:
