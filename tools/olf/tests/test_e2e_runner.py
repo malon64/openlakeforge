@@ -283,6 +283,7 @@ def test_terraform_output_json_reads_location_list(monkeypatch: pytest.MonkeyPat
 
 def test_terraform_output_json_rejects_invalid_json(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr(_shell, "_run", lambda *_args, **_kwargs: "not-json")
+    monkeypatch.setattr(_shell, "_terraform_executable", lambda: "terraform")
 
     with pytest.raises(E2EError, match="not valid JSON"):
         _shell.terraform_output_json(tmp_path / "contract", "dagster_code_location_names")

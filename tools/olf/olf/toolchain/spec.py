@@ -14,6 +14,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Literal
 
+from olf.toolchain.errors import ToolchainError
 from olf.toolchain.platform import Platform
 
 ArchiveKind = Literal["zip", "tar.gz", "raw"]
@@ -23,7 +24,7 @@ MANAGED_TOOLS: tuple[str, ...] = ("terraform", "helm", "kubectl", "kind")
 _SHA256_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 
 
-class ToolchainCatalogError(ValueError):
+class ToolchainCatalogError(ToolchainError):
     """Raised when `components.toolchain` in the catalog is missing or malformed."""
 
 

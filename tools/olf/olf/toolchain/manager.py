@@ -12,9 +12,11 @@ catalog's pinned version and digest.
 
 from __future__ import annotations
 
+import contextlib
+import fcntl
 import json
 import os
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -103,6 +105,31 @@ class ToolchainManager:
     def receipt_path(self) -> Path:
         return self.version_dir / RECEIPT_FILENAME
 
+    @property
+    def _lock_path(self) -> Path:
+        return self.version_dir / f"{RECEIPT_FILENAME}.lock"
+
+    @contextlib.contextmanager
+    def _locked_receipt(self) -> Iterator[None]:
+        """Serialize receipt read-modify-write across concurrent `olf`
+        processes sharing this `OLF_HOME` (e.g. two local invocations, or a
+        future parallel CI matrix sharing a persistent toolchain cache).
+
+        Without this, two processes racing to provision the same
+        never-before-installed toolchain can each read an empty receipt,
+        install their own tool, and then clobber each other's write - the
+        loser's tool entry is silently discarded, forcing a wasteful
+        reprovision next run. `flock` is POSIX-only, matching this
+        project's darwin/linux-only `Platform` support.
+        """
+        self._lock_path.parent.mkdir(parents=True, exist_ok=True)
+        with self._lock_path.open("a+") as lock_file:
+            fcntl.flock(lock_file, fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(lock_file, fcntl.LOCK_UN)
+
     def _read_receipt(self) -> dict[str, Any]:
         if not self.receipt_path.is_file():
             return {}
@@ -113,7 +140,10 @@ class ToolchainManager:
 
     def _write_receipt(self, receipt: Mapping[str, Any]) -> None:
         self.receipt_path.parent.mkdir(parents=True, exist_ok=True)
-        tmp_path = self.receipt_path.with_suffix(".json.tmp")
+        # A PID-scoped tmp name, not a shared `.json.tmp`, so two processes
+        # racing here can never unlink or rename over each other's staged
+        # write - only the locked read-modify-write above needs exclusivity.
+        tmp_path = self.receipt_path.with_name(f"{RECEIPT_FILENAME}.{os.getpid()}.tmp")
         tmp_path.write_text(json.dumps(dict(receipt), indent=2, sort_keys=True))
         os.replace(tmp_path, self.receipt_path)
 
@@ -139,9 +169,10 @@ class ToolchainManager:
         archive_path = fetch_verified(self.downloader, spec, cache_root=self.cache_root)
         activated = install_archive(archive_path, spec, bin_dir=self.bin_dir)
 
-        receipt = self._read_receipt()
-        receipt[tool] = {"version": spec.version, "sha256": spec.sha256}
-        self._write_receipt(receipt)
+        with self._locked_receipt():
+            receipt = self._read_receipt()
+            receipt[tool] = {"version": spec.version, "sha256": spec.sha256}
+            self._write_receipt(receipt)
         return activated
 
     def ensure_all(self) -> dict[str, Path]:

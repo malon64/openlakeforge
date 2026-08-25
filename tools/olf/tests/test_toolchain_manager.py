@@ -249,3 +249,34 @@ def test_prune_never_removes_anything_outside_olf_home(tmp_path: Path) -> None:
 
     assert outside.is_dir()
     assert (outside / "marker.txt").is_file()
+
+
+def test_concurrent_resolves_of_different_tools_do_not_clobber_each_others_receipt(tmp_path: Path) -> None:
+    """Two `olf` processes (simulated here as threads sharing one manager,
+    which is the realistic shape of the race - independent `ToolchainManager`
+    instances pointed at the same `OLF_HOME`) provisioning different tools at
+    the same time must not lose either receipt entry, and must never crash
+    on the temp-file rename `_write_receipt` performs.
+    """
+    import threading
+
+    manager, _ = _manager(tmp_path)
+    errors: list[BaseException] = []
+    barrier = threading.Barrier(2)
+
+    def _resolve(tool: str) -> None:
+        barrier.wait(timeout=5)
+        try:
+            manager.resolve(tool)
+        except BaseException as exc:  # noqa: BLE001 - captured for the assertion below
+            errors.append(exc)
+
+    threads = [threading.Thread(target=_resolve, args=(tool,)) for tool in ("terraform", "helm")]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=10)
+
+    assert not errors, errors
+    receipt = json.loads(manager.receipt_path.read_text())
+    assert set(receipt) == {"terraform", "helm"}

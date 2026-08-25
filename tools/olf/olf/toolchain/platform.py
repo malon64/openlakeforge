@@ -9,8 +9,10 @@ from __future__ import annotations
 import platform as _platform
 from dataclasses import dataclass
 
+from olf.toolchain.errors import ToolchainError
 
-class UnsupportedPlatformError(RuntimeError):
+
+class UnsupportedPlatformError(ToolchainError):
     """Raised when the host OS/architecture has no managed toolchain build."""
 
     def __init__(self, system: str, machine: str) -> None:
