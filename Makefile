@@ -13,6 +13,8 @@ E2E_SUITE ?= full
 SMOKE_TIMEOUT_SECONDS ?= 2700
 AZURE_KUBECONFIG_PATH ?= $(CURDIR)/.tmp/kubeconfigs/azure.yaml
 AWS_KUBECONFIG_PATH ?= $(CURDIR)/.tmp/kubeconfigs/aws.yaml
+AZURE_COMPAT_ENV = AZURE_CLUSTER_NAME="$(AZURE_CLUSTER_NAME)" AZURE_NODE_COUNT="$(AZURE_NODE_COUNT)" AZURE_ACR_NAME_PREFIX="$(AZURE_ACR_NAME_PREFIX)" AZURE_TFVARS_FILE="$(AZURE_TFVARS_FILE)" AZURE_IMAGE_TAG="$(AZURE_IMAGE_TAG)" AZURE_PROJECT_CODE_IMAGE_REPOSITORY="$(AZURE_PROJECT_CODE_IMAGE_REPOSITORY)" AZURE_PROJECT_CODE_IMAGE_TAG="$(AZURE_PROJECT_CODE_IMAGE_TAG)" AZURE_PROJECT_CODE_IMAGE_PULL_POLICY="$(AZURE_PROJECT_CODE_IMAGE_PULL_POLICY)" AZURE_SUPERSET_IMAGE_REPOSITORY="$(AZURE_SUPERSET_IMAGE_REPOSITORY)" AZURE_SUPERSET_IMAGE_TAG="$(AZURE_SUPERSET_IMAGE_TAG)" AZURE_SUPERSET_IMAGE_PULL_POLICY="$(AZURE_SUPERSET_IMAGE_PULL_POLICY)"
+AWS_COMPAT_ENV = AWS_REGION="$(AWS_REGION)" AWS_CLUSTER_NAME="$(AWS_CLUSTER_NAME)" AWS_NODE_DESIRED_SIZE="$(AWS_NODE_DESIRED_SIZE)" AWS_NODE_MIN_SIZE="$(AWS_NODE_MIN_SIZE)" AWS_NODE_MAX_SIZE="$(AWS_NODE_MAX_SIZE)" AWS_NODE_INSTANCE_TYPES="$(AWS_NODE_INSTANCE_TYPES)" AWS_TFVARS_FILE="$(AWS_TFVARS_FILE)" AWS_IMAGE_TAG="$(AWS_IMAGE_TAG)" AWS_PROJECT_CODE_IMAGE_REPOSITORY="$(AWS_PROJECT_CODE_IMAGE_REPOSITORY)" AWS_PROJECT_CODE_IMAGE_TAG="$(AWS_PROJECT_CODE_IMAGE_TAG)" AWS_PROJECT_CODE_IMAGE_PULL_POLICY="$(AWS_PROJECT_CODE_IMAGE_PULL_POLICY)" AWS_SUPERSET_IMAGE_REPOSITORY="$(AWS_SUPERSET_IMAGE_REPOSITORY)" AWS_SUPERSET_IMAGE_TAG="$(AWS_SUPERSET_IMAGE_TAG)" AWS_SUPERSET_IMAGE_PULL_POLICY="$(AWS_SUPERSET_IMAGE_PULL_POLICY)"
 
 help:
 	@$(OLF_BIN) --help
@@ -93,43 +95,43 @@ local-e2e:
 	@NAMESPACE="$(NAMESPACE)" CLUSTER_NAME="$(CLUSTER_NAME)" KUBE_CONTEXT="$(KUBE_CONTEXT)" KUBECONFIG="$(LOCAL_KUBECONFIG_PATH)" OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR=infra/terraform/environments/local $(OLF_BIN) e2e run --env local --suite $(E2E_SUITE)
 
 azure-foundation-up:
-	@$(OLF_BIN) deploy --provider azure --namespace $(NAMESPACE) --kubeconfig-path "$(AZURE_KUBECONFIG_PATH)" --phase foundation
+	@$(AZURE_COMPAT_ENV) $(OLF_BIN) deploy --provider azure --namespace $(NAMESPACE) --kubeconfig-path "$(AZURE_KUBECONFIG_PATH)" --phase foundation
 azure-platform-up:
-	@$(OLF_BIN) deploy --provider azure --namespace $(NAMESPACE) --kubeconfig-path "$(AZURE_KUBECONFIG_PATH)" --phase platform
+	@$(AZURE_COMPAT_ENV) $(OLF_BIN) deploy --provider azure --namespace $(NAMESPACE) --kubeconfig-path "$(AZURE_KUBECONFIG_PATH)" --phase platform
 azure-artifacts-deploy:
-	@$(OLF_BIN) deploy --provider azure --namespace $(NAMESPACE) --kubeconfig-path "$(AZURE_KUBECONFIG_PATH)" --phase artifacts
+	@$(AZURE_COMPAT_ENV) $(OLF_BIN) deploy --provider azure --namespace $(NAMESPACE) --kubeconfig-path "$(AZURE_KUBECONFIG_PATH)" --phase artifacts
 azure-up:
-	@$(OLF_BIN) deploy --provider azure --namespace $(NAMESPACE) --kubeconfig-path "$(AZURE_KUBECONFIG_PATH)"
+	@$(AZURE_COMPAT_ENV) $(OLF_BIN) deploy --provider azure --namespace $(NAMESPACE) --kubeconfig-path "$(AZURE_KUBECONFIG_PATH)"
 azure-status:
-	@$(OLF_BIN) status --provider azure --namespace $(NAMESPACE) --kubeconfig-path "$(AZURE_KUBECONFIG_PATH)"
+	@$(AZURE_COMPAT_ENV) $(OLF_BIN) status --provider azure --namespace $(NAMESPACE) --kubeconfig-path "$(AZURE_KUBECONFIG_PATH)"
 azure-forward:
-	@$(OLF_BIN) forward --provider azure --namespace $(NAMESPACE) --kubeconfig-path "$(AZURE_KUBECONFIG_PATH)"
+	@$(AZURE_COMPAT_ENV) $(OLF_BIN) forward --provider azure --namespace $(NAMESPACE) --kubeconfig-path "$(AZURE_KUBECONFIG_PATH)"
 azure-e2e:
 	@NAMESPACE="$(NAMESPACE)" AZURE_CLUSTER_NAME="$(AZURE_CLUSTER_NAME)" KUBECONFIG="$(AZURE_KUBECONFIG_PATH)" OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR=infra/terraform/environments/azure-poc $(OLF_BIN) e2e run --env azure
 azure-down:
-	@$(OLF_BIN) destroy --provider azure --namespace $(NAMESPACE) --kubeconfig-path "$(AZURE_KUBECONFIG_PATH)"
+	@$(AZURE_COMPAT_ENV) $(OLF_BIN) destroy --provider azure --namespace $(NAMESPACE) --kubeconfig-path "$(AZURE_KUBECONFIG_PATH)"
 azure-platform-down:
-	@$(OLF_BIN) destroy --provider azure --namespace $(NAMESPACE) --kubeconfig-path "$(AZURE_KUBECONFIG_PATH)" --phase platform
+	@$(AZURE_COMPAT_ENV) $(OLF_BIN) destroy --provider azure --namespace $(NAMESPACE) --kubeconfig-path "$(AZURE_KUBECONFIG_PATH)" --phase platform
 azure-foundation-down:
-	@$(OLF_BIN) destroy --provider azure --namespace $(NAMESPACE) --kubeconfig-path "$(AZURE_KUBECONFIG_PATH)" --phase foundation
+	@$(AZURE_COMPAT_ENV) $(OLF_BIN) destroy --provider azure --namespace $(NAMESPACE) --kubeconfig-path "$(AZURE_KUBECONFIG_PATH)" --phase foundation
 
 aws-foundation-up:
-	@$(OLF_BIN) deploy --provider aws --namespace $(NAMESPACE) --kubeconfig-path "$(AWS_KUBECONFIG_PATH)" --phase foundation
+	@$(AWS_COMPAT_ENV) $(OLF_BIN) deploy --provider aws --namespace $(NAMESPACE) --kubeconfig-path "$(AWS_KUBECONFIG_PATH)" --phase foundation
 aws-platform-up:
-	@$(OLF_BIN) deploy --provider aws --namespace $(NAMESPACE) --kubeconfig-path "$(AWS_KUBECONFIG_PATH)" --phase platform
+	@$(AWS_COMPAT_ENV) $(OLF_BIN) deploy --provider aws --namespace $(NAMESPACE) --kubeconfig-path "$(AWS_KUBECONFIG_PATH)" --phase platform
 aws-artifacts-deploy:
-	@$(OLF_BIN) deploy --provider aws --namespace $(NAMESPACE) --kubeconfig-path "$(AWS_KUBECONFIG_PATH)" --phase artifacts
+	@$(AWS_COMPAT_ENV) $(OLF_BIN) deploy --provider aws --namespace $(NAMESPACE) --kubeconfig-path "$(AWS_KUBECONFIG_PATH)" --phase artifacts
 aws-up:
-	@$(OLF_BIN) deploy --provider aws --namespace $(NAMESPACE) --kubeconfig-path "$(AWS_KUBECONFIG_PATH)"
+	@$(AWS_COMPAT_ENV) $(OLF_BIN) deploy --provider aws --namespace $(NAMESPACE) --kubeconfig-path "$(AWS_KUBECONFIG_PATH)"
 aws-status:
-	@$(OLF_BIN) status --provider aws --namespace $(NAMESPACE) --kubeconfig-path "$(AWS_KUBECONFIG_PATH)"
+	@$(AWS_COMPAT_ENV) $(OLF_BIN) status --provider aws --namespace $(NAMESPACE) --kubeconfig-path "$(AWS_KUBECONFIG_PATH)"
 aws-forward:
-	@$(OLF_BIN) forward --provider aws --namespace $(NAMESPACE) --kubeconfig-path "$(AWS_KUBECONFIG_PATH)"
+	@$(AWS_COMPAT_ENV) $(OLF_BIN) forward --provider aws --namespace $(NAMESPACE) --kubeconfig-path "$(AWS_KUBECONFIG_PATH)"
 aws-e2e:
 	@NAMESPACE="$(NAMESPACE)" AWS_REGION="$(AWS_REGION)" AWS_CLUSTER_NAME="$(AWS_CLUSTER_NAME)" KUBECONFIG="$(AWS_KUBECONFIG_PATH)" OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR=infra/terraform/environments/aws-poc $(OLF_BIN) e2e run --env aws
 aws-down:
-	@$(OLF_BIN) destroy --provider aws --namespace $(NAMESPACE) --kubeconfig-path "$(AWS_KUBECONFIG_PATH)"
+	@$(AWS_COMPAT_ENV) $(OLF_BIN) destroy --provider aws --namespace $(NAMESPACE) --kubeconfig-path "$(AWS_KUBECONFIG_PATH)"
 aws-platform-down:
-	@$(OLF_BIN) destroy --provider aws --namespace $(NAMESPACE) --kubeconfig-path "$(AWS_KUBECONFIG_PATH)" --phase platform
+	@$(AWS_COMPAT_ENV) $(OLF_BIN) destroy --provider aws --namespace $(NAMESPACE) --kubeconfig-path "$(AWS_KUBECONFIG_PATH)" --phase platform
 aws-foundation-down:
-	@$(OLF_BIN) destroy --provider aws --namespace $(NAMESPACE) --kubeconfig-path "$(AWS_KUBECONFIG_PATH)" --phase foundation
+	@$(AWS_COMPAT_ENV) $(OLF_BIN) destroy --provider aws --namespace $(NAMESPACE) --kubeconfig-path "$(AWS_KUBECONFIG_PATH)" --phase foundation

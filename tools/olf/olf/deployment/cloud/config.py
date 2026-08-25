@@ -61,6 +61,11 @@ def default_image_tag(repo_root: Path, *, scope: str) -> str:
     return f"{scope}-{_git_or_time_tag(repo_root)}"
 
 
+def _image_env(environ: Mapping[str, str], *, scope: str, name: str, default: str) -> str:
+    """Resolve generic image settings before their legacy provider-prefixed aliases."""
+    return _env(environ, name, _env(environ, f"{scope.upper()}_{name}", default))
+
+
 @dataclass(frozen=True)
 class CloudImageSettings:
     project_code_repository: str
@@ -97,18 +102,33 @@ class CloudImageSettings:
         the shell scripts' `${VAR:-$(terraform output ...)}` fallback.
         """
         return cls(
-            project_code_repository=_env(environ, "PROJECT_CODE_IMAGE_REPOSITORY", ""),
-            project_code_tag=_env(environ, "PROJECT_CODE_IMAGE_TAG", image_tag),
-            project_code_pull_policy=_env(environ, "PROJECT_CODE_IMAGE_PULL_POLICY", "Always"),
-            project_code_revision=_env(environ, "PROJECT_CODE_IMAGE_REVISION", "manual"),
-            project_code_python_base_image=_env(
-                environ, "PROJECT_CODE_PYTHON_BASE_IMAGE", _DEFAULT_PYTHON_BASE_IMAGE[scope]
+            project_code_repository=_image_env(
+                environ, scope=scope, name="PROJECT_CODE_IMAGE_REPOSITORY", default=""
             ),
-            project_code_dbt_profile_env=_env(environ, "PROJECT_CODE_DBT_PROFILE_ENV", scope),
-            superset_repository=_env(environ, "SUPERSET_IMAGE_REPOSITORY", ""),
-            superset_tag=_env(environ, "SUPERSET_IMAGE_TAG", image_tag),
-            superset_pull_policy=_env(environ, "SUPERSET_IMAGE_PULL_POLICY", "Always"),
-            superset_base_image=_env(environ, "SUPERSET_BASE_IMAGE", _DEFAULT_SUPERSET_BASE_IMAGE),
+            project_code_tag=_image_env(environ, scope=scope, name="PROJECT_CODE_IMAGE_TAG", default=image_tag),
+            project_code_pull_policy=_image_env(
+                environ, scope=scope, name="PROJECT_CODE_IMAGE_PULL_POLICY", default="Always"
+            ),
+            project_code_revision=_image_env(
+                environ, scope=scope, name="PROJECT_CODE_IMAGE_REVISION", default="manual"
+            ),
+            project_code_python_base_image=_image_env(
+                environ,
+                scope=scope,
+                name="PROJECT_CODE_PYTHON_BASE_IMAGE",
+                default=_DEFAULT_PYTHON_BASE_IMAGE[scope],
+            ),
+            project_code_dbt_profile_env=_image_env(
+                environ, scope=scope, name="PROJECT_CODE_DBT_PROFILE_ENV", default=scope
+            ),
+            superset_repository=_image_env(environ, scope=scope, name="SUPERSET_IMAGE_REPOSITORY", default=""),
+            superset_tag=_image_env(environ, scope=scope, name="SUPERSET_IMAGE_TAG", default=image_tag),
+            superset_pull_policy=_image_env(
+                environ, scope=scope, name="SUPERSET_IMAGE_PULL_POLICY", default="Always"
+            ),
+            superset_base_image=_image_env(
+                environ, scope=scope, name="SUPERSET_BASE_IMAGE", default=_DEFAULT_SUPERSET_BASE_IMAGE
+            ),
             image_platform=_env(environ, f"{scope.upper()}_IMAGE_PLATFORM", "linux/amd64"),
             pull_retry=_retry_policy(
                 environ, specific_attempts="DOCKER_PULL_ATTEMPTS", specific_delay="DOCKER_PULL_RETRY_DELAY_SECONDS"

@@ -9,6 +9,7 @@ import time
 from collections.abc import Callable, Mapping
 from contextlib import contextmanager
 from pathlib import Path
+from unittest.mock import patch
 
 from olf import config, e2e, log
 from olf.deployment.context import DeploymentContext, Profile
@@ -49,13 +50,14 @@ def run(
             DeploymentEngine(provider).deploy(DeploymentPhase.ALL)
             _require_remaining(started, timeout_seconds, monotonic, "validating one product pipeline and Gold table")
             log.step("Validating one product pipeline and Gold table...")
-            e2e.run(
-                "local",
-                suite="smoke",
-                namespace=context.namespace,
-                kube_context=context.kube_context,
-                repo_root=root,
-            )
+            with patch.dict(os.environ, env, clear=False):
+                e2e.run(
+                    "local",
+                    suite="smoke",
+                    namespace=context.namespace,
+                    kube_context=context.kube_context,
+                    repo_root=root,
+                )
     except DeploymentError as exc:
         raise SmokeError(str(exc)) from exc
     _require_remaining(started, timeout_seconds, monotonic, "completing smoke validation")

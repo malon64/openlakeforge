@@ -175,3 +175,11 @@ def test_e2e_delegates_forward_deployment_scope() -> None:
     assert 'AWS_REGION="eu-west-3"' in aws
     assert 'AWS_CLUSTER_NAME="custom-eks"' in aws
     assert 'KUBECONFIG="/tmp/custom aws.yaml"' in aws
+
+
+def test_cloud_compatibility_targets_forward_provider_image_overrides() -> None:
+    for provider in ("azure", "aws"):
+        image_tag = f"{provider}-custom"
+        expanded = _dry_run(f"{provider}-platform-up", f"{provider.upper()}_PROJECT_CODE_IMAGE_TAG={image_tag}")
+
+        assert f'{provider.upper()}_PROJECT_CODE_IMAGE_TAG="{image_tag}"' in expanded
