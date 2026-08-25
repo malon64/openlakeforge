@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import tarfile
 import tempfile
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -63,14 +64,20 @@ class CatalogChart:
             raise ValueError(f"chart {name!r} in {catalog_path} has an invalid SHA-256")
         return cls(name=name, **fields)  # type: ignore[arg-type]
 
-    def request(self, *, cache_root: Path) -> ChartRequest:
+    def request(self, *, cache_root: Path, variant: str | None = None) -> ChartRequest:
+        """`variant` disambiguates a chart's cached package name when the
+        cache holds more than one derivative of the same upstream archive -
+        Dagster's schema-stripped repack lives beside (never overwrites) a
+        cache keyed only by the pristine upstream digest.
+        """
+        filename = f"{self.sha256}-{variant}.tgz" if variant else f"{self.sha256}.tgz"
         return ChartRequest(
             display_name=self.name,
             repo_name=self.reference.split("/", 1)[0],
             repo_url=self.repository,
             chart_ref=self.reference,
             version=self.version,
-            package_path=cache_root / "helm" / f"{self.sha256}.tgz",
+            package_path=cache_root / "helm" / filename,
             sha256=self.sha256,
         )
 
@@ -161,6 +168,12 @@ def prepare_cached_dagster_chart_no_schema(
     `values.schema.json` deleted, and is re-packaged under `request.
     package_path` (distinct from the plain `helm pull` output name, since
     that name collides with `prepare_cached_chart`'s Dagster-less callers).
+
+    When `request.sha256` is set (an installed distribution's catalog-pinned
+    chart), the downloaded archive is verified against it *before* being
+    unpacked and re-packaged - the repacked artifact's own digest can never
+    match the catalog pin (its content changed), so this is the only point
+    where the upstream chart's integrity can be checked at all.
     """
     repository_config = paths.helm_repository_config
     repository_cache = paths.helm_repository_cache
@@ -197,15 +210,20 @@ def prepare_cached_dagster_chart_no_schema(
         helm.pull(
             request.chart_ref,
             version=request.version,
-            untar=True,
-            untar_dir=work_dir,
+            destination=work_dir,
             repository_config=repository_config,
             repository_cache=repository_cache,
             env=env,
             retry_policy=retry_policy,
         )
 
+        downloaded = work_dir / f"{chart_name}-{request.version}.tgz"
+        if request.sha256 is not None and (not downloaded.is_file() or _digest(downloaded) != request.sha256):
+            raise ValueError(f"{request.display_name} chart digest does not match the component catalog")
+
         chart_dir = work_dir / chart_name
+        with tarfile.open(downloaded, "r:gz") as bundle:
+            bundle.extractall(work_dir, filter="data")
         for schema_file in chart_dir.rglob("values.schema.json"):
             schema_file.unlink()
 

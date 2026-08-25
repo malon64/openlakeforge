@@ -76,15 +76,48 @@ def test_provider_prefixed_image_aliases_are_honored_after_generic_overrides() -
         assert generic_wins.project_code_tag == "generic"
 
 
+def _no_catalog_kwargs(tmp_path: Path) -> dict:
+    return {
+        "cache_root": tmp_path / "cache",
+        "catalog_path": tmp_path / "no-such-catalog.yaml",
+        "installed": False,
+    }
+
+
+def _write_catalog(tmp_path: Path, *, trino_sha256: str, dagster_sha256: str) -> Path:
+    catalog_path = tmp_path / "release/component-catalog.yaml"
+    catalog_path.parent.mkdir(parents=True, exist_ok=True)
+    catalog_path.write_text(
+        "components:\n"
+        "  helm:\n"
+        "    charts:\n"
+        "      trino:\n"
+        "        repository: https://trinodb.github.io/charts\n"
+        "        reference: trino/trino\n"
+        "        version: 1.42.2\n"
+        f"        sha256: {trino_sha256}\n"
+        "      dagster:\n"
+        "        repository: https://dagster-io.github.io/helm\n"
+        "        reference: dagster/dagster\n"
+        "        version: 1.13.6\n"
+        f"        sha256: {dagster_sha256}\n"
+    )
+    return catalog_path
+
+
 def test_chart_settings_defaults_trino_and_dagster_package_paths(tmp_path: Path) -> None:
     helm_cache_dir = tmp_path / "helm/aws/charts"
 
-    settings = CloudChartSettings.from_environment({}, helm_cache_dir=helm_cache_dir)
+    settings = CloudChartSettings.from_environment(
+        {}, helm_cache_dir=helm_cache_dir, **_no_catalog_kwargs(tmp_path)
+    )
 
     assert settings.trino_package_path == helm_cache_dir / "trino-1.42.2.tgz"
     assert settings.dagster_package_path == helm_cache_dir / "dagster-1.13.6-no-schema.tgz"
     assert settings.trino_chart_ref == "trino/trino"
     assert settings.dagster_chart_ref == "dagster/dagster"
+    assert settings.trino_sha256 is None
+    assert settings.dagster_sha256 is None
 
 
 def test_chart_settings_honors_explicit_package_path_overrides(tmp_path: Path) -> None:
@@ -97,10 +130,52 @@ def test_chart_settings_honors_explicit_package_path_overrides(tmp_path: Path) -
             "DAGSTER_CHART_PACKAGE_PATH": str(dagster_override),
         },
         helm_cache_dir=tmp_path / "helm/aws/charts",
+        **_no_catalog_kwargs(tmp_path),
     )
 
     assert settings.trino_package_path == trino_override
     assert settings.dagster_package_path == dagster_override
+
+
+def test_chart_settings_pins_digests_from_catalog_when_installed(tmp_path: Path) -> None:
+    """Mirrors the local provider's Trino digest pinning
+    (`olf.deployment.local.config.ChartSettings`): an installed
+    distribution must verify both cloud charts against the component
+    catalog, not accept whatever Helm downloads."""
+    trino_sha256 = "a" * 64
+    dagster_sha256 = "b" * 64
+    catalog_path = _write_catalog(tmp_path, trino_sha256=trino_sha256, dagster_sha256=dagster_sha256)
+    cache_root = tmp_path / "cache"
+
+    settings = CloudChartSettings.from_environment(
+        {},
+        helm_cache_dir=tmp_path / "helm/aws/charts",
+        cache_root=cache_root,
+        catalog_path=catalog_path,
+        installed=True,
+    )
+
+    assert settings.trino_sha256 == trino_sha256
+    assert settings.dagster_sha256 == dagster_sha256
+    assert settings.trino_package_path == cache_root / "helm" / f"{trino_sha256}.tgz"
+    assert settings.dagster_package_path == cache_root / "helm" / f"{dagster_sha256}-no-schema.tgz"
+    assert settings.trino_version == "1.42.2"
+    assert settings.dagster_version == "1.13.6"
+
+
+def test_chart_settings_does_not_pin_digests_in_source_mode_even_with_a_catalog(tmp_path: Path) -> None:
+    catalog_path = _write_catalog(tmp_path, trino_sha256="a" * 64, dagster_sha256="b" * 64)
+
+    settings = CloudChartSettings.from_environment(
+        {},
+        helm_cache_dir=tmp_path / "helm/aws/charts",
+        cache_root=tmp_path / "cache",
+        catalog_path=catalog_path,
+        installed=False,
+    )
+
+    assert settings.trino_sha256 is None
+    assert settings.dagster_sha256 is None
 
 
 def test_aws_terraform_settings_uses_default_tfvars_only_if_it_exists(tmp_path: Path) -> None:
