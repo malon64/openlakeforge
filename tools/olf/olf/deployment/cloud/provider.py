@@ -207,7 +207,9 @@ class CloudProvider:
         if needs_docker:
             required.append("docker")
         items = base_report(repo_root=self.config.paths.repo_root, tools=self.tools, required_tools=required)
-        env = self.context.command_env()
+        from olf.auth import credential_selection_environment
+
+        env = self.context.command_env(base=credential_selection_environment(self.backend.scope, self._environ))
         if needs_docker:
             items.append(docker_health(self.tools, env=env))
         try:

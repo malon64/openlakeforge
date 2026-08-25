@@ -311,11 +311,11 @@ def login_azure(
     choose: Any | None = None,
 ) -> dict[str, Any]:
     """Authenticate with Azure Identity; it owns the Microsoft browser UI."""
-    from azure.identity import DeviceCodeCredential, InteractiveBrowserCredential, TokenCachePersistenceOptions
+    from azure.identity import DeviceCodeCredential, InteractiveBrowserCredential
     from azure.mgmt.resource.subscriptions import SubscriptionClient
 
     env = environ or os.environ
-    options = TokenCachePersistenceOptions(name="openlakeforge-auth")
+    options = _azure_cache_persistence_options()
     if device_code:
         credential = DeviceCodeCredential(tenant_id=tenant_id, cache_persistence_options=options)
     else:
@@ -333,6 +333,18 @@ def login_azure(
     }
     save_state("azure", state, env)
     return state
+
+
+def _azure_cache_persistence_options() -> Any:
+    """Return the shared Azure SDK cache policy for browser and device login.
+
+    Azure Identity otherwise rejects persistent caches on headless Linux hosts
+    without a system keyring before the device-code flow can begin. The SDK
+    owns this cache; OLF persists only its authentication record and selection.
+    """
+    from azure.identity import TokenCachePersistenceOptions
+
+    return TokenCachePersistenceOptions(name="openlakeforge-auth", allow_unencrypted_storage=True)
 
 
 def _choose_subscription(subscriptions: list[Any], choose: Any | None) -> str:
@@ -353,7 +365,6 @@ def azure_credential(environ: Mapping[str, str]) -> Any:
         AzureCliCredential,
         DefaultAzureCredential,
         InteractiveBrowserCredential,
-        TokenCachePersistenceOptions,
     )
 
     if _uses_azure_automation(environ):
@@ -372,7 +383,7 @@ def azure_credential(environ: Mapping[str, str]) -> Any:
         return InteractiveBrowserCredential(
             tenant_id=state.get("tenant_id") or None,
             authentication_record=record,
-            cache_persistence_options=TokenCachePersistenceOptions(name="openlakeforge-auth"),
+            cache_persistence_options=_azure_cache_persistence_options(),
             disable_automatic_authentication=True,
         )
     raise AuthenticationError("unknown Azure authentication source; run 'olf auth login --provider azure'.")

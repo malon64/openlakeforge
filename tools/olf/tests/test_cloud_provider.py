@@ -90,6 +90,24 @@ def test_base_environment_preserves_automation_credentials_for_sdk_selection(
     assert seen["AWS_ROLE_ARN"] == "arn:aws:iam::123:role/ci"
 
 
+def test_doctor_uses_the_selected_authentication_environment(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    backend = FakeCloudBackend(scope="aws", facts=_FACTS)
+    provider = CloudProvider.create(
+        config,
+        backend,
+        toolkit=_toolkit(),
+        environ={"OLF_HOME": "/custom/olf", "AWS_PROFILE": "company-sso"},
+    )
+    seen: dict[str, str] = {}
+    backend.preflight = lambda _tools, *, env: seen.update(env)  # type: ignore[method-assign]
+
+    provider.doctor(DeploymentPhase.FOUNDATION)
+
+    assert seen["OLF_HOME"] == "/custom/olf"
+    assert seen["AWS_PROFILE"] == "company-sso"
+
+
 def test_env_is_cached_and_facts_are_resolved_only_once(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

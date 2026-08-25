@@ -32,6 +32,7 @@ class AzureSdk:
         # See AwsSdk: old callers may still pass a ProcessRunner first.
         self._credential_override = credential if credential is None or hasattr(credential, "get_token") else None
         self._subscription_id = subscription_id
+        self._tenant_id: str | None = None
         self._subscription_client_factory = subscription_client_factory
         self._aks_client_factory = aks_client_factory
         self._post = post
@@ -62,6 +63,7 @@ class AzureSdk:
                 raise RuntimeError("Azure subscription is not selected; run 'olf auth login --provider azure'.")
             selected = subscriptions[0]
         self._subscription_id = str(selected.subscription_id)
+        self._tenant_id = str(selected.tenant_id) if selected.tenant_id else None
         return {
             "id": selected.subscription_id,
             "name": selected.display_name,
@@ -98,9 +100,15 @@ class AzureSdk:
         credential = self._credential(env)
         access_token = credential.get_token("https://management.azure.com/.default").token
         host = registry_name if "." in registry_name else f"{registry_name}.azurecr.io"
+        tenant_id = (env or {}).get("ARM_TENANT_ID") or self._tenant_id or self.account_show(env=env)["tenantId"]
         response = self._post(
             f"https://{host}/oauth2/exchange",
-            data={"grant_type": "access_token", "service": host, "access_token": access_token},
+            data={
+                "grant_type": "access_token",
+                "service": host,
+                "access_token": access_token,
+                "tenant": tenant_id,
+            },
             timeout=30,
         )
         response.raise_for_status()

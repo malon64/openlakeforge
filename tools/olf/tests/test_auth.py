@@ -233,3 +233,35 @@ def test_azure_browser_login_delegates_to_azure_identity(monkeypatch: pytest.Mon
 
     assert calls == [True]
     assert state["principal"] == "user@example.com"
+
+
+def test_azure_device_code_login_allows_headless_sdk_cache(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    import azure.identity
+    import azure.mgmt.resource.subscriptions
+
+    monkeypatch.setenv("OLF_HOME", str(tmp_path))
+    options: list[dict[str, object]] = []
+    record = type("Record", (), {"serialize": lambda *_args: "record", "username": "user@example.com"})()
+    credential = type("Credential", (), {"authenticate": lambda *_args, **_kwargs: record})()
+    subscription = type(
+        "Subscription",
+        (),
+        {"subscription_id": "sub-id", "display_name": "Sandbox", "tenant_id": "tenant-id", "state": "Enabled"},
+    )()
+    monkeypatch.setattr(
+        azure.identity,
+        "TokenCachePersistenceOptions",
+        lambda **kwargs: options.append(kwargs) or object(),
+    )
+    monkeypatch.setattr(azure.identity, "DeviceCodeCredential", lambda **_kwargs: credential)
+    monkeypatch.setattr(
+        azure.mgmt.resource.subscriptions,
+        "SubscriptionClient",
+        lambda *_args: type(
+            "Client", (), {"subscriptions": type("Subscriptions", (), {"list": lambda *_args: [subscription]})()}
+        )(),
+    )
+
+    auth.login_azure(device_code=True)
+
+    assert options == [{"name": "openlakeforge-auth", "allow_unencrypted_storage": True}]

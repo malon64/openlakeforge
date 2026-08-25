@@ -56,10 +56,15 @@ def test_acr_login_exchanges_arm_token_for_docker_refresh_token() -> None:
         "Response", (), {"raise_for_status": lambda *_args: None, "json": lambda *_args: {"refresh_token": "acr-token"}}
     )()
     calls = []
-    azure = AzureSdk(_Credential(), post=lambda *args, **kwargs: calls.append((args, kwargs)) or response)
+    azure = AzureSdk(
+        _Credential(),
+        subscription_client_factory=_subscriptions,
+        post=lambda *args, **kwargs: calls.append((args, kwargs)) or response,
+    )
 
     assert azure.acr_login("openlakeforgeacr") == "acr-token"
     assert calls[0][0][0] == "https://openlakeforgeacr.azurecr.io/oauth2/exchange"
+    assert calls[0][1]["data"]["tenant"] == "tenant-id"
 
 
 def test_aks_show_maps_sdk_failures_to_not_ok_result() -> None:
