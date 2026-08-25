@@ -18,6 +18,7 @@ resource "terraform_data" "kind_cluster" {
     kube_context          = local.kube_context
     kubeconfig_path       = local.kubeconfig_path
     repo_root             = local.repo_root
+    kind_executable_path  = var.kind_executable_path
   }
 
   triggers_replace = [
@@ -29,8 +30,11 @@ resource "terraform_data" "kind_cluster" {
     command = <<-EOT
       set -euo pipefail
 
-      if ! kubectl version --client >/dev/null 2>&1; then
-        echo "ERROR: kubectl is not executable. Install a native Linux kubectl binary and retry." >&2
+      kind="$${KIND_BIN:-kind}"
+      kubectl="$${KUBECTL_BIN:-kubectl}"
+
+      if ! "$kubectl" version --client >/dev/null 2>&1; then
+        echo "ERROR: kubectl ($kubectl) is not executable. Install a native Linux kubectl binary and retry." >&2
         exit 1
       fi
 
@@ -46,26 +50,26 @@ resource "terraform_data" "kind_cluster" {
 
       mkdir -p "$(dirname "$KUBECONFIG_PATH")"
 
-      if kind get clusters 2>/dev/null | grep -qx "$CLUSTER_NAME"; then
+      if "$kind" get clusters 2>/dev/null | grep -qx "$CLUSTER_NAME"; then
         if [[ "$RESET_EXISTING_CLUSTER" == "true" ]]; then
           echo "==> Deleting existing kind cluster '$CLUSTER_NAME'..."
-          kind delete cluster --name "$CLUSTER_NAME"
+          "$kind" delete cluster --name "$CLUSTER_NAME"
         else
           echo "Kind cluster '$CLUSTER_NAME' already exists. Reusing it."
-          kind export kubeconfig --name "$CLUSTER_NAME" --kubeconfig "$KUBECONFIG_PATH"
-          kubectl --kubeconfig "$KUBECONFIG_PATH" cluster-info --context "kind-$CLUSTER_NAME"
+          "$kind" export kubeconfig --name "$CLUSTER_NAME" --kubeconfig "$KUBECONFIG_PATH"
+          "$kubectl" --kubeconfig "$KUBECONFIG_PATH" cluster-info --context "kind-$CLUSTER_NAME"
           exit 0
         fi
       fi
 
       echo "==> Creating kind cluster '$CLUSTER_NAME'..."
-      kind create cluster \
+      "$kind" create cluster \
         --name "$CLUSTER_NAME" \
         --config "$CLUSTER_CONFIG" \
         --kubeconfig "$KUBECONFIG_PATH" \
         --wait "$KIND_WAIT_TIMEOUT"
 
-      kubectl --kubeconfig "$KUBECONFIG_PATH" get nodes --context "kind-$CLUSTER_NAME"
+      "$kubectl" --kubeconfig "$KUBECONFIG_PATH" get nodes --context "kind-$CLUSTER_NAME"
     EOT
 
     interpreter = ["/usr/bin/env", "bash", "-c"]
@@ -76,6 +80,8 @@ resource "terraform_data" "kind_cluster" {
       KIND_WAIT_TIMEOUT      = var.kind_wait_timeout
       KUBECONFIG_PATH        = local.kubeconfig_path
       RESET_EXISTING_CLUSTER = tostring(var.reset_existing_cluster)
+      KIND_BIN               = var.kind_executable_path
+      KUBECTL_BIN            = var.kubectl_executable_path
     }
   }
 
@@ -84,9 +90,11 @@ resource "terraform_data" "kind_cluster" {
     command = <<-EOT
       set -euo pipefail
 
-      if kind get clusters 2>/dev/null | grep -qx "$CLUSTER_NAME"; then
+      kind="$${KIND_BIN:-kind}"
+
+      if "$kind" get clusters 2>/dev/null | grep -qx "$CLUSTER_NAME"; then
         echo "==> Deleting kind cluster '$CLUSTER_NAME'..."
-        kind delete cluster --name "$CLUSTER_NAME"
+        "$kind" delete cluster --name "$CLUSTER_NAME"
       else
         echo "Kind cluster '$CLUSTER_NAME' does not exist."
       fi
@@ -96,6 +104,7 @@ resource "terraform_data" "kind_cluster" {
 
     environment = {
       CLUSTER_NAME = self.input.cluster_name
+      KIND_BIN     = self.input.kind_executable_path
     }
   }
 }

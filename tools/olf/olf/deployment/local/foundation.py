@@ -18,21 +18,31 @@ from olf.deployment.local.config import LocalDeploymentConfig
 from olf.tooling.kubectl import KubeContextUnreachableError
 
 
-def foundation_apply_variables(config: LocalDeploymentConfig) -> dict[str, str]:
+def foundation_apply_variables(config: LocalDeploymentConfig, tools: Toolkit) -> dict[str, str]:
+    """`kind_executable_path`/`kubectl_executable_path` route the foundation
+    Terraform root's `local-exec` provisioner (`infra/terraform/foundations/
+    local-kind/main.tf`) through the same resolver every other `olf`-invoked
+    tool uses, instead of it invoking bare `kind`/`kubectl` from whatever
+    happens to be on PATH when Terraform runs - which, under the managed
+    toolchain (#127), is not the same binary this `Toolkit` resolved.
+    """
     return {
         "cluster_name": config.cluster.name,
         "cluster_config_path": str(config.cluster.config_path),
         "kubeconfig_path": str(config.paths.kubeconfig_path),
         "kind_wait_timeout": config.cluster.wait_timeout,
         "reset_existing_cluster": "true" if config.cluster.reset_existing else "false",
+        "kind_executable_path": str(tools.resolver.resolve("kind")),
+        "kubectl_executable_path": str(tools.resolver.resolve("kubectl")),
     }
 
 
-def foundation_destroy_variables(config: LocalDeploymentConfig) -> dict[str, str]:
+def foundation_destroy_variables(config: LocalDeploymentConfig, tools: Toolkit) -> dict[str, str]:
     return {
         "cluster_name": config.cluster.name,
         "cluster_config_path": str(config.cluster.config_path),
         "kubeconfig_path": str(config.paths.kubeconfig_path),
+        "kind_executable_path": str(tools.resolver.resolve("kind")),
     }
 
 
@@ -44,7 +54,7 @@ def foundation_up(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping
     tools.terraform.init(foundation_dir, env=env)
 
     log.step("Applying Terraform local kind foundation...")
-    tools.terraform.apply(foundation_dir, variables=foundation_apply_variables(config), env=env)
+    tools.terraform.apply(foundation_dir, variables=foundation_apply_variables(config, tools), env=env)
 
     tools.kind.export_kubeconfig(config.cluster.name, kubeconfig_path=config.paths.kubeconfig_path, env=env)
 
@@ -103,5 +113,5 @@ def foundation_down(
             )
 
     log.step("Destroying Terraform local kind foundation...")
-    tools.terraform.destroy(foundation_dir, variables=foundation_destroy_variables(config), env=env)
+    tools.terraform.destroy(foundation_dir, variables=foundation_destroy_variables(config, tools), env=env)
     log.step("Local foundation is destroyed.")
