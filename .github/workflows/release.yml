@@ -251,7 +251,14 @@ jobs:
 
   publish-pypi:
     name: Publish Python distributions to PyPI
-    needs: [prepare, python-packages]
+    # Every fallible release step (image build/sign/attest) must finish
+    # before either package reaches PyPI: PyPI publication is irreversible
+    # (no re-upload of the same filenames), while an image or bundle
+    # failure is recoverable by re-running the workflow. Depending on
+    # `build` here, not just `python-packages`, is what makes that ordering
+    # real rather than incidental - do not narrow this back to
+    # `[prepare, python-packages]`.
+    needs: [prepare, python-packages, build]
     runs-on: ubuntu-latest
     steps:
       - name: Download domain-model distribution
@@ -269,12 +276,19 @@ jobs:
       # PyPI Trusted Publishing must be configured for this workflow and both
       # projects before the first tagged release. The action uses this job's
       # short-lived GitHub OIDC identity and creates PyPI attestations.
+      #
+      # skip-existing makes each publish step idempotent: if this job is
+      # re-run after the domain-model package already reached PyPI (e.g. the
+      # openlakeforge upload failed, or a later job in this workflow did),
+      # PyPI's rejection of the already-published filenames is treated as
+      # success instead of failing the rerun.
       - name: Publish openlakeforge-domain-model to PyPI
         if: needs.prepare.outputs.dry_run == 'false'
         uses: pypa/gh-action-pypi-publish@ec4db0b4ddc65acdf4bff5fa45ac92d78b56bdf0
         with:
           packages-dir: dist/domain-model
           attestations: true
+          skip-existing: true
 
       - name: Publish openlakeforge to PyPI
         if: needs.prepare.outputs.dry_run == 'false'
@@ -282,6 +296,7 @@ jobs:
         with:
           packages-dir: dist/openlakeforge
           attestations: true
+          skip-existing: true
 
   build:
     name: Build, sign, and attest ${{ matrix.image }}
