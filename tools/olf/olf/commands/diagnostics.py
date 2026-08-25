@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import shutil
+from collections.abc import Callable
 from pathlib import Path
 
 import typer
@@ -15,9 +16,11 @@ app = typer.Typer(help="Collect bounded deployment diagnostics.")
 _OUTPUT_ARGUMENT = typer.Argument(..., help="Directory to receive text diagnostics.")
 
 
-def _capture(output: Path, name: str, argv: list[str]) -> str:
+def _capture(tools: Toolkit, output: Path, name: str, argv_factory: Callable[[], list[str]]) -> str:
+    """Capture one diagnostic command, including command-resolution failures."""
     try:
-        result = Toolkit.default().runner.run(argv, check=False)
+        argv = argv_factory()
+        result = tools.runner.run(argv, check=False)
         text = result.stdout + result.stderr
     except Exception as exc:  # Diagnostics must preserve partial evidence.
         text = f"{type(exc).__name__}: {exc}\n"
@@ -46,31 +49,53 @@ def collect(
     selected_context = kube_context or os.environ.get("KUBE_CONTEXT", "")
     disk = shutil.disk_usage(output_dir)
     (output_dir / "host-disk.txt").write_text(f"total={disk.total}\nused={disk.used}\nfree={disk.free}\n")
-    docker = str(Toolkit.default().resolver.resolve("docker"))
-    kubectl = str(Toolkit.default().resolver.resolve("kubectl"))
+    tools = Toolkit.default()
     context = ["--context", selected_context] if selected_context else []
-    _capture(output_dir, "docker-disk.txt", [docker, "system", "df"])
-    _capture(output_dir, "nodes.txt", [kubectl, *context, "get", "nodes", "-o", "wide"])
-    _capture(output_dir, "all-pods.txt", [kubectl, *context, "get", "pods", "-A", "-o", "wide"])
-    _capture(output_dir, "all-events.txt", [kubectl, *context, "get", "events", "-A", "--sort-by=.lastTimestamp"])
-    _capture(output_dir, "workloads.txt", [kubectl, *context, "get", "all", "-n", selected_namespace, "-o", "wide"])
+    def command(tool: str, *args: str) -> list[str]:
+        return [str(tools.resolver.resolve(tool)), *args]
+
+    _capture(tools, output_dir, "docker-disk.txt", lambda: command("docker", "system", "df"))
+    _capture(tools, output_dir, "nodes.txt", lambda: command("kubectl", *context, "get", "nodes", "-o", "wide"))
+    _capture(tools, output_dir, "all-pods.txt", lambda: command("kubectl", *context, "get", "pods", "-A", "-o", "wide"))
     _capture(
+        tools,
+        output_dir,
+        "all-events.txt",
+        lambda: command("kubectl", *context, "get", "events", "-A", "--sort-by=.lastTimestamp"),
+    )
+    _capture(
+        tools,
+        output_dir,
+        "workloads.txt",
+        lambda: command("kubectl", *context, "get", "all", "-n", selected_namespace, "-o", "wide"),
+    )
+    _capture(
+        tools,
         output_dir,
         "events.txt",
-        [kubectl, *context, "get", "events", "-n", selected_namespace, "--sort-by=.lastTimestamp"],
+        lambda: command("kubectl", *context, "get", "events", "-n", selected_namespace, "--sort-by=.lastTimestamp"),
     )
-    _capture(output_dir, "pod-descriptions.txt", [kubectl, *context, "describe", "pods", "-n", selected_namespace])
+    _capture(
+        tools,
+        output_dir,
+        "pod-descriptions.txt",
+        lambda: command("kubectl", *context, "describe", "pods", "-n", selected_namespace),
+    )
     pods = _capture(
+        tools,
         output_dir,
         "pod-names.txt",
-        [kubectl, *context, "get", "pods", "-n", selected_namespace, "-o", "name"],
+        lambda: command("kubectl", *context, "get", "pods", "-n", selected_namespace, "-o", "name"),
     )
     for item in pods.splitlines():
         if item.startswith("pod/"):
             pod = item.removeprefix("pod/")
             _capture(
+                tools,
                 output_dir,
                 f"{pod}.log",
-                [kubectl, *context, "logs", "-n", selected_namespace, pod, "--all-containers", "--tail=200"],
+                lambda pod=pod: command(
+                    "kubectl", *context, "logs", "-n", selected_namespace, pod, "--all-containers", "--tail=200"
+                ),
             )
     typer.echo(f"Diagnostics written to {output_dir}")

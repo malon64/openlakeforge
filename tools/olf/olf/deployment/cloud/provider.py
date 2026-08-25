@@ -182,7 +182,7 @@ class CloudProvider:
     def doctor(self, phase: DeploymentPhase) -> DoctorReport:
         provider_cli = "aws" if self.backend.scope == "aws" else "az"
         required = ["terraform", "kubectl", provider_cli]
-        if phase in (DeploymentPhase.ALL, DeploymentPhase.PLATFORM, DeploymentPhase.ARTIFACTS):
+        if phase in (DeploymentPhase.ALL, DeploymentPhase.PLATFORM):
             required.append("helm")
         needs_docker = phase in (DeploymentPhase.ALL, DeploymentPhase.ARTIFACTS) or (
             phase == DeploymentPhase.PLATFORM and self.config.features.analytics_enabled

@@ -105,3 +105,9 @@ def test_kubeconfig_compatibility_arguments_preserve_whitespace() -> None:
         expanded = _dry_run(target, f"{variable_by_provider[provider]}={expected_path}")
         if "--kubeconfig-path" in expanded:
             assert f'--kubeconfig-path "{expected_path}"' in expanded, f"{target}: {expanded}"
+
+
+def test_local_slim_e2e_preserves_the_requested_complete_suite() -> None:
+    expanded = _dry_run("local-slim-e2e", "E2E_SUITE=full")
+
+    assert "olf e2e run --env local --suite full" in expanded

@@ -73,7 +73,7 @@ local-slim-artifacts-deploy:
 local-slim-up:
 	@$(OLF_BIN) deploy --provider local --namespace $(NAMESPACE) --cluster-name $(CLUSTER_NAME) --kubeconfig-path "$(LOCAL_KUBECONFIG_PATH)" --profile slim
 local-slim-e2e:
-	@$(OLF_BIN) e2e run --env local --suite smoke
+	@$(OLF_BIN) e2e run --env local --suite $(E2E_SUITE)
 local-slim-smoke:
 	@$(OLF_BIN) smoke run --timeout-seconds $(SMOKE_TIMEOUT_SECONDS)
 local-slim-down:

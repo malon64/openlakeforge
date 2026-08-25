@@ -103,6 +103,56 @@ def test_artifacts_upload_hydrates_selected_provider_contracts(monkeypatch: pyte
     assert calls == [{"via": "direct", "manifest_root": "", "runtime_root": ""}]
 
 
+def test_dbt_parse_hydrates_selected_provider_contracts(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    project = tmp_path / "gold/demo/dbt"
+    project.mkdir(parents=True)
+    (project / "dbt_project.yml").write_text("name: demo\nprofile: demo\n")
+    options: dict[str, str] = {}
+    commands: list[list[str]] = []
+
+    class Runner:
+        def run(self, argv, **kwargs):  # noqa: ANN001, ANN003
+            commands.append(argv)
+
+    class Resolver:
+        def resolve(self, name: str) -> Path:
+            assert name == "dbt"
+            return Path("dbt")
+
+    tools = SimpleNamespace(runner=Runner(), resolver=Resolver())
+    monkeypatch.setattr(
+        "olf.commands.runtime.provider_contract_environment",
+        lambda **kwargs: options.update(kwargs) or nullcontext(),
+    )
+    monkeypatch.setattr("olf.commands.dbt.Toolkit.default", lambda: tools)
+
+    result = runner.invoke(
+        app,
+        [
+            "dbt",
+            "parse",
+            "--project-dir",
+            str(project),
+            "--provider",
+            "aws",
+            "--profile",
+            "slim",
+            "--namespace",
+            "custom-lakehouse",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert options == {
+        "provider": "aws",
+        "profile": "slim",
+        "namespace": "custom-lakehouse",
+        "cluster_name": "",
+        "kubeconfig_path": "",
+    }
+    assert commands[-1][-2:] == ["--target", "aws"]
+
+
 def test_floe_generation_passes_the_selected_namespace_to_the_local_profile(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

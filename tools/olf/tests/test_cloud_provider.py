@@ -179,7 +179,7 @@ def test_artifacts_doctor_requires_and_probes_docker(tmp_path: Path, monkeypatch
 
     provider.doctor(DeploymentPhase.ARTIFACTS)
 
-    assert required == ["terraform", "kubectl", "aws", "helm", "docker"]
+    assert required == ["terraform", "kubectl", "aws", "docker"]
     assert health_calls == ["docker"]
 
 
