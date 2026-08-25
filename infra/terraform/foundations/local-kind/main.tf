@@ -123,7 +123,10 @@ resource "terraform_data" "kind_cluster" {
 
     environment = {
       CLUSTER_NAME = self.input.cluster_name
-      KIND_BIN     = self.input.kind_executable_path
+      # State created before kind_executable_path existed on `input` has no
+      # such attribute; try() falls back to "" (the bare `kind` on PATH
+      # path below) instead of blocking teardown of that older state.
+      KIND_BIN = try(self.input.kind_executable_path, "")
     }
   }
 }
