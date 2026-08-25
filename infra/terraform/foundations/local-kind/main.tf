@@ -92,6 +92,25 @@ resource "terraform_data" "kind_cluster" {
 
       kind="$${KIND_BIN:-kind}"
 
+      # The stored KIND_BIN is a managed-toolchain path resolved at apply
+      # time (Terraform destroy-time provisioners can only read `self`, so
+      # a freshly-resolved path can't be threaded in here). If OLF_HOME
+      # changed or `olf toolchain clean` removed that version since apply,
+      # the path may no longer exist. Falling through to "cluster does not
+      # exist" in that case would be wrong: it would drop this resource
+      # from state while the real kind cluster keeps running, unmanaged
+      # and undetected. Try a bare `kind` on PATH as a last resort, then
+      # fail loudly rather than silently declaring victory.
+      if ! "$kind" version >/dev/null 2>&1; then
+        if command -v kind >/dev/null 2>&1; then
+          echo "WARNING: managed kind at '$kind' is not executable (stale OLF_HOME or pruned toolchain); falling back to 'kind' on PATH." >&2
+          kind="kind"
+        else
+          echo "ERROR: kind ('$kind') is not executable and no 'kind' was found on PATH. Refusing to report cluster '$CLUSTER_NAME' as absent - that would silently orphan it. Set KIND_BIN to a working kind binary and retry." >&2
+          exit 1
+        fi
+      fi
+
       if "$kind" get clusters 2>/dev/null | grep -qx "$CLUSTER_NAME"; then
         echo "==> Deleting kind cluster '$CLUSTER_NAME'..."
         "$kind" delete cluster --name "$CLUSTER_NAME"

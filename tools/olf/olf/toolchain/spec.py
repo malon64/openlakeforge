@@ -72,12 +72,19 @@ _BUILDERS: dict[str, tuple[Any, ArchiveKind, str | None]] = {
 }
 
 
+def is_valid_digest(value: object) -> bool:
+    """Whether `value` is a well-formed `sha256:<64 hex chars>` digest
+    string - shared between catalog validation here and receipt validation
+    in `manager.py`, so both reject the same malformed shapes."""
+    return isinstance(value, str) and bool(_SHA256_PATTERN.match(value))
+
+
 def _digest(value: object, *, tool: str, platform_key: str) -> str:
-    if not isinstance(value, str) or not _SHA256_PATTERN.match(value):
+    if not is_valid_digest(value):
         raise ToolchainCatalogError(
             f"components.toolchain.{tool}.platforms.{platform_key} must be 'sha256:<64 hex chars>', got {value!r}"
         )
-    return value
+    return value  # type: ignore[return-value]
 
 
 def build_spec(tool: str, entry: Mapping[str, Any], *, platform: Platform) -> ToolSpec:

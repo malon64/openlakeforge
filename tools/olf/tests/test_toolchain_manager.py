@@ -444,3 +444,39 @@ def test_resolve_repairs_a_malformed_receipt_instead_of_crashing(tmp_path: Path)
 
     assert path.is_file()
     assert len(downloader.calls) == 1
+
+
+@pytest.mark.parametrize(
+    "malformed_fields",
+    [
+        {"version": "1.8.5", "sha256": None},
+        {"version": "1.8.5", "sha256": 42},
+        {"version": "1.8.5", "sha256": "not-a-digest"},
+        {"version": None, "sha256": "sha256:" + "a" * 64},
+        {"version": 42, "sha256": "sha256:" + "a" * 64},
+        {"version": "", "sha256": "sha256:" + "a" * 64},
+    ],
+)
+def test_installed_treats_a_receipt_with_a_malformed_field_as_absent(
+    tmp_path: Path, malformed_fields: dict
+) -> None:
+    """A structurally valid dict entry can still carry a malformed field
+    (e.g. `sha256: null`) - activated_filename() would otherwise crash on
+    a None/non-digest value instead of this disposable cache entry being
+    treated as absent and reprovisioned."""
+    manager, _ = _manager(tmp_path)
+    manager.receipt_path.parent.mkdir(parents=True, exist_ok=True)
+    manager.receipt_path.write_text(json.dumps({"terraform": malformed_fields}))
+
+    assert manager.installed("terraform") is None
+
+
+def test_resolve_repairs_a_receipt_with_a_null_sha256_instead_of_crashing(tmp_path: Path) -> None:
+    manager, downloader = _manager(tmp_path)
+    manager.receipt_path.parent.mkdir(parents=True, exist_ok=True)
+    manager.receipt_path.write_text(json.dumps({"kind": {"version": "0.26.0", "sha256": None}}))
+
+    path = manager.resolve("kind")
+
+    assert path.is_file()
+    assert len(downloader.calls) == 1

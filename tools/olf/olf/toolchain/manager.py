@@ -25,7 +25,14 @@ import yaml
 from olf.toolchain.download import Downloader, HttpDownloader, fetch_verified
 from olf.toolchain.install import install as install_archive
 from olf.toolchain.platform import Platform
-from olf.toolchain.spec import MANAGED_TOOLS, ToolchainCatalogError, ToolSpec, activated_filename, load_specs
+from olf.toolchain.spec import (
+    MANAGED_TOOLS,
+    ToolchainCatalogError,
+    ToolSpec,
+    activated_filename,
+    is_valid_digest,
+    load_specs,
+)
 
 DEFAULT_CATALOG_PATH = "release/component-catalog.yaml"
 RECEIPT_FILENAME = "receipt.json"
@@ -167,11 +174,18 @@ class ToolchainManager:
         receipt = self._read_receipt().get(tool)
         if not isinstance(receipt, dict):
             return None
-        sha256 = receipt.get("sha256", "")
+        version = receipt.get("version")
+        sha256 = receipt.get("sha256")
+        # A structurally valid dict can still carry a malformed field (e.g.
+        # `{"version": "1.8.5", "sha256": null}`) - validate both before
+        # deriving the activated path from `sha256`, or a corrupt-but-typed
+        # receipt crashes every resolve() instead of being reprovisioned.
+        if not isinstance(version, str) or not version or not is_valid_digest(sha256):
+            return None
         path = self.bin_dir / activated_filename(tool, sha256)
         if not path.is_file():
             return None
-        return InstalledTool(name=tool, version=receipt.get("version", ""), sha256=sha256, path=path)
+        return InstalledTool(name=tool, version=version, sha256=sha256, path=path)
 
     def _spec(self, tool: str) -> ToolSpec:
         if tool not in self.specs:
