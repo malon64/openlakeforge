@@ -11,7 +11,7 @@ import pytest
 
 from olf.toolchain.manager import ToolchainManager
 from olf.toolchain.platform import Platform
-from olf.toolchain.spec import ToolchainCatalogError, load_specs
+from olf.toolchain.spec import ToolchainCatalogError, activated_filename, load_specs
 
 _PLATFORM = Platform(os="linux", arch="amd64")
 _TOOLS = ("terraform", "helm", "kubectl", "kind")
@@ -359,8 +359,30 @@ def test_concurrent_resolves_of_different_versions_never_leave_a_binary_receipt_
 
     receipt = json.loads(manager_a.receipt_path.read_text())
     recorded_version = receipt["kubectl"]["version"]
-    activated_bytes = (manager_a.bin_dir / "kubectl").read_bytes()
+    recorded_sha256 = receipt["kubectl"]["sha256"]
+    activated_path = manager_a.bin_dir / activated_filename("kubectl", recorded_sha256)
     expected_bytes = f"pretend kubectl binary v{recorded_version}".encode()
-    assert activated_bytes == expected_bytes, (
-        f"receipt says {recorded_version!r} but the activated binary does not match it"
+    assert activated_path.read_bytes() == expected_bytes, (
+        f"receipt says {recorded_version!r} but the digest-named activated binary does not match it"
     )
+
+
+def test_a_resolved_path_survives_a_later_resolve_of_a_different_pin(tmp_path: Path) -> None:
+    """The core TOCTOU scenario: checkout A resolves a path, then (after A's
+    `resolve()` call has already returned) checkout B resolves a different
+    pin of the same tool under the same OLF_HOME/version_dir. A's path must
+    still contain exactly what A resolved - a content-addressed path can
+    never be mutated by someone else's install."""
+    home = tmp_path / "home"
+    catalog_a, _ = _catalog_and_digests(version="1.0.0")
+    catalog_b, _ = _catalog_and_digests(version="2.0.0")
+    manager_a, _ = _manager(tmp_path, catalog=catalog_a, home=home)
+    manager_b, _ = _manager(tmp_path, catalog=catalog_b, home=home)
+
+    path_a = manager_a.resolve("terraform")
+    content_when_a_resolved = path_a.read_bytes()
+
+    manager_b.resolve("terraform")  # a different pin, well after A's call returned
+
+    assert path_a.read_bytes() == content_when_a_resolved
+    assert path_a != manager_b.installed("terraform").path

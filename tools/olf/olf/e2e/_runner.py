@@ -142,7 +142,7 @@ def _contract_dir(repo_root: Path, default: str) -> Path:
 
 
 def check_commands(cfg: E2EConfig) -> None:
-    from olf.deployment.errors import ExecutableNotFoundError
+    from olf.deployment.errors import ExecutableNotFoundError, ToolchainError
     from olf.tooling.resolver import build_resolver
 
     missing: list[str] = []
@@ -152,6 +152,13 @@ def check_commands(cfg: E2EConfig) -> None:
             resolver.resolve(managed_tool)
         except ExecutableNotFoundError:
             missing.append(managed_tool)
+        except ToolchainError as exc:
+            # A managed tool that couldn't be provisioned (bad digest,
+            # broken download, unwritable cache) is a different failure
+            # from "not found", but `olf e2e run` only catches E2EError -
+            # surface it there too, with the actionable reason, instead of
+            # letting it escape as a raw traceback.
+            missing.append(f"{managed_tool} ({exc})")
 
     host_commands: list[str] = []
     if cfg.env == "azure":

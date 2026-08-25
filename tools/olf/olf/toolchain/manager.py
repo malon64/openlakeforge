@@ -26,7 +26,7 @@ import yaml
 from olf.toolchain.download import Downloader, HttpDownloader, fetch_verified
 from olf.toolchain.install import install as install_archive
 from olf.toolchain.platform import Platform
-from olf.toolchain.spec import MANAGED_TOOLS, ToolchainCatalogError, ToolSpec, load_specs
+from olf.toolchain.spec import MANAGED_TOOLS, ToolchainCatalogError, ToolSpec, activated_filename, load_specs
 
 DEFAULT_CATALOG_PATH = "release/component-catalog.yaml"
 RECEIPT_FILENAME = "receipt.json"
@@ -154,10 +154,13 @@ class ToolchainManager:
 
     def installed(self, tool: str) -> InstalledTool | None:
         receipt = self._read_receipt().get(tool)
-        path = self.bin_dir / tool
-        if not receipt or not path.is_file():
+        if not receipt:
             return None
-        return InstalledTool(name=tool, version=receipt.get("version", ""), sha256=receipt.get("sha256", ""), path=path)
+        sha256 = receipt.get("sha256", "")
+        path = self.bin_dir / activated_filename(tool, sha256)
+        if not path.is_file():
+            return None
+        return InstalledTool(name=tool, version=receipt.get("version", ""), sha256=sha256, path=path)
 
     def _spec(self, tool: str) -> ToolSpec:
         if tool not in self.specs:

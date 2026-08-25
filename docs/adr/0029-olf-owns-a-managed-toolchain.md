@@ -42,10 +42,14 @@ directly.
   a JSON receipt recording exactly what is installed per distribution
   version and platform.
 - Every managed tool lives under
-  `<OLF_HOME>/toolchains/<distribution-version>/<os>-<arch>/bin/<tool>`
+  `<OLF_HOME>/toolchains/<distribution-version>/<os>-<arch>/bin/<tool>-<digest>`
   (`OLF_HOME` defaults to `~/.openlakeforge`), so multiple OpenLakeForge
   versions keep independent toolchains and nothing here ever mutates `PATH`
-  or requires root.
+  or requires root. The activated filename is content-addressed by the
+  tool's own digest, not a plain `<tool>` - two checkouts sharing
+  `OLF_HOME` at the same `distribution.version` but different catalog pins
+  can never collide on one mutable path that a later install could swap
+  out from under an already-resolved caller.
 - `tools/olf/olf/tooling/resolver.py` gains `ManagedExecutableResolver`,
   substituted into `Toolkit.default()` by a new `build_resolver()` factory.
   This is the only integration point - no tool adapter in `olf.tooling.*`

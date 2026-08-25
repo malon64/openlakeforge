@@ -338,3 +338,23 @@ def test_run_retry_transient_kubectl_does_not_retry_query_errors(
     with pytest.raises(E2EError, match="TABLE_NOT_FOUND"):
         _shell._run_retry_transient_kubectl(["kubectl", "exec"], attempts=3)
     assert attempts == 1
+
+
+def test_check_commands_translates_a_toolchain_error_into_an_e2e_error(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A managed tool that fails to provision (bad digest, broken download,
+    unwritable cache) must surface as E2EError - the only exception type
+    `olf e2e run` catches - not escape as a raw ToolchainError traceback."""
+    from olf.deployment.errors import ToolchainError
+
+    class _FailingResolver:
+        def resolve(self, tool: str) -> Path:
+            if tool == "terraform":
+                raise ToolchainError(tool, reason="digest mismatch")
+            return Path(f"/usr/bin/{tool}")
+
+    monkeypatch.setattr("olf.tooling.resolver.build_resolver", lambda: _FailingResolver())
+
+    with pytest.raises(E2EError, match="digest mismatch"):
+        _runner.check_commands(e2e_cfg(tmp_path))

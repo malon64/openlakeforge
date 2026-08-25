@@ -17,18 +17,20 @@ import tempfile
 import zipfile
 from pathlib import Path
 
-from olf.toolchain.spec import ToolSpec
+from olf.toolchain.spec import ToolSpec, activated_filename
 
 
 def install(archive_path: Path, spec: ToolSpec, *, bin_dir: Path) -> Path:
     """Extract `archive_path` (already digest-verified) and activate `spec`'s
-    executable at `bin_dir/<name>`. Returns the activated path."""
+    executable at `bin_dir/<name>-<digest>` (see `activated_filename`) -
+    content-addressed, not a plain `<name>`, so two different pins can never
+    share one mutable path. Returns the activated path."""
     bin_dir.mkdir(parents=True, exist_ok=True)
     staging_dir = Path(tempfile.mkdtemp(dir=bin_dir, prefix=f".staging-{spec.name}-"))
     try:
         extracted = _extract(archive_path, spec, staging_dir=staging_dir)
         extracted.chmod(extracted.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-        target = bin_dir / spec.name
+        target = bin_dir / activated_filename(spec.name, spec.sha256)
         os.replace(extracted, target)
         return target
     finally:

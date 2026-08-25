@@ -9,7 +9,7 @@ import pytest
 
 from olf.toolchain.install import install
 from olf.toolchain.platform import Platform
-from olf.toolchain.spec import ToolSpec
+from olf.toolchain.spec import ToolSpec, activated_filename
 
 _PLATFORM = Platform(os="linux", arch="amd64")
 
@@ -35,7 +35,7 @@ def test_install_activates_a_raw_binary(tmp_path: Path) -> None:
 
     activated = install(archive, spec, bin_dir=tmp_path / "bin")
 
-    assert activated == tmp_path / "bin" / "kind"
+    assert activated == tmp_path / "bin" / activated_filename("kind", spec.sha256)
     assert activated.read_bytes() == b"#!/bin/sh\necho hi\n"
     assert activated.stat().st_mode & stat.S_IXUSR
 
@@ -49,7 +49,7 @@ def test_install_extracts_a_zip_member(tmp_path: Path) -> None:
 
     activated = install(archive, spec, bin_dir=tmp_path / "bin")
 
-    assert activated == tmp_path / "bin" / "terraform"
+    assert activated == tmp_path / "bin" / activated_filename("terraform", spec.sha256)
     assert activated.read_bytes() == b"pretend terraform binary"
 
 
@@ -82,11 +82,12 @@ def test_install_leaves_no_staging_directory_behind_on_success(tmp_path: Path) -
     archive = tmp_path / "downloaded"
     archive.write_bytes(b"binary")
     bin_dir = tmp_path / "bin"
+    spec = _spec(name="kind")
 
-    install(archive, _spec(name="kind"), bin_dir=bin_dir)
+    install(archive, spec, bin_dir=bin_dir)
 
     remaining = list(bin_dir.iterdir())
-    assert remaining == [bin_dir / "kind"]
+    assert remaining == [bin_dir / activated_filename("kind", spec.sha256)]
 
 
 def test_install_leaves_no_staging_directory_or_active_binary_on_failure(tmp_path: Path) -> None:
@@ -103,13 +104,34 @@ def test_install_leaves_no_staging_directory_or_active_binary_on_failure(tmp_pat
     assert list(bin_dir.iterdir()) == []
 
 
-def test_install_replaces_a_previously_activated_binary(tmp_path: Path) -> None:
+def test_install_never_touches_a_different_digest_of_the_same_tool(tmp_path: Path) -> None:
+    """Two different pins of the same tool must activate at two distinct,
+    immutable paths - never share one mutable `<tool>` path a later install
+    could swap out from under an in-flight resolution of the other pin."""
     bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
-    (bin_dir / "kind").write_bytes(b"old version")
+    old_spec = _spec(name="kind", sha256="sha256:" + "a" * 64)
+    old_archive = tmp_path / "old"
+    old_archive.write_bytes(b"old version")
+    old_activated = install(old_archive, old_spec, bin_dir=bin_dir)
 
+    new_spec = _spec(name="kind", sha256="sha256:" + "b" * 64)
+    new_archive = tmp_path / "new"
+    new_archive.write_bytes(b"new version")
+    new_activated = install(new_archive, new_spec, bin_dir=bin_dir)
+
+    assert old_activated != new_activated
+    assert old_activated.read_bytes() == b"old version"
+    assert new_activated.read_bytes() == b"new version"
+
+
+def test_install_of_the_same_digest_twice_is_idempotent(tmp_path: Path) -> None:
+    bin_dir = tmp_path / "bin"
+    spec = _spec(name="kind")
     archive = tmp_path / "downloaded"
-    archive.write_bytes(b"new version")
-    install(archive, _spec(name="kind"), bin_dir=bin_dir)
+    archive.write_bytes(b"same content")
 
-    assert (bin_dir / "kind").read_bytes() == b"new version"
+    first = install(archive, spec, bin_dir=bin_dir)
+    second = install(archive, spec, bin_dir=bin_dir)
+
+    assert first == second
+    assert second.read_bytes() == b"same content"

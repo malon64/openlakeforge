@@ -106,6 +106,23 @@ def build_spec(tool: str, entry: Mapping[str, Any], *, platform: Platform) -> To
     )
 
 
+def activated_filename(name: str, sha256: str) -> str:
+    """The content-addressed filename an activated executable is stored
+    under: `<tool>-<digest>`, not just `<tool>`.
+
+    Two different pins of the same tool (e.g. two checkouts sharing
+    `OLF_HOME` at the same `distribution.version` but different catalog
+    pins) must never share one mutable path - a caller that resolved one
+    pin could otherwise have its already-returned path silently swapped
+    out by another process installing a different pin before the caller's
+    subprocess actually runs it. Naming by digest makes every activated
+    file immutable once written: the same digest always means the same
+    bytes, so reusing an existing file written by another process is
+    always safe.
+    """
+    return f"{name}-{sha256.removeprefix('sha256:')}"
+
+
 def load_specs(catalog: Mapping[str, Any], *, platform: Platform) -> dict[str, ToolSpec]:
     """Build every managed `ToolSpec` declared in `catalog` for `platform`."""
     toolchain = (catalog.get("components") or {}).get("toolchain")
