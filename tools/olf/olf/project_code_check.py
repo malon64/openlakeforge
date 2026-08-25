@@ -14,9 +14,10 @@ from collections import Counter
 from hashlib import sha256
 from importlib import import_module
 from pathlib import Path
+from typing import NoReturn
 
 
-def _fail(message: str) -> None:
+def _fail(message: str) -> NoReturn:
     raise RuntimeError(message)
 
 
@@ -67,6 +68,7 @@ def validate(root: Path) -> None:
     merged_keys = set(merged_keys_list)
     if len(merged_keys_list) != len(merged_keys):
         _fail("duplicate Dagster asset keys found")
+    _verify_bronze_subsetability(inventory, merged_defs)
 
     canonical_bronze = {(source.name, item.name) for source in inventory.sources for item in source.resources}
     canonical_silver = {(domain.name, item.name) for domain in inventory.domains for item in domain.silver_tables}
@@ -99,6 +101,7 @@ def validate(root: Path) -> None:
             _fail(f"{product.id} definitions load another product's assets")
 
         job = merged_defs.resolve_job_def(product.job_name)
+        _verify_sequential_floe_orchestration(product, manifest, job)
         selected = {tuple(key.path) for key in job.asset_layer.selected_asset_keys}
         expected_bronze = {(item.source, item.name) for item in inventory.bronze_resources_for_product(product)}
         expected_silver = {(domain, item) for item in inputs}
@@ -118,6 +121,41 @@ def validate(root: Path) -> None:
     _verify_shared_assets(inventory, merged_keys_list)
     Definitions.validate_loadable(merged_defs)
     merged_defs.get_repository_def().load_all_definitions()
+
+
+def _verify_bronze_subsetability(inventory: object, definitions: object) -> None:
+    """Require each shared Bronze source multi-asset to support product subsets."""
+    source_names = {source.name for source in inventory.sources}
+    source_assets = [
+        asset_def
+        for asset_def in getattr(definitions, "assets", ())
+        if any(tuple(key.path)[0] in source_names for key in getattr(asset_def, "keys", ()))
+    ]
+    if len(source_assets) != len(source_names):
+        _fail("each Source must have exactly one executable Bronze multi-asset")
+    for source_asset in source_assets:
+        if not getattr(source_asset, "can_subset", False):
+            _fail("Source Bronze multi-assets must support product-specific subsets")
+        output_defs = getattr(getattr(source_asset, "op", None), "output_defs", ())
+        required_outputs = [output.name for output in output_defs if output.is_required]
+        if required_outputs:
+            _fail(
+                "subsettable Source Bronze multi-assets must have optional outputs; "
+                f"required outputs: {required_outputs}"
+            )
+
+
+def _verify_sequential_floe_orchestration(product: object, manifest: object, job: object) -> None:
+    """Require sequential Floe manifests and the corresponding serialized Dagster run config."""
+    orchestration = getattr(getattr(manifest, "execution", None), "orchestration", None)
+    if getattr(orchestration, "strategy", None) != "sequential":
+        _fail(f"{product.id} Floe manifest should use sequential orchestration locally")
+    try:
+        max_concurrent = job.run_config["execution"]["config"]["multiprocess"]["max_concurrent"]
+    except (AttributeError, KeyError, TypeError):
+        _fail(f"{product.job_name} is missing Floe orchestration concurrency")
+    if max_concurrent != 1:
+        _fail(f"{product.job_name} did not inherit Floe orchestration concurrency")
 
 
 def _verify_immutable_manifest_replay(root: Path, product: object, library: object, load_manifest: object) -> None:
