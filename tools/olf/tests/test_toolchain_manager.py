@@ -386,3 +386,27 @@ def test_a_resolved_path_survives_a_later_resolve_of_a_different_pin(tmp_path: P
 
     assert path_a.read_bytes() == content_when_a_resolved
     assert path_a != manager_b.installed("terraform").path
+
+
+def test_prune_refuses_a_symlinked_toolchains_root(tmp_path: Path) -> None:
+    """If `<OLF_HOME>/toolchains` itself is a symlink to an external
+    directory, `prune` must not trust that directory as its root at all -
+    otherwise every real child of the external directory satisfies the
+    per-entry `resolved.parent == toolchains_root` check and gets deleted,
+    defeating the "never remove anything outside OLF_HOME" guarantee.
+    """
+    home = tmp_path / "home"
+    home.mkdir()
+    outside = tmp_path / "definitely-not-olf-home"
+    outside.mkdir()
+    (outside / "some-version").mkdir()
+    (outside / "some-version" / "marker.txt").write_text("do not touch")
+    (home / "toolchains").symlink_to(outside)
+
+    manager, _ = _manager(tmp_path, home=home)
+
+    removed = manager.prune(remove_all=True)
+
+    assert removed == []
+    assert (outside / "some-version").is_dir()
+    assert (outside / "some-version" / "marker.txt").is_file()

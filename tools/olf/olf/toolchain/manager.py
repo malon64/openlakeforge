@@ -207,7 +207,13 @@ class ToolchainManager:
         if sum(bool(x) for x in (version, keep_current, remove_all)) != 1:
             raise ValueError("prune requires exactly one of version, keep_current, or remove_all")
 
+        home_resolved = self.home.resolve()
         toolchains_root = (self.home / "toolchains").resolve()
+        if toolchains_root.parent != home_resolved:
+            # `<home>/toolchains` itself resolved outside `home` (e.g. it is
+            # a symlink) - refuse to trust it as prune's root at all, rather
+            # than deleting whatever it points at.
+            return []
         if not toolchains_root.is_dir():
             return []
 
