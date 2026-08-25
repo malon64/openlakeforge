@@ -14,16 +14,16 @@ from pathlib import Path
 
 import typer
 
-from olf import config
 from olf.commands._shared import fail
 
 app_help = "Deployment lifecycle: foundation, platform, and artifact orchestration."
 
 
 def _build_context(
-    provider: str, *, profile: str, namespace: str, cluster_name: str, kubeconfig_path: str = ""
+    provider: str, *, profile: str, namespace: str, cluster_name: str, kubeconfig_path: str = "", project_root: str = ""
 ):  # noqa: ANN202
     from olf.deployment.context import DeploymentContext, Profile, Provider
+    from olf.distribution import DistributionError, runtime_layout
 
     try:
         resolved_provider = Provider(provider)
@@ -34,7 +34,21 @@ def _build_context(
     except ValueError as exc:
         raise typer.Exit(code=fail(f"unknown --profile: {profile!r} (expected 'full' or 'slim')")) from exc
 
-    kwargs: dict[str, object] = {"repo_root": config.repo_root(), "profile": resolved_profile}
+    layout_env = dict(os.environ)
+    if project_root:
+        layout_env["OPENLAKEFORGE_PROJECT_ROOT"] = project_root
+    try:
+        layout = runtime_layout(layout_env)
+    except DistributionError as exc:
+        raise typer.Exit(code=fail(str(exc))) from exc
+    kwargs: dict[str, object] = {
+        "repo_root": layout.project_root,
+        "distribution_root": layout.distribution_root,
+        "state_root": None if layout.is_source else layout.state_root,
+        "work_root": None if layout.is_source else layout.work_root,
+        "cache_root": None if layout.is_source else layout.cache_root,
+        "profile": resolved_profile,
+    }
     if namespace:
         kwargs["namespace"] = namespace
     if resolved_provider == Provider.LOCAL and cluster_name:
@@ -49,9 +63,10 @@ def _build_engine(context, *, var_file: str):  # noqa: ANN001, ANN202
     from olf.deployment.errors import DeploymentError
 
     try:
+        tooling_env = {**os.environ, "OLF_DISTRIBUTION_ROOT": str(context.paths.distribution_root)}
         provider = build_provider(
             context,
-            toolkit=Toolkit.default(),
+            toolkit=Toolkit.default(environ=tooling_env),
             environ=os.environ,
             var_file=Path(var_file) if var_file else None,
         )
@@ -77,13 +92,19 @@ def deploy(
     namespace: str = typer.Option("", "--namespace", help="Kubernetes namespace override."),
     cluster_name: str = typer.Option("", "--cluster-name", help="Local kind cluster name override."),
     kubeconfig_path: str = typer.Option("", "--kubeconfig-path", help="Local kubeconfig file path override."),
+    project_root: str = typer.Option("", "--project-root", help="Writable project root; defaults to the bundled demo."),
     var_file: str = typer.Option("", "--var-file", help="Terraform tfvars file override."),
 ) -> None:
     """Deploy a provider's lifecycle, or a single phase of it."""
     from olf.deployment.errors import DeploymentError
 
     context = _build_context(
-        provider, profile=profile, namespace=namespace, cluster_name=cluster_name, kubeconfig_path=kubeconfig_path
+        provider,
+        profile=profile,
+        namespace=namespace,
+        cluster_name=cluster_name,
+        kubeconfig_path=kubeconfig_path,
+        project_root=project_root,
     )
     engine = _build_engine(context, var_file=var_file)
     resolved_phase = _resolve_phase(phase, valid=("all", "foundation", "prefetch", "platform", "artifacts"))
@@ -100,6 +121,7 @@ def plan(
     namespace: str = typer.Option("", "--namespace", help="Kubernetes namespace override."),
     cluster_name: str = typer.Option("", "--cluster-name", help="Local kind cluster name override."),
     kubeconfig_path: str = typer.Option("", "--kubeconfig-path", help="Kubeconfig file path override."),
+    project_root: str = typer.Option("", "--project-root", help="Writable project root; defaults to the bundled demo."),
     var_file: str = typer.Option("", "--var-file", help="Terraform tfvars file override."),
     detailed_exitcode: bool = typer.Option(False, "--detailed-exitcode", help="Return 2 when changes are pending."),
 ) -> None:
@@ -107,7 +129,12 @@ def plan(
     from olf.deployment.errors import DeploymentError
 
     context = _build_context(
-        provider, profile=profile, namespace=namespace, cluster_name=cluster_name, kubeconfig_path=kubeconfig_path
+        provider,
+        profile=profile,
+        namespace=namespace,
+        cluster_name=cluster_name,
+        kubeconfig_path=kubeconfig_path,
+        project_root=project_root,
     )
     engine = _build_engine(context, var_file=var_file)
     resolved_phase = _resolve_phase(phase, valid=("all", "foundation", "platform"))
@@ -127,13 +154,19 @@ def doctor(
     namespace: str = typer.Option("", "--namespace", help="Kubernetes namespace override."),
     cluster_name: str = typer.Option("", "--cluster-name", help="Local kind cluster name override."),
     kubeconfig_path: str = typer.Option("", "--kubeconfig-path", help="Kubeconfig file path override."),
+    project_root: str = typer.Option("", "--project-root", help="Writable project root; defaults to the bundled demo."),
     var_file: str = typer.Option("", "--var-file", help="Terraform tfvars file override."),
 ) -> None:
     """Check host tools, source inputs, and provider authentication without mutating deployment state."""
     from olf.deployment.errors import DeploymentError
 
     context = _build_context(
-        provider, profile=profile, namespace=namespace, cluster_name=cluster_name, kubeconfig_path=kubeconfig_path
+        provider,
+        profile=profile,
+        namespace=namespace,
+        cluster_name=cluster_name,
+        kubeconfig_path=kubeconfig_path,
+        project_root=project_root,
     )
     engine = _build_engine(context, var_file=var_file)
     resolved_phase = _resolve_phase(phase, valid=("all", "foundation", "platform", "artifacts"))
@@ -153,6 +186,7 @@ def destroy(
     namespace: str = typer.Option("", "--namespace", help="Kubernetes namespace override."),
     cluster_name: str = typer.Option("", "--cluster-name", help="Local kind cluster name override."),
     kubeconfig_path: str = typer.Option("", "--kubeconfig-path", help="Local kubeconfig file path override."),
+    project_root: str = typer.Option("", "--project-root", help="Writable project root; defaults to the bundled demo."),
     var_file: str = typer.Option("", "--var-file", help="Terraform tfvars file override."),
     force: bool = typer.Option(
         False, "--force", help="Destroy the foundation even if platform resources remain."
@@ -162,7 +196,12 @@ def destroy(
     from olf.deployment.errors import DeploymentError
 
     context = _build_context(
-        provider, profile=profile, namespace=namespace, cluster_name=cluster_name, kubeconfig_path=kubeconfig_path
+        provider,
+        profile=profile,
+        namespace=namespace,
+        cluster_name=cluster_name,
+        kubeconfig_path=kubeconfig_path,
+        project_root=project_root,
     )
     engine = _build_engine(context, var_file=var_file)
     resolved_phase = _resolve_phase(phase, valid=("all", "platform", "foundation"))
@@ -177,12 +216,18 @@ def status(
     namespace: str = typer.Option("", "--namespace", help="Kubernetes namespace override."),
     cluster_name: str = typer.Option("", "--cluster-name", help="Local kind cluster name override."),
     kubeconfig_path: str = typer.Option("", "--kubeconfig-path", help="Local kubeconfig file path override."),
+    project_root: str = typer.Option("", "--project-root", help="Writable project root; defaults to the bundled demo."),
 ) -> None:
     """Print pod/service/PVC status for the deployed namespace."""
     from olf.deployment.errors import DeploymentError
 
     context = _build_context(
-        provider, profile="full", namespace=namespace, cluster_name=cluster_name, kubeconfig_path=kubeconfig_path
+        provider,
+        profile="full",
+        namespace=namespace,
+        cluster_name=cluster_name,
+        kubeconfig_path=kubeconfig_path,
+        project_root=project_root,
     )
     engine = _build_engine(context, var_file="")
     try:
@@ -198,12 +243,18 @@ def forward(
     namespace: str = typer.Option("", "--namespace", help="Kubernetes namespace override."),
     cluster_name: str = typer.Option("", "--cluster-name", help="Local kind cluster name override."),
     kubeconfig_path: str = typer.Option("", "--kubeconfig-path", help="Local kubeconfig file path override."),
+    project_root: str = typer.Option("", "--project-root", help="Writable project root; defaults to the bundled demo."),
 ) -> None:
     """Start port-forwards for the deployed services (Ctrl-C to stop all)."""
     from olf.deployment.errors import DeploymentError
 
     context = _build_context(
-        provider, profile=profile, namespace=namespace, cluster_name=cluster_name, kubeconfig_path=kubeconfig_path
+        provider,
+        profile=profile,
+        namespace=namespace,
+        cluster_name=cluster_name,
+        kubeconfig_path=kubeconfig_path,
+        project_root=project_root,
     )
     engine = _build_engine(context, var_file="")
     try:

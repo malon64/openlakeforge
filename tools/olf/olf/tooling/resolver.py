@@ -115,13 +115,20 @@ def build_resolver(
             "OLF_TOOLCHAIN_MODE", reason=f"unknown value {mode!r} (expected 'managed' or 'host')"
         )
 
-    from olf import config
     from olf.toolchain.manager import ToolchainManager
     from olf.toolchain.platform import UnsupportedPlatformError
     from olf.toolchain.spec import ToolchainCatalogError
 
     home = Path(env["OLF_HOME"]).expanduser().resolve() if env.get("OLF_HOME") else None
-    catalog_path = config.repo_root() / "release" / "component-catalog.yaml"
+    if env.get("OLF_DISTRIBUTION_ROOT"):
+        catalog_root = Path(env["OLF_DISTRIBUTION_ROOT"]).resolve()
+    elif env.get("OPENLAKEFORGE_REPO_ROOT"):
+        catalog_root = Path(env["OPENLAKEFORGE_REPO_ROOT"]).resolve()
+    else:
+        from olf import config
+
+        catalog_root = config.distribution_root()
+    catalog_path = catalog_root / "release" / "component-catalog.yaml"
     try:
         manager = ToolchainManager.from_catalog_path(catalog_path, home=home)
     except (UnsupportedPlatformError, ToolchainCatalogError) as exc:

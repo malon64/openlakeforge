@@ -8,6 +8,7 @@ inputs that have drifted from `release/component-catalog.yaml`.
 from __future__ import annotations
 
 import re
+import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -50,6 +51,67 @@ def _check_version_matches_tag(catalog: dict[str, Any], tag: str | None) -> Chec
 
 _TOOLCHAIN_SHA256_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 _TOOLCHAIN_PLATFORMS = ("darwin-amd64", "darwin-arm64", "linux-amd64", "linux-arm64")
+_CHART_SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+_RELEASE_ALPHA_PATTERN = re.compile(r"^(\d+\.\d+\.\d+)-alpha\.(\d+)$")
+
+
+def _pep440_release_version(version: str) -> str:
+    match = _RELEASE_ALPHA_PATTERN.fullmatch(version)
+    if match is None:
+        raise ValueError(f"unsupported release version {version!r}")
+    return f"{match.group(1)}a{match.group(2)}"
+
+
+def _check_python_package_versions(repo_root: Path, catalog: dict[str, Any]) -> CheckResult:
+    """The two published distributions and catalog release are one version contract."""
+    expected = _pep440_release_version(catalog_version(catalog))
+    paths = {
+        "openlakeforge": repo_root / "tools/olf/pyproject.toml",
+        "openlakeforge-domain-model": repo_root / "packages/domain-model/pyproject.toml",
+    }
+    problems: list[str] = []
+    for name, path in paths.items():
+        try:
+            project = tomllib.loads(path.read_text(encoding="utf-8"))["project"]
+        except (KeyError, OSError, tomllib.TOMLDecodeError) as exc:
+            problems.append(f"{path.relative_to(repo_root)} is unreadable: {exc}")
+            continue
+        if project.get("name") != name:
+            problems.append(f"{path.relative_to(repo_root)} names {project.get('name')!r}, expected {name!r}")
+        if project.get("version") != expected:
+            problems.append(f"{path.relative_to(repo_root)} version {project.get('version')!r}, expected {expected!r}")
+    if problems:
+        return CheckResult("Python package versions match catalog", False, "; ".join(problems))
+    return CheckResult("Python package versions match catalog", True, expected)
+
+
+def _check_catalog_charts(repo_root: Path, catalog: dict[str, Any]) -> CheckResult:
+    """Every deployed chart has an immutable catalog entry matching Terraform."""
+    charts = ((catalog.get("components") or {}).get("helm") or {}).get("charts")
+    module_versions = _helm_chart_versions_from_terraform_modules(repo_root)
+    required = frozenset(module_versions)
+    if not isinstance(charts, dict):
+        return CheckResult("catalog Helm charts are immutable", False, "components.helm.charts is missing")
+    problems: list[str] = []
+    for name in sorted(required):
+        entry = charts.get(name)
+        if not isinstance(entry, dict):
+            problems.append(f"{name} is missing")
+            continue
+        version = entry.get("version")
+        if version != module_versions[name]:
+            problems.append(f"{name}.version={version!r}, Terraform={module_versions[name]!r}")
+        for field in ("repository", "reference"):
+            if not isinstance(entry.get(field), str) or not entry[field]:
+                problems.append(f"{name}.{field} is missing")
+        if not _CHART_SHA256_PATTERN.fullmatch(str(entry.get("sha256", ""))):
+            problems.append(f"{name}.sha256 is not a SHA-256")
+    unexpected = sorted(set(charts) - required)
+    if unexpected:
+        problems.append(f"unknown chart entries: {', '.join(unexpected)}")
+    if problems:
+        return CheckResult("catalog Helm charts are immutable", False, "; ".join(problems))
+    return CheckResult("catalog Helm charts are immutable", True, f"{len(required)} chart(s) checked")
 
 
 def _check_toolchain_pinned(catalog: dict[str, Any]) -> CheckResult:
@@ -454,6 +516,7 @@ def run_release_check(
 
     report = ReleaseCheckReport()
     report.results.append(_check_version_matches_tag(catalog, tag))
+    report.results.append(_check_python_package_versions(root, catalog))
     report.results.append(_check_images_digest_pinned(catalog))
     report.results.append(_check_toolchain_pinned(catalog))
     report.results.append(_check_images_match_deployment_sources(root, catalog))
@@ -462,5 +525,6 @@ def run_release_check(
     report.results.append(_check_terraform_required_versions_match_catalog(root, catalog))
     report.results.append(_check_provider_using_terraform_roots_have_lockfiles(root))
     report.results.append(_check_chart_versions_match_deployment_wrappers(root))
+    report.results.append(_check_catalog_charts(root, catalog))
     report.results.append(_check_compatibility_matrix_up_to_date(root, catalog))
     return report

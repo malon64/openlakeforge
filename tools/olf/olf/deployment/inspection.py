@@ -55,13 +55,23 @@ def _toolchain_mode_item(tools: Toolkit) -> DoctorItem:
 
 def base_report(
     *,
-    repo_root: Path,
+    project_root: Path,
+    distribution_root: Path,
     tools: Toolkit,
     required_tools: Iterable[str],
 ) -> list[DoctorItem]:
     items = [
-        DoctorItem("repository", (repo_root / "lakehouse_code/lakehouse.yaml").is_file(), str(repo_root)),
-        DoctorItem("terraform roots", (repo_root / "infra/terraform").is_dir(), str(repo_root / "infra/terraform")),
+        DoctorItem("project", (project_root / "lakehouse_code/lakehouse.yaml").is_file(), str(project_root)),
+        DoctorItem(
+            "platform distribution",
+            (distribution_root / "release/component-catalog.yaml").is_file(),
+            str(distribution_root),
+        ),
+        DoctorItem(
+            "terraform roots",
+            (distribution_root / "infra/terraform").is_dir(),
+            str(distribution_root / "infra/terraform"),
+        ),
         _toolchain_mode_item(tools),
     ]
     resolver = tools.resolver

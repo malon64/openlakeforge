@@ -6,6 +6,8 @@ root Typer application, registers each group, and wires `main()`.
 
 from __future__ import annotations
 
+import json
+
 import typer
 
 import olf
@@ -18,6 +20,7 @@ from olf.commands import (
     dbt,
     deployment,
     diagnostics,
+    distribution,
     domain,
     e2e,
     floe,
@@ -45,6 +48,7 @@ app.add_typer(contracts.app, name="contracts")
 app.add_typer(checks.app, name="check")
 app.add_typer(dbt.app, name="dbt")
 app.add_typer(diagnostics.app, name="diagnostics")
+app.add_typer(distribution.app, name="distribution")
 app.add_typer(images.app, name="images")
 app.add_typer(catalog.app, name="catalog")
 app.add_typer(floe.app, name="floe")
@@ -77,9 +81,21 @@ def _root() -> None:
 
 
 @app.command()
-def version() -> None:
-    """Print the tooling version."""
-    typer.echo(olf.__version__)
+def version(
+    json_output: bool = typer.Option(False, "--json", help="Render package and payload identity as JSON."),
+) -> None:
+    """Print the tooling and active distribution version."""
+    if not json_output:
+        typer.echo(olf.__version__)
+        return
+    from olf.commands.distribution import version_payload
+    from olf.distribution import DistributionError
+
+    try:
+        payload = json.loads(version_payload())
+    except DistributionError as exc:
+        raise typer.Exit(code=1) from exc
+    typer.echo(json.dumps({"package_version": olf.__version__, **payload}, sort_keys=True))
 
 
 def main() -> None:

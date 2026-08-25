@@ -38,6 +38,7 @@ def prepare_charts(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mappin
             chart_ref=config.charts.trino_chart_ref,
             version=config.charts.trino_version,
             package_path=config.charts.trino_package_path,
+            sha256=config.charts.trino_sha256,
         ),
         helm=tools.helm,
         paths=config.paths,

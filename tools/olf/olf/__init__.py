@@ -1,10 +1,12 @@
-"""OpenLakeForge deployment tooling.
+"""OpenLakeForge deployment tooling."""
 
-Cross-environment logic shared by the local, Azure, and AWS deploy scripts:
-provider-contract parsing, service REST APIs (OpenMetadata, Superset, Polaris),
-object-storage uploads, and Kubernetes image bookkeeping. Shell scripts remain
-the orchestrators for terraform/kubectl/helm/docker CLI invocations and call
-into this package through the `olf` CLI.
-"""
+from __future__ import annotations
 
-__version__ = "0.1.0"
+from importlib.metadata import PackageNotFoundError, version
+
+try:
+    __version__ = version("openlakeforge")
+except PackageNotFoundError:
+    # Editable/source execution before package metadata exists. The release
+    # command validates this fallback against release/component-catalog.yaml.
+    __version__ = "0.1.0a1"

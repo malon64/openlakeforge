@@ -45,6 +45,43 @@ components:
         darwin-arm64: sha256:dca67911095a110c2b5c36e26df6cac860c602033e456c0db47be498cdef1ebb
         linux-amd64: sha256:50030de23cf40a18505f20426f6a8506bedf13c6e509244bd1fa9463721b0f54
         linux-arm64: sha256:b92cd615e97585de8ddade28ed5cd7feb4248d717c233eea5b03c37298900f5d
+  helm:
+    charts:
+      seaweedfs:
+        repository: https://seaweedfs.github.io/seaweedfs/helm
+        reference: seaweedfs/seaweedfs
+        version: 4.23.0
+        sha256: 1ac298397d5736d8e23218f530b5c1a82fe96e802ba5caaf2f9f2086bc357247
+      polaris:
+        repository: https://downloads.apache.org/polaris/helm-chart
+        reference: polaris/polaris
+        version: 1.4.1
+        sha256: 312cbde2da49cd3930ef5ca1a4b3bc97fc638ef2eb04635d9f6bea76f77b8fcc
+      trino:
+        repository: https://trinodb.github.io/charts
+        reference: trino/trino
+        version: 1.42.2
+        sha256: 0b33da82a36becd8913fef23d99f470bb6b87bce29bbc219089a5bbd4159266d
+      dagster:
+        repository: https://dagster-io.github.io/helm
+        reference: dagster/dagster
+        version: 1.13.6
+        sha256: 71af5c9fb9b29fc266cd9df962dd07ef51f242bcc21e0cb0fb7bbcbff8b67171
+      openmetadata:
+        repository: https://helm.open-metadata.org
+        reference: open-metadata/openmetadata
+        version: 1.12.10
+        sha256: cf8ac4f5cc0480728f0f5271b1d4ad9f6d616248aa90a8a0c4ada38b1f738b49
+      openmetadata-dependencies:
+        repository: https://helm.open-metadata.org
+        reference: open-metadata/openmetadata-dependencies
+        version: 1.12.10
+        sha256: 17beab524a188681ac95a9b3ff046679dcccbbebdc7f650dcb9abc241121e6d5
+      superset:
+        repository: https://apache.github.io/superset/
+        reference: superset/superset
+        version: 0.15.5
+        sha256: 423ad23f40b03a8753c8b7c1d9ad1231267962d014de6c176b01a1ce255ea312
   python:
     project_code_lock: images/project-code/requirements.lock
     tooling_lock: tools/olf/uv.lock

@@ -159,6 +159,27 @@ def test_command_env_sets_expected_keys_without_mutating_parent(tmp_path: Path) 
     assert "KUBECONFIG" not in os.environ
 
 
+def test_installed_context_keeps_terraform_state_and_data_outside_distribution(tmp_path: Path) -> None:
+    distribution = tmp_path / "distribution"
+    project = tmp_path / "project"
+    state = tmp_path / "state"
+    work = tmp_path / "work"
+    ctx = DeploymentContext.local(
+        repo_root=project,
+        distribution_root=distribution,
+        state_root=state,
+        work_root=work,
+    )
+
+    env = ctx.command_env()
+
+    assert ctx.paths.platform_terraform_dir == distribution / "infra/terraform/environments/local"
+    assert ctx.paths.foundation_state_path == state / "local/foundation.tfstate"
+    assert ctx.paths.platform_state_path == state / "local/platform.tfstate"
+    assert env["OPENLAKEFORGE_TERRAFORM_DATA_ROOT"] == str(work / "local/terraform-data")
+    assert env["OPENLAKEFORGE_TERRAFORM_STATE_ROOT"] == str(state / "local")
+    assert env["OPENLAKEFORGE_TERRAFORM_READONLY_LOCKFILE"] == "true"
+
 def test_command_env_without_docker_host_omits_it(tmp_path: Path) -> None:
     ctx = DeploymentContext.local(repo_root=tmp_path)
 

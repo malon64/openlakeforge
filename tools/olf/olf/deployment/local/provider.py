@@ -158,7 +158,8 @@ class LocalProvider:
         if phase in (DeploymentPhase.ALL, DeploymentPhase.PLATFORM):
             required.append("helm")
         items = base_report(
-            repo_root=self.config.paths.repo_root,
+            project_root=self.config.paths.repo_root,
+            distribution_root=self.config.paths.distribution_root,
             tools=self.tools,
             required_tools=required,
         )

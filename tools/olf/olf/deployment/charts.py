@@ -10,10 +10,14 @@ did.
 
 from __future__ import annotations
 
+import hashlib
+import os
 import tempfile
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+
+import yaml
 
 from olf import log
 from olf.deployment.context import DeploymentPaths
@@ -29,6 +33,50 @@ class ChartRequest:
     chart_ref: str
     version: str
     package_path: Path
+    sha256: str | None = None
+
+
+@dataclass(frozen=True)
+class CatalogChart:
+    """An immutable third-party chart declaration from the component catalog."""
+
+    name: str
+    repository: str
+    reference: str
+    version: str
+    sha256: str
+
+    @classmethod
+    def load(cls, catalog_path: Path, name: str) -> CatalogChart:
+        try:
+            catalog = yaml.safe_load(catalog_path.read_text(encoding="utf-8"))
+            value = catalog["components"]["helm"]["charts"][name]
+        except (KeyError, OSError, TypeError, yaml.YAMLError) as exc:
+            raise ValueError(f"chart {name!r} is not declared in {catalog_path}") from exc
+        if not isinstance(value, dict):
+            raise ValueError(f"chart {name!r} in {catalog_path} must be a mapping")
+        fields = {field: value.get(field) for field in ("repository", "reference", "version", "sha256")}
+        if not all(isinstance(item, str) and item for item in fields.values()):
+            raise ValueError(f"chart {name!r} in {catalog_path} has incomplete immutable metadata")
+        digest = fields["sha256"]
+        if len(digest) != 64 or any(char not in "0123456789abcdef" for char in digest):
+            raise ValueError(f"chart {name!r} in {catalog_path} has an invalid SHA-256")
+        return cls(name=name, **fields)  # type: ignore[arg-type]
+
+    def request(self, *, cache_root: Path) -> ChartRequest:
+        return ChartRequest(
+            display_name=self.name,
+            repo_name=self.reference.split("/", 1)[0],
+            repo_url=self.repository,
+            chart_ref=self.reference,
+            version=self.version,
+            package_path=cache_root / "helm" / f"{self.sha256}.tgz",
+            sha256=self.sha256,
+        )
+
+
+def _digest(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def prepare_cached_chart(
@@ -42,9 +90,16 @@ def prepare_cached_chart(
     repository_config = paths.helm_repository_config
     repository_cache = paths.helm_repository_cache
 
-    if request.package_path.is_file() and helm.show_chart(
-        request.package_path, repository_config=repository_config, repository_cache=repository_cache, env=env
-    ).ok:
+    cache_has_expected_digest = request.package_path.is_file() and (
+        request.sha256 is None or _digest(request.package_path) == request.sha256
+    )
+    cache_has_valid_chart = cache_has_expected_digest and helm.show_chart(
+        request.package_path,
+        repository_config=repository_config,
+        repository_cache=repository_cache,
+        env=env,
+    ).ok
+    if cache_has_valid_chart:
         log.step(f"Using cached {request.display_name} Helm chart: {request.package_path}")
         return request.package_path
 
@@ -75,6 +130,18 @@ def prepare_cached_chart(
         env=env,
         retry_policy=retry_policy,
     )
+    if request.sha256 is None:
+        return request.package_path
+
+    chart_name = request.chart_ref.rsplit("/", 1)[-1]
+    downloaded = paths.helm_cache_dir / f"{chart_name}-{request.version}.tgz"
+    if not downloaded.is_file() or _digest(downloaded) != request.sha256:
+        downloaded.unlink(missing_ok=True)
+        raise ValueError(f"{request.display_name} chart digest does not match the component catalog")
+    request.package_path.parent.mkdir(parents=True, exist_ok=True)
+    staged = request.package_path.with_name(f".{request.sha256}.{os.getpid()}.tgz")
+    downloaded.replace(staged)
+    os.replace(staged, request.package_path)
     return request.package_path
 
 

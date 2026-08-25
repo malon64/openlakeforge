@@ -473,19 +473,8 @@ wheels = [
 ]
 
 [[package]]
-name = "openlakeforge-domain-model"
-version = "0.1.0"
-source = { directory = "../../packages/domain-model" }
-dependencies = [
-    { name = "pyyaml" },
-]
-
-[package.metadata]
-requires-dist = [{ name = "pyyaml", specifier = ">=6.0,<7" }]
-
-[[package]]
-name = "openlakeforge-tools"
-version = "0.1.0"
+name = "openlakeforge"
+version = "0.1.0a1"
 source = { editable = "." }
 dependencies = [
     { name = "azure-identity" },
@@ -525,6 +514,17 @@ dev = [
     { name = "pytest", specifier = ">=9.0.3,<10" },
     { name = "ruff", specifier = ">=0.6" },
 ]
+
+[[package]]
+name = "openlakeforge-domain-model"
+version = "0.1.0a1"
+source = { directory = "../../packages/domain-model" }
+dependencies = [
+    { name = "pyyaml" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "pyyaml", specifier = ">=6.0,<7" }]
 
 [[package]]
 name = "packaging"

@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import typer
 
+from olf.commands._project import writable_project_root
 from olf.commands._shared import fail
 from olf.scaffold._commit import commit_plan
 from olf.scaffold._shared import ScaffoldError
@@ -19,15 +18,15 @@ def source_new(
     source: str = typer.Argument(..., help="Source identifier, e.g. 'marketing_platform'."),
     display_name: str = typer.Option(None, "--display-name", help="Defaults to a title-cased SOURCE."),
     resource: list[str] = typer.Option(..., "--resource", help="A logical resource this source exposes. Repeatable."),
-    repo_root: str = typer.Option(".", "--repo-root", help="Repository root."),
+    repo_root: str = typer.Option("", "--repo-root", help="Writable project root."),
 ) -> None:
     """Generate a new Source: `source.yaml`, a dlt loader, and one placeholder
     example CSV per --resource. Adds SOURCE to lakehouse.yaml's `sources:`."""
-    root = Path(repo_root).resolve()
     try:
+        root = writable_project_root(repo_root)
         plan = plan_source_new(root, source=source, display_name=display_name, resources=tuple(resource))
         commit_plan(root, plan)
-    except ScaffoldError as exc:
+    except (RuntimeError, ScaffoldError) as exc:
         raise typer.Exit(code=fail(str(exc))) from exc
     for line in plan.summary:
         typer.echo(line)

@@ -50,12 +50,15 @@ class Profile(StrEnum):
 class DeploymentPaths:
     repo_root: Path
     distribution_root: Path
+    state_root: Path
     work_root: Path
     cache_root: Path
     kubeconfig_path: Path
     foundation_terraform_dir: Path
     platform_terraform_dir: Path
     foundation_state_path: Path
+    platform_state_path: Path
+    terraform_data_root: Path
     docker_config_dir: Path
     helm_cache_dir: Path
     helm_repository_config: Path
@@ -101,6 +104,9 @@ class DeploymentContext:
         repo_root: Path,
         profile: Profile = Profile.FULL,
         distribution_root: Path | None = None,
+        state_root: Path | None = None,
+        work_root: Path | None = None,
+        cache_root: Path | None = None,
         namespace: str = DEFAULT_NAMESPACE,
         cluster_name: str = DEFAULT_LOCAL_CLUSTER_NAME,
         kubeconfig_path: Path | None = None,
@@ -119,6 +125,9 @@ class DeploymentContext:
             scope="local",
             repo_root=repo_root,
             distribution_root=distribution_root,
+            state_root=state_root,
+            work_root=work_root,
+            cache_root=cache_root,
             profile=profile,
             namespace=namespace,
             kube_context=f"kind-{cluster_name}",
@@ -136,6 +145,9 @@ class DeploymentContext:
         repo_root: Path,
         profile: Profile = Profile.FULL,
         distribution_root: Path | None = None,
+        state_root: Path | None = None,
+        work_root: Path | None = None,
+        cache_root: Path | None = None,
         namespace: str = DEFAULT_NAMESPACE,
         kube_context: str = "",
         kubeconfig_path: Path | None = None,
@@ -153,6 +165,9 @@ class DeploymentContext:
             scope="aws",
             repo_root=repo_root,
             distribution_root=distribution_root,
+            state_root=state_root,
+            work_root=work_root,
+            cache_root=cache_root,
             profile=profile,
             namespace=namespace,
             kube_context=kube_context,
@@ -170,6 +185,9 @@ class DeploymentContext:
         repo_root: Path,
         profile: Profile = Profile.FULL,
         distribution_root: Path | None = None,
+        state_root: Path | None = None,
+        work_root: Path | None = None,
+        cache_root: Path | None = None,
         namespace: str = DEFAULT_NAMESPACE,
         kube_context: str = "",
         kubeconfig_path: Path | None = None,
@@ -184,6 +202,9 @@ class DeploymentContext:
             scope="azure",
             repo_root=repo_root,
             distribution_root=distribution_root,
+            state_root=state_root,
+            work_root=work_root,
+            cache_root=cache_root,
             profile=profile,
             namespace=namespace,
             kube_context=kube_context,
@@ -202,6 +223,9 @@ class DeploymentContext:
         scope: str,
         repo_root: Path,
         distribution_root: Path | None,
+        state_root: Path | None,
+        work_root: Path | None,
+        cache_root: Path | None,
         profile: Profile,
         namespace: str,
         kube_context: str,
@@ -212,23 +236,45 @@ class DeploymentContext:
         resolved_distribution_root = (
             Path(distribution_root).resolve() if distribution_root is not None else resolved_repo_root
         )
-        work_root = resolved_repo_root / ".tmp"
-        helm_root = work_root / "helm" / scope
+        resolved_work_root = (
+            Path(work_root).resolve() / scope if work_root is not None else resolved_repo_root / ".tmp"
+        )
+        resolved_state_root = (Path(state_root).resolve() / scope) if state_root is not None else resolved_repo_root
+        resolved_cache_root = Path(cache_root).resolve() if cache_root is not None else resolved_work_root
+        helm_root = resolved_work_root / "helm" / scope
+        foundation_dir = resolved_distribution_root / foundation_terraform_dir
+        platform_dir = resolved_distribution_root / platform_terraform_dir
+        foundation_state = (
+            _resolve_foundation_state_path(foundation_dir)
+            if state_root is None
+            else Path(os.environ.get("FOUNDATION_STATE_PATH", resolved_state_root / "foundation.tfstate")).resolve()
+        )
 
         paths = DeploymentPaths(
             repo_root=resolved_repo_root,
             distribution_root=resolved_distribution_root,
-            work_root=work_root,
-            cache_root=work_root,
-            kubeconfig_path=work_root / "kubeconfigs" / f"{scope}.yaml",
-            foundation_terraform_dir=resolved_repo_root / foundation_terraform_dir,
-            platform_terraform_dir=resolved_repo_root / platform_terraform_dir,
-            foundation_state_path=_resolve_foundation_state_path(resolved_repo_root / foundation_terraform_dir),
-            docker_config_dir=work_root / "docker" / scope,
-            helm_cache_dir=helm_root / "charts",
+            state_root=resolved_state_root,
+            work_root=resolved_work_root,
+            cache_root=resolved_cache_root,
+            kubeconfig_path=(
+                resolved_state_root / "kubeconfig.yaml"
+                if state_root is not None
+                else resolved_work_root / "kubeconfigs" / f"{scope}.yaml"
+            ),
+            foundation_terraform_dir=foundation_dir,
+            platform_terraform_dir=platform_dir,
+            foundation_state_path=foundation_state,
+            platform_state_path=(
+                resolved_state_root / "platform.tfstate"
+                if state_root is not None
+                else platform_dir / "terraform.tfstate"
+            ),
+            terraform_data_root=resolved_work_root / "terraform-data",
+            docker_config_dir=resolved_work_root / "docker" / scope,
+            helm_cache_dir=(resolved_cache_root / "helm") if cache_root is not None else helm_root / "charts",
             helm_repository_config=helm_root / "repositories.yaml",
             helm_repository_cache=helm_root / "repository-cache",
-            superset_report_work_dir=work_root / "superset-reports" / scope,
+            superset_report_work_dir=resolved_work_root / "superset-reports" / scope,
             port_forward_log_prefix=Path(f"/tmp/openlakeforge-{scope}"),
         )
         return cls(
@@ -262,6 +308,10 @@ class DeploymentContext:
         env["HELM_REPOSITORY_CACHE"] = str(self.paths.helm_repository_cache)
         env["SUPERSET_REPORT_WORK_DIR"] = str(self.paths.superset_report_work_dir)
         env["OPENLAKEFORGE_PORT_FORWARD_LOG_PREFIX"] = str(self.paths.port_forward_log_prefix)
+        if self.paths.distribution_root != self.paths.repo_root:
+            env["OPENLAKEFORGE_TERRAFORM_DATA_ROOT"] = str(self.paths.terraform_data_root)
+            env["OPENLAKEFORGE_TERRAFORM_STATE_ROOT"] = str(self.paths.state_root)
+            env["OPENLAKEFORGE_TERRAFORM_READONLY_LOCKFILE"] = "true"
         if docker_host:
             env["DOCKER_HOST"] = docker_host
         return env
@@ -280,6 +330,7 @@ class DeploymentContext:
             self.paths.helm_repository_cache,
             self.paths.helm_cache_dir,
             self.paths.superset_report_work_dir,
+            self.paths.terraform_data_root,
         ):
             directory.mkdir(parents=True, exist_ok=True)
 

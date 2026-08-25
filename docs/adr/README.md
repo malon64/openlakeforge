@@ -128,3 +128,7 @@ with the SDK-replacement path documented and deferred to a follow-up issue.
 cloud-CLI prerequisite: `olf` authenticates AWS IAM Identity Center and Azure
 users through the official SDKs, while retaining narrowly-scoped Terraform
 credential bridges where provider implementations require them.
+
+`0031-pypi-embedded-platform-payload.md` establishes PyPI as the consumer
+distribution, with a verified immutable Terraform/Helm/runtime payload in the
+universal `openlakeforge` wheel and sdist.

@@ -206,7 +206,12 @@ class CloudProvider:
         )
         if needs_docker:
             required.append("docker")
-        items = base_report(repo_root=self.config.paths.repo_root, tools=self.tools, required_tools=required)
+        items = base_report(
+            project_root=self.config.paths.repo_root,
+            distribution_root=self.config.paths.distribution_root,
+            tools=self.tools,
+            required_tools=required,
+        )
         from olf.auth import credential_selection_environment
 
         # `command_env` scopes DOCKER_CONFIG to an OLF-owned directory, which

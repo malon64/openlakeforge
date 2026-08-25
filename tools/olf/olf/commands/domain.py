@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import typer
 
+from olf.commands._project import writable_project_root
 from olf.commands._shared import fail
 from olf.scaffold._commit import commit_plan
 from olf.scaffold._shared import ScaffoldError, parse_source_resource
@@ -21,18 +20,18 @@ def domain_new(
     input_: list[str] = typer.Option(
         ..., "--input", help="An existing '<source>/<resource>' this domain validates into Silver. Repeatable."
     ),
-    repo_root: str = typer.Option(".", "--repo-root", help="Repository root."),
+    repo_root: str = typer.Option("", "--repo-root", help="Writable project root."),
 ) -> None:
     """Generate a new Domain: a Silver package plus a Floe Bronze-to-Silver
     contract with one entity per --input. Inserts DOMAIN into
     lakehouse.yaml with `products: []` -- a domain may be created and
     validated before any product consumes its Silver tables."""
-    root = Path(repo_root).resolve()
     try:
+        root = writable_project_root(repo_root)
         inputs = tuple(parse_source_resource(value) for value in input_)
         plan = plan_domain_new(root, domain=domain, display_name=display_name, inputs=inputs)
         commit_plan(root, plan)
-    except ScaffoldError as exc:
+    except (RuntimeError, ScaffoldError) as exc:
         raise typer.Exit(code=fail(str(exc))) from exc
     for line in plan.summary:
         typer.echo(line)

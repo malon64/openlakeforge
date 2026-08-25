@@ -32,10 +32,28 @@ class Terraform:
         retry_if: RetryPredicate | None = None,
         stream_output: bool = False,
     ) -> CommandResult:
-        argv = [str(self._executable()), f"-chdir={terraform_dir}", *args]
+        command_env = dict(env or {})
+        command_args = list(args)
+        data_root = command_env.get("OPENLAKEFORGE_TERRAFORM_DATA_ROOT")
+        state_root = command_env.get("OPENLAKEFORGE_TERRAFORM_STATE_ROOT")
+        if data_root and state_root:
+            group = terraform_dir.parent.name
+            scope = "foundation" if group == "foundations" else "platform"
+            data_dir = Path(data_root) / scope
+            state_path = Path(state_root) / f"{scope}.tfstate"
+            data_dir.mkdir(parents=True, exist_ok=True)
+            state_path.parent.mkdir(parents=True, exist_ok=True)
+            command_env["TF_DATA_DIR"] = str(data_dir)
+            if command_args and command_args[0] == "init":
+                if command_env.get("OPENLAKEFORGE_TERRAFORM_READONLY_LOCKFILE") == "true":
+                    command_args.append("-lockfile=readonly")
+            else:
+                insert_at = 2 if command_args[:1] == ["state"] else 1
+                command_args.insert(insert_at, f"-state={state_path}")
+        argv = [str(self._executable()), f"-chdir={terraform_dir}", *command_args]
         return self._runner.run(
             argv,
-            env=env,
+            env=command_env or None,
             check=check,
             retry_policy=retry_policy,
             retry_if=retry_if,

@@ -25,9 +25,9 @@ def build_superset_image(config: LocalDeploymentConfig, tools: Toolkit, *, env: 
 
     log.step(f"Building Superset image: {images.superset_image}")
     tools.docker.build(
-        config.paths.repo_root / "images/superset",
+        config.paths.distribution_root / "images/superset",
         tag=images.superset_image,
-        file=config.paths.repo_root / "images/superset/Dockerfile",
+        file=config.paths.distribution_root / "images/superset/Dockerfile",
         build_args={"SUPERSET_BASE_IMAGE": images.superset_base_image},
         env=env,
         retry_policy=images.build_retry,
@@ -48,9 +48,9 @@ def build_project_code_image(
 
     log.step(f"Building project-code image: {images.project_code_image}")
     tools.docker.build(
-        config.paths.repo_root,
+        config.paths.distribution_root,
         tag=images.project_code_image,
-        file=config.paths.repo_root / "images/project-code/Dockerfile",
+        file=config.paths.distribution_root / "images/project-code/Dockerfile",
         build_args={
             "PYTHON_BASE_IMAGE": images.project_code_python_base_image,
             "DBT_PROFILE_ENV": images.project_code_dbt_profile_env,

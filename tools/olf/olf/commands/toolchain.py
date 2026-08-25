@@ -20,7 +20,7 @@ app = typer.Typer(help="Inspect and manage the managed CLI toolchain (Terraform,
 def _manager():  # noqa: ANN202
     from olf.toolchain.manager import ToolchainManager
 
-    catalog_path = config.repo_root() / "release" / "component-catalog.yaml"
+    catalog_path = config.distribution_root() / "release" / "component-catalog.yaml"
     return ToolchainManager.from_catalog_path(catalog_path)
 
 

@@ -266,11 +266,15 @@ class CloudDeploymentConfig:
         var_file: Path | None = None,
     ) -> CloudDeploymentConfig:
         scope = context.provider.value
-        repo_root = context.paths.repo_root
+        project_root = context.paths.repo_root
+        distribution_root = context.paths.distribution_root
         raw_tag = environ.get(f"{scope.upper()}_IMAGE_TAG")
-        tag = raw_tag if raw_tag else default_image_tag(repo_root, scope=scope)
+        tag = raw_tag if raw_tag else default_image_tag(project_root, scope=scope)
         terraform = CloudTerraformSettings.from_environment(
-            environ, repo_root=repo_root, platform_terraform_dir=context.paths.platform_terraform_dir, scope=scope
+            environ,
+            repo_root=distribution_root,
+            platform_terraform_dir=context.paths.platform_terraform_dir,
+            scope=scope,
         )
         if var_file is not None:
             # Terraform runs with `-chdir=<foundation-or-platform-root>`, so
@@ -281,7 +285,7 @@ class CloudDeploymentConfig:
             # override (CloudTerraformSettings.from_environment) and the
             # local provider already resolve relative var files.
             if not var_file.is_absolute():
-                var_file = repo_root / var_file
+                var_file = distribution_root / var_file
             # AWS reuses the same explicit override for both foundation and
             # platform (var_file); Azure's platform apply must NEVER see a
             # tfvars file (ADR 0027), so the override travels through
@@ -299,6 +303,6 @@ class CloudDeploymentConfig:
             images=CloudImageSettings.from_environment(environ, scope=scope, image_tag=tag),
             charts=CloudChartSettings.from_environment(environ, helm_cache_dir=context.paths.helm_cache_dir),
             terraform=terraform,
-            floe=FloeManifestSettings.from_environment(environ, repo_root=repo_root, scope=scope),
+            floe=FloeManifestSettings.from_environment(environ, repo_root=project_root, scope=scope),
             force_foundation_down=_truthy(_env(environ, f"{scope.upper()}_FOUNDATION_FORCE_DOWN", "false")),
         )
