@@ -216,8 +216,8 @@ jobs:
       - name: Build domain-model and olf distributions
         run: |
           set -euo pipefail
-          uv build --out-dir dist/python packages/domain-model
-          uv build --out-dir dist/python tools/olf
+          uv build --out-dir dist/python/domain-model packages/domain-model
+          uv build --out-dir dist/python/openlakeforge tools/olf
 
       - name: Install the built wheel outside the checkout
         run: |
@@ -229,17 +229,59 @@ jobs:
           package_version="${{ needs.prepare.outputs.version }}"
           package_version="${package_version/-alpha./a}"
           UV_TOOL_DIR="${tool_root}" UV_TOOL_BIN_DIR="${tool_bin}" \
-            uv tool install --find-links dist/python "openlakeforge==${package_version}" --python 3.12
+            uv tool install --find-links dist/python/domain-model --find-links dist/python/openlakeforge \
+              "openlakeforge==${package_version}" --python 3.12
           cd "${work_dir}"
           OLF_HOME="${olf_home}" "${tool_bin}/olf" version --json
           OLF_HOME="${olf_home}" "${tool_bin}/olf" distribution verify
 
-      - name: Upload Python distributions
+      - name: Upload domain-model distribution
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: python-distributions-${{ needs.prepare.outputs.version }}
-          path: dist/python
+          name: domain-model-distribution-${{ needs.prepare.outputs.version }}
+          path: dist/python/domain-model
           if-no-files-found: error
+
+      - name: Upload openlakeforge distribution
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: openlakeforge-distribution-${{ needs.prepare.outputs.version }}
+          path: dist/python/openlakeforge
+          if-no-files-found: error
+
+  publish-pypi:
+    name: Publish Python distributions to PyPI
+    needs: [prepare, python-packages]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download domain-model distribution
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: domain-model-distribution-${{ needs.prepare.outputs.version }}
+          path: dist/domain-model
+
+      - name: Download openlakeforge distribution
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: openlakeforge-distribution-${{ needs.prepare.outputs.version }}
+          path: dist/openlakeforge
+
+      # PyPI Trusted Publishing must be configured for this workflow and both
+      # projects before the first tagged release. The action uses this job's
+      # short-lived GitHub OIDC identity and creates PyPI attestations.
+      - name: Publish openlakeforge-domain-model to PyPI
+        if: needs.prepare.outputs.dry_run == 'false'
+        uses: pypa/gh-action-pypi-publish@ec4db0b4ddc65acdf4bff5fa45ac92d78b56bdf0
+        with:
+          packages-dir: dist/domain-model
+          attestations: true
+
+      - name: Publish openlakeforge to PyPI
+        if: needs.prepare.outputs.dry_run == 'false'
+        uses: pypa/gh-action-pypi-publish@ec4db0b4ddc65acdf4bff5fa45ac92d78b56bdf0
+        with:
+          packages-dir: dist/openlakeforge
+          attestations: true
 
   build:
     name: Build, sign, and attest ${{ matrix.image }}
@@ -373,7 +415,7 @@ jobs:
 
   bundle:
     name: Assemble and publish the release bundle
-    needs: [prepare, build]
+    needs: [prepare, python-packages, publish-pypi, build]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -393,6 +435,13 @@ jobs:
           path: artifacts
           merge-multiple: true
 
+      - name: Download published Python distribution artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: "*-distribution-${{ needs.prepare.outputs.version }}"
+          path: python-artifacts
+          merge-multiple: true
+
       - name: Assemble the release bundle
         id: assemble
         run: |
@@ -404,6 +453,7 @@ jobs:
           superset_reference="$(cat artifacts/superset.digest.txt)"
           cp artifacts/project-code.spdx.json "${bundle_dir}/project-code.spdx.json"
           cp artifacts/superset.spdx.json "${bundle_dir}/superset.spdx.json"
+          cp python-artifacts/* "${bundle_dir}/"
 
           cp release/component-catalog.yaml "${bundle_dir}/component-catalog.yaml"
 
@@ -484,6 +534,8 @@ jobs:
             ${{ steps.assemble.outputs.bundle_dir }}/CHANGELOG.md
             ${{ steps.assemble.outputs.bundle_dir }}/project-code.spdx.json
             ${{ steps.assemble.outputs.bundle_dir }}/superset.spdx.json
+            ${{ steps.assemble.outputs.bundle_dir }}/*.whl
+            ${{ steps.assemble.outputs.bundle_dir }}/*.tar.gz
             ${{ steps.assemble.outputs.bundle_dir }}/checksums.txt
             ${{ steps.assemble.outputs.bundle_dir }}/checksums.txt.bundle
 

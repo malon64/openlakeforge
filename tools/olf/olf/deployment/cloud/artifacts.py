@@ -54,14 +54,17 @@ def _applied_authentication_environment(provider: str, environ: Mapping[str, str
                 os.environ[name] = value
 
 
-def _resolve_contract_terraform_dir(config: CloudDeploymentConfig) -> Path:
+def _resolve_contract_terraform_dir(config: CloudDeploymentConfig, environ: Mapping[str, str] | None = None) -> Path:
     """Honor `OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR`, matching the removed
     `scripts/{aws,azure}/stack/deploy-artifacts.sh` (`CONTRACT_TERRAFORM_DIR=
     "${OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR:-...}"`) and `olf.e2e._runner
     ._contract_dir`, both of which resolve this override directly from the
     process environment rather than a provider's curated command env.
     """
-    return Path(os.environ.get("OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR", config.paths.platform_terraform_dir)).resolve()
+    contract_dir = (environ or os.environ).get(
+        "OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR", config.paths.platform_terraform_dir
+    )
+    return Path(contract_dir).resolve()
 
 
 def artifacts_deploy(
@@ -73,12 +76,13 @@ def artifacts_deploy(
     env: Mapping[str, str],
 ) -> None:
     with _applied_authentication_environment(backend.scope, env), contract_env.applied_contract_environment(
-        contract_terraform_dir=_resolve_contract_terraform_dir(config),
+        contract_terraform_dir=_resolve_contract_terraform_dir(config, env),
         repo_root=config.paths.repo_root,
         namespace=config.namespace,
         kube_context=facts.kube_context,
         kubeconfig_path=config.paths.kubeconfig_path,
         port_forward_log_prefix=config.paths.port_forward_log_prefix,
+        environ=env,
     ) as contract_environ:
         log.step(f"Reconciling catalog namespaces from the domain descriptors for {backend.scope}...")
         sync_catalog_namespaces()

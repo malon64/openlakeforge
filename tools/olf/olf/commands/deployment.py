@@ -63,11 +63,11 @@ def _build_engine(context, *, var_file: str):  # noqa: ANN001, ANN202
     from olf.deployment.errors import DeploymentError
 
     try:
-        tooling_env = {**os.environ, "OLF_DISTRIBUTION_ROOT": str(context.paths.distribution_root)}
+        tooling_env = context.command_env(base=os.environ)
         provider = build_provider(
             context,
             toolkit=Toolkit.default(environ=tooling_env),
-            environ=os.environ,
+            environ=tooling_env,
             var_file=Path(var_file) if var_file else None,
         )
     except DeploymentError as exc:

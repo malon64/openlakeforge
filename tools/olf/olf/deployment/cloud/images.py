@@ -15,6 +15,7 @@ from olf import log
 from olf.deployment.cloud.backend import CloudBackend, FoundationFacts
 from olf.deployment.cloud.config import CloudDeploymentConfig, CloudImageSettings
 from olf.deployment.engine import Toolkit
+from olf.deployment.project_code import project_code_build_context
 
 
 def resolve_effective_images(images: CloudImageSettings, facts: FoundationFacts) -> CloudImageSettings:
@@ -87,19 +88,20 @@ def build_and_push_project_code_image(
     )
 
     log.step(f"Building project-code image: {images.project_code_image}")
-    tools.docker.build(
-        config.paths.distribution_root,
-        tag=images.project_code_image,
-        file=config.paths.distribution_root / "images/project-code/Dockerfile",
-        build_args={
-            "PYTHON_BASE_IMAGE": images.project_code_python_base_image,
-            "DBT_PROFILE_ENV": images.project_code_dbt_profile_env,
-            "FLOE_MANIFEST_REVISION": revision,
-        },
-        extra_args=("--platform", images.image_platform),
-        env=env,
-        retry_policy=images.build_retry,
-    )
+    with project_code_build_context(config.paths) as build_context:
+        tools.docker.build(
+            build_context,
+            tag=images.project_code_image,
+            file=build_context / "images/project-code/Dockerfile",
+            build_args={
+                "PYTHON_BASE_IMAGE": images.project_code_python_base_image,
+                "DBT_PROFILE_ENV": images.project_code_dbt_profile_env,
+                "FLOE_MANIFEST_REVISION": revision,
+            },
+            extra_args=("--platform", images.image_platform),
+            env=env,
+            retry_policy=images.build_retry,
+        )
 
     log.step(f"Pushing project-code image: {images.project_code_image}")
     tools.docker.push(images.project_code_image, env=env, retry_policy=images.push_retry)

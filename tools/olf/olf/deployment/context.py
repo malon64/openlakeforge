@@ -308,6 +308,9 @@ class DeploymentContext:
         env["HELM_REPOSITORY_CACHE"] = str(self.paths.helm_repository_cache)
         env["SUPERSET_REPORT_WORK_DIR"] = str(self.paths.superset_report_work_dir)
         env["OPENLAKEFORGE_PORT_FORWARD_LOG_PREFIX"] = str(self.paths.port_forward_log_prefix)
+        # Fresh contract readers create their own managed-tool resolver. Keep
+        # them anchored to the same verified distribution as the Toolkit.
+        env["OLF_DISTRIBUTION_ROOT"] = str(self.paths.distribution_root)
         if self.paths.distribution_root != self.paths.repo_root:
             env["OPENLAKEFORGE_TERRAFORM_DATA_ROOT"] = str(self.paths.terraform_data_root)
             env["OPENLAKEFORGE_TERRAFORM_STATE_ROOT"] = str(self.paths.state_root)

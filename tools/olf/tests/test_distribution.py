@@ -113,3 +113,10 @@ def test_source_layout_preserves_checkout_owned_state(tmp_path: Path) -> None:
     assert layout.distribution_root == tmp_path
     assert layout.project_root == tmp_path / "project"
     assert layout.work_root == tmp_path / ".tmp"
+
+
+def test_checkout_defaults_to_source_mode_even_when_a_payload_has_been_generated() -> None:
+    layout = runtime_layout({})
+
+    assert layout.is_source
+    assert layout.distribution_root == Path(__file__).resolve().parents[3]

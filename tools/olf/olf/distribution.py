@@ -347,14 +347,31 @@ def runtime_layout(environ: dict[str, str] | None = None) -> RuntimeLayout:
     mode = env.get("OLF_DISTRIBUTION_MODE", "")
     if mode not in {"", "source", "installed"}:
         raise DistributionError("OLF_DISTRIBUTION_MODE must be 'source' or 'installed'")
-    source_root = Path(env.get("OLF_DISTRIBUTION_ROOT") or env.get("OPENLAKEFORGE_REPO_ROOT") or ".").resolve()
+    def checkout_root() -> Path | None:
+        candidates = [Path.cwd()]
+        try:
+            candidates.append(Path(__file__).resolve().parents[3])
+        except IndexError:
+            pass
+        for candidate in candidates:
+            candidate = candidate.resolve()
+            if (candidate / ".git").exists() and (candidate / "tools/olf/pyproject.toml").is_file():
+                return candidate
+        return None
+
+    checkout = checkout_root()
+    source_root = Path(
+        env.get("OLF_DISTRIBUTION_ROOT") or env.get("OPENLAKEFORGE_REPO_ROOT") or checkout or "."
+    ).resolve()
     embedded_available = False
     try:
         embedded_available = resources.files("olf").joinpath("_embedded/platform.json").is_file()
     except ModuleNotFoundError:
         pass
     source_override = "OLF_DISTRIBUTION_ROOT" in env or "OPENLAKEFORGE_REPO_ROOT" in env
-    use_source = mode == "source" or (mode == "" and (source_override or not embedded_available))
+    use_source = mode == "source" or (
+        mode == "" and (source_override or checkout is not None or not embedded_available)
+    )
     if use_source:
         catalog = source_root / "release" / "component-catalog.yaml"
         project = Path(env.get("OPENLAKEFORGE_PROJECT_ROOT", source_root)).resolve()

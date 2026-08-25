@@ -35,7 +35,9 @@ class ProviderContractError(ValueError):
     """Raised when Terraform returns an unsupported provider contract version."""
 
 
-def load_provider_contracts(terraform_dir: str) -> dict[str, Any] | None:
+def load_provider_contracts(
+    terraform_dir: str, *, environ: Mapping[str, str] | None = None
+) -> dict[str, Any] | None:
     """Read the Terraform provider_contracts output, or None before apply.
 
     Only a missing executable (`ExecutableNotFoundError`) is treated as
@@ -53,7 +55,8 @@ def load_provider_contracts(terraform_dir: str) -> dict[str, Any] | None:
     from olf.tooling.resolver import build_resolver
 
     try:
-        terraform = str(build_resolver().resolve("terraform"))
+        resolver = build_resolver(environ=environ) if environ is not None else build_resolver()
+        terraform = str(resolver.resolve("terraform"))
     except ExecutableNotFoundError:
         return None
     try:
@@ -62,6 +65,7 @@ def load_provider_contracts(terraform_dir: str) -> dict[str, Any] | None:
             capture_output=True,
             text=True,
             check=True,
+            env=dict(environ) if environ is not None else None,
         )
     except (OSError, subprocess.CalledProcessError):
         return None
