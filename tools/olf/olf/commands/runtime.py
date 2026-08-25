@@ -2,8 +2,15 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import Iterator
 from contextlib import contextmanager
+from pathlib import Path
+
+
+def _contract_terraform_dir(default: Path) -> Path:
+    """Resolve the process-level contract-root override for standalone commands."""
+    return Path(os.environ.get("OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR", default)).resolve()
 
 
 @contextmanager
@@ -35,7 +42,7 @@ def provider_contract_environment(
         return
     facts = deployment_provider._foundation_facts  # noqa: SLF001 - shared standalone command context.
     with contract_env.applied_contract_environment(
-        contract_terraform_dir=context.paths.platform_terraform_dir,
+        contract_terraform_dir=_contract_terraform_dir(context.paths.platform_terraform_dir),
         repo_root=context.paths.repo_root,
         namespace=context.namespace,
         kube_context=facts.kube_context,
