@@ -21,6 +21,11 @@ from botocore.awsrequest import AWSRequest
 
 from olf.tooling.process import CommandResult
 
+# EKS honours the presigned token for ~15 minutes from its `X-Amz-Date`.
+# Refresh at a third of that so one failed attempt still has a successful
+# retry before the token already on disk can expire.
+_EKS_TOKEN_REFRESH_SECONDS = 300
+
 
 class AwsSdk:
     """Small, injectable boto3 facade matching the former CLI adapter."""
@@ -96,9 +101,12 @@ class AwsSdk:
     ) -> None:
         """Keep the token file fresh while this OLF process remains active.
 
-        EKS accepts the presigned STS token for up to fifteen minutes.  The
-        daemon refreshes it every ten minutes, so Terraform, Helm, kubectl and
-        port forwarding can reread the same tokenFile without an exec plugin.
+        EKS accepts the presigned STS token for roughly fifteen minutes from
+        its `X-Amz-Date`, so Terraform, Helm, kubectl and port forwarding can
+        reread the same tokenFile without an exec plugin. Refreshing on an
+        interval well under that leaves room for one failed attempt to be
+        retried before the written token can expire - a long cloud apply must
+        not die at a 401 because a single STS call blipped.
         """
         if token_path in self._token_refreshes:
             return
@@ -107,14 +115,18 @@ class AwsSdk:
         environment = dict(env or os.environ)
 
         def refresh() -> None:
-            while not stop.wait(600):
+            while not stop.wait(_EKS_TOKEN_REFRESH_SECONDS):
                 try:
                     _write_private(token_path, self._eks_token(cluster_name, region=region, env=environment) + "\n")
                 except Exception:
-                    # The foreground operation reports any failed cloud call.
-                    # Do not risk leaking an SDK response from a background
-                    # thread, which can include sensitive headers.
-                    return
+                    # Keep going rather than returning: giving up on the first
+                    # failure would silently freeze the token file for the rest
+                    # of the process, turning a transient error into an opaque
+                    # 401 on every later call. The foreground operation still
+                    # reports any failed cloud call, and the exception is
+                    # deliberately not logged here - an SDK response can carry
+                    # sensitive headers.
+                    continue
 
         threading.Thread(target=refresh, name="olf-eks-token-refresh", daemon=True).start()
 

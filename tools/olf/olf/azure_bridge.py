@@ -12,6 +12,8 @@ from azure.mgmt.resource.subscriptions import SubscriptionClient
 
 from olf.auth import AuthenticationError, azure_credential, load_state
 
+_SUPPORTED_ACCOUNT_COMMANDS = (["account", "list"], ["account", "show"], ["account", "get-access-token"])
+
 
 def _args(argv: list[str]) -> list[str]:
     return [value for value in argv if value not in {"-o=json", "--output=json", "-o", "json", "--output"}]
@@ -43,31 +45,36 @@ def main() -> None:
         if args == ["version"]:
             _emit({"azure-cli": "2.61.0", "azure-cli-core": "2.61.0", "extensions": {}})
             return
+        # Identify the command by its leading verb pair only: AzureRM appends
+        # option flags (--scope, --tenant, --subscription, --all) that are not
+        # part of the command identity. Reject anything outside the contract
+        # here, before resolving credentials, so an unsupported command says
+        # so plainly instead of failing later inside a credential call.
+        command = args[:2]
+        if command not in _SUPPORTED_ACCOUNT_COMMANDS:
+            raise AuthenticationError("Terraform requested an unsupported Azure CLI command.")
         state, subscriptions = _subscriptions()
         selected = str(state["subscription_id"])
-        if args == ["account", "list"]:
+        if command == ["account", "list"]:
             _emit([_account(item) | {"isDefault": item.subscription_id == selected} for item in subscriptions])
             return
-        if args == ["account", "show"]:
+        if command == ["account", "show"]:
             item = next(item for item in subscriptions if item.subscription_id == selected)
             _emit(_account(item))
             return
-        if len(args) >= 2 and args[:2] == ["account", "get-access-token"]:
-            scope = _option(args, "--scope") or "https://management.azure.com/.default"
-            tenant = _option(args, "--tenant") or state.get("tenant_id", "")
-            token = azure_credential(os.environ).get_token(scope)
-            _emit(
-                {
-                    "accessToken": token.token,
-                    "expiresOn": datetime.fromtimestamp(token.expires_on, UTC)
-                    .astimezone()
-                    .strftime("%Y-%m-%d %H:%M:%S.%f"),
-                    "tenant": tenant,
-                    "tokenType": "Bearer",
-                }
-            )
-            return
-        raise AuthenticationError("Terraform requested an unsupported Azure CLI command.")
+        scope = _option(args, "--scope") or "https://management.azure.com/.default"
+        tenant = _option(args, "--tenant") or state.get("tenant_id", "")
+        token = azure_credential(os.environ).get_token(scope)
+        _emit(
+            {
+                "accessToken": token.token,
+                "expiresOn": datetime.fromtimestamp(token.expires_on, UTC)
+                .astimezone()
+                .strftime("%Y-%m-%d %H:%M:%S.%f"),
+                "tenant": tenant,
+                "tokenType": "Bearer",
+            }
+        )
     except Exception as exc:
         print(str(exc), file=sys.stderr)
         raise SystemExit(1) from exc

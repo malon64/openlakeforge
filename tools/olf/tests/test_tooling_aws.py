@@ -96,3 +96,38 @@ def test_eks_token_presigns_against_the_sessions_resolved_sts_endpoint() -> None
     padded = encoded + "=" * (-len(encoded) % 4)
     url = base64.urlsafe_b64decode(padded).decode()
     assert url.startswith("https://sts.cn-north-1.amazonaws.com.cn/")
+
+
+def test_eks_token_refresh_survives_a_transient_failure(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    """A single failed STS call must not permanently freeze the token file.
+
+    Giving up on first error would leave the written token to expire (~15
+    minutes), after which every kubectl/Helm/Terraform call in a long cloud
+    apply fails with an opaque 401 and no way to recover short of restarting.
+    """
+    import time
+
+    from olf.tooling import aws as aws_module
+
+    attempts: list[str] = []
+
+    def _token(*_args, **_kwargs) -> str:  # noqa: ANN002, ANN003
+        attempts.append("call")
+        if len(attempts) == 1:
+            raise RuntimeError("transient STS failure")
+        return "k8s-aws-v1.refreshed"
+
+    monkeypatch.setattr(aws_module, "_EKS_TOKEN_REFRESH_SECONDS", 0.01)
+    sdk = AwsSdk(_Session({}))
+    monkeypatch.setattr(sdk, "_eks_token", _token)
+    token_path = tmp_path / "aws.yaml.token"
+
+    sdk._refresh_eks_token(token_path, cluster_name="c", region="eu-west-1", env={})  # noqa: SLF001
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline and not token_path.is_file():
+        time.sleep(0.01)
+    sdk._token_refreshes[token_path].set()  # noqa: SLF001 - stop the daemon.
+
+    assert token_path.is_file(), "refresh gave up after the first failure"
+    assert token_path.read_text() == "k8s-aws-v1.refreshed\n"
+    assert len(attempts) >= 2

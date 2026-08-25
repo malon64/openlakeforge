@@ -355,3 +355,61 @@ def test_aws_process_credentials_falls_back_to_a_short_ttl_without_sso_state(
 
     assert credentials["AccessKeyId"] == "AKIA"
     assert credentials["Expiration"] > auth._expires_at(0)
+
+
+def test_azure_bridge_tolerates_azurerm_option_flags_on_account_commands(
+    monkeypatch: pytest.MonkeyPatch, capsys
+) -> None:
+    """`go-azure-sdk`'s `jsonUnmarshalAzCmd` appends `-o=json` and, on its
+    subscription-aware path, `--subscription <id>`. Those flags are not part
+    of the command identity, so the bridge must match on the leading verb
+    pair - otherwise an AzureRM bump silently breaks Terraform Azure auth.
+    """
+    subscription = type(
+        "Subscription",
+        (),
+        {"subscription_id": "sub-id", "display_name": "Sandbox", "tenant_id": "tenant-id", "state": "Enabled"},
+    )()
+    import olf.azure_bridge as bridge
+
+    monkeypatch.setattr(
+        bridge,
+        "load_state",
+        lambda *_args: {"source": "olf-browser", "subscription_id": "sub-id", "tenant_id": "tenant-id"},
+    )
+    monkeypatch.setattr(bridge, "azure_credential", lambda *_args: object())
+    monkeypatch.setattr(
+        bridge,
+        "SubscriptionClient",
+        lambda *_args: type(
+            "Client", (), {"subscriptions": type("Subscriptions", (), {"list": lambda *_args: [subscription]})()}
+        )(),
+    )
+    monkeypatch.setattr("sys.argv", ["az", "account", "show", "--subscription", "sub-id", "-o=json"])
+
+    azure_bridge_main()
+
+    assert json.loads(capsys.readouterr().out)["id"] == "sub-id"
+
+
+def test_azure_bridge_rejects_unsupported_commands_before_resolving_credentials(
+    monkeypatch: pytest.MonkeyPatch, capsys
+) -> None:
+    """ADR 0030 binds the bridge to four commands. Anything else must be
+    refused with that message and without a credential/network call, so the
+    operator sees the contract violation rather than an unrelated auth error.
+    """
+    import olf.azure_bridge as bridge
+
+    def _fail(*_args, **_kwargs):  # noqa: ANN002, ANN003, ANN202
+        raise AssertionError("credentials must not be resolved for an unsupported command")
+
+    monkeypatch.setattr(bridge, "load_state", _fail)
+    monkeypatch.setattr(bridge, "azure_credential", _fail)
+    monkeypatch.setattr(bridge, "SubscriptionClient", _fail)
+    monkeypatch.setattr("sys.argv", ["az", "group", "delete", "--name", "rg"])
+
+    with pytest.raises(SystemExit):
+        azure_bridge_main()
+
+    assert "unsupported Azure CLI command" in capsys.readouterr().err
