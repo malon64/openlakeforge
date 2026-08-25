@@ -183,7 +183,16 @@ class ToolchainManager:
         if not isinstance(version, str) or not version or not is_valid_digest(sha256):
             return None
         path = self.bin_dir / activated_filename(tool, sha256)
-        if not path.is_file():
+        if not path.is_file() or not os.access(path, os.X_OK):
+            # A cheap, existence/permission-only check, not a full re-hash
+            # of the binary's content on every call - re-verifying the
+            # digest here would defeat the entire point of the receipt as a
+            # fast path (network/extraction-free resolution). It does
+            # catch the common corruption shapes: the file being deleted,
+            # or losing its executable bit (e.g. a partial backup restore
+            # of a damaged OLF_HOME). If the content itself is silently
+            # altered while staying executable, `resolve()` still won't
+            # notice - a receipt is a cache, not a signature.
             return None
         return InstalledTool(name=tool, version=version, sha256=sha256, path=path)
 

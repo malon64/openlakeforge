@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import os
 import tarfile
 import zipfile
 from pathlib import Path
@@ -480,3 +481,34 @@ def test_resolve_repairs_a_receipt_with_a_null_sha256_instead_of_crashing(tmp_pa
 
     assert path.is_file()
     assert len(downloader.calls) == 1
+
+
+def test_installed_refuses_an_activated_file_that_lost_its_executable_bit(tmp_path: Path) -> None:
+    """A digest-named activated file with a valid receipt but no execute
+    permission (e.g. a partial restore of a damaged OLF_HOME) must not be
+    trusted as installed - the next command would otherwise fail with a
+    permission error instead of resolve() repairing it."""
+    manager, downloader = _manager(tmp_path)
+    path = manager.resolve("kind")
+    assert manager.installed("kind") is not None
+
+    path.chmod(0o644)  # drop the executable bit, keep the content intact
+
+    assert manager.installed("kind") is None
+
+
+def test_resolve_reinstalls_from_the_verified_cache_when_the_executable_bit_is_lost(tmp_path: Path) -> None:
+    """The repair path must reuse the already-verified download cache
+    entry rather than re-downloading - resolve() should not need the
+    network just because a local file lost a permission bit."""
+    manager, downloader = _manager(tmp_path)
+    first_path = manager.resolve("kind")
+    assert len(downloader.calls) == 1
+
+    first_path.chmod(0o644)
+
+    second_path = manager.resolve("kind")
+
+    assert second_path == first_path
+    assert os.access(second_path, os.X_OK)
+    assert len(downloader.calls) == 1  # reused the cached archive, no re-download
