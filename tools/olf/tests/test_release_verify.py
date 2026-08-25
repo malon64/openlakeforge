@@ -7,6 +7,7 @@ import pytest
 import typer
 
 from olf.commands import release
+from olf.deployment.errors import DeploymentPreconditionError
 from olf.deployment.local.config import ImageSettings
 
 
@@ -139,14 +140,82 @@ def test_verify_clean_checkout_uses_a_fresh_temporary_directory_per_run(tmp_path
 
 def test_cached_release_assets_are_refreshed_when_the_tag_changes(tmp_path: Path) -> None:
     (tmp_path / "checksums.txt").write_text("checksum")
+    (tmp_path / "checksums.txt.bundle").write_text("signed bundle")
     (tmp_path / "component-manifest.json").write_text('{"distribution": {"tag": "v0.1.0"}}')
 
     assert release._cached_assets_match_tag(tmp_path, "v0.1.0") is True
     assert release._cached_assets_match_tag(tmp_path, "v0.2.0") is False
 
 
+def test_rehearsal_bundle_is_not_treated_as_cached_published_assets(tmp_path: Path) -> None:
+    (tmp_path / "checksums.txt").write_text("checksum")
+    (tmp_path / "component-manifest.json").write_text('{"distribution": {"tag": "v0.1.0"}}')
+
+    assert release._cached_assets_match_tag(tmp_path, "v0.1.0") is False
+
+
 def test_cached_release_assets_without_a_valid_manifest_are_refreshed(tmp_path: Path) -> None:
     (tmp_path / "checksums.txt").write_text("checksum")
+    (tmp_path / "checksums.txt.bundle").write_text("signed bundle")
     (tmp_path / "component-manifest.json").write_text("not json")
 
     assert release._cached_assets_match_tag(tmp_path, "v0.1.0") is False
+
+
+def test_require_green_main_accepts_the_latest_successful_main_checks_run() -> None:
+    calls: list[list[str]] = []
+
+    class Runner:
+        def run(self, argv, **kwargs):  # noqa: ANN001, ANN003
+            calls.append(argv)
+            if "compare" in argv[2]:
+                return type("Result", (), {"stdout": "ahead\n"})()
+            return type(
+                "Result",
+                (),
+                {
+                    "stdout": (
+                        '{"workflow_runs": ['
+                        '{"head_sha":"abc","head_branch":"main","event":"push",'
+                        '"created_at":"2026-08-01T00:00:00Z","status":"completed","conclusion":"failure"},'
+                        '{"head_sha":"abc","head_branch":"main","event":"push",'
+                        '"created_at":"2026-08-02T00:00:00Z","status":"completed","conclusion":"success"}'
+                        "]}"
+                    )
+                },
+            )()
+
+    tools = type("Tools", (), {"runner": Runner(), "resolver": _Resolver()})()
+
+    release._require_green_main("owner/repo", "abc", tools)
+
+    assert calls[0] == ["gh", "api", "repos/owner/repo/compare/abc...main", "--jq", ".status"]
+    assert calls[1] == [
+        "gh",
+        "api",
+        "repos/owner/repo/actions/workflows/checks.yml/runs?head_sha=abc&event=push&per_page=100",
+    ]
+
+
+def test_require_green_main_rejects_a_newer_failed_checks_run() -> None:
+    class Runner:
+        def run(self, argv, **kwargs):  # noqa: ANN001, ANN003
+            if "compare" in argv[2]:
+                return type("Result", (), {"stdout": "identical\n"})()
+            return type(
+                "Result",
+                (),
+                {
+                    "stdout": (
+                        '{"workflow_runs": ['
+                        '{"head_sha":"abc","head_branch":"main","event":"push",'
+                        '"created_at":"2026-08-02T00:00:00Z","status":"completed","conclusion":"failure"}'
+                        "]}"
+                    )
+                },
+            )()
+
+    tools = type("Tools", (), {"runner": Runner(), "resolver": _Resolver()})()
+
+    with pytest.raises(DeploymentPreconditionError, match="does not have a successful completed"):
+        release._require_green_main("owner/repo", "abc", tools)

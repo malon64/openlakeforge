@@ -16,9 +16,11 @@ import typer
 from olf import config
 from olf.commands._shared import fail
 from olf.deployment.engine import Toolkit
-from olf.deployment.errors import DeploymentError, ExecutableNotFoundError
+from olf.deployment.errors import DeploymentError, DeploymentPreconditionError, ExecutableNotFoundError
 
 app = typer.Typer(help="Release manifest, checksums, compatibility matrix, and readiness gate.")
+workflow_app = typer.Typer(help="GitHub release-workflow safety checks.")
+app.add_typer(workflow_app, name="workflow")
 
 
 @app.command("manifest")
@@ -202,7 +204,9 @@ def _write_local_sboms(output: Path, *, images: dict[str, str], tools: Toolkit) 
 
 @app.command("verify-install")
 def verify_install(
-    asset_dir: str = typer.Option(".tmp/release-bundle", "--asset-dir", help="Directory containing checksums.txt."),
+    asset_dir: str = typer.Option(
+        ".tmp/release-assets", "--asset-dir", help="Directory containing downloaded, signed release assets."
+    ),
     tag: str = typer.Option("", "--tag", help="Published release tag (defaults to the catalog version)."),
     repo_slug: str = typer.Option("malon64/openlakeforge", "--repo", help="GitHub owner/repository for the release."),
     work_dir: str = typer.Option(".tmp/release-verify", "--work-dir", help="Clean-checkout verification workspace."),
@@ -255,8 +259,8 @@ def verify_install(
 
 
 def _cached_assets_match_tag(directory: Path, tag: str) -> bool:
-    """Return whether a persistent release-asset cache belongs to ``tag``."""
-    if not (directory / "checksums.txt").is_file():
+    """Return whether a persistent cache contains signed published assets for ``tag``."""
+    if not all((directory / filename).is_file() for filename in ("checksums.txt", "checksums.txt.bundle")):
         return False
     try:
         manifest = json.loads((directory / "component-manifest.json").read_text())
@@ -264,6 +268,59 @@ def _cached_assets_match_tag(directory: Path, tag: str) -> bool:
         return False
     distribution = manifest.get("distribution") if isinstance(manifest, dict) else None
     return isinstance(distribution, dict) and distribution.get("tag") == tag
+
+
+@workflow_app.command("require-green-main")
+def require_green_main(
+    repo_slug: str = typer.Option(..., "--repo", help="GitHub owner/repository to inspect."),
+    git_sha: str = typer.Option(..., "--sha", help="Release commit SHA that must be reachable from main."),
+) -> None:
+    """Require a release commit to be reachable from main with green repository checks."""
+    try:
+        _require_green_main(repo_slug, git_sha, Toolkit.default())
+    except DeploymentError as exc:
+        raise typer.Exit(code=fail(str(exc))) from exc
+
+
+def _require_green_main(repo_slug: str, git_sha: str, tools: Toolkit) -> None:
+    """Verify main ancestry and the latest completed successful checks workflow run."""
+    gh = str(tools.resolver.resolve("gh"))
+    root = config.repo_root()
+    ancestry = tools.runner.run(
+        [gh, "api", f"repos/{repo_slug}/compare/{git_sha}...main", "--jq", ".status"], cwd=root
+    ).stdout.strip()
+    if ancestry not in {"ahead", "identical"}:
+        raise DeploymentPreconditionError(
+            f"release commit {git_sha} is not reachable from main (comparison status: {ancestry or 'unknown'})"
+        )
+
+    payload = tools.runner.run(
+        [
+            gh,
+            "api",
+            f"repos/{repo_slug}/actions/workflows/checks.yml/runs?head_sha={git_sha}&event=push&per_page=100",
+        ],
+        cwd=root,
+    ).stdout
+    try:
+        workflow_runs = json.loads(payload).get("workflow_runs", [])
+    except json.JSONDecodeError as exc:
+        raise DeploymentPreconditionError("GitHub returned invalid repository-checks workflow data") from exc
+    if not isinstance(workflow_runs, list):
+        raise DeploymentPreconditionError("GitHub repository-checks response did not contain workflow_runs")
+    matching_runs = [
+        run
+        for run in workflow_runs
+        if isinstance(run, dict)
+        and run.get("head_sha") == git_sha
+        and run.get("head_branch") == "main"
+        and run.get("event") == "push"
+    ]
+    latest = max(matching_runs, key=lambda run: str(run.get("created_at", "")), default=None)
+    if not isinstance(latest, dict) or latest.get("status") != "completed" or latest.get("conclusion") != "success":
+        raise DeploymentPreconditionError(
+            f"release commit {git_sha} does not have a successful completed Repository checks run on main"
+        )
 
 
 def _release_identity(repo_slug: str, tag: str) -> str:

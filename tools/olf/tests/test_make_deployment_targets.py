@@ -51,10 +51,10 @@ def _deployment_target_names() -> list[str]:
     return re.findall(_TARGET_PREFIX_PATTERN, makefile_text, re.MULTILINE)
 
 
-def _dry_run(target: str) -> str:
+def _dry_run(target: str, *variables: str) -> str:
     """`make -n <target>`: GNU Make's real recipe expansion, executing nothing."""
     result = subprocess.run(
-        ["make", "-n", target],
+        ["make", "-n", target, *variables],
         cwd=_REPO_ROOT,
         capture_output=True,
         text=True,
@@ -89,3 +89,19 @@ def test_status_targets_exist_for_every_provider() -> None:
     assert "local-status" in names
     assert "azure-status" in names
     assert "aws-status" in names
+
+
+def test_kubeconfig_compatibility_arguments_preserve_whitespace() -> None:
+    """Make delegates preserve a caller-provided kubeconfig as one CLI argument."""
+    variable_by_provider = {
+        "local": "LOCAL_KUBECONFIG_PATH",
+        "azure": "AZURE_KUBECONFIG_PATH",
+        "aws": "AWS_KUBECONFIG_PATH",
+    }
+    expected_path = "/tmp/open lakeforge/kubeconfig.yaml"
+
+    for target in _deployment_target_names():
+        provider = target.split("-", maxsplit=1)[0]
+        expanded = _dry_run(target, f"{variable_by_provider[provider]}={expected_path}")
+        if "--kubeconfig-path" in expanded:
+            assert f'--kubeconfig-path "{expected_path}"' in expanded, f"{target}: {expanded}"

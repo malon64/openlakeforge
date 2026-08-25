@@ -82,3 +82,45 @@ def test_project_code_rejects_unsupported_python_before_building_cache(
 
     with pytest.raises(typer.Exit):
         checks.project_code(str(tmp_path))
+
+
+def test_release_publication_guard_requires_the_olf_workflow_command(tmp_path: Path) -> None:
+    workflow = tmp_path / ".github/workflows/release.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        """\
+jobs:
+  prepare:
+    steps:
+      - name: Require a green main commit before publishing
+        if: steps.mode.outputs.dry_run == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          uv run --project tools/olf --locked olf release workflow require-green-main
+          --repo "${{ github.repository }}" --sha "${{ github.sha }}"
+"""
+    )
+
+    assert checks._release_publication_guard_errors(tmp_path) == []
+
+
+def test_release_publication_guard_rejects_an_unchecked_shell_step(tmp_path: Path) -> None:
+    workflow = tmp_path / ".github/workflows/release.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        """\
+jobs:
+  prepare:
+    steps:
+      - name: Require a green main commit before publishing
+        if: steps.mode.outputs.dry_run == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api repos/example/compare/head...main
+"""
+    )
+
+    assert checks._release_publication_guard_errors(tmp_path) == [
+        "release workflow green-main guard must delegate repository and SHA validation to olf"
+    ]

@@ -36,9 +36,9 @@ release-check:
 release-bundle:
 	@$(OLF_BIN) release build-bundle
 floe-manifest:
-	@$(OLF_BIN) floe generate-manifests --provider local --profile $(LOCAL_PROFILE) --namespace $(NAMESPACE) --cluster-name $(CLUSTER_NAME) --kubeconfig-path $(LOCAL_KUBECONFIG_PATH)
+	@$(OLF_BIN) floe generate-manifests --provider local --profile $(LOCAL_PROFILE) --namespace $(NAMESPACE) --cluster-name $(CLUSTER_NAME) --kubeconfig-path "$(LOCAL_KUBECONFIG_PATH)"
 floe-manifest-upload:
-	@$(OLF_BIN) artifacts upload-manifests --provider local --profile $(LOCAL_PROFILE) --namespace $(NAMESPACE) --cluster-name $(CLUSTER_NAME) --kubeconfig-path $(LOCAL_KUBECONFIG_PATH) --via port-forward
+	@$(OLF_BIN) artifacts upload-manifests --provider local --profile $(LOCAL_PROFILE) --namespace $(NAMESPACE) --cluster-name $(CLUSTER_NAME) --kubeconfig-path "$(LOCAL_KUBECONFIG_PATH)" --via port-forward
 dbt-parse:
 	@$(OLF_BIN) dbt parse
 project-code-image:
@@ -50,85 +50,85 @@ superset-image:
 superset-load:
 	@$(OLF_BIN) images load superset --cluster-name $(CLUSTER_NAME)
 superset-reports-deploy:
-	@$(OLF_BIN) superset deploy-reports --provider local --profile $(LOCAL_PROFILE) --namespace $(NAMESPACE) --cluster-name $(CLUSTER_NAME) --kubeconfig-path $(LOCAL_KUBECONFIG_PATH)
+	@$(OLF_BIN) superset deploy-reports --provider local --profile $(LOCAL_PROFILE) --namespace $(NAMESPACE) --cluster-name $(CLUSTER_NAME) --kubeconfig-path "$(LOCAL_KUBECONFIG_PATH)"
 superset-reports-export:
-	@$(OLF_BIN) superset export-reports --provider local --profile $(LOCAL_PROFILE) --namespace $(NAMESPACE) --cluster-name $(CLUSTER_NAME) --kubeconfig-path $(LOCAL_KUBECONFIG_PATH)
+	@$(OLF_BIN) superset export-reports --provider local --profile $(LOCAL_PROFILE) --namespace $(NAMESPACE) --cluster-name $(CLUSTER_NAME) --kubeconfig-path "$(LOCAL_KUBECONFIG_PATH)"
 openmetadata-metadata-deploy:
-	@$(OLF_BIN) openmetadata deploy-metadata --provider local --profile $(LOCAL_PROFILE) --namespace $(NAMESPACE) --cluster-name $(CLUSTER_NAME) --kubeconfig-path $(LOCAL_KUBECONFIG_PATH)
+	@$(OLF_BIN) openmetadata deploy-metadata --provider local --profile $(LOCAL_PROFILE) --namespace $(NAMESPACE) --cluster-name $(CLUSTER_NAME) --kubeconfig-path "$(LOCAL_KUBECONFIG_PATH)"
 
 local-foundation-up:
-	@$(OLF_BIN) deploy --provider local --namespace $(NAMESPACE) --cluster-name $(CLUSTER_NAME) --kubeconfig-path $(LOCAL_KUBECONFIG_PATH) --profile $(LOCAL_PROFILE) --phase foundation
+	@$(OLF_BIN) deploy --provider local --namespace $(NAMESPACE) --cluster-name $(CLUSTER_NAME) --kubeconfig-path "$(LOCAL_KUBECONFIG_PATH)" --profile $(LOCAL_PROFILE) --phase foundation
 local-foundation-down:
-	@$(OLF_BIN) destroy --provider local --namespace $(NAMESPACE) --cluster-name $(CLUSTER_NAME) --kubeconfig-path $(LOCAL_KUBECONFIG_PATH) --profile $(LOCAL_PROFILE) --phase foundation
+	@$(OLF_BIN) destroy --provider local --namespace $(NAMESPACE) --cluster-name $(CLUSTER_NAME) --kubeconfig-path "$(LOCAL_KUBECONFIG_PATH)" --profile $(LOCAL_PROFILE) --phase foundation
 local-platform-up:
-	@$(OLF_BIN) deploy --provider local --namespace $(NAMESPACE) --cluster-name $(CLUSTER_NAME) --kubeconfig-path $(LOCAL_KUBECONFIG_PATH) --profile $(LOCAL_PROFILE) --phase platform
+	@$(OLF_BIN) deploy --provider local --namespace $(NAMESPACE) --cluster-name $(CLUSTER_NAME) --kubeconfig-path "$(LOCAL_KUBECONFIG_PATH)" --profile $(LOCAL_PROFILE) --phase platform
 local-artifacts-deploy:
-	@$(OLF_BIN) deploy --provider local --namespace $(NAMESPACE) --cluster-name $(CLUSTER_NAME) --kubeconfig-path $(LOCAL_KUBECONFIG_PATH) --profile $(LOCAL_PROFILE) --phase artifacts
+	@$(OLF_BIN) deploy --provider local --namespace $(NAMESPACE) --cluster-name $(CLUSTER_NAME) --kubeconfig-path "$(LOCAL_KUBECONFIG_PATH)" --profile $(LOCAL_PROFILE) --phase artifacts
 local-up:
-	@$(OLF_BIN) deploy --provider local --namespace $(NAMESPACE) --cluster-name $(CLUSTER_NAME) --kubeconfig-path $(LOCAL_KUBECONFIG_PATH) --profile full
+	@$(OLF_BIN) deploy --provider local --namespace $(NAMESPACE) --cluster-name $(CLUSTER_NAME) --kubeconfig-path "$(LOCAL_KUBECONFIG_PATH)" --profile full
 local-slim-platform-up:
-	@$(OLF_BIN) deploy --provider local --namespace $(NAMESPACE) --cluster-name $(CLUSTER_NAME) --kubeconfig-path $(LOCAL_KUBECONFIG_PATH) --profile slim --phase platform
+	@$(OLF_BIN) deploy --provider local --namespace $(NAMESPACE) --cluster-name $(CLUSTER_NAME) --kubeconfig-path "$(LOCAL_KUBECONFIG_PATH)" --profile slim --phase platform
 local-slim-artifacts-deploy:
-	@$(OLF_BIN) deploy --provider local --namespace $(NAMESPACE) --cluster-name $(CLUSTER_NAME) --kubeconfig-path $(LOCAL_KUBECONFIG_PATH) --profile slim --phase artifacts
+	@$(OLF_BIN) deploy --provider local --namespace $(NAMESPACE) --cluster-name $(CLUSTER_NAME) --kubeconfig-path "$(LOCAL_KUBECONFIG_PATH)" --profile slim --phase artifacts
 local-slim-up:
-	@$(OLF_BIN) deploy --provider local --namespace $(NAMESPACE) --cluster-name $(CLUSTER_NAME) --kubeconfig-path $(LOCAL_KUBECONFIG_PATH) --profile slim
+	@$(OLF_BIN) deploy --provider local --namespace $(NAMESPACE) --cluster-name $(CLUSTER_NAME) --kubeconfig-path "$(LOCAL_KUBECONFIG_PATH)" --profile slim
 local-slim-e2e:
 	@$(OLF_BIN) e2e run --env local --suite smoke
 local-slim-smoke:
 	@$(OLF_BIN) smoke run --timeout-seconds $(SMOKE_TIMEOUT_SECONDS)
 local-slim-down:
-	@$(OLF_BIN) destroy --provider local --namespace $(NAMESPACE) --cluster-name $(CLUSTER_NAME) --kubeconfig-path $(LOCAL_KUBECONFIG_PATH) --profile slim
+	@$(OLF_BIN) destroy --provider local --namespace $(NAMESPACE) --cluster-name $(CLUSTER_NAME) --kubeconfig-path "$(LOCAL_KUBECONFIG_PATH)" --profile slim
 local-down:
-	@$(OLF_BIN) destroy --provider local --namespace $(NAMESPACE) --cluster-name $(CLUSTER_NAME) --kubeconfig-path $(LOCAL_KUBECONFIG_PATH) --profile $(LOCAL_PROFILE)
+	@$(OLF_BIN) destroy --provider local --namespace $(NAMESPACE) --cluster-name $(CLUSTER_NAME) --kubeconfig-path "$(LOCAL_KUBECONFIG_PATH)" --profile $(LOCAL_PROFILE)
 local-platform-down:
-	@$(OLF_BIN) destroy --provider local --namespace $(NAMESPACE) --cluster-name $(CLUSTER_NAME) --kubeconfig-path $(LOCAL_KUBECONFIG_PATH) --profile $(LOCAL_PROFILE) --phase platform
+	@$(OLF_BIN) destroy --provider local --namespace $(NAMESPACE) --cluster-name $(CLUSTER_NAME) --kubeconfig-path "$(LOCAL_KUBECONFIG_PATH)" --profile $(LOCAL_PROFILE) --phase platform
 local-status:
-	@$(OLF_BIN) status --provider local --namespace $(NAMESPACE) --cluster-name $(CLUSTER_NAME) --kubeconfig-path $(LOCAL_KUBECONFIG_PATH)
+	@$(OLF_BIN) status --provider local --namespace $(NAMESPACE) --cluster-name $(CLUSTER_NAME) --kubeconfig-path "$(LOCAL_KUBECONFIG_PATH)"
 local-prefetch:
-	@$(OLF_BIN) deploy --provider local --namespace $(NAMESPACE) --cluster-name $(CLUSTER_NAME) --kubeconfig-path $(LOCAL_KUBECONFIG_PATH) --profile $(LOCAL_PROFILE) --phase prefetch
+	@$(OLF_BIN) deploy --provider local --namespace $(NAMESPACE) --cluster-name $(CLUSTER_NAME) --kubeconfig-path "$(LOCAL_KUBECONFIG_PATH)" --profile $(LOCAL_PROFILE) --phase prefetch
 local-forward:
-	@$(OLF_BIN) forward --provider local --namespace $(NAMESPACE) --cluster-name $(CLUSTER_NAME) --kubeconfig-path $(LOCAL_KUBECONFIG_PATH) --profile $(LOCAL_PROFILE)
+	@$(OLF_BIN) forward --provider local --namespace $(NAMESPACE) --cluster-name $(CLUSTER_NAME) --kubeconfig-path "$(LOCAL_KUBECONFIG_PATH)" --profile $(LOCAL_PROFILE)
 local-e2e:
 	@$(OLF_BIN) e2e run --env local --suite $(E2E_SUITE)
 
 azure-foundation-up:
-	@$(OLF_BIN) deploy --provider azure --namespace $(NAMESPACE) --kubeconfig-path $(AZURE_KUBECONFIG_PATH) --phase foundation
+	@$(OLF_BIN) deploy --provider azure --namespace $(NAMESPACE) --kubeconfig-path "$(AZURE_KUBECONFIG_PATH)" --phase foundation
 azure-platform-up:
-	@$(OLF_BIN) deploy --provider azure --namespace $(NAMESPACE) --kubeconfig-path $(AZURE_KUBECONFIG_PATH) --phase platform
+	@$(OLF_BIN) deploy --provider azure --namespace $(NAMESPACE) --kubeconfig-path "$(AZURE_KUBECONFIG_PATH)" --phase platform
 azure-artifacts-deploy:
-	@$(OLF_BIN) deploy --provider azure --namespace $(NAMESPACE) --kubeconfig-path $(AZURE_KUBECONFIG_PATH) --phase artifacts
+	@$(OLF_BIN) deploy --provider azure --namespace $(NAMESPACE) --kubeconfig-path "$(AZURE_KUBECONFIG_PATH)" --phase artifacts
 azure-up:
-	@$(OLF_BIN) deploy --provider azure --namespace $(NAMESPACE) --kubeconfig-path $(AZURE_KUBECONFIG_PATH)
+	@$(OLF_BIN) deploy --provider azure --namespace $(NAMESPACE) --kubeconfig-path "$(AZURE_KUBECONFIG_PATH)"
 azure-status:
-	@$(OLF_BIN) status --provider azure --namespace $(NAMESPACE) --kubeconfig-path $(AZURE_KUBECONFIG_PATH)
+	@$(OLF_BIN) status --provider azure --namespace $(NAMESPACE) --kubeconfig-path "$(AZURE_KUBECONFIG_PATH)"
 azure-forward:
-	@$(OLF_BIN) forward --provider azure --namespace $(NAMESPACE) --kubeconfig-path $(AZURE_KUBECONFIG_PATH)
+	@$(OLF_BIN) forward --provider azure --namespace $(NAMESPACE) --kubeconfig-path "$(AZURE_KUBECONFIG_PATH)"
 azure-e2e:
 	@$(OLF_BIN) e2e run --env azure
 azure-down:
-	@$(OLF_BIN) destroy --provider azure --namespace $(NAMESPACE) --kubeconfig-path $(AZURE_KUBECONFIG_PATH)
+	@$(OLF_BIN) destroy --provider azure --namespace $(NAMESPACE) --kubeconfig-path "$(AZURE_KUBECONFIG_PATH)"
 azure-platform-down:
-	@$(OLF_BIN) destroy --provider azure --namespace $(NAMESPACE) --kubeconfig-path $(AZURE_KUBECONFIG_PATH) --phase platform
+	@$(OLF_BIN) destroy --provider azure --namespace $(NAMESPACE) --kubeconfig-path "$(AZURE_KUBECONFIG_PATH)" --phase platform
 azure-foundation-down:
-	@$(OLF_BIN) destroy --provider azure --namespace $(NAMESPACE) --kubeconfig-path $(AZURE_KUBECONFIG_PATH) --phase foundation
+	@$(OLF_BIN) destroy --provider azure --namespace $(NAMESPACE) --kubeconfig-path "$(AZURE_KUBECONFIG_PATH)" --phase foundation
 
 aws-foundation-up:
-	@$(OLF_BIN) deploy --provider aws --namespace $(NAMESPACE) --kubeconfig-path $(AWS_KUBECONFIG_PATH) --phase foundation
+	@$(OLF_BIN) deploy --provider aws --namespace $(NAMESPACE) --kubeconfig-path "$(AWS_KUBECONFIG_PATH)" --phase foundation
 aws-platform-up:
-	@$(OLF_BIN) deploy --provider aws --namespace $(NAMESPACE) --kubeconfig-path $(AWS_KUBECONFIG_PATH) --phase platform
+	@$(OLF_BIN) deploy --provider aws --namespace $(NAMESPACE) --kubeconfig-path "$(AWS_KUBECONFIG_PATH)" --phase platform
 aws-artifacts-deploy:
-	@$(OLF_BIN) deploy --provider aws --namespace $(NAMESPACE) --kubeconfig-path $(AWS_KUBECONFIG_PATH) --phase artifacts
+	@$(OLF_BIN) deploy --provider aws --namespace $(NAMESPACE) --kubeconfig-path "$(AWS_KUBECONFIG_PATH)" --phase artifacts
 aws-up:
-	@$(OLF_BIN) deploy --provider aws --namespace $(NAMESPACE) --kubeconfig-path $(AWS_KUBECONFIG_PATH)
+	@$(OLF_BIN) deploy --provider aws --namespace $(NAMESPACE) --kubeconfig-path "$(AWS_KUBECONFIG_PATH)"
 aws-status:
-	@$(OLF_BIN) status --provider aws --namespace $(NAMESPACE) --kubeconfig-path $(AWS_KUBECONFIG_PATH)
+	@$(OLF_BIN) status --provider aws --namespace $(NAMESPACE) --kubeconfig-path "$(AWS_KUBECONFIG_PATH)"
 aws-forward:
-	@$(OLF_BIN) forward --provider aws --namespace $(NAMESPACE) --kubeconfig-path $(AWS_KUBECONFIG_PATH)
+	@$(OLF_BIN) forward --provider aws --namespace $(NAMESPACE) --kubeconfig-path "$(AWS_KUBECONFIG_PATH)"
 aws-e2e:
 	@$(OLF_BIN) e2e run --env aws
 aws-down:
-	@$(OLF_BIN) destroy --provider aws --namespace $(NAMESPACE) --kubeconfig-path $(AWS_KUBECONFIG_PATH)
+	@$(OLF_BIN) destroy --provider aws --namespace $(NAMESPACE) --kubeconfig-path "$(AWS_KUBECONFIG_PATH)"
 aws-platform-down:
-	@$(OLF_BIN) destroy --provider aws --namespace $(NAMESPACE) --kubeconfig-path $(AWS_KUBECONFIG_PATH) --phase platform
+	@$(OLF_BIN) destroy --provider aws --namespace $(NAMESPACE) --kubeconfig-path "$(AWS_KUBECONFIG_PATH)" --phase platform
 aws-foundation-down:
-	@$(OLF_BIN) destroy --provider aws --namespace $(NAMESPACE) --kubeconfig-path $(AWS_KUBECONFIG_PATH) --phase foundation
+	@$(OLF_BIN) destroy --provider aws --namespace $(NAMESPACE) --kubeconfig-path "$(AWS_KUBECONFIG_PATH)" --phase foundation

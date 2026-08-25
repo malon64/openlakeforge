@@ -79,17 +79,72 @@ def structure(repo_root: str = typer.Option("", "--repo-root", help="Checkout ro
                     module_errors.append(f"Terraform module {module.relative_to(root)} is missing {filename}")
     tracked = Toolkit.default().runner.run(["git", "ls-files", "-z"], cwd=root).stdout.split("\0")
     scripts = [root / path for path in tracked if path.endswith(".sh") and (root / path).is_file()]
-    if missing or scripts or module_errors:
+    release_workflow_errors = _release_publication_guard_errors(root)
+    if missing or scripts or module_errors or release_workflow_errors:
         details = [
             *(f"missing required path: {path}" for path in missing),
             *module_errors,
             *(f"shell script is forbidden: {path.relative_to(root)}" for path in scripts),
+            *release_workflow_errors,
         ]
         raise typer.Exit(code=fail("\n".join(details)))
     dashboard_errors = validate_superset_assets(root)
     if dashboard_errors:
         raise typer.Exit(code=fail("\n".join(dashboard_errors)))
     typer.echo("Repository structure is valid.")
+
+
+def _release_publication_guard_errors(root: Path) -> list[str]:
+    """Require release publication to delegate its main/checks guard to ``olf``."""
+    workflow_path = root / ".github/workflows/release.yml"
+    try:
+        workflow = yaml.safe_load(workflow_path.read_text())
+    except (OSError, yaml.YAMLError) as exc:
+        return [f"cannot parse release workflow: {exc}"]
+    if not isinstance(workflow, dict):
+        return ["release workflow must be a YAML mapping"]
+    jobs = workflow.get("jobs")
+    prepare = jobs.get("prepare") if isinstance(jobs, dict) else None
+    steps = prepare.get("steps") if isinstance(prepare, dict) else None
+    if not isinstance(steps, list):
+        return ["release workflow must define prepare steps"]
+    guard = next(
+        (
+            step
+            for step in steps
+            if isinstance(step, dict) and step.get("name") == "Require a green main commit before publishing"
+        ),
+        None,
+    )
+    if not isinstance(guard, dict):
+        return ["release workflow must require a green main commit before publishing"]
+    if guard.get("if") != "steps.mode.outputs.dry_run == 'false'":
+        return ["release workflow green-main guard must run for non-dry releases only"]
+    environment = guard.get("env")
+    if not isinstance(environment, dict) or environment.get("GH_TOKEN") != "${{ github.token }}":
+        return ["release workflow green-main guard must provide GH_TOKEN"]
+    command = guard.get("run")
+    if not isinstance(command, str):
+        return ["release workflow green-main guard must invoke olf"]
+    try:
+        argv = shlex.split(command)
+    except ValueError as exc:
+        return [f"release workflow green-main guard has invalid command syntax: {exc}"]
+    expected = ["uv", "run", "--project", "tools/olf", "--locked", "olf", "release", "workflow", "require-green-main"]
+    has_expected_command = argv[: len(expected)] == expected
+    has_repository = _option_value(argv, "--repo") == "${{ github.repository }}"
+    has_sha = _option_value(argv, "--sha") == "${{ github.sha }}"
+    if not (has_expected_command and has_repository and has_sha):
+        return ["release workflow green-main guard must delegate repository and SHA validation to olf"]
+    return []
+
+
+def _option_value(argv: list[str], option: str) -> str | None:
+    """Return a long option's following argument from a structured workflow command."""
+    try:
+        return argv[argv.index(option) + 1]
+    except (ValueError, IndexError):
+        return None
 
 
 @app.command("contracts")
