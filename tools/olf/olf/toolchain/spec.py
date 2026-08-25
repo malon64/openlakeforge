@@ -132,7 +132,10 @@ def activated_filename(name: str, sha256: str) -> str:
 
 def load_specs(catalog: Mapping[str, Any], *, platform: Platform) -> dict[str, ToolSpec]:
     """Build every managed `ToolSpec` declared in `catalog` for `platform`."""
-    toolchain = (catalog.get("components") or {}).get("toolchain")
+    components = catalog.get("components")
+    if components is not None and not isinstance(components, Mapping):
+        raise ToolchainCatalogError(f"release catalog's components must be a mapping, got {type(components).__name__}")
+    toolchain = (components or {}).get("toolchain")
     if not isinstance(toolchain, Mapping):
         raise ToolchainCatalogError("release catalog is missing components.toolchain")
     missing = [tool for tool in MANAGED_TOOLS if tool not in toolchain]

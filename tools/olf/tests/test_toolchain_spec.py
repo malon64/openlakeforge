@@ -84,6 +84,12 @@ def test_load_specs_rejects_a_catalog_missing_the_toolchain_block() -> None:
         load_specs({"components": {}}, platform=_PLATFORM)
 
 
+@pytest.mark.parametrize("malformed_components", [["a", "list"], "a scalar string", 42])
+def test_load_specs_rejects_a_non_mapping_components_block(malformed_components: object) -> None:
+    with pytest.raises(ToolchainCatalogError):
+        load_specs({"components": malformed_components}, platform=_PLATFORM)
+
+
 def test_load_specs_rejects_a_catalog_missing_one_tool() -> None:
     catalog = {
         "components": {

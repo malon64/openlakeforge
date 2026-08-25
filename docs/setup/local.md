@@ -86,12 +86,6 @@ docker ps
 
 If this command fails, fix your Docker installation before continuing.
 
-Then check the managed toolchain is provisioned:
-
-```bash
-uv run --project tools/olf --locked olf doctor --provider local --profile slim
-```
-
 ---
 
 ## Clone OpenLakeForge
@@ -104,6 +98,12 @@ cd openlakeforge
 OpenLakeForge commands in this guide should be executed from the repository root.
 
 > OpenLakeForge is currently alpha. A standalone installation artifact is being developed so future releases will not require operating directly from a source checkout.
+
+Then check the managed toolchain is provisioned:
+
+```bash
+uv run --project tools/olf --locked olf doctor --provider local --profile slim
+```
 
 ---
 
