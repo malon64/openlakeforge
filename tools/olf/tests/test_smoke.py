@@ -45,8 +45,11 @@ def test_run_honors_namespace_from_the_supplied_environment(monkeypatch: pytest.
     assert e2e_calls[0]["namespace"] == "custom-lakehouse"
 
 
-def test_run_applies_the_supplied_environment_during_e2e(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
-    observed: dict[str, str | None] = {}
+def test_run_applies_the_supplied_environment_during_deployment_and_e2e(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    deployment_observed: dict[str, str | None] = {}
+    e2e_observed: dict[str, str | None] = {}
     supplied = {
         "LOCAL_KUBECONFIG_PATH": str(tmp_path / "custom-kubeconfig.yaml"),
         "KUBECONFIG": str(tmp_path / "explicit-kubeconfig.yaml"),
@@ -54,18 +57,23 @@ def test_run_applies_the_supplied_environment_during_e2e(monkeypatch: pytest.Mon
     }
     monkeypatch.setattr(smoke.config, "repo_root", lambda: tmp_path)
     monkeypatch.setattr(smoke, "build_provider", lambda *args, **kwargs: object())
-    monkeypatch.setattr(smoke.DeploymentEngine, "deploy", lambda *args: None)
+    monkeypatch.setattr(
+        smoke.DeploymentEngine,
+        "deploy",
+        lambda *args: deployment_observed.update({key: os.environ.get(key) for key in supplied}),
+    )
     monkeypatch.delenv("KUBECONFIG", raising=False)
     monkeypatch.delenv("OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR", raising=False)
 
     def _capture_e2e(*args, **kwargs) -> None:  # noqa: ANN002, ANN003
-        observed.update({key: os.environ.get(key) for key in supplied})
+        e2e_observed.update({key: os.environ.get(key) for key in supplied})
 
     monkeypatch.setattr(smoke.e2e, "run", _capture_e2e)
 
     smoke.run(timeout_seconds=2700, environ=supplied, monotonic=iter((0.0, 1.0, 2.0, 3.0)).__next__)
 
-    assert observed == supplied
+    assert deployment_observed == supplied
+    assert e2e_observed == supplied
     assert "KUBECONFIG" not in os.environ
     assert "OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR" not in os.environ
 

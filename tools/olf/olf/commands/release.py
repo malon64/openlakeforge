@@ -21,6 +21,7 @@ from olf.deployment.errors import DeploymentError, DeploymentPreconditionError, 
 app = typer.Typer(help="Release manifest, checksums, compatibility matrix, and readiness gate.")
 workflow_app = typer.Typer(help="GitHub release-workflow safety checks.")
 app.add_typer(workflow_app, name="workflow")
+_RELEASE_CACHE_METADATA = ".olf-release-cache.json"
 
 
 @app.command("manifest")
@@ -221,7 +222,7 @@ def verify_install(
     resolved_tag = tag or f"v{catalog['distribution']['version']}"
     tools = Toolkit.default()
     try:
-        if not _cached_assets_match_tag(directory, resolved_tag):
+        if not _cached_assets_match_tag(directory, resolved_tag, repo_slug):
             directory.mkdir(parents=True, exist_ok=True)
             tools.runner.run(
                 [
@@ -231,6 +232,7 @@ def verify_install(
                 cwd=root,
                 stream_output=True,
             )
+            _write_release_cache_metadata(directory, tag=resolved_tag, repo_slug=repo_slug)
         _verify_release_assets(directory, tag=resolved_tag, repo_slug=repo_slug, tools=tools)
         manifest = json.loads((directory / "component-manifest.json").read_text())
         images = manifest.get("resolved_images", {})
@@ -258,16 +260,27 @@ def verify_install(
     typer.echo(f"Verified authenticated OpenLakeForge release {resolved_tag}.")
 
 
-def _cached_assets_match_tag(directory: Path, tag: str) -> bool:
-    """Return whether a persistent cache contains signed published assets for ``tag``."""
+def _cached_assets_match_tag(directory: Path, tag: str, repo_slug: str) -> bool:
+    """Return whether a persistent cache contains signed published assets for a repository/tag pair."""
     if not all((directory / filename).is_file() for filename in ("checksums.txt", "checksums.txt.bundle")):
         return False
     try:
         manifest = json.loads((directory / "component-manifest.json").read_text())
+        cache_metadata = json.loads((directory / _RELEASE_CACHE_METADATA).read_text())
     except (OSError, json.JSONDecodeError):
         return False
     distribution = manifest.get("distribution") if isinstance(manifest, dict) else None
-    return isinstance(distribution, dict) and distribution.get("tag") == tag
+    return (
+        isinstance(distribution, dict)
+        and distribution.get("tag") == tag
+        and isinstance(cache_metadata, dict)
+        and cache_metadata == {"repo": repo_slug, "tag": tag}
+    )
+
+
+def _write_release_cache_metadata(directory: Path, *, tag: str, repo_slug: str) -> None:
+    """Record the source identity of command-owned downloaded release assets."""
+    (directory / _RELEASE_CACHE_METADATA).write_text(json.dumps({"repo": repo_slug, "tag": tag}, sort_keys=True) + "\n")
 
 
 @workflow_app.command("require-green-main")

@@ -129,10 +129,44 @@ def test_artifacts_doctor_does_not_require_helm(tmp_path: Path, monkeypatch) -> 
         lambda **kwargs: required.extend(kwargs["required_tools"]) or [],
     )
     monkeypatch.setattr("olf.deployment.local.provider.docker_health", lambda *args, **kwargs: None)
+    monkeypatch.setattr("olf.contracts.load_provider_contracts", lambda *_args: None)
 
     provider.doctor(DeploymentPhase.ARTIFACTS)
 
     assert required == ["terraform", "kubectl", "docker", "kind"]
+
+
+def test_artifacts_doctor_requires_platform_provider_contracts(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    provider = LocalProvider.create(_config(tmp_path), toolkit=_toolkit(), environ={})
+    monkeypatch.setattr("olf.deployment.local.provider.docker_health", lambda *args, **kwargs: None)
+    monkeypatch.setattr("olf.contracts.load_provider_contracts", lambda *_args: None)
+
+    report = provider.doctor(DeploymentPhase.ARTIFACTS)
+
+    contracts_item = next(
+        item for item in report.items if item is not None and item.name == "local platform provider contracts"
+    )
+    assert contracts_item.ok is False
+
+
+def test_artifacts_doctor_uses_the_configured_contract_root(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    contract_root = tmp_path / "custom-platform"
+    observed: list[str] = []
+    provider = LocalProvider.create(
+        _config(tmp_path), toolkit=_toolkit(), environ={"OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR": str(contract_root)}
+    )
+    monkeypatch.setattr("olf.deployment.local.provider.docker_health", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        "olf.contracts.load_provider_contracts", lambda path: observed.append(path) or {"schema_version": "2.0.0"}
+    )
+
+    report = provider.doctor(DeploymentPhase.ARTIFACTS)
+
+    assert observed == [str(contract_root.resolve())]
+    contracts_item = next(
+        item for item in report.items if item is not None and item.name == "local platform provider contracts"
+    )
+    assert contracts_item.ok is True
 
 
 def test_platform_plan_prepares_cached_chart(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001

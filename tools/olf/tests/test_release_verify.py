@@ -142,16 +142,18 @@ def test_cached_release_assets_are_refreshed_when_the_tag_changes(tmp_path: Path
     (tmp_path / "checksums.txt").write_text("checksum")
     (tmp_path / "checksums.txt.bundle").write_text("signed bundle")
     (tmp_path / "component-manifest.json").write_text('{"distribution": {"tag": "v0.1.0"}}')
+    release._write_release_cache_metadata(tmp_path, tag="v0.1.0", repo_slug="owner/repo")
 
-    assert release._cached_assets_match_tag(tmp_path, "v0.1.0") is True
-    assert release._cached_assets_match_tag(tmp_path, "v0.2.0") is False
+    assert release._cached_assets_match_tag(tmp_path, "v0.1.0", "owner/repo") is True
+    assert release._cached_assets_match_tag(tmp_path, "v0.2.0", "owner/repo") is False
+    assert release._cached_assets_match_tag(tmp_path, "v0.1.0", "another/repo") is False
 
 
 def test_rehearsal_bundle_is_not_treated_as_cached_published_assets(tmp_path: Path) -> None:
     (tmp_path / "checksums.txt").write_text("checksum")
     (tmp_path / "component-manifest.json").write_text('{"distribution": {"tag": "v0.1.0"}}')
 
-    assert release._cached_assets_match_tag(tmp_path, "v0.1.0") is False
+    assert release._cached_assets_match_tag(tmp_path, "v0.1.0", "owner/repo") is False
 
 
 def test_cached_release_assets_without_a_valid_manifest_are_refreshed(tmp_path: Path) -> None:
@@ -159,7 +161,7 @@ def test_cached_release_assets_without_a_valid_manifest_are_refreshed(tmp_path: 
     (tmp_path / "checksums.txt.bundle").write_text("signed bundle")
     (tmp_path / "component-manifest.json").write_text("not json")
 
-    assert release._cached_assets_match_tag(tmp_path, "v0.1.0") is False
+    assert release._cached_assets_match_tag(tmp_path, "v0.1.0", "owner/repo") is False
 
 
 def test_require_green_main_accepts_the_latest_successful_main_checks_run() -> None:

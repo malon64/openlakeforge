@@ -21,6 +21,7 @@ import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from functools import cached_property
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from olf.deployment.cloud.backend import CloudBackend, FoundationFacts
@@ -228,4 +229,21 @@ class CloudProvider:
                     str(self.config.paths.foundation_state_path),
                 )
             )
+        if phase in (DeploymentPhase.ALL, DeploymentPhase.ARTIFACTS):
+            from olf.contracts import ProviderContractError, load_provider_contracts
+
+            contract_dir = Path(
+                self._environ.get("OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR", self.config.paths.platform_terraform_dir)
+            ).resolve()
+            try:
+                provider_contracts = load_provider_contracts(str(contract_dir))
+            except ProviderContractError as exc:
+                items.append(DoctorItem(f"{self.backend.scope} platform provider contracts", False, str(exc)))
+            else:
+                detail = str(contract_dir) if provider_contracts is not None else f"unavailable from {contract_dir}"
+                items.append(
+                    DoctorItem(
+                        f"{self.backend.scope} platform provider contracts", provider_contracts is not None, detail
+                    )
+                )
         return DoctorReport(tuple(items))

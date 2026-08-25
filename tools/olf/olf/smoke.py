@@ -45,12 +45,14 @@ def run(
     )
     try:
         with _deadline(timeout_seconds):
-            log.step("Deploying slim local platform...")
-            provider = build_provider(context, toolkit=Toolkit.default(), environ=env)
-            DeploymentEngine(provider).deploy(DeploymentPhase.ALL)
-            _require_remaining(started, timeout_seconds, monotonic, "validating one product pipeline and Gold table")
-            log.step("Validating one product pipeline and Gold table...")
             with patch.dict(os.environ, env, clear=False):
+                log.step("Deploying slim local platform...")
+                provider = build_provider(context, toolkit=Toolkit.default(), environ=env)
+                DeploymentEngine(provider).deploy(DeploymentPhase.ALL)
+                _require_remaining(
+                    started, timeout_seconds, monotonic, "validating one product pipeline and Gold table"
+                )
+                log.step("Validating one product pipeline and Gold table...")
                 e2e.run(
                     "local",
                     suite="smoke",
