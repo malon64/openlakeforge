@@ -1,6 +1,8 @@
 from pathlib import Path
 
-from olf import s3
+import pytest
+
+from olf import auth, s3
 
 
 def test_manifest_key_layout() -> None:
@@ -41,3 +43,22 @@ def test_discover_runtime_artifacts(tmp_path: Path) -> None:
         (profile, "floe/profiles/sales/local-k8s.yml"),
         (manifest, "floe/manifests/sales/sales.manifest.json"),
     ]
+
+
+def test_upload_direct_uses_the_selected_olf_aws_session(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[object] = []
+    sdk_client = object()
+
+    class Session:
+        def client(self, service: str, **kwargs):  # noqa: ANN003, ANN201
+            calls.append((service, kwargs))
+            return sdk_client
+
+    monkeypatch.setattr(auth, "aws_session", lambda environ, *, region: calls.append((environ, region)) or Session())
+    monkeypatch.setattr(s3, "_put_objects", lambda client, bucket, uploads: calls.append((client, bucket, uploads)))
+
+    s3.upload_direct("ops", [], region="eu-west-1")
+
+    assert calls[0][1] == "eu-west-1"
+    assert calls[1] == ("s3", {"region_name": "eu-west-1"})
+    assert calls[2] == (sdk_client, "ops", [])

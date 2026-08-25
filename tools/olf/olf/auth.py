@@ -62,7 +62,10 @@ def credential_selection_environment(provider: str, environ: Mapping[str, str]) 
     output while preserving automation precedence.
     """
     prefixes = ("AWS_",) if provider == "aws" else ("ARM_", "AZURE_", "IDENTITY_", "MSI_")
-    return {name: value for name, value in environ.items() if name.startswith(prefixes)}
+    selected = {name: value for name, value in environ.items() if name.startswith(prefixes)}
+    if environ.get("OLF_HOME"):
+        selected["OLF_HOME"] = environ["OLF_HOME"]
+    return selected
 
 
 def _sso_client(service: str, *, region: str) -> Any:

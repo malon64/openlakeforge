@@ -101,8 +101,10 @@ def _put_objects(client, bucket: str, uploads: list[ManifestUpload]) -> None:
 
 
 def upload_direct(bucket: str, uploads: list[ManifestUpload], *, region: str | None = None) -> None:
-    """Upload with the ambient credential chain (AWS Pod Identity / profile)."""
-    client = boto3.client("s3", region_name=region or None)
+    """Upload using the selected OLF session or the normal SDK chain."""
+    from olf.auth import aws_session
+
+    client = aws_session(os.environ, region=region or None).client("s3", region_name=region or None)
     _put_objects(client, bucket, uploads)
 
 

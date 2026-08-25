@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Mapping
+from contextlib import contextmanager
 from pathlib import Path
 
 from olf import k8s, log
@@ -33,6 +34,24 @@ from olf.deployment.cloud.backend import CloudBackend, FoundationFacts
 from olf.deployment.cloud.config import CloudDeploymentConfig
 from olf.deployment.cloud.images import build_and_push_project_code_image, resolve_effective_images
 from olf.deployment.engine import Toolkit
+
+
+@contextmanager
+def _applied_authentication_environment(provider: str, environ: Mapping[str, str]):
+    """Expose selected auth state to in-process SDK clients for one deploy."""
+    from olf.auth import credential_selection_environment
+
+    selected = credential_selection_environment(provider, environ)
+    previous = {name: os.environ.get(name) for name in selected}
+    os.environ.update(selected)
+    try:
+        yield
+    finally:
+        for name, value in previous.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
 
 
 def _resolve_contract_terraform_dir(config: CloudDeploymentConfig) -> Path:
@@ -53,7 +72,7 @@ def artifacts_deploy(
     *,
     env: Mapping[str, str],
 ) -> None:
-    with contract_env.applied_contract_environment(
+    with _applied_authentication_environment(backend.scope, env), contract_env.applied_contract_environment(
         contract_terraform_dir=_resolve_contract_terraform_dir(config),
         repo_root=config.paths.repo_root,
         namespace=config.namespace,

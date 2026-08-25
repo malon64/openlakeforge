@@ -148,8 +148,17 @@ def test_terraform_auth_environment_keeps_automation_ahead_of_saved_state(
 def test_credential_selection_environment_excludes_unrelated_values() -> None:
     assert auth.credential_selection_environment(
         "aws",
-        {"AWS_WEB_IDENTITY_TOKEN_FILE": "/tmp/token", "AWS_ROLE_ARN": "arn:aws:iam::123:role/ci", "HOME": "/home"},
-    ) == {"AWS_WEB_IDENTITY_TOKEN_FILE": "/tmp/token", "AWS_ROLE_ARN": "arn:aws:iam::123:role/ci"}
+        {
+            "AWS_WEB_IDENTITY_TOKEN_FILE": "/tmp/token",
+            "AWS_ROLE_ARN": "arn:aws:iam::123:role/ci",
+            "OLF_HOME": "/tmp/olf-home",
+            "HOME": "/home",
+        },
+    ) == {
+        "AWS_WEB_IDENTITY_TOKEN_FILE": "/tmp/token",
+        "AWS_ROLE_ARN": "arn:aws:iam::123:role/ci",
+        "OLF_HOME": "/tmp/olf-home",
+    }
 
 
 def test_terraform_auth_environment_propagates_adopted_provider_selections(

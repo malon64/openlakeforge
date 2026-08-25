@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from typing import Any
 
-import boto3
 from openlakeforge_domain import CatalogNamespace
 
 from olf.catalog import CATALOG_KEY, MANAGED_BY_KEY, MANAGED_BY_VALUE, NamespaceState
@@ -32,7 +32,11 @@ class GlueClient:
 
     def __post_init__(self) -> None:
         if self._client is None:
-            self._client = boto3.client("glue", region_name=self.config.region or None)
+            from olf.auth import aws_session
+
+            self._client = aws_session(os.environ, region=self.config.region or None).client(
+                "glue", region_name=self.config.region or None
+            )
 
     def list_namespaces(self) -> dict[str, NamespaceState]:
         states: dict[str, NamespaceState] = {}
