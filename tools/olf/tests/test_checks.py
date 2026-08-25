@@ -84,6 +84,35 @@ def test_project_code_rejects_unsupported_python_before_building_cache(
         checks.project_code(str(tmp_path))
 
 
+def test_structure_registry_preserves_the_full_non_script_skeleton() -> None:
+    required = {
+        "CLAUDE.md",
+        ".github/workflows/checks.yml",
+        "docs/architecture/overview.md",
+        "docs/architecture/provider-contracts.md",
+        "docs/adr/0028-python-owns-repository-orchestration.md",
+        "infra/terraform/foundations/aws-eks/outputs.tf",
+        "lakehouse_code/silver/sales/contracts/floe/sales.yml",
+        "tools/olf/uv.lock",
+        "packages/domain-model/openlakeforge_domain/inventory.py",
+    }
+
+    assert required <= set(checks.REQUIRED_PATHS)
+    assert not any(path.startswith("scripts/") or path.endswith(".sh") for path in checks.REQUIRED_PATHS)
+
+
+def test_missing_required_paths_reports_removed_skeleton_entries(tmp_path: Path) -> None:
+    for path in checks.REQUIRED_PATHS:
+        candidate = tmp_path / path
+        candidate.parent.mkdir(parents=True, exist_ok=True)
+        candidate.write_text("required\n")
+    removed = {"CLAUDE.md", ".github/workflows/checks.yml", "tools/olf/uv.lock"}
+    for path in removed:
+        (tmp_path / path).unlink()
+
+    assert set(checks._missing_required_paths(tmp_path)) == removed
+
+
 def test_release_publication_guard_requires_the_olf_workflow_command(tmp_path: Path) -> None:
     workflow = tmp_path / ".github/workflows/release.yml"
     workflow.parent.mkdir(parents=True)
