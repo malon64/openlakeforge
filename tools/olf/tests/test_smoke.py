@@ -25,6 +25,24 @@ def test_run_uses_deployment_engine_and_e2e_without_make(monkeypatch: pytest.Mon
     assert calls[1][1]["kube_context"] == "kind-openlakeforge-pr-123"
 
 
+def test_run_honors_namespace_from_the_supplied_environment(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    contexts: list[object] = []
+    e2e_calls: list[dict] = []
+    monkeypatch.setattr(smoke.config, "repo_root", lambda: tmp_path)
+    monkeypatch.setattr(smoke, "build_provider", lambda context, *args, **kwargs: contexts.append(context) or object())
+    monkeypatch.setattr(smoke.DeploymentEngine, "deploy", lambda *args: None)
+    monkeypatch.setattr(smoke.e2e, "run", lambda *args, **kwargs: e2e_calls.append(kwargs))
+
+    smoke.run(
+        timeout_seconds=2700,
+        environ={"OPENLAKEFORGE_KUBE_NAMESPACE": "custom-lakehouse"},
+        monotonic=iter((0.0, 1.0, 2.0, 3.0)).__next__,
+    )
+
+    assert contexts[0].namespace == "custom-lakehouse"
+    assert e2e_calls[0]["namespace"] == "custom-lakehouse"
+
+
 def test_run_rejects_a_nonpositive_budget() -> None:
     with pytest.raises(smoke.SmokeError, match="greater than zero"):
         smoke.run(timeout_seconds=0)

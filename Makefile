@@ -50,11 +50,11 @@ superset-image:
 superset-load:
 	@$(OLF_BIN) images load superset --cluster-name $(CLUSTER_NAME)
 superset-reports-deploy:
-	@KUBECONFIG="$(LOCAL_KUBECONFIG_PATH)" KUBE_CONTEXT=$(KUBE_CONTEXT) $(OLF_BIN) superset deploy-reports --provider local
+	@$(OLF_BIN) superset deploy-reports --provider local --profile $(LOCAL_PROFILE) --namespace $(NAMESPACE) --cluster-name $(CLUSTER_NAME) --kubeconfig-path $(LOCAL_KUBECONFIG_PATH)
 superset-reports-export:
-	@KUBECONFIG="$(LOCAL_KUBECONFIG_PATH)" KUBE_CONTEXT=$(KUBE_CONTEXT) $(OLF_BIN) superset export-reports --provider local
+	@$(OLF_BIN) superset export-reports --provider local --profile $(LOCAL_PROFILE) --namespace $(NAMESPACE) --cluster-name $(CLUSTER_NAME) --kubeconfig-path $(LOCAL_KUBECONFIG_PATH)
 openmetadata-metadata-deploy:
-	@KUBECONFIG="$(LOCAL_KUBECONFIG_PATH)" KUBE_CONTEXT=$(KUBE_CONTEXT) $(OLF_BIN) openmetadata deploy-metadata --provider local
+	@$(OLF_BIN) openmetadata deploy-metadata --provider local --profile $(LOCAL_PROFILE) --namespace $(NAMESPACE) --cluster-name $(CLUSTER_NAME) --kubeconfig-path $(LOCAL_KUBECONFIG_PATH)
 
 local-foundation-up:
 	@$(OLF_BIN) deploy --provider local --namespace $(NAMESPACE) --cluster-name $(CLUSTER_NAME) --kubeconfig-path $(LOCAL_KUBECONFIG_PATH) --profile $(LOCAL_PROFILE) --phase foundation
