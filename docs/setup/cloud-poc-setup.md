@@ -1,21 +1,19 @@
 # Cloud POC setup (AWS / Azure)
 
 How to deploy the OpenLakeForge POC to your **own** AWS or Azure account. Nothing
-account-specific is committed to the repo: you provide your credentials through
-your cloud CLI and your configuration through a local, gitignored file (AWS) or
-environment variables (Azure).
+account-specific is committed to the repo: `olf` authenticates through the
+cloud SDKs and your configuration stays in local, gitignored files or
+environment variables.
 
 > The local (kind/SeaweedFS) path needs none of this — see the root `README.md`.
 > This guide is only for the managed-cloud POCs.
 
 ## Prerequisites
 
-Install and put on your `PATH`: `docker`, `python3`, `uv`, `make`, plus the
-CLI for your cloud (`aws` or `az` — these are not yet managed by `olf`; see
-ADR 0029). `olf` provisions its own versioned `terraform`, `kubectl`, and
-`helm` under `OLF_HOME` (default `~/.openlakeforge`) — a host installation of
-those three is not required. Set `OLF_TOOLCHAIN_MODE=host` to use your own
-instead.
+Install and put on your `PATH`: `docker`, `python3`, `uv`, and `make`.
+`olf` provisions its own versioned `terraform`, `kubectl`, and `helm` under
+`OLF_HOME` (default `~/.openlakeforge`). Neither `aws` nor `az` is required.
+Set `OLF_TOOLCHAIN_MODE=host` to use host Terraform, kubectl, and Helm instead.
 
 Terraform state is stored **locally** (no remote backend), so run the `make`
 targets from the same machine/checkout each time for a given environment.
@@ -26,18 +24,19 @@ targets from the same machine/checkout each time for a given environment.
 
 ### 1. Authenticate
 
-Configure AWS credentials however your account works — a named profile, SSO, or
-static keys — so that `aws sts get-caller-identity` succeeds. The scripts use your
-ambient AWS credentials, so export the profile if you use one:
+Use IAM Identity Center without installing AWS CLI:
 
 ```bash
-export AWS_PROFILE=my-profile
-aws sso login --profile my-profile   # only if the profile is SSO-based
-aws sts get-caller-identity          # sanity check
+olf auth login --provider aws \
+  --start-url "https://your-company.awsapps.com/start" \
+  --sso-region eu-west-1
 ```
 
-If your network intercepts TLS (corporate proxy such as Zscaler), point the AWS
-CLI at your CA bundle: `export AWS_CA_BUNDLE=/path/to/ca-bundle.pem`.
+This opens an AWS-hosted device authorization page. If the browser cannot open,
+use `--no-browser` and enter the printed code. To reuse an existing SDK/CLI SSO
+profile without copying its cache, run
+`olf auth login --provider aws --profile my-profile`. Export `AWS_PROFILE` if
+needed.
 
 ### 2. Provide your configuration (tfvars)
 
@@ -104,10 +103,13 @@ sandbox names are not committed to the repository.
 ### 1. Authenticate
 
 ```bash
-az login
-az account set --subscription "<your-subscription-id>"
-az account show          # sanity check — the scripts require this to succeed
+olf auth login --provider azure
 ```
+
+Azure Identity opens Microsoft Entra's hosted sign-in page, then prompts for a
+subscription. On a headless machine use `olf auth login --provider azure
+--device-code`. An existing `az login` session is reused when `az` is present,
+but the CLI is optional.
 
 ### 2. Configure the resource group
 
@@ -172,7 +174,8 @@ global kubeconfig.
 
 ## What stays out of git
 
-- **Credentials** — never in the repo; supplied by `aws`/`az` CLI.
+- **Credentials** — never in the repo; resolved by the cloud SDK from OLF
+  browser authentication, vendor session reuse, or automation identity.
 - **`*.tfvars`** — gitignored; only the `*.tfvars.example` templates are tracked.
 - **Terraform state** (`*.tfstate`) and `.terraform/` — local only.
 

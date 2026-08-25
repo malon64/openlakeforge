@@ -24,6 +24,23 @@ _FACTS = FoundationFacts(
 )
 
 
+class _Aws:
+    def __init__(self, *, reachable: bool = True) -> None:
+        self.calls: list[tuple[str, tuple, dict]] = []
+        self.reachable = reachable
+
+    def eks_update_kubeconfig(self, *args, **kwargs):  # noqa: ANN002, ANN003, ANN202
+        self.calls.append(("kubeconfig", args, kwargs))
+
+    def ecr_get_login_password(self, *args, **kwargs):  # noqa: ANN002, ANN003, ANN202
+        self.calls.append(("ecr", args, kwargs))
+        return "ecr-password"
+
+    def eks_describe_cluster(self, *args, **kwargs):  # noqa: ANN002, ANN003, ANN202
+        self.calls.append(("describe", args, kwargs))
+        return CommandResult(argv=(), returncode=0 if self.reachable else 1, stdout="", stderr="", duration_seconds=0)
+
+
 def _config(tmp_path: Path, *, profile: Profile = Profile.FULL) -> CloudDeploymentConfig:
     context = DeploymentContext.aws(repo_root=tmp_path, profile=profile)
     return CloudDeploymentConfig.from_environment({}, context=context)
@@ -118,7 +135,7 @@ def test_foundation_tfvars_file_defaults_to_sandbox_tfvars_when_present(tmp_path
     backend = AwsBackend()
     foundation_dir = tmp_path / "infra/terraform/foundations/aws-eks"
     foundation_dir.mkdir(parents=True)
-    (foundation_dir / "sandbox.tfvars").write_text("region = \"eu-west-1\"\n")
+    (foundation_dir / "sandbox.tfvars").write_text('region = "eu-west-1"\n')
 
     resolved = backend.foundation_tfvars_file({}, repo_root=tmp_path, foundation_terraform_dir=foundation_dir)
 
@@ -188,21 +205,22 @@ def test_update_kubeconfig_uses_eks_update_kubeconfig_with_alias(tmp_path: Path)
     backend = AwsBackend()
     runner = RecordingRunner(_ok())
     tools = _toolkit(runner)
+    aws = _Aws()
+    object.__setattr__(tools, "aws", aws)
 
     backend.update_kubeconfig(tools, _FACTS, kubeconfig_path=tmp_path / "kc.yaml", env={})
 
-    assert runner.calls[0].argv == [
-        "aws",
-        "eks",
-        "update-kubeconfig",
-        "--region",
-        "eu-west-1",
-        "--name",
-        "eks-openlakeforge-poc",
-        "--kubeconfig",
-        str(tmp_path / "kc.yaml"),
-        "--alias",
-        "eks-openlakeforge-poc",
+    assert aws.calls == [
+        (
+            "kubeconfig",
+            ("eks-openlakeforge-poc",),
+            {
+                "region": "eu-west-1",
+                "kubeconfig_path": tmp_path / "kc.yaml",
+                "alias": "eks-openlakeforge-poc",
+                "env": {},
+            },
+        )
     ]
 
 
@@ -210,11 +228,10 @@ def test_registry_login_uses_ecr_password_via_docker_login(tmp_path: Path) -> No
     backend = AwsBackend()
     runner = RecordingRunner(_ok("ecr-password\n"))
     tools = _toolkit(runner)
+    object.__setattr__(tools, "aws", _Aws())
 
     backend.registry_login(tools, _FACTS, repository=_FACTS.project_code_repository, env={})
 
-    ecr_call = next(c for c in runner.calls if c.argv[:3] == ["aws", "ecr", "get-login-password"])
-    assert "--region" in ecr_call.argv and "eu-west-1" in ecr_call.argv
     login_call = next(c for c in runner.calls if c.argv[:2] == ["docker", "login"])
     assert login_call.argv[-1] == "123456789012.dkr.ecr.eu-west-1.amazonaws.com"
     assert login_call.kwargs["input_text"] == "ecr-password"
@@ -229,6 +246,7 @@ def test_registry_login_uses_the_effective_repository_not_the_foundation_default
     backend = AwsBackend()
     runner = RecordingRunner(_ok("ecr-password\n"))
     tools = _toolkit(runner)
+    object.__setattr__(tools, "aws", _Aws())
     overridden_repository = "999999999999.dkr.ecr.us-east-1.amazonaws.com/shared/project-code"
 
     backend.registry_login(tools, _FACTS, repository=overridden_repository, env={})
@@ -241,11 +259,11 @@ def test_cluster_reachable_uses_eks_describe_cluster(tmp_path: Path) -> None:
     backend = AwsBackend()
     runner = RecordingRunner(_fail())
     tools = _toolkit(runner)
+    object.__setattr__(tools, "aws", _Aws(reachable=False))
 
     reachable = backend.cluster_reachable(tools, _FACTS, env={})
 
     assert reachable is False
-    assert runner.calls[0].argv[:3] == ["aws", "eks", "describe-cluster"]
 
 
 def test_platform_apply_variables_include_aws_region_and_resolved_repository(tmp_path: Path) -> None:

@@ -15,7 +15,7 @@ from olf.deployment.cloud.backend import FoundationFacts, output_raw_or_empty
 from olf.deployment.cloud.config import CloudDeploymentConfig
 from olf.deployment.engine import Toolkit
 from olf.deployment.env_settings import env as _env
-from olf.deployment.errors import CommandExecutionError, DeploymentPreconditionError, ExecutableNotFoundError
+from olf.deployment.errors import DeploymentPreconditionError
 from olf.deployment.floe_manifests import generate_aws_manifests
 from olf.deployment.portforward import ForwardTarget
 
@@ -39,9 +39,9 @@ class AwsBackend:
     def preflight(self, tools: Toolkit, *, env: Mapping[str, str]) -> None:
         try:
             tools.aws.sts_get_caller_identity(env=env)
-        except (CommandExecutionError, ExecutableNotFoundError) as exc:
+        except Exception as exc:
             raise DeploymentPreconditionError(
-                f"AWS CLI is not authenticated (aws sts get-caller-identity failed): {exc}"
+                f"AWS is not authenticated. Run 'olf auth login --provider aws': {exc}"
             ) from exc
 
     def foundation_state_resource_addr(self) -> str:

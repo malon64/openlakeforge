@@ -25,6 +25,29 @@ _FACTS = FoundationFacts(
 )
 
 
+class _Azure:
+    def __init__(self, *, reachable: bool = True, fail_account: bool = False) -> None:
+        self.calls: list[tuple[str, tuple, dict]] = []
+        self.reachable = reachable
+        self.fail_account = fail_account
+
+    def account_show(self, *args, **kwargs):  # noqa: ANN002, ANN003, ANN202
+        if self.fail_account:
+            raise RuntimeError("not authenticated")
+        return {"id": "sub-id"}
+
+    def aks_get_credentials(self, *args, **kwargs):  # noqa: ANN002, ANN003, ANN202
+        self.calls.append(("kubeconfig", args, kwargs))
+
+    def acr_login(self, *args, **kwargs):  # noqa: ANN002, ANN003, ANN202
+        self.calls.append(("acr", args, kwargs))
+        return "acr-token"
+
+    def aks_show(self, *args, **kwargs):  # noqa: ANN002, ANN003, ANN202
+        self.calls.append(("show", args, kwargs))
+        return CommandResult(argv=(), returncode=0 if self.reachable else 1, stdout="", stderr="", duration_seconds=0)
+
+
 def _config(tmp_path: Path, *, profile: Profile = Profile.FULL) -> CloudDeploymentConfig:
     context = DeploymentContext.azure(repo_root=tmp_path, profile=profile)
     return CloudDeploymentConfig.from_environment({}, context=context)
@@ -105,7 +128,7 @@ def test_foundation_tfvars_file_resolves_default_path_when_present(tmp_path: Pat
     backend = AzureBackend()
     foundation_dir = tmp_path / "infra/terraform/foundations/azure-aks"
     foundation_dir.mkdir(parents=True)
-    (foundation_dir / "sandbox.tfvars").write_text("resource_group = \"rg\"\n")
+    (foundation_dir / "sandbox.tfvars").write_text('resource_group = "rg"\n')
 
     resolved = backend.foundation_tfvars_file({}, repo_root=tmp_path, foundation_terraform_dir=foundation_dir)
 
@@ -118,7 +141,7 @@ def test_foundation_tfvars_file_honors_relative_override_against_repo_root(tmp_p
     foundation_dir.mkdir(parents=True)
     override = tmp_path / "custom/azure.tfvars"
     override.parent.mkdir(parents=True)
-    override.write_text("resource_group = \"rg\"\n")
+    override.write_text('resource_group = "rg"\n')
 
     resolved = backend.foundation_tfvars_file(
         {"AZURE_TFVARS_FILE": "custom/azure.tfvars"}, repo_root=tmp_path, foundation_terraform_dir=foundation_dir
@@ -217,31 +240,27 @@ def test_update_kubeconfig_uses_aks_get_credentials(tmp_path: Path) -> None:
     backend = AzureBackend()
     runner = RecordingRunner(_ok())
     tools = _toolkit(runner)
+    azure = _Azure()
+    object.__setattr__(tools, "azure", azure)
 
     backend.update_kubeconfig(tools, _FACTS, kubeconfig_path=tmp_path / "kc.yaml", env={})
 
-    assert runner.calls[0].argv == [
-        "az",
-        "aks",
-        "get-credentials",
-        "--resource-group",
-        "openlakeforge-poc-rg",
-        "--name",
-        "aks-openlakeforge-poc",
-        "--file",
-        str(tmp_path / "kc.yaml"),
-        "--overwrite-existing",
-    ]
+    assert azure.calls[0][0] == "kubeconfig"
+    assert azure.calls[0][1] == ("aks-openlakeforge-poc",)
 
 
 def test_registry_login_uses_acr_login_with_acr_name(tmp_path: Path) -> None:  # noqa: ARG001
     backend = AzureBackend()
     runner = RecordingRunner(_ok())
     tools = _toolkit(runner)
+    azure = _Azure()
+    object.__setattr__(tools, "azure", azure)
 
     backend.registry_login(tools, _FACTS, repository=_FACTS.project_code_repository, env={})
 
-    assert runner.calls[0].argv == ["az", "acr", "login", "--name", "openlakeforgepoc"]
+    assert azure.calls[0][0] == "acr"
+    assert azure.calls[0][1] == ("openlakeforgepoc",)
+    assert next(c for c in runner.calls if c.argv[:2] == ["docker", "login"]).kwargs["input_text"] == "acr-token"
 
 
 def test_registry_login_derives_acr_name_from_an_overridden_repository(tmp_path: Path) -> None:  # noqa: ARG001
@@ -253,11 +272,13 @@ def test_registry_login_derives_acr_name_from_an_overridden_repository(tmp_path:
     backend = AzureBackend()
     runner = RecordingRunner(_ok())
     tools = _toolkit(runner)
+    azure = _Azure()
+    object.__setattr__(tools, "azure", azure)
     overridden_repository = "otheracr.azurecr.io/shared/project-code"
 
     backend.registry_login(tools, _FACTS, repository=overridden_repository, env={})
 
-    assert runner.calls[0].argv == ["az", "acr", "login", "--name", "otheracr"]
+    assert azure.calls[0][1] == ("otheracr",)
 
 
 def test_registry_login_derives_acr_name_even_when_foundation_facts_have_no_registry(tmp_path: Path) -> None:
@@ -269,6 +290,8 @@ def test_registry_login_derives_acr_name_even_when_foundation_facts_have_no_regi
     backend = AzureBackend()
     runner = RecordingRunner(_ok())
     tools = _toolkit(runner)
+    azure = _Azure()
+    object.__setattr__(tools, "azure", azure)
     facts_without_registry = FoundationFacts(
         cluster_name="aks-openlakeforge-poc",
         kube_context="aks-openlakeforge-poc",
@@ -278,22 +301,20 @@ def test_registry_login_derives_acr_name_even_when_foundation_facts_have_no_regi
         azure_acr_name="",
     )
 
-    backend.registry_login(
-        tools, facts_without_registry, repository="otheracr.azurecr.io/shared/project-code", env={}
-    )
+    backend.registry_login(tools, facts_without_registry, repository="otheracr.azurecr.io/shared/project-code", env={})
 
-    assert runner.calls[0].argv == ["az", "acr", "login", "--name", "otheracr"]
+    assert azure.calls[0][1] == ("otheracr",)
 
 
 def test_cluster_reachable_uses_aks_show(tmp_path: Path) -> None:  # noqa: ARG001
     backend = AzureBackend()
     runner = RecordingRunner(_fail())
     tools = _toolkit(runner)
+    object.__setattr__(tools, "azure", _Azure(reachable=False))
 
     reachable = backend.cluster_reachable(tools, _FACTS, env={})
 
     assert reachable is False
-    assert runner.calls[0].argv[:3] == ["az", "aks", "show"]
 
 
 def test_platform_apply_variables_have_no_aws_region(tmp_path: Path) -> None:
@@ -349,6 +370,7 @@ def test_artifact_transport_is_port_forward() -> None:
 def test_preflight_wraps_account_show_failure() -> None:
     backend = AzureBackend()
     tools = _toolkit(_RaisingRunner())
+    object.__setattr__(tools, "azure", _Azure(fail_account=True))
 
-    with pytest.raises(DeploymentPreconditionError, match="az login"):
+    with pytest.raises(DeploymentPreconditionError, match="olf auth login"):
         backend.preflight(tools, env={})

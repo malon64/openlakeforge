@@ -65,7 +65,13 @@ class CloudProvider:
         if not self._environ.get("DOCKER_HOST"):
             docker_host = self.tools.docker.resolve_current_engine_endpoint(env=dict(self._environ))
         self.config.context.prepare_directories()
-        return self.config.context.command_env(docker_host=docker_host)
+        base = self.config.context.command_env(docker_host=docker_host)
+        # Terraform receives SDK-mediated credentials only for OLF-managed
+        # browser sessions. Ambient SDK/CI credentials retain their normal
+        # provider-native behavior.
+        from olf.auth import terraform_auth_environment
+
+        return {**base, **terraform_auth_environment(self.backend.scope, {**self._environ, **base})}
 
     @cached_property
     def _foundation_facts(self) -> FoundationFacts:
@@ -185,8 +191,7 @@ class CloudProvider:
         from olf.deployment.cloud import foundation
         from olf.deployment.errors import DeploymentError
 
-        provider_cli = "aws" if self.backend.scope == "aws" else "az"
-        required = ["terraform", "kubectl", provider_cli]
+        required = ["terraform", "kubectl"]
         if phase in (DeploymentPhase.ALL, DeploymentPhase.PLATFORM):
             required.append("helm")
         needs_docker = phase in (DeploymentPhase.ALL, DeploymentPhase.ARTIFACTS) or (

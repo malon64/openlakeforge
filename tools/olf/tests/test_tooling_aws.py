@@ -1,83 +1,80 @@
 from __future__ import annotations
 
-import json
+import base64
+import stat
 from pathlib import Path
 
-from _tooling_support import RecordingRunner
+import yaml
 
-from olf.tooling.aws import AwsCli
-from olf.tooling.process import CommandResult
-from olf.tooling.resolver import PathExecutableResolver
+from olf.tooling.aws import AwsSdk
 
 
-def _aws(result: CommandResult | None = None) -> tuple[AwsCli, RecordingRunner]:
-    runner = RecordingRunner(result)
-    resolver = PathExecutableResolver(overrides={"aws": Path("aws")})
-    return AwsCli(runner, resolver), runner
+class _Credentials:
+    access_key = "access"
+    secret_key = "secret"
+    token = "token"
+
+    def get_frozen_credentials(self) -> _Credentials:
+        return self
 
 
-def test_eks_update_kubeconfig_builds_exact_argv() -> None:
-    aws, runner = _aws()
-    kubeconfig = Path("/repo/.tmp/kubeconfigs/aws.yaml")
+class _Session:
+    def __init__(self, clients):  # noqa: ANN001
+        self.clients = clients
 
-    aws.eks_update_kubeconfig(
-        "eks-openlakeforge-poc",
-        region="eu-west-1",
-        kubeconfig_path=kubeconfig,
-        alias="eks-openlakeforge-poc",
-    )
+    def client(self, name: str, **_kwargs):  # noqa: ANN003, ANN202
+        return self.clients[name]
 
-    assert runner.last_call.argv == [
-        "aws",
-        "eks",
-        "update-kubeconfig",
-        "--region",
-        "eu-west-1",
-        "--name",
-        "eks-openlakeforge-poc",
-        "--kubeconfig",
-        str(kubeconfig),
-        "--alias",
-        "eks-openlakeforge-poc",
-    ]
+    def get_credentials(self) -> _Credentials:
+        return _Credentials()
 
 
-def test_sts_get_caller_identity_parses_json() -> None:
-    payload = {"Account": "123456789012", "Arn": "arn:aws:iam::123456789012:user/dev"}
-    aws, runner = _aws(
-        CommandResult(argv=(), returncode=0, stdout=json.dumps(payload), stderr="", duration_seconds=0.0)
-    )
+def test_eks_update_kubeconfig_writes_token_file_without_exec(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    eks = type(
+        "Eks",
+        (),
+        {
+            "describe_cluster": lambda *_args, **_kwargs: {
+                "cluster": {"endpoint": "https://eks", "certificateAuthority": {"data": "ca"}}
+            }
+        },
+    )()
+    aws = AwsSdk(_Session({"eks": eks}))
+    monkeypatch.setattr(aws, "_eks_token", lambda *_args, **_kwargs: "k8s-aws-v1.token")
+    path = tmp_path / "aws.yaml"
 
-    identity = aws.sts_get_caller_identity()
+    aws.eks_update_kubeconfig("cluster", region="eu-west-1", kubeconfig_path=path, alias="context")
 
-    assert identity == payload
-    assert runner.last_call.argv == ["aws", "sts", "get-caller-identity", "--output", "json"]
-
-
-def test_ecr_get_login_password_strips_output() -> None:
-    aws, runner = _aws(
-        CommandResult(argv=(), returncode=0, stdout="password-value\n", stderr="", duration_seconds=0.0)
-    )
-
-    password = aws.ecr_get_login_password(region="eu-west-1")
-
-    assert password == "password-value"
-    assert runner.last_call.argv == ["aws", "ecr", "get-login-password", "--region", "eu-west-1"]
+    document = yaml.safe_load(path.read_text())
+    assert document["users"][0]["user"] == {"tokenFile": str(path.with_suffix(".yaml.token"))}
+    assert "exec" not in document["users"][0]["user"]
+    assert path.with_suffix(".yaml.token").read_text() == "k8s-aws-v1.token\n"
+    assert path.stat().st_mode & (stat.S_IRWXG | stat.S_IRWXO) == 0
+    assert path.with_suffix(".yaml.token").stat().st_mode & (stat.S_IRWXG | stat.S_IRWXO) == 0
 
 
-def test_eks_describe_cluster_builds_exact_argv_and_defaults_to_no_check() -> None:
-    aws, runner = _aws(CommandResult(argv=(), returncode=1, stdout="", stderr="not found", duration_seconds=0.0))
+def test_sts_get_caller_identity_uses_sdk() -> None:
+    identity = {"Account": "123456789012", "Arn": "arn:aws:iam::123456789012:user/dev"}
+    sts = type("Sts", (), {"get_caller_identity": lambda *_args: identity})()
 
-    result = aws.eks_describe_cluster("eks-openlakeforge-poc", region="eu-west-1")
+    assert AwsSdk(_Session({"sts": sts})).sts_get_caller_identity() == identity
 
-    assert result.returncode == 1
-    assert runner.last_call.argv == [
-        "aws",
-        "eks",
-        "describe-cluster",
-        "--region",
-        "eu-west-1",
-        "--name",
-        "eks-openlakeforge-poc",
-    ]
-    assert runner.last_call.kwargs["check"] is False
+
+def test_ecr_get_login_password_decodes_authorization_token() -> None:
+    encoded = base64.b64encode(b"AWS:password-value").decode()
+    ecr = type(
+        "Ecr", (), {"get_authorization_token": lambda *_args: {"authorizationData": [{"authorizationToken": encoded}]}}
+    )()
+
+    assert AwsSdk(_Session({"ecr": ecr})).ecr_get_login_password(region="eu-west-1") == "password-value"
+
+
+def test_eks_describe_cluster_maps_sdk_failures_to_not_ok_result() -> None:
+    eks = type(
+        "Eks", (), {"describe_cluster": lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("not found"))}
+    )()
+
+    result = AwsSdk(_Session({"eks": eks})).eks_describe_cluster("cluster", region="eu-west-1")
+
+    assert not result.ok
+    assert "not found" in result.stderr

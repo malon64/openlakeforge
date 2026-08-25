@@ -140,36 +140,36 @@ def test_prepare_kube_context_refreshes_existing_aws_context(monkeypatch: pytest
             "cluster_name": "limited-eks-openlakeforge-poc",
         }[name],
     )
+    sdk_calls: list[tuple[tuple, dict]] = []
+    monkeypatch.setattr(
+        "olf.tooling.aws.AwsSdk.eks_update_kubeconfig",
+        lambda _self, *args, **kwargs: sdk_calls.append((args, kwargs)),
+    )
 
     _runner.prepare_kube_context(e2e_cfg(tmp_path, env="aws", suite="smoke"))
 
     assert ["kubectl", "cluster-info", "--context", "kind-openlakeforge-local"] in commands
-    assert [
-        "aws",
-        "eks",
-        "update-kubeconfig",
-        "--region",
-        "eu-west-1",
-        "--name",
-        "limited-eks-openlakeforge-poc",
-        "--kubeconfig",
-        str(kubeconfig),
-        "--alias",
-        "kind-openlakeforge-local",
-    ] in commands
+    assert sdk_calls == [
+        (
+            ("limited-eks-openlakeforge-poc",),
+            {
+                "region": "eu-west-1",
+                "kubeconfig_path": kubeconfig,
+                "alias": "kind-openlakeforge-local",
+            },
+        )
+    ]
 
 
 @pytest.mark.parametrize(
-    ("env", "expected_command_prefix", "terraform_outputs"),
+    ("env", "terraform_outputs"),
     [
         (
             "azure",
-            ["az", "aks", "get-credentials"],
             {"resource_group_name": "rg-sandbox", "cluster_name": "aks-openlakeforge-poc"},
         ),
         (
             "aws",
-            ["aws", "eks", "update-kubeconfig"],
             {"aws_region": "eu-west-1", "cluster_name": "limited-eks-openlakeforge-poc"},
         ),
     ],
@@ -178,7 +178,6 @@ def test_prepare_kube_context_uses_provider_default_for_direct_cloud_runs(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     env: Environment,
-    expected_command_prefix: list[str],
     terraform_outputs: dict[str, str],
 ) -> None:
     commands: list[list[str]] = []
@@ -189,12 +188,21 @@ def test_prepare_kube_context_uses_provider_default_for_direct_cloud_runs(
     monkeypatch.setattr(_shell, "_run", run)
     monkeypatch.setattr(_runner, "_kubectl_executable", lambda: "kubectl")
     monkeypatch.setattr(_runner, "terraform_output", lambda _dir, name: terraform_outputs[name])
+    sdk_calls: list[tuple[str, tuple, dict]] = []
+    monkeypatch.setattr(
+        "olf.tooling.azure.AzureSdk.aks_get_credentials",
+        lambda _self, *args, **kwargs: sdk_calls.append(("azure", args, kwargs)),
+    )
+    monkeypatch.setattr(
+        "olf.tooling.aws.AwsSdk.eks_update_kubeconfig",
+        lambda _self, *args, **kwargs: sdk_calls.append(("aws", args, kwargs)),
+    )
 
     _runner.prepare_kube_context(e2e_cfg(tmp_path, env=env, suite="smoke"))
 
     expected_kubeconfig = tmp_path / ".tmp/kubeconfigs" / f"{env}.yaml"
-    cloud_command = next(command for command in commands if command[:3] == expected_command_prefix)
-    assert str(expected_kubeconfig) in cloud_command
+    assert sdk_calls[0][0] == env
+    assert sdk_calls[0][2]["kubeconfig_path"] == expected_kubeconfig
     assert Path(os.environ["KUBECONFIG"]) == expected_kubeconfig
     assert expected_kubeconfig.parent.is_dir()
 
@@ -240,22 +248,20 @@ def test_prepare_kube_context_updates_aws_context_when_existing_context_is_unusa
             "cluster_name": "limited-eks-openlakeforge-poc",
         }[name],
     )
+    sdk_calls: list[tuple[tuple, dict]] = []
+    monkeypatch.setattr(
+        "olf.tooling.aws.AwsSdk.eks_update_kubeconfig",
+        lambda _self, *args, **kwargs: sdk_calls.append((args, kwargs)),
+    )
 
     _runner.prepare_kube_context(e2e_cfg(tmp_path, env="aws", suite="smoke"))
 
-    assert [
-        "aws",
-        "eks",
-        "update-kubeconfig",
-        "--region",
-        "eu-west-1",
-        "--name",
-        "limited-eks-openlakeforge-poc",
-        "--kubeconfig",
-        str(kubeconfig),
-        "--alias",
-        "kind-openlakeforge-local",
-    ] in commands
+    assert sdk_calls == [
+        (
+            ("limited-eks-openlakeforge-poc",),
+            {"region": "eu-west-1", "kubeconfig_path": kubeconfig, "alias": "kind-openlakeforge-local"},
+        )
+    ]
 
 
 def test_terraform_output_json_reads_location_list(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

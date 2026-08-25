@@ -1,86 +1,74 @@
 from __future__ import annotations
 
-import json
+import stat
 from pathlib import Path
 
-from _tooling_support import RecordingRunner
-
-from olf.tooling.azure import AzureCli
-from olf.tooling.process import CommandResult
-from olf.tooling.resolver import PathExecutableResolver
+from olf.tooling.azure import AzureSdk
 
 
-def _azure(result: CommandResult | None = None) -> tuple[AzureCli, RecordingRunner]:
-    runner = RecordingRunner(result)
-    resolver = PathExecutableResolver(overrides={"az": Path("az")})
-    return AzureCli(runner, resolver), runner
+class _Credential:
+    def get_token(self, *_args):  # noqa: ANN001, ANN202
+        return type("Token", (), {"token": "arm-token"})()
 
 
-def test_aks_get_credentials_builds_exact_argv() -> None:
-    azure, runner = _azure()
-    kubeconfig = Path("/repo/.tmp/kubeconfigs/azure.yaml")
+class _Subscription:
+    subscription_id = "sub-id"
+    display_name = "OpenLakeForge"
+    tenant_id = "tenant-id"
+    state = "Enabled"
 
-    azure.aks_get_credentials(
-        "aks-openlakeforge-poc",
-        resource_group="openlakeforge-poc-rg",
-        kubeconfig_path=kubeconfig,
+
+def _subscriptions(_credential):  # noqa: ANN001, ANN202
+    return type(
+        "Client", (), {"subscriptions": type("Subscriptions", (), {"list": lambda *_args: [_Subscription()]})()}
+    )()
+
+
+def test_account_show_uses_subscription_sdk() -> None:
+    account = AzureSdk(_Credential(), subscription_client_factory=_subscriptions).account_show()
+
+    assert account == {"id": "sub-id", "name": "OpenLakeForge", "tenantId": "tenant-id", "state": "Enabled"}
+
+
+def test_account_set_keeps_selection_in_process() -> None:
+    azure = AzureSdk(_Credential(), subscription_client_factory=_subscriptions)
+
+    assert azure.account_set("sub-id").ok
+
+
+def test_aks_get_credentials_writes_returned_kubeconfig(tmp_path: Path) -> None:
+    result = type("Result", (), {"kubeconfigs": [type("Config", (), {"value": b"apiVersion: v1\n"})()]})()
+    aks = type(
+        "Aks",
+        (),
+        {"managed_clusters": type("Clusters", (), {"list_cluster_user_credentials": lambda *_args: result})()},
+    )()
+    azure = AzureSdk(_Credential(), subscription_id="sub-id", aks_client_factory=lambda *_args: aks)
+    path = tmp_path / "azure.yaml"
+
+    assert azure.aks_get_credentials("cluster", resource_group="group", kubeconfig_path=path).ok
+    assert path.read_text() == "apiVersion: v1\n"
+    assert path.stat().st_mode & (stat.S_IRWXG | stat.S_IRWXO) == 0
+
+
+def test_acr_login_exchanges_arm_token_for_docker_refresh_token() -> None:
+    response = type(
+        "Response", (), {"raise_for_status": lambda *_args: None, "json": lambda *_args: {"refresh_token": "acr-token"}}
+    )()
+    calls = []
+    azure = AzureSdk(_Credential(), post=lambda *args, **kwargs: calls.append((args, kwargs)) or response)
+
+    assert azure.acr_login("openlakeforgeacr") == "acr-token"
+    assert calls[0][0][0] == "https://openlakeforgeacr.azurecr.io/oauth2/exchange"
+
+
+def test_aks_show_maps_sdk_failures_to_not_ok_result() -> None:
+    clusters = type("Clusters", (), {"get": lambda *_args: (_ for _ in ()).throw(RuntimeError("not found"))})()
+    aks = type("Aks", (), {"managed_clusters": clusters})()
+
+    result = AzureSdk(_Credential(), subscription_id="sub-id", aks_client_factory=lambda *_args: aks).aks_show(
+        "cluster", resource_group="group"
     )
 
-    assert runner.last_call.argv == [
-        "az",
-        "aks",
-        "get-credentials",
-        "--resource-group",
-        "openlakeforge-poc-rg",
-        "--name",
-        "aks-openlakeforge-poc",
-        "--file",
-        str(kubeconfig),
-        "--overwrite-existing",
-    ]
-
-
-def test_account_show_parses_json() -> None:
-    payload = {"id": "sub-id", "name": "OpenLakeForge"}
-    azure, runner = _azure(
-        CommandResult(argv=(), returncode=0, stdout=json.dumps(payload), stderr="", duration_seconds=0.0)
-    )
-
-    account = azure.account_show()
-
-    assert account == payload
-    assert runner.last_call.argv == ["az", "account", "show", "--output", "json"]
-
-
-def test_acr_login_builds_expected_argv() -> None:
-    azure, runner = _azure()
-
-    azure.acr_login("openlakeforgeacr")
-
-    assert runner.last_call.argv == ["az", "acr", "login", "--name", "openlakeforgeacr"]
-
-
-def test_account_set_builds_expected_argv() -> None:
-    azure, runner = _azure()
-
-    azure.account_set("sub-id")
-
-    assert runner.last_call.argv == ["az", "account", "set", "--subscription", "sub-id"]
-
-
-def test_aks_show_builds_exact_argv_and_defaults_to_no_check() -> None:
-    azure, runner = _azure(CommandResult(argv=(), returncode=1, stdout="", stderr="not found", duration_seconds=0.0))
-
-    result = azure.aks_show("aks-openlakeforge-poc", resource_group="openlakeforge-poc-rg")
-
-    assert result.returncode == 1
-    assert runner.last_call.argv == [
-        "az",
-        "aks",
-        "show",
-        "--resource-group",
-        "openlakeforge-poc-rg",
-        "--name",
-        "aks-openlakeforge-poc",
-    ]
-    assert runner.last_call.kwargs["check"] is False
+    assert not result.ok
+    assert "not found" in result.stderr

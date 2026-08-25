@@ -187,7 +187,7 @@ def test_foundation_doctor_does_not_require_or_probe_later_phase_tools(
 
     provider.doctor(DeploymentPhase.FOUNDATION)
 
-    assert required == ["terraform", "kubectl", "aws"]
+    assert required == ["terraform", "kubectl"]
 
 
 def test_artifacts_doctor_requires_and_probes_docker(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -208,7 +208,7 @@ def test_artifacts_doctor_requires_and_probes_docker(tmp_path: Path, monkeypatch
 
     provider.doctor(DeploymentPhase.ARTIFACTS)
 
-    assert required == ["terraform", "kubectl", "aws", "docker"]
+    assert required == ["terraform", "kubectl", "docker"]
     assert health_calls == ["docker"]
 
 
@@ -243,7 +243,7 @@ def test_full_platform_doctor_requires_and_probes_docker(tmp_path: Path, monkeyp
 
     provider.doctor(DeploymentPhase.PLATFORM)
 
-    assert required == ["terraform", "kubectl", "aws", "helm", "docker"]
+    assert required == ["terraform", "kubectl", "helm", "docker"]
     assert health_calls == ["docker"]
 
 

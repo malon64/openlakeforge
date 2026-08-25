@@ -16,9 +16,10 @@ from olf.deployment.cloud.backend import FoundationFacts, output_raw_or_empty
 from olf.deployment.cloud.config import CloudDeploymentConfig
 from olf.deployment.engine import Toolkit
 from olf.deployment.env_settings import env as _env
-from olf.deployment.errors import CommandExecutionError, DeploymentPreconditionError, ExecutableNotFoundError
+from olf.deployment.errors import DeploymentPreconditionError
 from olf.deployment.floe_manifests import generate_local_manifests
 from olf.deployment.portforward import ForwardTarget
+from olf.tooling.azure import ACR_USERNAME
 
 _DEFAULT_CLUSTER_NAME = "aks-openlakeforge-poc"
 
@@ -29,9 +30,9 @@ class AzureBackend:
     def preflight(self, tools: Toolkit, *, env: Mapping[str, str]) -> None:
         try:
             tools.azure.account_show(env=env)
-        except (CommandExecutionError, ExecutableNotFoundError) as exc:
+        except Exception as exc:
             raise DeploymentPreconditionError(
-                f"Azure CLI is not logged in. Run 'az login' and select a subscription first: {exc}"
+                f"Azure is not authenticated. Run 'olf auth login --provider azure': {exc}"
             ) from exc
 
     def foundation_state_resource_addr(self) -> str:
@@ -45,14 +46,10 @@ class AzureBackend:
             "kubeconfig_path": str(config.paths.kubeconfig_path),
         }
 
-    def foundation_apply_variables(
-        self, config: CloudDeploymentConfig, environ: Mapping[str, str]
-    ) -> dict[str, str]:
+    def foundation_apply_variables(self, config: CloudDeploymentConfig, environ: Mapping[str, str]) -> dict[str, str]:
         return self._foundation_variables(config, environ)
 
-    def foundation_destroy_variables(
-        self, config: CloudDeploymentConfig, environ: Mapping[str, str]
-    ) -> dict[str, str]:
+    def foundation_destroy_variables(self, config: CloudDeploymentConfig, environ: Mapping[str, str]) -> dict[str, str]:
         return self._foundation_variables(config, environ)
 
     def foundation_tfvars_file(
@@ -143,7 +140,8 @@ class AzureBackend:
         """
         registry_host = repository.split("/", 1)[0]
         acr_name = registry_host.split(".", 1)[0] if registry_host else ""
-        tools.azure.acr_login(acr_name, env=env)
+        password = tools.azure.acr_login(acr_name, env=env)
+        tools.docker.login(registry_host, username=ACR_USERNAME, password=password, env=env)
 
     def platform_apply_variables(self, config: CloudDeploymentConfig, facts: FoundationFacts) -> dict[str, str]:
         from olf.deployment.cloud.images import resolve_effective_images

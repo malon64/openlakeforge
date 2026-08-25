@@ -142,23 +142,17 @@ The AWS environment implements the same OpenLakeForge data platform using AWS in
 
 The `poc` name reflects the sandbox environment used to validate the deployment. It does **not** represent a reduced OpenLakeForge stack.
 
-### 1. Authenticate the AWS CLI
-
-OpenLakeForge uses your existing AWS CLI authentication.
+### 1. Authenticate AWS
 
 For standard credentials:
 
 ```bash
-aws configure
+olf auth login --provider aws --start-url "https://example.awsapps.com/start" --sso-region eu-west-1
 ```
 
-Or authenticate through your organization's AWS SSO setup.
-
-Verify that authentication works:
-
-```bash
-aws sts get-caller-identity
-```
+OpenLakeForge opens the AWS-hosted IAM Identity Center page. It does not
+collect credentials or host an authentication page. Existing AWS SDK/CLI
+profiles can be adopted with `olf auth login --provider aws --profile NAME`.
 
 ### 2. Configure the deployment
 
@@ -190,23 +184,14 @@ The Azure environment runs the same platform on **AKS and ACR** while retaining 
 
 As with AWS, `poc` refers to the sandbox environment used for validation rather than a reduced platform implementation.
 
-### 1. Authenticate the Azure CLI
+### 1. Authenticate Azure
 
 ```bash
-az login
+olf auth login --provider azure
 ```
 
-Select the subscription in which OpenLakeForge should be deployed:
-
-```bash
-az account set --subscription "<subscription-id>"
-```
-
-Verify the active account:
-
-```bash
-az account show
-```
+The Azure SDK opens Microsoft Entra's hosted sign-in page and asks you to
+select a subscription. For a headless terminal, use `--device-code`.
 
 ### 2. Configure the deployment
 

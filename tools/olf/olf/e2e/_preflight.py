@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from olf import log
-from olf.e2e._shell import E2EConfig, E2EError, _run, aws_stack_region, load_provider_contracts_or_raise
+from olf.auth import aws_session
+from olf.e2e._shell import E2EConfig, E2EError, aws_stack_region, load_provider_contracts_or_raise
 
 
 def check_aws_provider_contracts(cfg: E2EConfig) -> None:
@@ -41,6 +42,11 @@ def check_aws_storage_and_glue(cfg: E2EConfig) -> None:
         | cfg.inventory.silver_namespace_names
         | cfg.inventory.gold_namespace_names
     )
-    _run(["aws", "s3api", "head-bucket", "--bucket", bucket], capture=True)
-    for database in sorted(expected_schemas):
-        _run(["aws", "glue", "get-database", "--region", region, "--name", database], capture=True)
+    try:
+        session = aws_session(__import__("os").environ, region=region)
+        session.client("s3").head_bucket(Bucket=bucket)
+        glue = session.client("glue", region_name=region)
+        for database in sorted(expected_schemas):
+            glue.get_database(Name=database)
+    except Exception as exc:
+        raise E2EError(f"AWS S3/Glue preflight failed: {exc}") from exc

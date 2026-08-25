@@ -1,30 +1,47 @@
-"""Thin AWS CLI adapter: no boto3 resource provisioning, no lifecycle sequencing."""
+"""AWS SDK adapter used by cloud deployment code.
+
+The deployment layer deliberately does not know whether credentials came from
+an IAM Identity Center browser session, an existing shared profile, or an
+automation identity.  This adapter has no dependency on the ``aws`` binary.
+"""
 
 from __future__ import annotations
 
-import json
+import base64
+import os
+import stat
+import tempfile
+import threading
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from olf.tooling.process import CommandResult, ProcessRunner
-from olf.tooling.resolver import ExecutableResolver
+from botocore.auth import SigV4QueryAuth
+from botocore.awsrequest import AWSRequest
+
+from olf.tooling.process import CommandResult
 
 
-class AwsCli:
-    def __init__(self, runner: ProcessRunner, resolver: ExecutableResolver) -> None:
-        self._runner = runner
-        self._resolver = resolver
+class AwsSdk:
+    """Small, injectable boto3 facade matching the former CLI adapter."""
 
-    def _executable(self) -> Path:
-        return self._resolver.resolve("aws")
+    def __init__(self, session: Any | None = None, *_: Any, **__: Any) -> None:
+        # Accept the former ``(runner, resolver)`` construction shape during
+        # the transition, but never use either object to invoke a cloud CLI.
+        self._session_override = session if session is None or hasattr(session, "client") else None
+        self._token_refreshes: dict[Path, threading.Event] = {}
 
-    def _run(self, args: list[str], *, env: Mapping[str, str] | None = None, check: bool = True) -> CommandResult:
-        return self._runner.run([str(self._executable()), *args], env=env, check=check)
+    def _session(self, env: Mapping[str, str] | None = None, *, region: str | None = None) -> Any:
+        if self._session_override is not None:
+            return self._session_override
+        # OLF-managed SSO is resolved lazily to keep normal boto3 profiles and
+        # workload identities completely conventional.
+        from olf.auth import aws_session
+
+        return aws_session(env or os.environ, region=region)
 
     def sts_get_caller_identity(self, *, env: Mapping[str, str] | None = None) -> Any:
-        result = self._run(["sts", "get-caller-identity", "--output", "json"], env=env)
-        return json.loads(result.stdout)
+        return self._session(env).client("sts").get_caller_identity()
 
     def eks_update_kubeconfig(
         self,
@@ -35,23 +52,89 @@ class AwsCli:
         alias: str | None = None,
         env: Mapping[str, str] | None = None,
     ) -> CommandResult:
-        args = [
-            "eks",
-            "update-kubeconfig",
-            "--region",
-            region,
-            "--name",
-            cluster_name,
-            "--kubeconfig",
-            str(kubeconfig_path),
-        ]
-        if alias is not None:
-            args += ["--alias", alias]
-        return self._run(args, env=env)
+        eks = self._session(env, region=region).client("eks", region_name=region)
+        cluster = eks.describe_cluster(name=cluster_name)["cluster"]
+        token = self._eks_token(cluster_name, region=region, env=env)
+        token_path = kubeconfig_path.with_suffix(f"{kubeconfig_path.suffix}.token")
+        _write_private(token_path, token + "\n")
+        self._refresh_eks_token(token_path, cluster_name=cluster_name, region=region, env=env)
+        kubeconfig = {
+            "apiVersion": "v1",
+            "kind": "Config",
+            "clusters": [
+                {
+                    "name": alias or cluster_name,
+                    "cluster": {
+                        "server": cluster["endpoint"],
+                        "certificate-authority-data": cluster["certificateAuthority"]["data"],
+                    },
+                }
+            ],
+            "contexts": [
+                {
+                    "name": alias or cluster_name,
+                    "context": {"cluster": alias or cluster_name, "user": alias or cluster_name},
+                }
+            ],
+            "current-context": alias or cluster_name,
+            # tokenFile is deliberately used instead of exec. Kubernetes
+            # clients periodically reread it, allowing OLF to refresh it.
+            "users": [{"name": alias or cluster_name, "user": {"tokenFile": str(token_path)}}],
+        }
+        import yaml
+
+        _write_private(kubeconfig_path, yaml.safe_dump(kubeconfig, sort_keys=False))
+        return CommandResult(argv=(), returncode=0, stdout="", stderr="", duration_seconds=0.0)
+
+    def _refresh_eks_token(
+        self,
+        token_path: Path,
+        *,
+        cluster_name: str,
+        region: str,
+        env: Mapping[str, str] | None,
+    ) -> None:
+        """Keep the token file fresh while this OLF process remains active.
+
+        EKS accepts the presigned STS token for up to fifteen minutes.  The
+        daemon refreshes it every ten minutes, so Terraform, Helm, kubectl and
+        port forwarding can reread the same tokenFile without an exec plugin.
+        """
+        if token_path in self._token_refreshes:
+            return
+        stop = threading.Event()
+        self._token_refreshes[token_path] = stop
+        environment = dict(env or os.environ)
+
+        def refresh() -> None:
+            while not stop.wait(600):
+                try:
+                    _write_private(token_path, self._eks_token(cluster_name, region=region, env=environment) + "\n")
+                except Exception:
+                    # The foreground operation reports any failed cloud call.
+                    # Do not risk leaking an SDK response from a background
+                    # thread, which can include sensitive headers.
+                    return
+
+        threading.Thread(target=refresh, name="olf-eks-token-refresh", daemon=True).start()
+
+    def _eks_token(self, cluster_name: str, *, region: str, env: Mapping[str, str] | None = None) -> str:
+        session = self._session(env, region=region)
+        credentials = session.get_credentials().get_frozen_credentials()
+        request = AWSRequest(
+            method="GET",
+            url=f"https://sts.{region}.amazonaws.com/?Action=GetCallerIdentity&Version=2011-06-15",
+            headers={"x-k8s-aws-id": cluster_name},
+        )
+        SigV4QueryAuth(credentials, "sts", region, expires=60).add_auth(request)
+        encoded = base64.urlsafe_b64encode(request.url.encode()).decode().rstrip("=")
+        return f"k8s-aws-v1.{encoded}"
 
     def ecr_get_login_password(self, *, region: str, env: Mapping[str, str] | None = None) -> str:
-        result = self._run(["ecr", "get-login-password", "--region", region], env=env)
-        return result.stdout.strip()
+        response = self._session(env, region=region).client("ecr", region_name=region).get_authorization_token()
+        token = response["authorizationData"][0]["authorizationToken"]
+        decoded = base64.b64decode(token).decode()
+        return decoded.partition(":")[2]
 
     def eks_describe_cluster(
         self,
@@ -61,8 +144,28 @@ class AwsCli:
         env: Mapping[str, str] | None = None,
         check: bool = False,
     ) -> CommandResult:
-        return self._run(
-            ["eks", "describe-cluster", "--region", region, "--name", cluster_name],
-            env=env,
-            check=check,
-        )
+        try:
+            self._session(env, region=region).client("eks", region_name=region).describe_cluster(name=cluster_name)
+        except Exception as exc:  # SDK errors have no meaningful process exit code.
+            if check:
+                raise
+            return CommandResult(argv=(), returncode=1, stdout="", stderr=str(exc), duration_seconds=0.0)
+        return CommandResult(argv=(), returncode=0, stdout="", stderr="", duration_seconds=0.0)
+
+
+def _write_private(path: Path, contents: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, raw_path = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(contents)
+        os.chmod(raw_path, stat.S_IRUSR | stat.S_IWUSR)
+        Path(raw_path).replace(path)
+        os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
+    except Exception:
+        Path(raw_path).unlink(missing_ok=True)
+        raise
+
+
+# Compatibility name for downstream users importing the original adapter.
+AwsCli = AwsSdk
