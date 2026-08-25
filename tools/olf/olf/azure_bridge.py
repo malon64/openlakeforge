@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from datetime import UTC, datetime
 from typing import Any
@@ -20,7 +21,7 @@ def _subscriptions() -> tuple[Any, list[Any]]:
     state = load_state("azure")
     if not state or state.get("source") != "olf-browser":
         raise AuthenticationError("OLF-managed Azure browser authentication is required.")
-    credential = azure_credential(__import__("os").environ)
+    credential = azure_credential(os.environ)
     return state, list(SubscriptionClient(credential).subscriptions.list())
 
 
@@ -54,7 +55,7 @@ def main() -> None:
         if len(args) >= 2 and args[:2] == ["account", "get-access-token"]:
             scope = _option(args, "--scope") or "https://management.azure.com/.default"
             tenant = _option(args, "--tenant") or state.get("tenant_id", "")
-            token = azure_credential(__import__("os").environ).get_token(scope)
+            token = azure_credential(os.environ).get_token(scope)
             _emit(
                 {
                     "accessToken": token.token,

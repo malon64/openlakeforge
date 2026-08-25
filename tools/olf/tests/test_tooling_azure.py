@@ -18,9 +18,28 @@ class _Subscription:
     state = "Enabled"
 
 
+class _OtherSubscription:
+    subscription_id = "other-sub-id"
+    display_name = "Other"
+    tenant_id = "other-tenant-id"
+    state = "Enabled"
+
+
 def _subscriptions(_credential):  # noqa: ANN001, ANN202
     return type(
         "Client", (), {"subscriptions": type("Subscriptions", (), {"list": lambda *_args: [_Subscription()]})()}
+    )()
+
+
+def _multiple_subscriptions(_credential):  # noqa: ANN001, ANN202
+    return type(
+        "Client",
+        (),
+        {
+            "subscriptions": type(
+                "Subscriptions", (), {"list": lambda *_args: [_Subscription(), _OtherSubscription()]}
+            )()
+        },
     )()
 
 
@@ -77,3 +96,19 @@ def test_aks_show_maps_sdk_failures_to_not_ok_result() -> None:
 
     assert not result.ok
     assert "not found" in result.stderr
+
+
+def test_account_show_falls_back_to_the_saved_olf_login_subscription(monkeypatch) -> None:  # noqa: ANN001
+    """`doctor()` builds its preflight environment without Terraform's
+    `ARM_SUBSCRIPTION_ID` overlay (see `olf.deployment.cloud.provider.doctor`),
+    so an identity with several subscriptions and only saved OLF state must
+    still resolve to the one the user selected during `olf auth login`
+    instead of raising "subscription is not selected".
+    """
+    import olf.auth as auth
+
+    monkeypatch.setattr(auth, "selected_azure_subscription", lambda _environ: "other-sub-id")
+
+    account = AzureSdk(_Credential(), subscription_client_factory=_multiple_subscriptions).account_show()
+
+    assert account["id"] == "other-sub-id"

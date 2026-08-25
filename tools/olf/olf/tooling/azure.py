@@ -45,18 +45,30 @@ class AzureSdk:
         return azure_credential(env or os.environ)
 
     def _subscription(self, env: Mapping[str, str] | None = None) -> str:
-        selected = self._subscription_id or (env or {}).get("ARM_SUBSCRIPTION_ID")
+        selected = self._subscription_id or (env or {}).get("ARM_SUBSCRIPTION_ID") or self._saved_subscription(env)
         if selected:
             return selected
         account = self.account_show(env=env)
         return str(account["id"])
+
+    def _saved_subscription(self, env: Mapping[str, str] | None) -> str | None:
+        """Fall back to the subscription `olf auth login` saved.
+
+        `doctor()` builds its preflight environment without Terraform's
+        `ARM_SUBSCRIPTION_ID` overlay, so a caller with only saved OLF state
+        and no explicit selection still needs to resolve the right
+        subscription among several.
+        """
+        from olf.auth import selected_azure_subscription
+
+        return selected_azure_subscription(env or os.environ)
 
     def account_show(self, *, env: Mapping[str, str] | None = None) -> Any:
         from azure.mgmt.resource.subscriptions import SubscriptionClient
 
         factory = self._subscription_client_factory or SubscriptionClient
         subscriptions = list(factory(self._credential(env)).subscriptions.list())
-        desired = self._subscription_id or (env or {}).get("ARM_SUBSCRIPTION_ID")
+        desired = self._subscription_id or (env or {}).get("ARM_SUBSCRIPTION_ID") or self._saved_subscription(env)
         selected = next((item for item in subscriptions if item.subscription_id == desired), None)
         if selected is None:
             if len(subscriptions) != 1:

@@ -145,6 +145,25 @@ def test_terraform_auth_environment_keeps_automation_ahead_of_saved_state(
     assert auth.terraform_auth_environment("aws", {"OLF_HOME": str(tmp_path), "AWS_ACCESS_KEY_ID": "automation"}) == {}
 
 
+def test_aws_session_does_not_force_a_profile_when_automation_credentials_are_present(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An explicit `profile_name` disables botocore's environment-credential
+    provider, so passing the ambient `AWS_PROFILE` through would make CI/
+    workload-identity keys silently unreachable - Terraform (which never
+    sees a profile override for automation, see the test above) and the SDK
+    adapters would then authenticate as two different identities.
+    """
+    calls: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        auth.boto3, "Session", lambda **kwargs: calls.append(kwargs) or object()
+    )
+
+    auth.aws_session({"AWS_ACCESS_KEY_ID": "automation", "AWS_PROFILE": "company-sso"}, region="eu-west-1")
+
+    assert calls == [{"region_name": "eu-west-1"}]
+
+
 def test_credential_selection_environment_excludes_unrelated_values() -> None:
     assert auth.credential_selection_environment(
         "aws",
@@ -265,3 +284,74 @@ def test_azure_device_code_login_allows_headless_sdk_cache(monkeypatch: pytest.M
     auth.login_azure(device_code=True)
 
     assert options == [{"name": "openlakeforge-auth", "allow_unencrypted_storage": True}]
+
+
+def test_aws_process_credentials_carries_the_real_sso_expiration(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The SSO API's `get_role_credentials` returns its own `expiration`
+    (epoch milliseconds) - a permission set's session duration can be
+    shorter than any TTL this module might guess, and botocore rejects
+    `credential_process` output whose reported `Expiration` has already
+    passed.
+    """
+    env = {"OLF_HOME": str(tmp_path)}
+    auth.save_state(
+        "aws",
+        {
+            "source": "olf-sso",
+            "sso_region": "eu-west-1",
+            "account_id": "123",
+            "role_name": "Administrator",
+            "access_token": "access",
+            "access_expires_at": auth._expires_at(3600),
+        },
+        env,
+    )
+    sso = type(
+        "Sso",
+        (),
+        {
+            "get_role_credentials": lambda *_args, **_kwargs: {
+                "roleCredentials": {
+                    "accessKeyId": "AKIA",
+                    "secretAccessKey": "secret",
+                    "sessionToken": "token",
+                    "expiration": 1_700_000_000_000,
+                }
+            }
+        },
+    )()
+    monkeypatch.setattr(auth.boto3, "client", lambda _service, **_kwargs: sso)
+
+    credentials = auth.aws_process_credentials(env)
+
+    assert credentials["AccessKeyId"] == "AKIA"
+    assert credentials["Expiration"] == "2023-11-14T22:13:20+00:00"
+
+
+def test_aws_process_credentials_falls_back_to_a_short_ttl_without_sso_state(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """No exposed expiry exists for a profile/automation-sourced session, so a
+    short TTL is used instead of guessing a long one: wrong-short just makes
+    Terraform re-invoke sooner, but wrong-long risks botocore trusting a
+    stale `Expiration` for its full duration.
+    """
+    env = {"OLF_HOME": str(tmp_path)}
+    credentials_obj = type(
+        "Credentials",
+        (),
+        {
+            "get_frozen_credentials": lambda self: type(
+                "Frozen", (), {"access_key": "AKIA", "secret_key": "secret", "token": "token"}
+            )()
+        },
+    )()
+    session = type("Session", (), {"get_credentials": lambda self: credentials_obj})()
+    monkeypatch.setattr(auth, "aws_session", lambda *_args, **_kwargs: session)
+
+    credentials = auth.aws_process_credentials(env)
+
+    assert credentials["AccessKeyId"] == "AKIA"
+    assert credentials["Expiration"] > auth._expires_at(0)

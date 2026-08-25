@@ -38,6 +38,10 @@ profile without copying its cache, run
 `olf auth login --provider aws --profile my-profile`. Export `AWS_PROFILE` if
 needed.
 
+If your network intercepts TLS (corporate proxy such as Zscaler), point boto3
+at your CA bundle: `export AWS_CA_BUNDLE=/path/to/ca-bundle.pem`. botocore
+reads this the same way the AWS CLI did.
+
 ### 2. Provide your configuration (tfvars)
 
 Copy the tracked templates to local `sandbox.tfvars` files and edit them. These
@@ -110,6 +114,9 @@ Azure Identity opens Microsoft Entra's hosted sign-in page, then prompts for a
 subscription. On a headless machine use `olf auth login --provider azure
 --device-code`. An existing `az login` session is reused when `az` is present,
 but the CLI is optional.
+
+If your network intercepts TLS, point Azure's SDK (its `requests` transport)
+at your CA bundle: `export REQUESTS_CA_BUNDLE=/path/to/ca-bundle.pem`.
 
 ### 2. Configure the resource group
 

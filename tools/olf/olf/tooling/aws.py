@@ -121,9 +121,13 @@ class AwsSdk:
     def _eks_token(self, cluster_name: str, *, region: str, env: Mapping[str, str] | None = None) -> str:
         session = self._session(env, region=region)
         credentials = session.get_credentials().get_frozen_credentials()
+        # Resolve the STS endpoint through the session rather than assuming
+        # the commercial partition - GovCloud and China regions resolve to
+        # different hosts (and FIPS endpoints resolve differently again).
+        endpoint = session.client("sts", region_name=region).meta.endpoint_url
         request = AWSRequest(
             method="GET",
-            url=f"https://sts.{region}.amazonaws.com/?Action=GetCallerIdentity&Version=2011-06-15",
+            url=f"{endpoint}/?Action=GetCallerIdentity&Version=2011-06-15",
             headers={"x-k8s-aws-id": cluster_name},
         )
         SigV4QueryAuth(credentials, "sts", region, expires=60).add_auth(request)

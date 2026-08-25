@@ -257,7 +257,10 @@ def _choose(items: list[Mapping[str, Any]], key: str, choose: Any | None, label:
 def aws_session(environ: Mapping[str, str], *, region: str | None = None) -> Any:
     """Return a boto3 session sourced from OLF state or normal SDK discovery."""
     if _uses_aws_automation(environ):
-        return boto3.Session(profile_name=environ.get("AWS_PROFILE"), region_name=region)
+        # An explicit AWS_PROFILE disables botocore's environment-credential
+        # provider, so injected automation keys/web-identity tokens would be
+        # silently ignored. Let botocore's own chain apply normal precedence.
+        return boto3.Session(region_name=region)
     state = load_state("aws", environ)
     if state is None:
         return boto3.Session(profile_name=environ.get("AWS_PROFILE"), region_name=region)
@@ -276,6 +279,45 @@ def aws_session(environ: Mapping[str, str], *, region: str | None = None) -> Any
         aws_session_token=credentials["sessionToken"],
         region_name=region,
     )
+
+
+def aws_process_credentials(environ: Mapping[str, str]) -> dict[str, Any]:
+    """Return AWS `credential_process`-protocol JSON with a real expiry.
+
+    For `olf-sso` state this calls `get_role_credentials` directly instead of
+    going through `aws_session`, so the SSO API's own `expiration` (epoch
+    milliseconds) reaches Terraform - that session's permission-set duration
+    can be shorter than a guessed TTL, and botocore rejects credentials whose
+    reported expiry has already passed. Every other source has no exposed
+    expiry, so a short, conservative TTL is used instead: it is safe to be
+    wrong short (Terraform just re-invokes sooner) but unsafe to be wrong long
+    (botocore trusts a stale `Expiration` for its full stated duration).
+    """
+    state = load_state("aws", environ)
+    if state is not None and state.get("source") == "olf-sso":
+        state = _refresh_aws_access_token(dict(state), environ)
+        sso = _sso_client("sso", region=str(state["sso_region"]))
+        credentials = sso.get_role_credentials(
+            roleName=str(state["role_name"]),
+            accountId=str(state["account_id"]),
+            accessToken=str(state["access_token"]),
+        )["roleCredentials"]
+        return {
+            "Version": 1,
+            "AccessKeyId": credentials["accessKeyId"],
+            "SecretAccessKey": credentials["secretAccessKey"],
+            "SessionToken": credentials["sessionToken"],
+            "Expiration": datetime.fromtimestamp(credentials["expiration"] / 1000, UTC).isoformat(),
+        }
+    session = aws_session(environ)
+    frozen = session.get_credentials().get_frozen_credentials()
+    return {
+        "Version": 1,
+        "AccessKeyId": frozen.access_key,
+        "SecretAccessKey": frozen.secret_key,
+        "SessionToken": frozen.token,
+        "Expiration": _expires_at(300),
+    }
 
 
 def _refresh_aws_access_token(state: dict[str, Any], environ: Mapping[str, str]) -> dict[str, Any]:
@@ -387,6 +429,23 @@ def azure_credential(environ: Mapping[str, str]) -> Any:
             disable_automatic_authentication=True,
         )
     raise AuthenticationError("unknown Azure authentication source; run 'olf auth login --provider azure'.")
+
+
+def selected_azure_subscription(environ: Mapping[str, str]) -> str | None:
+    """Return the subscription saved by `olf auth login`, if any.
+
+    `doctor()` builds its preflight environment from
+    `credential_selection_environment` alone (no `terraform_auth_environment`
+    overlay), so `ARM_SUBSCRIPTION_ID` is not guaranteed to be set even though
+    a saved OLF session exists. Adapters consult this as their last fallback
+    so authentication succeeds identically whether or not Terraform's overlay
+    ran first.
+    """
+    state = load_state("azure", environ)
+    if state is None:
+        return None
+    subscription_id = state.get("subscription_id")
+    return str(subscription_id) if subscription_id else None
 
 
 def terraform_auth_environment(provider: str, environ: Mapping[str, str]) -> dict[str, str]:

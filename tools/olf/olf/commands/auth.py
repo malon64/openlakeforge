@@ -6,14 +6,12 @@ import json
 import os
 import shutil
 from datetime import UTC, datetime
-from typing import Any
 
 import typer
 
 from olf.auth import (
     AuthenticationError,
     adopt_azure_cli,
-    aws_session,
     azure_credential,
     clear_state,
     load_state,
@@ -135,27 +133,3 @@ def logout(provider: str = typer.Option(..., "--provider", help="aws or azure.")
         raise typer.Exit(code=fail("--provider must be 'aws' or 'azure'."))
     clear_state(provider)
     typer.echo(f"Removed OLF-managed {provider} authentication state.")
-
-
-@app.command(hidden=True)
-def credentials(provider: str = typer.Option(..., "--provider")) -> None:
-    """Emit short-lived credentials for Terraform's generated credential_process."""
-    if provider != "aws":
-        raise typer.Exit(code=fail("credential_process is only available for AWS."))
-    try:
-        credentials = aws_session(os.environ).get_credentials()
-        frozen = credentials.get_frozen_credentials()
-        expiry = getattr(credentials, "_expiry_time", None)
-        payload: dict[str, Any] = {
-            "Version": 1,
-            "AccessKeyId": frozen.access_key,
-            "SecretAccessKey": frozen.secret_key,
-            "SessionToken": frozen.token,
-        }
-        if expiry is not None:
-            payload["Expiration"] = expiry.astimezone(UTC).isoformat().replace("+00:00", "Z")
-        else:
-            payload["Expiration"] = (datetime.now(UTC).replace(microsecond=0)).isoformat().replace("+00:00", "Z")
-        typer.echo(json.dumps(payload))
-    except AuthenticationError as exc:
-        raise typer.Exit(code=fail(str(exc))) from exc

@@ -9,6 +9,7 @@ command environment, or `KUBE_CONTEXT` gets baked in empty.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -23,6 +24,7 @@ from olf.deployment.cloud.provider import CloudProvider
 from olf.deployment.context import DeploymentContext
 from olf.deployment.engine import DeploymentPhase, Toolkit
 from olf.deployment.errors import DeploymentPreconditionError
+from olf.tooling.azure import AzureSdk
 
 _FACTS = FoundationFacts(
     cluster_name="eks-openlakeforge-poc",
@@ -106,6 +108,38 @@ def test_doctor_uses_the_selected_authentication_environment(tmp_path: Path) -> 
 
     assert seen["OLF_HOME"] == "/custom/olf"
     assert seen["AWS_PROFILE"] == "company-sso"
+
+
+def test_doctor_reports_azure_authenticated_after_login_with_multiple_subscriptions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`doctor()` builds its preflight environment from
+    `credential_selection_environment` alone - no `ARM_SUBSCRIPTION_ID`
+    overlay from Terraform's authentication environment. An identity with
+    several subscriptions and only saved `olf auth login` state must still
+    report authenticated instead of "Azure subscription is not selected".
+    """
+    context = DeploymentContext.azure(repo_root=tmp_path)
+    config = CloudDeploymentConfig.from_environment({}, context=context)
+    backend = AzureBackend()
+    subscriptions = [
+        SimpleNamespace(subscription_id="sub-id", display_name="One", tenant_id="tenant", state="Enabled"),
+        SimpleNamespace(subscription_id="other-sub-id", display_name="Two", tenant_id="tenant", state="Enabled"),
+    ]
+    azure_sdk = AzureSdk(
+        credential=SimpleNamespace(get_token=lambda *_args: SimpleNamespace(token="arm-token")),
+        subscription_client_factory=lambda _credential: SimpleNamespace(
+            subscriptions=SimpleNamespace(list=lambda: subscriptions)
+        ),
+    )
+    toolkit = replace(_toolkit(), azure=azure_sdk)
+    provider = CloudProvider.create(config, backend, toolkit=toolkit, environ={"OLF_HOME": str(tmp_path)})
+    monkeypatch.setattr("olf.auth.selected_azure_subscription", lambda _environ: "other-sub-id")
+
+    report = provider.doctor(DeploymentPhase.FOUNDATION)
+
+    auth_item = next(item for item in report.items if item.name == "azure authentication")
+    assert auth_item.ok is True
 
 
 def test_env_is_cached_and_facts_are_resolved_only_once(

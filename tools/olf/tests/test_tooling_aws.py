@@ -78,3 +78,21 @@ def test_eks_describe_cluster_maps_sdk_failures_to_not_ok_result() -> None:
 
     assert not result.ok
     assert "not found" in result.stderr
+
+
+def test_eks_token_presigns_against_the_sessions_resolved_sts_endpoint() -> None:
+    """GovCloud/China regions resolve to a different STS host than the
+    commercial partition; the presigned URL must follow the session's own
+    endpoint resolution rather than assuming `sts.<region>.amazonaws.com`.
+    """
+    meta = type("Meta", (), {"endpoint_url": "https://sts.cn-north-1.amazonaws.com.cn"})()
+    sts_client = type("Sts", (), {"meta": meta})()
+
+    aws = AwsSdk(_Session({"sts": sts_client}))
+    token = aws._eks_token("cluster", region="cn-north-1")  # noqa: SLF001 - exercising the presign directly.
+
+    assert token.startswith("k8s-aws-v1.")
+    encoded = token.removeprefix("k8s-aws-v1.")
+    padded = encoded + "=" * (-len(encoded) % 4)
+    url = base64.urlsafe_b64decode(padded).decode()
+    assert url.startswith("https://sts.cn-north-1.amazonaws.com.cn/")
