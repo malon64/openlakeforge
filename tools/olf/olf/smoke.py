@@ -47,7 +47,7 @@ def run(
         with _deadline(timeout_seconds):
             with patch.dict(os.environ, env, clear=False):
                 log.step("Deploying slim local platform...")
-                provider = build_provider(context, toolkit=Toolkit.default(environ=env), environ=env)
+                provider = build_provider(context, toolkit=Toolkit.default(), environ=env)
                 DeploymentEngine(provider).deploy(DeploymentPhase.ALL)
                 _require_remaining(
                     started, timeout_seconds, monotonic, "validating one product pipeline and Gold table"
