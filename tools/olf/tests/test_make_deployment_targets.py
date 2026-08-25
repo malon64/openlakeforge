@@ -111,3 +111,67 @@ def test_local_slim_e2e_preserves_the_requested_complete_suite() -> None:
     expanded = _dry_run("local-slim-e2e", "E2E_SUITE=full")
 
     assert "olf e2e run --env local --suite full" in expanded
+
+
+def test_local_terraform_targets_forward_custom_var_file() -> None:
+    expected_path = "/tmp/open lakeforge/custom.tfvars"
+    terraform_targets = (
+        "local-platform-up",
+        "local-up",
+        "local-slim-platform-up",
+        "local-slim-up",
+        "local-slim-down",
+        "local-down",
+        "local-platform-down",
+    )
+
+    for target in terraform_targets:
+        expanded = _dry_run(target, f"LOCAL_TFVARS_FILE={expected_path}")
+        assert f'--var-file "{expected_path}"' in expanded, f"{target}: {expanded}"
+
+
+def test_e2e_delegates_forward_deployment_scope() -> None:
+    expected_contract_dirs = {
+        "local": "infra/terraform/environments/local",
+        "azure": "infra/terraform/environments/azure-poc",
+        "aws": "infra/terraform/environments/aws-poc",
+    }
+    scopes = {
+        "local": (
+            "NAMESPACE=custom-namespace",
+            "CLUSTER_NAME=custom-kind",
+            "KUBE_CONTEXT=custom-context",
+            "LOCAL_KUBECONFIG_PATH=/tmp/custom local.yaml",
+        ),
+        "azure": (
+            "NAMESPACE=custom-namespace",
+            "AZURE_CLUSTER_NAME=custom-aks",
+            "AZURE_KUBECONFIG_PATH=/tmp/custom azure.yaml",
+        ),
+        "aws": (
+            "NAMESPACE=custom-namespace",
+            "AWS_REGION=eu-west-3",
+            "AWS_CLUSTER_NAME=custom-eks",
+            "AWS_KUBECONFIG_PATH=/tmp/custom aws.yaml",
+        ),
+    }
+
+    for provider, variables in scopes.items():
+        expanded = _dry_run(f"{provider}-e2e", *variables)
+        assert 'NAMESPACE="custom-namespace"' in expanded
+        assert f"OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR={expected_contract_dirs[provider]}" in expanded
+
+    for target in ("local-e2e", "local-slim-e2e"):
+        local = _dry_run(target, *scopes["local"])
+        assert 'CLUSTER_NAME="custom-kind"' in local
+        assert 'KUBE_CONTEXT="custom-context"' in local
+        assert 'KUBECONFIG="/tmp/custom local.yaml"' in local
+
+    azure = _dry_run("azure-e2e", *scopes["azure"])
+    assert 'AZURE_CLUSTER_NAME="custom-aks"' in azure
+    assert 'KUBECONFIG="/tmp/custom azure.yaml"' in azure
+
+    aws = _dry_run("aws-e2e", *scopes["aws"])
+    assert 'AWS_REGION="eu-west-3"' in aws
+    assert 'AWS_CLUSTER_NAME="custom-eks"' in aws
+    assert 'KUBECONFIG="/tmp/custom aws.yaml"' in aws
