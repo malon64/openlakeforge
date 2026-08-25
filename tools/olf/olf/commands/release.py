@@ -7,6 +7,7 @@ import json
 import os
 import re
 import shutil
+import tempfile
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -299,32 +300,32 @@ def _verify_clean_checkout(
     manifest: dict[str, object],
     tools: Toolkit,
 ) -> None:
-    checkout = (root / work_dir / "checkout").resolve()
-    if checkout.exists():
-        raise typer.Exit(code=fail(f"clean checkout path already exists: {checkout}; remove it or select --work-dir"))
-    checkout.parent.mkdir(parents=True, exist_ok=True)
-    git = str(tools.resolver.resolve("git"))
-    tools.runner.run(
-        [git, "clone", "--depth", "1", "--branch", tag, f"https://github.com/{repo_slug}.git", str(checkout)],
-        cwd=root,
-        stream_output=True,
-    )
-    cloned_sha = tools.runner.run([git, "rev-parse", "HEAD"], cwd=checkout).stdout.strip()
-    distribution = manifest.get("distribution", {})
-    manifest_sha = distribution.get("git_sha") if isinstance(distribution, dict) else None
-    if not isinstance(manifest_sha, str) or cloned_sha != manifest_sha:
-        raise typer.Exit(
-            code=fail(
-                f"tag {tag} points at {cloned_sha}, but component-manifest.json records git_sha={manifest_sha!r}"
-            )
-        )
-    uv = str(tools.resolver.resolve("uv"))
-    for check in ("structure", "components"):
+    work_root = (root / work_dir).resolve()
+    work_root.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="checkout-", dir=work_root) as temporary_checkout:
+        checkout = Path(temporary_checkout)
+        git = str(tools.resolver.resolve("git"))
         tools.runner.run(
-            [uv, "run", "--project", "tools/olf", "--locked", "olf", "check", check],
-            cwd=checkout,
+            [git, "clone", "--depth", "1", "--branch", tag, f"https://github.com/{repo_slug}.git", str(checkout)],
+            cwd=root,
             stream_output=True,
         )
+        cloned_sha = tools.runner.run([git, "rev-parse", "HEAD"], cwd=checkout).stdout.strip()
+        distribution = manifest.get("distribution", {})
+        manifest_sha = distribution.get("git_sha") if isinstance(distribution, dict) else None
+        if not isinstance(manifest_sha, str) or cloned_sha != manifest_sha:
+            raise typer.Exit(
+                code=fail(
+                    f"tag {tag} points at {cloned_sha}, but component-manifest.json records git_sha={manifest_sha!r}"
+                )
+            )
+        uv = str(tools.resolver.resolve("uv"))
+        for check in ("structure", "components"):
+            tools.runner.run(
+                [uv, "run", "--project", "tools/olf", "--locked", "olf", "check", check],
+                cwd=checkout,
+                stream_output=True,
+            )
 
 
 def _git_sha() -> str:

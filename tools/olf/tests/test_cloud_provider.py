@@ -181,3 +181,24 @@ def test_artifacts_doctor_requires_and_probes_docker(tmp_path: Path, monkeypatch
 
     assert required == ["terraform", "kubectl", "aws", "helm", "docker"]
     assert health_calls == ["docker"]
+
+
+def test_full_platform_doctor_requires_and_probes_docker(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    config = _config(tmp_path)
+    backend = FakeCloudBackend(scope="aws", facts=_FACTS)
+    provider = CloudProvider.create(config, backend, toolkit=_toolkit(), environ={})
+    required: list[str] = []
+    health_calls: list[str] = []
+    monkeypatch.setattr(
+        "olf.deployment.cloud.provider.base_report",
+        lambda **kwargs: required.extend(kwargs["required_tools"]) or [],
+    )
+    monkeypatch.setattr(
+        "olf.deployment.cloud.provider.docker_health",
+        lambda *args, **kwargs: health_calls.append("docker") or None,
+    )
+
+    provider.doctor(DeploymentPhase.PLATFORM)
+
+    assert required == ["terraform", "kubectl", "aws", "helm", "docker"]
+    assert health_calls == ["docker"]

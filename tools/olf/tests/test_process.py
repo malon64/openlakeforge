@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+from io import StringIO
 from pathlib import Path
 
 import pytest
@@ -109,6 +110,38 @@ def test_stream_output_timeout_raises_typed_error(tmp_path: Path) -> None:
 
     with pytest.raises(CommandTimeoutError):
         runner.run([str(script)], timeout_seconds=0.05, stream_output=True)
+
+
+def test_stream_output_kills_child_when_an_external_deadline_interrupts_wait(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class DeadlineExpired(Exception):
+        pass
+
+    class Process:
+        stdout = StringIO()
+        stderr = StringIO()
+        killed = False
+
+        def poll(self):  # noqa: ANN201
+            return None if not self.killed else -9
+
+        def wait(self, timeout=None):  # noqa: ANN001, ANN201
+            if not self.killed:
+                raise DeadlineExpired()
+            return -9
+
+        def kill(self) -> None:
+            self.killed = True
+
+    process = Process()
+    monkeypatch.setattr("olf.tooling.process.subprocess.Popen", lambda *args, **kwargs: process)
+    monkeypatch.setattr("olf.tooling.process.os.killpg", lambda *args: process.kill())
+
+    with pytest.raises(DeadlineExpired):
+        ProcessRunner().run(["long-running-command"], stream_output=True)
+
+    assert process.killed
 
 
 def test_cwd_is_observed_by_child(tmp_path: Path) -> None:

@@ -110,3 +110,28 @@ def test_bundle_environment_uses_catalog_pins_and_isolated_tags(monkeypatch: pyt
     assert settings.project_code_python_base_image == "python:3.12@sha256:project"
     assert settings.superset_image.endswith(":bundle")
     assert settings.superset_base_image == "superset:6@sha256:superset"
+
+
+def test_verify_clean_checkout_uses_a_fresh_temporary_directory_per_run(tmp_path: Path) -> None:
+    calls: list[tuple[list[str], Path | None]] = []
+
+    class Runner:
+        def run(self, argv, *, cwd=None, **kwargs):  # noqa: ANN001, ANN003
+            calls.append((argv, cwd))
+            stdout = "expected-sha\n" if argv[1:3] == ["rev-parse", "HEAD"] else ""
+            return type("Result", (), {"stdout": stdout})()
+
+    class Resolver:
+        def resolve(self, name: str) -> Path:
+            return Path(name)
+
+    tools = type("Tools", (), {"runner": Runner(), "resolver": Resolver()})()
+    manifest = {"distribution": {"git_sha": "expected-sha"}}
+
+    release._verify_clean_checkout(tmp_path, ".tmp/release-verify", "v0.1.0", "owner/repo", manifest, tools)
+    release._verify_clean_checkout(tmp_path, ".tmp/release-verify", "v0.1.0", "owner/repo", manifest, tools)
+
+    clone_paths = [Path(argv[-1]) for argv, _ in calls if argv[1] == "clone"]
+    assert len(clone_paths) == 2
+    assert clone_paths[0] != clone_paths[1]
+    assert all(not path.exists() for path in clone_paths)

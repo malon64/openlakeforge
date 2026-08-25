@@ -184,11 +184,14 @@ class CloudProvider:
         required = ["terraform", "kubectl", provider_cli]
         if phase in (DeploymentPhase.ALL, DeploymentPhase.PLATFORM, DeploymentPhase.ARTIFACTS):
             required.append("helm")
-        if phase in (DeploymentPhase.ALL, DeploymentPhase.ARTIFACTS):
+        needs_docker = phase in (DeploymentPhase.ALL, DeploymentPhase.ARTIFACTS) or (
+            phase == DeploymentPhase.PLATFORM and self.config.features.analytics_enabled
+        )
+        if needs_docker:
             required.append("docker")
         items = base_report(repo_root=self.config.paths.repo_root, tools=self.tools, required_tools=required)
         env = self.context.command_env()
-        if phase in (DeploymentPhase.ALL, DeploymentPhase.ARTIFACTS):
+        if needs_docker:
             items.append(docker_health(self.tools, env=env))
         try:
             self.backend.preflight(self.tools, env=env)
