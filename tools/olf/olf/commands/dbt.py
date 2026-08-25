@@ -50,7 +50,16 @@ def parse(
                 for command in ("deps", "parse"):
                     args = [dbt, command, "--project-dir", str(project)]
                     if command == "parse":
-                        args += ["--profiles-dir", str(project), "--target", provider]
+                        args += ["--profiles-dir", str(project), "--target", _target_for_provider(provider)]
                     tools.runner.run(args, cwd=root, stream_output=True)
     except DeploymentError as exc:
         raise typer.Exit(code=fail(str(exc))) from exc
+
+
+def _target_for_provider(provider: str) -> str:
+    """Return the runtime output declared by each provider-specific dbt profile."""
+    targets = {"local": "local_runtime", "aws": "aws_runtime", "azure": "local_runtime"}
+    try:
+        return targets[provider]
+    except KeyError as exc:
+        raise ValueError(f"unsupported dbt provider {provider!r}") from exc

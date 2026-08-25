@@ -150,7 +150,15 @@ def test_dbt_parse_hydrates_selected_provider_contracts(monkeypatch: pytest.Monk
         "cluster_name": "",
         "kubeconfig_path": "",
     }
-    assert commands[-1][-2:] == ["--target", "aws"]
+    assert commands[-1][-2:] == ["--target", "aws_runtime"]
+
+
+def test_dbt_parse_selects_outputs_declared_by_provider_profiles() -> None:
+    from olf.commands import dbt
+
+    assert dbt._target_for_provider("local") == "local_runtime"
+    assert dbt._target_for_provider("aws") == "aws_runtime"
+    assert dbt._target_for_provider("azure") == "local_runtime"
 
 
 def test_floe_generation_passes_the_selected_namespace_to_the_local_profile(
