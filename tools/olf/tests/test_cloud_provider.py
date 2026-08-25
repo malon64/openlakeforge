@@ -66,6 +66,30 @@ def test_env_resolves_kube_context_from_foundation_facts(
     assert resolved_env["KUBE_CONTEXT"] == _FACTS.kube_context
 
 
+def test_base_environment_preserves_automation_credentials_for_sdk_selection(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = _config(tmp_path)
+    backend = FakeCloudBackend(scope="aws", facts=_FACTS)
+    provider = CloudProvider.create(
+        config,
+        backend,
+        toolkit=_toolkit(),
+        environ={"AWS_WEB_IDENTITY_TOKEN_FILE": "/tmp/token", "AWS_ROLE_ARN": "arn:aws:iam::123:role/ci"},
+    )
+    monkeypatch.setattr(provider.tools.docker, "resolve_current_engine_endpoint", lambda **_kwargs: None)
+    seen: dict[str, str] = {}
+    monkeypatch.setattr(
+        "olf.auth.terraform_auth_environment",
+        lambda _provider, env: seen.update(env) or {},
+    )
+
+    _ = provider._base_env
+
+    assert seen["AWS_WEB_IDENTITY_TOKEN_FILE"] == "/tmp/token"
+    assert seen["AWS_ROLE_ARN"] == "arn:aws:iam::123:role/ci"
+
+
 def test_env_is_cached_and_facts_are_resolved_only_once(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

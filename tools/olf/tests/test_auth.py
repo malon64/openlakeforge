@@ -136,6 +136,37 @@ def test_auth_status_redacts_tokens_and_logout_only_removes_olf_state(
     assert auth.load_state("aws") is None
 
 
+def test_terraform_auth_environment_keeps_automation_ahead_of_saved_state(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("OLF_HOME", str(tmp_path))
+    auth.save_state("aws", {"source": "olf-sso", "access_token": "access"})
+
+    assert auth.terraform_auth_environment("aws", {"OLF_HOME": str(tmp_path), "AWS_ACCESS_KEY_ID": "automation"}) == {}
+
+
+def test_credential_selection_environment_excludes_unrelated_values() -> None:
+    assert auth.credential_selection_environment(
+        "aws",
+        {"AWS_WEB_IDENTITY_TOKEN_FILE": "/tmp/token", "AWS_ROLE_ARN": "arn:aws:iam::123:role/ci", "HOME": "/home"},
+    ) == {"AWS_WEB_IDENTITY_TOKEN_FILE": "/tmp/token", "AWS_ROLE_ARN": "arn:aws:iam::123:role/ci"}
+
+
+def test_terraform_auth_environment_propagates_adopted_provider_selections(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("OLF_HOME", str(tmp_path))
+    env = {"OLF_HOME": str(tmp_path)}
+    auth.save_state("aws", {"source": "profile", "profile": "company-sso"}, env)
+    auth.save_state("azure", {"source": "azure-cli", "subscription_id": "sub-id", "tenant_id": "tenant-id"}, env)
+
+    assert auth.terraform_auth_environment("aws", env) == {"AWS_PROFILE": "company-sso"}
+    assert auth.terraform_auth_environment("azure", env) == {
+        "ARM_SUBSCRIPTION_ID": "sub-id",
+        "ARM_TENANT_ID": "tenant-id",
+    }
+
+
 def test_azure_terraform_bridge_supports_only_azurerm_command_contract(monkeypatch: pytest.MonkeyPatch, capsys) -> None:
     subscription = type(
         "Subscription",

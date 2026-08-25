@@ -69,9 +69,16 @@ class CloudProvider:
         # Terraform receives SDK-mediated credentials only for OLF-managed
         # browser sessions. Ambient SDK/CI credentials retain their normal
         # provider-native behavior.
-        from olf.auth import terraform_auth_environment
+        from olf.auth import credential_selection_environment, terraform_auth_environment
 
-        return {**base, **terraform_auth_environment(self.backend.scope, {**self._environ, **base})}
+        command_environment = {
+            **base,
+            **credential_selection_environment(self.backend.scope, self._environ),
+        }
+        return {
+            **command_environment,
+            **terraform_auth_environment(self.backend.scope, command_environment),
+        }
 
     @cached_property
     def _foundation_facts(self) -> FoundationFacts:

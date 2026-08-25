@@ -19,6 +19,8 @@ from pathlib import Path
 from typing import Any
 
 import boto3
+from botocore import UNSIGNED
+from botocore.config import Config
 
 from olf.deployment.errors import DeploymentPreconditionError
 
@@ -41,6 +43,36 @@ _AZURE_AUTOMATION_VARIABLES = {
 
 class AuthenticationError(DeploymentPreconditionError):
     """Authentication is absent, expired, or cannot be refreshed."""
+
+
+def _uses_aws_automation(environ: Mapping[str, str]) -> bool:
+    return any(environ.get(name) for name in _AWS_AUTOMATION_VARIABLES)
+
+
+def _uses_azure_automation(environ: Mapping[str, str]) -> bool:
+    return any(environ.get(name) for name in _AZURE_AUTOMATION_VARIABLES)
+
+
+def credential_selection_environment(provider: str, environ: Mapping[str, str]) -> dict[str, str]:
+    """Return only cloud credential-selection variables for a child command.
+
+    Deployment commands inherit the process environment, but SDK adapters use
+    their explicit environment mapping to choose a credential source. Keeping
+    this narrow avoids putting unrelated user environment values in diagnostic
+    output while preserving automation precedence.
+    """
+    prefixes = ("AWS_",) if provider == "aws" else ("ARM_", "AZURE_", "IDENTITY_", "MSI_")
+    return {name: value for name, value in environ.items() if name.startswith(prefixes)}
+
+
+def _sso_client(service: str, *, region: str) -> Any:
+    """Create an IAM Identity Center client without resolving AWS profiles.
+
+    Both SSO APIs use the bearer token supplied in their request, not SigV4.
+    Marking them unsigned also prevents a Terraform credential_process from
+    recursively invoking itself when AWS_PROFILE points at that process.
+    """
+    return boto3.client(service, region_name=region, config=Config(signature_version=UNSIGNED))
 
 
 def auth_home(environ: Mapping[str, str] | None = None) -> Path:
@@ -151,7 +183,7 @@ def login_aws(
             "AWS IAM Identity Center requires --start-url and --sso-region the first time, "
             "or use --profile to adopt an existing AWS profile."
         )
-    oidc = boto3.client("sso-oidc", region_name=sso_region)
+    oidc = _sso_client("sso-oidc", region=sso_region)
     registration = oidc.register_client(clientName="openlakeforge", clientType="public", scopes=_AWS_SCOPE)
     device = oidc.start_device_authorization(
         clientId=registration["clientId"], clientSecret=registration["clientSecret"], startUrl=start_url
@@ -182,7 +214,7 @@ def login_aws(
         except oidc.exceptions.AccessDeniedException as exc:
             raise AuthenticationError("AWS device authorization was denied.") from exc
 
-    sso = boto3.client("sso", region_name=sso_region)
+    sso = _sso_client("sso", region=sso_region)
     accounts = list(sso.get_paginator("list_accounts").paginate(accessToken=token["accessToken"]))
     flattened_accounts = [account for page in accounts for account in page["accountList"]]
     selected_account = account_id or _choose(flattened_accounts, "accountId", choose, "AWS account")
@@ -221,7 +253,7 @@ def _choose(items: list[Mapping[str, Any]], key: str, choose: Any | None, label:
 
 def aws_session(environ: Mapping[str, str], *, region: str | None = None) -> Any:
     """Return a boto3 session sourced from OLF state or normal SDK discovery."""
-    if any(environ.get(name) for name in _AWS_AUTOMATION_VARIABLES):
+    if _uses_aws_automation(environ):
         return boto3.Session(profile_name=environ.get("AWS_PROFILE"), region_name=region)
     state = load_state("aws", environ)
     if state is None:
@@ -231,7 +263,7 @@ def aws_session(environ: Mapping[str, str], *, region: str | None = None) -> Any
     if state.get("source") != "olf-sso":
         raise AuthenticationError("unknown AWS authentication source; run 'olf auth login --provider aws'.")
     state = _refresh_aws_access_token(state, environ)
-    sso = boto3.client("sso", region_name=str(state["sso_region"]))
+    sso = _sso_client("sso", region=str(state["sso_region"]))
     credentials = sso.get_role_credentials(
         roleName=str(state["role_name"]), accountId=str(state["account_id"]), accessToken=str(state["access_token"])
     )["roleCredentials"]
@@ -249,7 +281,7 @@ def _refresh_aws_access_token(state: dict[str, Any], environ: Mapping[str, str])
     refresh_token = state.get("refresh_token")
     if not refresh_token:
         raise AuthenticationError("AWS SSO session expired; run 'olf auth login --provider aws'.")
-    oidc = boto3.client("sso-oidc", region_name=str(state["sso_region"]))
+    oidc = _sso_client("sso-oidc", region=str(state["sso_region"]))
     try:
         token = oidc.create_token(
             clientId=str(state["client_id"]),
@@ -321,7 +353,7 @@ def azure_credential(environ: Mapping[str, str]) -> Any:
         TokenCachePersistenceOptions,
     )
 
-    if any(environ.get(name) for name in _AZURE_AUTOMATION_VARIABLES):
+    if _uses_azure_automation(environ):
         return DefaultAzureCredential(
             exclude_azure_cli_credential=True,
             exclude_interactive_browser_credential=True,
@@ -345,6 +377,10 @@ def azure_credential(environ: Mapping[str, str]) -> Any:
 
 def terraform_auth_environment(provider: str, environ: Mapping[str, str]) -> dict[str, str]:
     """Return Terraform-only authentication overrides for managed browser state."""
+    if provider == "aws" and _uses_aws_automation(environ):
+        return {}
+    if provider == "azure" and _uses_azure_automation(environ):
+        return {}
     state = load_state(provider, environ)
     if state is None:
         return {}
@@ -354,6 +390,13 @@ def terraform_auth_environment(provider: str, environ: Mapping[str, str]) -> dic
         command = f'"{sys.executable}" -m olf.aws_credential_process'
         _write_private_text(config_path, "[profile openlakeforge]\ncredential_process = " + command + "\n")
         return {"AWS_CONFIG_FILE": str(config_path), "AWS_PROFILE": "openlakeforge"}
+    if provider == "aws" and state.get("source") == "profile":
+        return {"AWS_PROFILE": str(state["profile"])}
+    if provider == "azure" and state.get("source") == "azure-cli":
+        return {
+            "ARM_SUBSCRIPTION_ID": str(state["subscription_id"]),
+            "ARM_TENANT_ID": str(state.get("tenant_id", "")),
+        }
     if provider == "azure" and state.get("source") == "olf-browser":
         bridge_dir = auth_home(environ) / "azure-terraform-bridge"
         bridge_dir.mkdir(parents=True, exist_ok=True)
