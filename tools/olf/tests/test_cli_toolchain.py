@@ -60,3 +60,49 @@ def test_platform_and_catalog_errors_are_toolchain_errors() -> None:
 
     assert isinstance(UnsupportedPlatformError("Windows", "x86_64"), ToolchainError)
     assert isinstance(ToolchainCatalogError("bad catalog"), ToolchainError)
+
+
+@pytest.mark.parametrize("command", [["toolchain", "install"], ["toolchain", "path", "terraform"]])
+@pytest.mark.parametrize(
+    "native_error",
+    [PermissionError("permission denied: /some/path"), OSError("no space left on device")],
+)
+def test_provisioning_failures_normalize_to_a_clean_cli_error(
+    monkeypatch: pytest.MonkeyPatch, command: list[str], native_error: Exception
+) -> None:
+    """`olf toolchain install`/`path` call `ToolchainManager` directly,
+    bypassing `ManagedExecutableResolver`'s catch-and-wrap - a native I/O or
+    archive-extraction failure the manager doesn't wrap itself (a
+    permission error, a full disk, a corrupt archive) must still surface as
+    the CLI's normal concise failure, not a raw traceback."""
+
+    class _FailingManager:
+        specs = {"terraform": object()}
+
+        def resolve(self, tool: str):  # noqa: ANN202
+            raise native_error
+
+        def ensure_all(self):  # noqa: ANN202
+            raise native_error
+
+    monkeypatch.setattr(toolchain, "_manager", lambda: _FailingManager())
+
+    result = runner.invoke(app, command)
+
+    assert result.exit_code != 0
+    assert not isinstance(result.exception, type(native_error))
+    assert str(native_error) in result.output
+
+
+def test_clean_normalizes_a_prune_failure_to_a_clean_cli_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    class _FailingManager:
+        def prune(self, **kwargs):  # noqa: ANN003, ANN202
+            raise OSError("no space left on device")
+
+    monkeypatch.setattr(toolchain, "_manager", lambda: _FailingManager())
+
+    result = runner.invoke(app, ["toolchain", "clean", "--all"])
+
+    assert result.exit_code != 0
+    assert not isinstance(result.exception, OSError)
+    assert "no space left on device" in result.output

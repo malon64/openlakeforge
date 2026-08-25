@@ -51,9 +51,6 @@ def install_tools(
     tool: str = typer.Option("", "--tool", help="Provision only this tool; default provisions all managed tools."),
 ) -> None:
     """Provision managed tools from the release catalog (CI calls this to pre-warm the cache)."""
-    from olf.deployment.errors import DeploymentError
-    from olf.toolchain.errors import ToolchainError
-
     try:
         manager = _manager()
         if tool:
@@ -64,7 +61,14 @@ def install_tools(
             return
         for name, path in manager.ensure_all().items():
             typer.echo(f"{name} -> {path}")
-    except (ToolchainError, DeploymentError) as exc:
+    except typer.Exit:
+        raise
+    except Exception as exc:  # noqa: BLE001 - this command calls ToolchainManager
+        # directly, bypassing ManagedExecutableResolver's catch-and-wrap, so
+        # provisioning failures here can be anything the manager's own I/O
+        # raises natively (PermissionError, a full disk, a corrupt archive
+        # extraction) - all of it funnels into one concise CLI failure
+        # rather than a raw traceback.
         raise typer.Exit(code=fail(str(exc))) from exc
 
 
@@ -73,9 +77,6 @@ def path(
     tool: str = typer.Argument("", help="Print only this tool's resolved path; default prints the managed bin dir."),
 ) -> None:
     """Print the managed bin directory, or one tool's resolved (and provisioned) path."""
-    from olf.deployment.errors import DeploymentError
-    from olf.toolchain.errors import ToolchainError
-
     try:
         manager = _manager()
         if not tool:
@@ -84,7 +85,9 @@ def path(
         if tool not in manager.specs:
             raise typer.Exit(code=fail(f"unknown tool: {tool!r} (expected one of {tuple(manager.specs)})"))
         typer.echo(str(manager.resolve(tool)))
-    except (ToolchainError, DeploymentError) as exc:
+    except typer.Exit:
+        raise
+    except Exception as exc:  # noqa: BLE001 - see install_tools
         raise typer.Exit(code=fail(str(exc))) from exc
 
 
@@ -97,8 +100,6 @@ def clean(
     all_versions: bool = typer.Option(False, "--all", help="Remove every installed toolchain version."),
 ) -> None:
     """Remove installed toolchain versions under OLF_HOME. Never touches host-installed tools."""
-    from olf.toolchain.errors import ToolchainError
-
     selected = sum(bool(x) for x in (version, keep_current, all_versions))
     if selected != 1:
         raise typer.Exit(code=fail("exactly one of --version, --keep-current, or --all is required"))
@@ -109,7 +110,9 @@ def clean(
             keep_current=keep_current,
             remove_all=all_versions,
         )
-    except ToolchainError as exc:
+    except typer.Exit:
+        raise
+    except Exception as exc:  # noqa: BLE001 - see install_tools
         raise typer.Exit(code=fail(str(exc))) from exc
     if not removed:
         typer.echo("Nothing to remove.")

@@ -13,7 +13,6 @@ catalog's pinned version and digest.
 from __future__ import annotations
 
 import contextlib
-import fcntl
 import json
 import os
 from collections.abc import Iterator, Mapping
@@ -127,6 +126,11 @@ class ToolchainManager:
         inconsistent. `flock` is POSIX-only, matching this project's
         darwin/linux-only `Platform` support.
         """
+        # Deferred: POSIX-only, and importing it eagerly at module load
+        # would fail on an unsupported platform (e.g. Windows) before
+        # Platform.detect() ever gets to raise its own actionable error.
+        import fcntl
+
         self._lock_path.parent.mkdir(parents=True, exist_ok=True)
         with self._lock_path.open("a+") as lock_file:
             fcntl.flock(lock_file, fcntl.LOCK_EX)

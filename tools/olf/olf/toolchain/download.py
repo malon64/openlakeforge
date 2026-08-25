@@ -7,7 +7,6 @@ built on the `requests` dependency `olf` already carries.
 
 from __future__ import annotations
 
-import fcntl
 import hashlib
 import os
 import tempfile
@@ -71,6 +70,12 @@ def fetch_verified(downloader: Downloader, spec: ToolSpec, *, cache_root: Path) 
     `unlink()` - the loser gets `FileNotFoundError` instead of the cache
     being repaired.
     """
+    # Deferred: POSIX-only, and importing it eagerly at module load would
+    # fail on an unsupported platform (e.g. Windows) before Platform.detect()
+    # ever gets to raise its own actionable error - manager.py imports this
+    # module unconditionally.
+    import fcntl
+
     destination = cache_path(cache_root, spec)
     destination.parent.mkdir(parents=True, exist_ok=True)
     lock_path = destination.parent / f"{destination.name}.lock"
