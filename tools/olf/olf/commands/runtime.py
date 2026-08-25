@@ -37,7 +37,10 @@ def provider_contract_environment(
     )
     deployment_provider = _build_engine(context, var_file="").provider
     if isinstance(deployment_provider, LocalProvider):
-        with applied_contract_environment(deployment_provider.config):
+        with applied_contract_environment(
+            deployment_provider.config,
+            contract_terraform_dir=_contract_terraform_dir(context.paths.platform_terraform_dir),
+        ):
             yield
         return
     facts = deployment_provider._foundation_facts  # noqa: SLF001 - shared standalone command context.

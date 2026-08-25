@@ -133,3 +133,18 @@ def test_artifacts_doctor_does_not_require_helm(tmp_path: Path, monkeypatch) -> 
     provider.doctor(DeploymentPhase.ARTIFACTS)
 
     assert required == ["terraform", "kubectl", "docker", "kind"]
+
+
+def test_platform_plan_prepares_cached_chart(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    config = _config(tmp_path)
+    config.paths.foundation_state_path.parent.mkdir(parents=True, exist_ok=True)
+    config.paths.foundation_state_path.write_text("{}")
+    provider = LocalProvider.create(config, toolkit=_toolkit(), environ={})
+    calls: list[str] = []
+    monkeypatch.setattr(
+        "olf.deployment.local.platform.prepare_charts", lambda *args, **kwargs: calls.append("charts")
+    )
+
+    provider.plan(DeploymentPhase.PLATFORM)
+
+    assert calls == ["charts"]

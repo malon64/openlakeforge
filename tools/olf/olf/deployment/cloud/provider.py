@@ -143,7 +143,7 @@ class CloudProvider:
         supervisor.run(spec, env=self.env)
 
     def plan(self, phase: DeploymentPhase) -> bool:
-        from olf.deployment.cloud import foundation
+        from olf.deployment.cloud import foundation, platform
         from olf.deployment.errors import DeploymentPreconditionError
 
         changes = False
@@ -168,6 +168,7 @@ class CloudProvider:
                 return changes
             facts = self._foundation_facts
             platform_dir = self.config.paths.platform_terraform_dir
+            platform.prepare_charts(self.config, self.tools, env=self.env)
             self.tools.terraform.init(platform_dir, env=self.env)
             result = self.tools.terraform.plan(
                 platform_dir,

@@ -10,6 +10,7 @@ command environment, or `KUBE_CONTEXT` gets baked in empty.
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from _cloud_support import FakeCloudBackend
@@ -144,6 +145,31 @@ def test_prepare_images_is_a_no_op(tmp_path: Path) -> None:
     provider = CloudProvider.create(config, backend, toolkit=_toolkit(), environ={})
 
     provider.prepare_images()  # must not raise, must not touch the foundation
+
+
+def test_platform_plan_prepares_cached_charts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    config = _config(tmp_path)
+    config.paths.foundation_state_path.parent.mkdir(parents=True, exist_ok=True)
+    config.paths.foundation_state_path.write_text("{}")
+    backend = FakeCloudBackend(scope="aws", facts=_FACTS)
+    provider = CloudProvider.create(config, backend, toolkit=_toolkit(), environ={})
+    calls: list[str] = []
+    monkeypatch.setattr(
+        "olf.deployment.cloud.foundation.require_foundation_facts", lambda cfg, tools, be, *, env: _FACTS
+    )
+    monkeypatch.setattr(
+        "olf.deployment.cloud.platform.prepare_charts", lambda *args, **kwargs: calls.append("charts")
+    )
+    monkeypatch.setattr(provider.tools.terraform, "init", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        provider.tools.terraform,
+        "plan",
+        lambda *args, **kwargs: SimpleNamespace(returncode=0),
+    )
+
+    provider.plan(DeploymentPhase.PLATFORM)
+
+    assert calls == ["charts"]
 
 
 def test_foundation_doctor_does_not_require_or_probe_later_phase_tools(

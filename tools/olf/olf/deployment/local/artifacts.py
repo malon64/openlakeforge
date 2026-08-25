@@ -15,6 +15,7 @@ from __future__ import annotations
 import os
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
+from pathlib import Path
 
 from olf import k8s, log
 from olf.deployment import contract_env
@@ -43,7 +44,9 @@ __all__ = [
 
 
 @contextmanager
-def applied_contract_environment(config: LocalDeploymentConfig) -> Iterator[dict[str, str]]:
+def applied_contract_environment(
+    config: LocalDeploymentConfig, *, contract_terraform_dir: Path | None = None
+) -> Iterator[dict[str, str]]:
     """Apply the resolved provider-contract environment onto `os.environ`.
 
     Thin local-config adapter over `olf.deployment.contract_env`, which
@@ -52,8 +55,11 @@ def applied_contract_environment(config: LocalDeploymentConfig) -> Iterator[dict
     documented, deliberate bridge to the existing `os.environ`-reading
     library modules (`olf.k8s`, `olf.config`, `olf.s3`, `olf.layers`).
     """
+    resolved_contract_terraform_dir = contract_terraform_dir or Path(
+        os.environ.get("OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR", config.paths.platform_terraform_dir)
+    ).resolve()
     with contract_env.applied_contract_environment(
-        contract_terraform_dir=config.paths.platform_terraform_dir,
+        contract_terraform_dir=resolved_contract_terraform_dir,
         repo_root=config.paths.repo_root,
         namespace=config.namespace,
         kube_context=config.kube_context,

@@ -173,7 +173,7 @@ def test_floe_generation_passes_the_selected_namespace_to_the_local_profile(
         env = {}
 
     context = SimpleNamespace(
-        paths=SimpleNamespace(repo_root=tmp_path),
+        paths=SimpleNamespace(repo_root=tmp_path, platform_terraform_dir=tmp_path / "contracts"),
         namespace="custom-lakehouse",
         features=SimpleNamespace(governance_enabled=True),
     )
@@ -187,7 +187,7 @@ def test_floe_generation_passes_the_selected_namespace_to_the_local_profile(
     )
     monkeypatch.setattr("olf.deployment.local.provider.LocalProvider", FakeLocalProvider)
     monkeypatch.setattr(
-        "olf.deployment.local.artifacts.applied_contract_environment", lambda *args: nullcontext({})
+        "olf.deployment.local.artifacts.applied_contract_environment", lambda *args, **kwargs: nullcontext({})
     )
     monkeypatch.setattr(
         "olf.deployment.floe_manifests.generate_local_manifests", lambda *args, **kwargs: generated.append(kwargs)

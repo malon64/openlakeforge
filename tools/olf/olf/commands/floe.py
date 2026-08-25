@@ -46,7 +46,10 @@ def generate_manifests(
         engine = _build_engine(context, var_file="")
         deployment_provider = engine.provider
         if isinstance(deployment_provider, LocalProvider):
-            with applied_contract_environment(deployment_provider.config) as contract_environ:
+            with applied_contract_environment(
+                deployment_provider.config,
+                contract_terraform_dir=_contract_terraform_dir(context.paths.platform_terraform_dir),
+            ) as contract_environ:
                 generate_local_manifests(
                     deployment_provider.config.floe,
                     deployment_provider.tools,

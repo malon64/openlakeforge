@@ -140,6 +140,7 @@ class LocalProvider:
                 if phase == DeploymentPhase.PLATFORM:
                     raise DeploymentPreconditionError("foundation state is required before planning the local platform")
                 return changes
+            platform.prepare_charts(self.config, self.tools, env=self.env)
             self.tools.terraform.init(self.config.paths.platform_terraform_dir, env=self.env)
             result = self.tools.terraform.plan(
                 self.config.paths.platform_terraform_dir,
