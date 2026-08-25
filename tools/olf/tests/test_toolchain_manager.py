@@ -410,3 +410,37 @@ def test_prune_refuses_a_symlinked_toolchains_root(tmp_path: Path) -> None:
     assert removed == []
     assert (outside / "some-version").is_dir()
     assert (outside / "some-version" / "marker.txt").is_file()
+
+
+@pytest.mark.parametrize("malformed_document", [None, [], 42, "not-a-dict"])
+def test_installed_treats_a_malformed_receipt_document_as_absent(tmp_path: Path, malformed_document: object) -> None:
+    """A receipt.json containing valid JSON in the wrong shape (null, a
+    list, a scalar) must be treated the same as an absent receipt - it's a
+    disposable cache of what's installed, not a source of truth, so
+    resolve() should repair it by reprovisioning rather than crash the
+    whole command."""
+    manager, _ = _manager(tmp_path)
+    manager.receipt_path.parent.mkdir(parents=True, exist_ok=True)
+    manager.receipt_path.write_text(json.dumps(malformed_document))
+
+    assert manager.installed("terraform") is None
+
+
+@pytest.mark.parametrize("malformed_entry", [None, [], 42, "not-a-dict"])
+def test_installed_treats_a_malformed_per_tool_entry_as_absent(tmp_path: Path, malformed_entry: object) -> None:
+    manager, _ = _manager(tmp_path)
+    manager.receipt_path.parent.mkdir(parents=True, exist_ok=True)
+    manager.receipt_path.write_text(json.dumps({"terraform": malformed_entry}))
+
+    assert manager.installed("terraform") is None
+
+
+def test_resolve_repairs_a_malformed_receipt_instead_of_crashing(tmp_path: Path) -> None:
+    manager, downloader = _manager(tmp_path)
+    manager.receipt_path.parent.mkdir(parents=True, exist_ok=True)
+    manager.receipt_path.write_text("null")
+
+    path = manager.resolve("kind")
+
+    assert path.is_file()
+    assert len(downloader.calls) == 1

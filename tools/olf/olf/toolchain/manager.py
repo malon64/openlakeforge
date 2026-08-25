@@ -140,12 +140,19 @@ class ToolchainManager:
                 fcntl.flock(lock_file, fcntl.LOCK_UN)
 
     def _read_receipt(self) -> dict[str, Any]:
+        """A malformed receipt (missing, unparsable JSON, or valid JSON in
+        the wrong shape - `null`, a list, a scalar) is treated the same as
+        an absent one: the receipt is a disposable cache of what's already
+        installed, not a source of truth, so `resolve()` should repair it
+        by reprovisioning rather than fail the whole command on it.
+        """
         if not self.receipt_path.is_file():
             return {}
         try:
-            return json.loads(self.receipt_path.read_text())
+            data = json.loads(self.receipt_path.read_text())
         except (json.JSONDecodeError, OSError):
             return {}
+        return data if isinstance(data, dict) else {}
 
     def _write_receipt(self, receipt: Mapping[str, Any]) -> None:
         self.receipt_path.parent.mkdir(parents=True, exist_ok=True)
@@ -158,7 +165,7 @@ class ToolchainManager:
 
     def installed(self, tool: str) -> InstalledTool | None:
         receipt = self._read_receipt().get(tool)
-        if not receipt:
+        if not isinstance(receipt, dict):
             return None
         sha256 = receipt.get("sha256", "")
         path = self.bin_dir / activated_filename(tool, sha256)

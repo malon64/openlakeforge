@@ -108,7 +108,11 @@ def test_build_resolver_host_mode_returns_a_plain_path_resolver(tmp_path: Path) 
 
 
 def test_build_resolver_rejects_an_unknown_mode() -> None:
-    with pytest.raises(ValueError, match="OLF_TOOLCHAIN_MODE"):
+    """A misspelled OLF_TOOLCHAIN_MODE is a user configuration mistake, not
+    a provisioning failure - but every olf lifecycle command's boundary
+    only catches DeploymentError (ToolchainError's base), so this must
+    raise that family, not a plain ValueError, or it escapes uncaught."""
+    with pytest.raises(ToolchainError, match="OLF_TOOLCHAIN_MODE"):
         build_resolver(environ={"OLF_TOOLCHAIN_MODE": "bogus"})
 
 

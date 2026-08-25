@@ -107,7 +107,13 @@ def build_resolver(
     if mode == "host":
         return fallback
     if mode != "managed":
-        raise ValueError(f"unknown OLF_TOOLCHAIN_MODE: {mode!r} (expected 'managed' or 'host')")
+        # A user configuration mistake, not a provisioning failure - but
+        # every olf lifecycle command's boundary only catches DeploymentError
+        # (ToolchainError's base), so this must raise that family too rather
+        # than a plain ValueError, or it escapes as a raw traceback.
+        raise ToolchainError(
+            "OLF_TOOLCHAIN_MODE", reason=f"unknown value {mode!r} (expected 'managed' or 'host')"
+        )
 
     from olf import config
     from olf.toolchain.manager import ToolchainManager

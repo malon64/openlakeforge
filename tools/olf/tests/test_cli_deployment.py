@@ -183,3 +183,21 @@ def test_unknown_profile_is_rejected_before_building_an_engine(monkeypatch: pyte
     result = runner.invoke(app, ["deploy", "--profile", "bogus"])
 
     assert result.exit_code == 1
+
+
+def test_an_invalid_toolchain_mode_surfaces_as_a_clean_cli_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A misspelled OLF_TOOLCHAIN_MODE is a user configuration mistake, not
+    a provisioning failure - but Toolkit.default() (built inside every
+    lifecycle command's _build_engine) raises it while resolving the
+    executable strategy, well before any provider-specific setup runs. It
+    must surface the same clean way every other DeploymentError does, not
+    as a raw traceback."""
+    from olf.deployment.errors import ToolchainError
+
+    monkeypatch.setenv("OLF_TOOLCHAIN_MODE", "bogus")
+
+    result = runner.invoke(app, ["doctor", "--provider", "local"])
+
+    assert result.exit_code != 0
+    assert not isinstance(result.exception, ToolchainError)
+    assert "OLF_TOOLCHAIN_MODE" in result.output
