@@ -1,18 +1,23 @@
 """Injectable executable resolution.
 
 Tool adapters must resolve executables through an `ExecutableResolver`
-rather than calling `shutil.which` directly, so a future managed-toolchain
-resolver (#127) can be substituted without touching any adapter.
+rather than calling `shutil.which` directly. `ManagedExecutableResolver`
+(#127) is the managed-toolchain resolver this docstring originally
+anticipated: managed tool names (`terraform`, `helm`, `kubectl`, `kind`) are
+provisioned from `release/component-catalog.yaml` under `OLF_HOME`; every
+other name (`docker`, `aws`, `az`, `uv`, `git`, ...) falls through to the
+host `PATH`, unchanged from before #127.
 """
 
 from __future__ import annotations
 
+import os
 import shutil
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Protocol
 
-from olf.deployment.errors import ExecutableNotFoundError
+from olf.deployment.errors import ExecutableNotFoundError, ToolchainError
 
 
 class ExecutableResolver(Protocol):
@@ -40,3 +45,83 @@ class PathExecutableResolver:
         if found is None:
             raise ExecutableNotFoundError(tool, searched="PATH")
         return Path(found)
+
+
+class ManagedExecutableResolver:
+    """Resolves managed tools (#127) from a private, version-scoped
+    toolchain; delegates every other tool to a `PathExecutableResolver`.
+
+    Never falls back to an unmanaged host binary for a managed tool name —
+    a provisioning failure raises `ToolchainError` rather than silently
+    resolving whatever happens to be on `PATH`. `overrides` is checked
+    first for every tool name (managed or not), so an explicit override
+    always wins and never triggers real toolchain provisioning - the same
+    contract `PathExecutableResolver` gives its callers.
+    """
+
+    def __init__(
+        self,
+        manager: object,
+        *,
+        fallback: ExecutableResolver,
+        overrides: Mapping[str, Path] | None = None,
+    ) -> None:
+        self.manager = manager
+        self.fallback = fallback
+        self._overrides = dict(overrides or {})
+
+    def resolve(self, tool: str) -> Path:
+        override = self._overrides.get(tool)
+        if override is not None:
+            return Path(override)
+
+        from olf.toolchain.spec import MANAGED_TOOLS
+
+        if tool not in MANAGED_TOOLS:
+            return self.fallback.resolve(tool)
+        try:
+            return self.manager.resolve(tool)  # type: ignore[attr-defined]
+        except ExecutableNotFoundError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - every toolchain failure funnels through one typed error
+            raise ToolchainError(tool, reason=str(exc)) from exc
+
+
+def build_resolver(
+    overrides: Mapping[str, Path] | None = None,
+    *,
+    environ: Mapping[str, str] | None = None,
+) -> ExecutableResolver:
+    """Build the resolver `Toolkit.default()` uses.
+
+    `OLF_TOOLCHAIN_MODE` selects the strategy: `managed` (the default)
+    provisions Terraform/Helm/kubectl/kind from the release catalog;
+    `host` restores plain `PATH` resolution for every tool, matching
+    behaviour before #127. `overrides` always wins over either strategy -
+    every existing test that pins a tool path via `overrides` keeps working
+    unchanged.
+    """
+    env = environ if environ is not None else os.environ
+    fallback = PathExecutableResolver(overrides=overrides)
+    mode = env.get("OLF_TOOLCHAIN_MODE", "managed")
+    if mode == "host":
+        return fallback
+    if mode != "managed":
+        raise ValueError(f"unknown OLF_TOOLCHAIN_MODE: {mode!r} (expected 'managed' or 'host')")
+
+    from olf import config
+    from olf.toolchain.manager import ToolchainManager
+    from olf.toolchain.platform import UnsupportedPlatformError
+    from olf.toolchain.spec import ToolchainCatalogError
+
+    home = Path(env["OLF_HOME"]).expanduser().resolve() if env.get("OLF_HOME") else None
+    catalog_path = config.repo_root() / "release" / "component-catalog.yaml"
+    try:
+        manager = ToolchainManager.from_catalog_path(catalog_path, home=home)
+    except (UnsupportedPlatformError, ToolchainCatalogError) as exc:
+        # Either failure means every managed-tool resolve() would fail
+        # identically, so fail closed here rather than on first use, through
+        # the same typed error family every deployment command already
+        # catches.
+        raise ToolchainError("toolchain", reason=str(exc)) from exc
+    return ManagedExecutableResolver(manager, fallback=fallback, overrides=overrides)

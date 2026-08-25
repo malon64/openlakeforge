@@ -1,0 +1,180 @@
+"""`ToolchainManager`: the single object that turns a catalog + platform into
+activated, on-disk managed executables.
+
+Every managed tool lives under
+`<home>/toolchains/<distribution-version>/<platform>/bin/<tool>`, so
+multiple OpenLakeForge versions keep independent toolchains and nothing here
+ever needs to touch a previous or newer version's install. A JSON receipt
+next to `bin/` records exactly what was installed, so `resolve()` can skip
+network and extraction entirely once a tool is already active at the
+catalog's pinned version and digest.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+from collections.abc import Mapping
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+from olf.toolchain.download import Downloader, HttpDownloader, fetch_verified
+from olf.toolchain.install import install as install_archive
+from olf.toolchain.platform import Platform
+from olf.toolchain.spec import MANAGED_TOOLS, ToolchainCatalogError, ToolSpec, load_specs
+
+DEFAULT_CATALOG_PATH = "release/component-catalog.yaml"
+RECEIPT_FILENAME = "receipt.json"
+
+
+def default_home() -> Path:
+    override = os.environ.get("OLF_HOME")
+    if override:
+        return Path(override).expanduser().resolve()
+    return Path.home() / ".openlakeforge"
+
+
+@dataclass(frozen=True)
+class InstalledTool:
+    name: str
+    version: str
+    sha256: str
+    path: Path
+
+
+@dataclass
+class ToolchainManager:
+    home: Path
+    distribution_version: str
+    platform: Platform
+    specs: Mapping[str, ToolSpec]
+    downloader: Downloader
+
+    @classmethod
+    def from_catalog(
+        cls,
+        catalog: Mapping[str, Any],
+        *,
+        home: Path | None = None,
+        platform: Platform | None = None,
+        downloader: Downloader | None = None,
+    ) -> ToolchainManager:
+        resolved_platform = platform or Platform.detect()
+        distribution_version = ((catalog.get("distribution") or {}).get("version")) or "unknown"
+        return cls(
+            home=home or default_home(),
+            distribution_version=str(distribution_version),
+            platform=resolved_platform,
+            specs=load_specs(catalog, platform=resolved_platform),
+            downloader=downloader or HttpDownloader(),
+        )
+
+    @classmethod
+    def from_catalog_path(
+        cls,
+        catalog_path: str | Path = DEFAULT_CATALOG_PATH,
+        *,
+        home: Path | None = None,
+        platform: Platform | None = None,
+        downloader: Downloader | None = None,
+    ) -> ToolchainManager:
+        path = Path(catalog_path)
+        if not path.is_file():
+            raise ToolchainCatalogError(f"release catalog not found at {path}")
+        catalog = yaml.safe_load(path.read_text())
+        return cls.from_catalog(catalog, home=home, platform=platform, downloader=downloader)
+
+    @property
+    def version_dir(self) -> Path:
+        return self.home / "toolchains" / self.distribution_version / self.platform.key
+
+    @property
+    def bin_dir(self) -> Path:
+        return self.version_dir / "bin"
+
+    @property
+    def cache_root(self) -> Path:
+        return self.home / "cache"
+
+    @property
+    def receipt_path(self) -> Path:
+        return self.version_dir / RECEIPT_FILENAME
+
+    def _read_receipt(self) -> dict[str, Any]:
+        if not self.receipt_path.is_file():
+            return {}
+        try:
+            return json.loads(self.receipt_path.read_text())
+        except (json.JSONDecodeError, OSError):
+            return {}
+
+    def _write_receipt(self, receipt: Mapping[str, Any]) -> None:
+        self.receipt_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = self.receipt_path.with_suffix(".json.tmp")
+        tmp_path.write_text(json.dumps(dict(receipt), indent=2, sort_keys=True))
+        os.replace(tmp_path, self.receipt_path)
+
+    def installed(self, tool: str) -> InstalledTool | None:
+        receipt = self._read_receipt().get(tool)
+        path = self.bin_dir / tool
+        if not receipt or not path.is_file():
+            return None
+        return InstalledTool(name=tool, version=receipt.get("version", ""), sha256=receipt.get("sha256", ""), path=path)
+
+    def _spec(self, tool: str) -> ToolSpec:
+        if tool not in self.specs:
+            raise KeyError(f"{tool!r} is not a managed tool (expected one of {MANAGED_TOOLS})")
+        return self.specs[tool]
+
+    def resolve(self, tool: str) -> Path:
+        """Return the activated path for `tool`, provisioning it on first use."""
+        spec = self._spec(tool)
+        current = self.installed(tool)
+        if current is not None and current.version == spec.version and current.sha256 == spec.sha256:
+            return current.path
+
+        archive_path = fetch_verified(self.downloader, spec, cache_root=self.cache_root)
+        activated = install_archive(archive_path, spec, bin_dir=self.bin_dir)
+
+        receipt = self._read_receipt()
+        receipt[tool] = {"version": spec.version, "sha256": spec.sha256}
+        self._write_receipt(receipt)
+        return activated
+
+    def ensure_all(self) -> dict[str, Path]:
+        return {tool: self.resolve(tool) for tool in self.specs}
+
+    def prune(self, *, version: str | None = None, keep_current: bool = False, remove_all: bool = False) -> list[Path]:
+        """Remove installed toolchain versions under `home`, never anything
+        outside it. Exactly one of `version`, `keep_current`, `remove_all`
+        selects what to remove. Returns the version directories removed."""
+        import shutil
+
+        if sum(bool(x) for x in (version, keep_current, remove_all)) != 1:
+            raise ValueError("prune requires exactly one of version, keep_current, or remove_all")
+
+        toolchains_root = (self.home / "toolchains").resolve()
+        if not toolchains_root.is_dir():
+            return []
+
+        removed: list[Path] = []
+        for entry in sorted(toolchains_root.iterdir()):
+            if not entry.is_dir():
+                continue
+            resolved = entry.resolve()
+            if resolved.parent != toolchains_root:
+                continue  # never remove anything that escaped OLF_HOME/toolchains (e.g. a symlink)
+            if version is not None:
+                should_remove = entry.name == version
+            elif keep_current:
+                should_remove = entry.name != self.distribution_version
+            else:
+                should_remove = True
+            if not should_remove:
+                continue
+            shutil.rmtree(entry)
+            removed.append(entry)
+        return removed

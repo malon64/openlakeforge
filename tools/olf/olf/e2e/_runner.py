@@ -27,6 +27,7 @@ from olf.e2e._shell import (
     E2EError,
     Environment,
     Suite,
+    _kubectl_executable,
     _run,
     _run_retry,
     terraform_output,
@@ -141,12 +142,23 @@ def _contract_dir(repo_root: Path, default: str) -> Path:
 
 
 def check_commands(cfg: E2EConfig) -> None:
-    commands = ["kubectl", "terraform"]
+    from olf.deployment.errors import ExecutableNotFoundError
+    from olf.tooling.resolver import build_resolver
+
+    missing: list[str] = []
+    resolver = build_resolver()
+    for managed_tool in ("kubectl", "terraform"):
+        try:
+            resolver.resolve(managed_tool)
+        except ExecutableNotFoundError:
+            missing.append(managed_tool)
+
+    host_commands: list[str] = []
     if cfg.env == "azure":
-        commands.append("az")
+        host_commands.append("az")
     if cfg.env == "aws":
-        commands.append("aws")
-    missing = [cmd for cmd in commands if shutil.which(cmd) is None]
+        host_commands.append("aws")
+    missing.extend(cmd for cmd in host_commands if shutil.which(cmd) is None)
     if missing:
         raise E2EError(f"missing required command(s): {', '.join(missing)}")
 
@@ -195,7 +207,9 @@ def prepare_kube_context(cfg: E2EConfig) -> None:
                 cfg.kube_context,
             ]
         )
-    _run_retry(["kubectl", "cluster-info", "--context", cfg.kube_context], capture=True, attempts=6, delay=5)
+    _run_retry(
+        [_kubectl_executable(), "cluster-info", "--context", cfg.kube_context], capture=True, attempts=6, delay=5
+    )
 
 
 def configure_kubeconfig(cfg: E2EConfig) -> Path:
@@ -214,7 +228,7 @@ def configure_kubeconfig(cfg: E2EConfig) -> Path:
 
 def kube_context_is_ready(kube_context: str) -> bool:
     try:
-        _run(["kubectl", "cluster-info", "--context", kube_context], capture=True)
+        _run([_kubectl_executable(), "cluster-info", "--context", kube_context], capture=True)
     except E2EError:
         return False
     return True

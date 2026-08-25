@@ -95,3 +95,19 @@ class DeploymentPreconditionError(DeploymentError):
 
 class UnsupportedProviderError(DeploymentError):
     """Raised when a `DeploymentProvider` has not been implemented yet."""
+
+
+class ToolchainError(ToolingError):
+    """Raised when the managed toolchain (#127) cannot resolve or provision a
+    tool: unsupported host platform, digest verification failure, or a
+    download failure. Never falls back to an unmanaged host binary; the
+    message names the `OLF_TOOLCHAIN_MODE=host` escape hatch.
+    """
+
+    def __init__(self, tool: str, *, reason: str) -> None:
+        self.tool = tool
+        self.reason = reason
+        super().__init__(
+            f"managed toolchain could not provision {tool!r}: {reason} "
+            "(set OLF_TOOLCHAIN_MODE=host to use a host-installed binary instead)"
+        )

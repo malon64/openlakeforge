@@ -60,6 +60,17 @@ The exact version `.terraform.lock.hcl` pins for each root -- what a consumer of
 | superset | 0.15.5 |
 | trino | 1.42.2 |
 
+## Managed toolchain
+
+Terraform, Helm, kubectl, and kind are provisioned by `olf toolchain` (#127) rather than installed by the consumer; versions below are what the current release provisions.
+
+| Tool | Version |
+| --- | --- |
+| helm | 3.18.6 |
+| kind | 0.26.0 |
+| kubectl | 1.31.4 |
+| terraform | 1.8.5 |
+
 ## Container images
 
 | Image | Reference |

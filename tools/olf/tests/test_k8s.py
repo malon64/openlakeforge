@@ -66,6 +66,9 @@ def test_port_forward_uses_explicit_kube_context(monkeypatch: pytest.MonkeyPatch
     popen = Mock(return_value=process)
     monkeypatch.setattr(k8s.subprocess, "Popen", popen)
     monkeypatch.setattr(k8s, "_wait_for_port_forward", Mock())
+    # Executable resolution (#127) is covered by test_toolchain_resolver.py;
+    # here only the argv shape matters.
+    monkeypatch.setattr(k8s, "_kubectl_executable", lambda: "kubectl")
 
     with k8s.port_forward(
         "superset",
@@ -140,6 +143,7 @@ def test_port_forward_cleans_up_after_readiness_failure(monkeypatch: pytest.Monk
     process.poll.return_value = 0
     monkeypatch.setattr(k8s.subprocess, "Popen", Mock(return_value=process))
     monkeypatch.setattr(k8s, "_wait_for_port_forward", Mock(side_effect=k8s.KubectlError("not ready")))
+    monkeypatch.setattr(k8s, "_kubectl_executable", lambda: "kubectl")
 
     with pytest.raises(k8s.KubectlError, match="not ready"):
         with k8s.port_forward(

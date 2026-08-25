@@ -17,7 +17,14 @@ def test_run_uses_deployment_engine_and_e2e_without_make(monkeypatch: pytest.Mon
 
     smoke.run(
         timeout_seconds=2700,
-        environ={"CLUSTER_NAME": "openlakeforge-pr-123", "LOCAL_KUBECONFIG_PATH": str(tmp_path / "ci.yaml")},
+        environ={
+            "CLUSTER_NAME": "openlakeforge-pr-123",
+            "LOCAL_KUBECONFIG_PATH": str(tmp_path / "ci.yaml"),
+            # tmp_path has no release/component-catalog.yaml; managed
+            # toolchain resolution is exercised separately in
+            # tests/test_toolchain_resolver.py.
+            "OLF_TOOLCHAIN_MODE": "host",
+        },
         monotonic=iter((0.0, 1.0, 2.0, 3.0)).__next__,
     )
 
@@ -37,7 +44,7 @@ def test_run_honors_namespace_from_the_supplied_environment(monkeypatch: pytest.
 
     smoke.run(
         timeout_seconds=2700,
-        environ={"OPENLAKEFORGE_KUBE_NAMESPACE": "custom-lakehouse"},
+        environ={"OPENLAKEFORGE_KUBE_NAMESPACE": "custom-lakehouse", "OLF_TOOLCHAIN_MODE": "host"},
         monotonic=iter((0.0, 1.0, 2.0, 3.0)).__next__,
     )
 

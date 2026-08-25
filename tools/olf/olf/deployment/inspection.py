@@ -1,8 +1,10 @@
 """Read-only deployment inspection helpers used by ``olf doctor``.
 
 The deployment engine owns preflight checks rather than leaving them in Make
-or shell wrappers.  The report is deliberately small: managed toolchains and
-version installation are an extension point for issue #127.
+or shell wrappers. Managed-toolchain awareness (#127) reports which tools
+are provisioned from `release/component-catalog.yaml` versus resolved from
+`PATH`, and provisions on first use - `olf doctor` is the documented way to
+pre-warm a clean machine's toolchain before `olf deploy`.
 """
 
 from __future__ import annotations
@@ -12,7 +14,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from olf.deployment.errors import DeploymentError, ExecutableNotFoundError
+from olf.deployment.errors import DeploymentError, ExecutableNotFoundError, ToolchainError
+from olf.tooling.resolver import ManagedExecutableResolver
 
 if TYPE_CHECKING:
     from olf.deployment.engine import Toolkit
@@ -41,6 +44,15 @@ class DoctorReport:
         return "\n".join(lines)
 
 
+def _toolchain_mode_item(tools: Toolkit) -> DoctorItem:
+    resolver = tools.resolver
+    if not isinstance(resolver, ManagedExecutableResolver):
+        return DoctorItem("toolchain mode", True, "host (OLF_TOOLCHAIN_MODE=host; PATH resolution only)")
+    manager = resolver.manager
+    detail = f"managed; distribution {manager.distribution_version}; platform {manager.platform}; home {manager.home}"
+    return DoctorItem("toolchain mode", True, detail)
+
+
 def base_report(
     *,
     repo_root: Path,
@@ -50,14 +62,24 @@ def base_report(
     items = [
         DoctorItem("repository", (repo_root / "lakehouse_code/lakehouse.yaml").is_file(), str(repo_root)),
         DoctorItem("terraform roots", (repo_root / "infra/terraform").is_dir(), str(repo_root / "infra/terraform")),
+        _toolchain_mode_item(tools),
     ]
+    resolver = tools.resolver
+    managed_names: frozenset[str] = frozenset()
+    if isinstance(resolver, ManagedExecutableResolver):
+        from olf.toolchain.spec import MANAGED_TOOLS
+
+        managed_names = frozenset(MANAGED_TOOLS)
     for name in required_tools:
         try:
-            path = tools.resolver.resolve(name)
+            path = resolver.resolve(name)
         except ExecutableNotFoundError:
             items.append(DoctorItem(name, False, "not found on PATH"))
+        except ToolchainError as exc:
+            items.append(DoctorItem(name, False, str(exc)))
         else:
-            items.append(DoctorItem(name, True, str(path)))
+            source = "managed" if name in managed_names else "PATH"
+            items.append(DoctorItem(name, True, f"{path} ({source})"))
     return items
 
 

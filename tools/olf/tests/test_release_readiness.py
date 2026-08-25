@@ -15,6 +15,73 @@ def test_check_images_digest_pinned_flags_missing_digest() -> None:
     assert "bad" in result.detail
 
 
+_VALID_TOOLCHAIN_ENTRY = {
+    "version": "1.2.3",
+    "platforms": {
+        "darwin-amd64": "sha256:" + "a" * 64,
+        "darwin-arm64": "sha256:" + "b" * 64,
+        "linux-amd64": "sha256:" + "c" * 64,
+        "linux-arm64": "sha256:" + "d" * 64,
+    },
+}
+
+
+def _valid_toolchain_catalog() -> dict:
+    return {
+        "components": {
+            "toolchain": {
+                tool: dict(_VALID_TOOLCHAIN_ENTRY) for tool in ("terraform", "helm", "kubectl", "kind")
+            }
+        }
+    }
+
+
+def test_check_toolchain_pinned_passes_on_real_repo_catalog() -> None:
+    catalog = load_catalog(ROOT / "release/component-catalog.yaml")
+    result = _readiness._check_toolchain_pinned(catalog)
+    assert result.ok, result.detail
+
+
+def test_check_toolchain_pinned_flags_missing_components_block() -> None:
+    result = _readiness._check_toolchain_pinned({"components": {}})
+    assert not result.ok
+    assert "missing" in result.detail
+
+
+def test_check_toolchain_pinned_flags_missing_tool() -> None:
+    catalog = _valid_toolchain_catalog()
+    del catalog["components"]["toolchain"]["kind"]
+    result = _readiness._check_toolchain_pinned(catalog)
+    assert not result.ok
+    assert "kind" in result.detail
+
+
+def test_check_toolchain_pinned_rejects_latest_version() -> None:
+    catalog = _valid_toolchain_catalog()
+    catalog["components"]["toolchain"]["terraform"]["version"] = "latest"
+    result = _readiness._check_toolchain_pinned(catalog)
+    assert not result.ok
+    assert "terraform" in result.detail
+
+
+def test_check_toolchain_pinned_flags_missing_platform() -> None:
+    catalog = _valid_toolchain_catalog()
+    del catalog["components"]["toolchain"]["helm"]["platforms"]["linux-arm64"]
+    result = _readiness._check_toolchain_pinned(catalog)
+    assert not result.ok
+    assert "helm" in result.detail
+    assert "linux-arm64" in result.detail
+
+
+def test_check_toolchain_pinned_flags_malformed_digest() -> None:
+    catalog = _valid_toolchain_catalog()
+    catalog["components"]["toolchain"]["kubectl"]["platforms"]["linux-amd64"] = "not-a-digest"
+    result = _readiness._check_toolchain_pinned(catalog)
+    assert not result.ok
+    assert "kubectl" in result.detail
+    assert "linux-amd64" in result.detail
+
+
 def test_check_images_match_deployment_sources_passes_on_real_repo_catalog() -> None:
     catalog = load_catalog(ROOT / "release/component-catalog.yaml")
     result = _readiness._check_images_match_deployment_sources(ROOT, catalog)

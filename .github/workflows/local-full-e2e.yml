@@ -9,8 +9,8 @@ name: Local full e2e (manual)
 #
 # The job runs the supported `olf` lifecycle and e2e commands directly.
 #
-# It reuses the kind-smoke plumbing from checks.yml (same toolchain setup,
-# kind-action install, and `olf diagnostics collect` on failure) but
+# It reuses the kind-smoke plumbing from checks.yml (same managed-toolchain
+# provisioning and `olf diagnostics collect` on failure) but
 # deploys the full profile by default and runs the complete assertion suite:
 # Polaris namespaces, Dagster product pipelines, Silver and Gold tables,
 # Polaris restart recovery, Superset dashboards, OpenMetadata assets, and
@@ -71,16 +71,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
 
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd
-        with:
-          terraform_version: 1.8.5
-
-      - name: Setup Helm
-        uses: azure/setup-helm@bf6a7d304bc2fdb57e0331155b7ebf2c504acf0a
-        with:
-          version: v3.18.6
-
       - name: Setup Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
@@ -89,12 +79,14 @@ jobs:
       - name: Setup uv
         uses: astral-sh/setup-uv@e58605a9b6da7c637471fab8847a5e5a6b8df081
 
-      - name: Install kind
-        uses: helm/kind-action@a1b0e391336a6ee6713a0583f8c6240d70863de3
+      - name: Cache OpenLakeForge toolchain
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
         with:
-          install_only: true
-          version: v0.26.0
-          kubectl_version: v1.31.4
+          path: ~/.openlakeforge
+          key: olf-toolchain-${{ hashFiles('release/component-catalog.yaml') }}
+
+      - name: Provision OpenLakeForge toolchain
+        run: uv run --project tools/olf --locked olf toolchain install
 
       - name: Deploy the local stack (fresh foundation)
         run: uv run --project tools/olf --locked olf deploy --provider local --profile ${{ inputs.suite == 'smoke' && 'slim' || 'full' }} --cluster-name ${{ env.CLUSTER_NAME }} --kubeconfig-path ${{ env.LOCAL_KUBECONFIG_PATH }}

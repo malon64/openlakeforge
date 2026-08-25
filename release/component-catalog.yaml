@@ -16,6 +16,35 @@ components:
       hashicorp/kubernetes: 2.38.0
       hashicorp/random: 3.9.0
       hashicorp/tls: 4.3.0
+  toolchain:
+    terraform:
+      version: "1.8.5"
+      platforms:
+        darwin-amd64: sha256:051c702e156a4d1a1c628783cf2ca0e1db8cca7b4c0f1686ea623558ed5560f9
+        darwin-arm64: sha256:627c5005ab4a2bee36316f4967a41f16d55f79ea737f78b6bb34325c728c73e1
+        linux-amd64: sha256:bb1ee3e8314da76658002e2e584f2d8854b6def50b7f124e27b957a42ddacfea
+        linux-arm64: sha256:17b3a243ea24003a58ab324c197da8609fccae136bcb8a424bf61ec475b3a203
+    helm:
+      version: "3.18.6"
+      platforms:
+        darwin-amd64: sha256:80cad0470e38cf25731cdead7c32dfbeb887bc177bd6fa01e31b065722f8f06b
+        darwin-arm64: sha256:48e30d236a1f334c6acb78501be5a851eaa2a267fefeb1131b6484eb2f9f30d7
+        linux-amd64: sha256:3f43c0aa57243852dd542493a0f54f1396c0bc8ec7296bbb2c01e802010819ce
+        linux-arm64: sha256:5b8e00b6709caab466cbbb0bc29ee09059b8dc9417991dd04b497530e49b1737
+    kubectl:
+      version: "1.31.4"
+      platforms:
+        darwin-amd64: sha256:fd996e9f41fd42c6c1c781a5a85990f4d0d8337ede00a7719afa23be886e0abd
+        darwin-arm64: sha256:a756bb911298a85af35c0111c371728a26c532d504fe8b534eb684501fcaf996
+        linux-amd64: sha256:298e19e9c6c17199011404278f0ff8168a7eca4217edad9097af577023a5620f
+        linux-arm64: sha256:b97e93c20e3be4b8c8fa1235a41b4d77d4f2022ed3d899230dbbbbd43d26f872
+    kind:
+      version: "0.26.0"
+      platforms:
+        darwin-amd64: sha256:a2c30525db86a7807ad4bba0094437406518f41d8a2882e6ea659d94099adcc4
+        darwin-arm64: sha256:e5bf92d8d46017e23482bfe266929d4d82e6f8c754e216c105cb7fbea937bea2
+        linux-amd64: sha256:d445b44c28297bc23fd67e51cc24bb294ae7b977712be2d4d312883d0835829b
+        linux-arm64: sha256:53fffdc37bd7149ccea440b1bdde2464f517d2c462dc8913ad37e7939e7f422d
   python:
     project_code_lock: images/project-code/requirements.lock
     tooling_lock: tools/olf/uv.lock
@@ -36,9 +65,7 @@ components:
     actions/checkout: 34e114876b0b11c390a56381ad16ebd13914f8d5
     actions/setup-python: a26af69be951a213d495a4c3e4e4022e16d87065
     astral-sh/setup-uv: e58605a9b6da7c637471fab8847a5e5a6b8df081
-    azure/setup-helm: bf6a7d304bc2fdb57e0331155b7ebf2c504acf0a
-    hashicorp/setup-terraform: b9cd54a3c349d3f38e8881555d616ced269862dd
-    helm/kind-action: a1b0e391336a6ee6713a0583f8c6240d70863de3
+    actions/cache: 55cc8345863c7cc4c66a329aec7e433d2d1c52a9
     docker/setup-buildx-action: f7ce87c1d6bead3e36075b2ce75da1f6cc28aaca
     docker/login-action: c94ce9fb468520275223c153574b00df6fe4bcc9
     docker/build-push-action: 4f58ea79222b3b9dc2c8bbdd6debcef730109a75
