@@ -56,8 +56,16 @@ def run(
     namespace: str = "lakehouse",
     kube_context: str = "",
     repo_root: Path | None = None,
+    distribution_root: Path | None = None,
 ) -> None:
-    cfg = prepare_config(env, suite=suite, namespace=namespace, kube_context=kube_context, repo_root=repo_root)
+    cfg = prepare_config(
+        env,
+        suite=suite,
+        namespace=namespace,
+        kube_context=kube_context,
+        repo_root=repo_root,
+        distribution_root=distribution_root,
+    )
     check_commands(cfg)
     prepare_kube_context(cfg)
     check_pods_ready(cfg)
@@ -81,8 +89,17 @@ def prepare_config(
     namespace: str,
     kube_context: str,
     repo_root: Path | None,
+    distribution_root: Path | None = None,
 ) -> E2EConfig:
+    """`repo_root` (descriptor discovery, Superset report dirs) and
+    `distribution_root` (foundation/contract Terraform roots) are distinct:
+    an installed distribution's writable project root defaults to the
+    bundled demo, while its Terraform roots live in the read-only payload
+    extracted under `OLF_HOME` - they only coincide in source-mode
+    checkouts, where `distribution_root` defaults to `repo_root`.
+    """
     root = (repo_root or Path(os.environ.get("OPENLAKEFORGE_REPO_ROOT", "."))).resolve()
+    dist_root = (distribution_root or root).resolve()
     actual_suite = suite or default_suite(env)
     inventory = inventory_for(root)
     if env == "local":
@@ -93,8 +110,9 @@ def prepare_config(
             namespace=namespace,
             kube_context=kube_context or os.environ.get("KUBE_CONTEXT", f"kind-{cluster_name}"),
             repo_root=root,
-            foundation_terraform_dir=root / "infra/terraform/foundations/local-kind",
-            contract_terraform_dir=_contract_dir(root, "infra/terraform/environments/local"),
+            distribution_root=dist_root,
+            foundation_terraform_dir=dist_root / "infra/terraform/foundations/local-kind",
+            contract_terraform_dir=_contract_dir(dist_root, "infra/terraform/environments/local"),
             inventory=inventory,
             dagster_local_port=int(os.environ.get("DAGSTER_LOCAL_PORT", "13000")),
             superset_local_port=int(os.environ.get("SUPERSET_LOCAL_PORT", "18088")),
@@ -109,8 +127,9 @@ def prepare_config(
             namespace=namespace,
             kube_context=kube_context or os.environ.get("KUBE_CONTEXT", cluster_name),
             repo_root=root,
-            foundation_terraform_dir=root / "infra/terraform/foundations/azure-aks",
-            contract_terraform_dir=_contract_dir(root, "infra/terraform/environments/azure-poc"),
+            distribution_root=dist_root,
+            foundation_terraform_dir=dist_root / "infra/terraform/foundations/azure-aks",
+            contract_terraform_dir=_contract_dir(dist_root, "infra/terraform/environments/azure-poc"),
             inventory=inventory,
             dagster_local_port=int(os.environ.get("DAGSTER_LOCAL_PORT", "13000")),
             superset_local_port=int(os.environ.get("SUPERSET_LOCAL_PORT", "18088")),
@@ -125,8 +144,9 @@ def prepare_config(
             namespace=namespace,
             kube_context=kube_context or os.environ.get("KUBE_CONTEXT", cluster_name),
             repo_root=root,
-            foundation_terraform_dir=root / "infra/terraform/foundations/aws-eks",
-            contract_terraform_dir=_contract_dir(root, "infra/terraform/environments/aws-poc"),
+            distribution_root=dist_root,
+            foundation_terraform_dir=dist_root / "infra/terraform/foundations/aws-eks",
+            contract_terraform_dir=_contract_dir(dist_root, "infra/terraform/environments/aws-poc"),
             inventory=inventory,
             aws_region=os.environ.get("AWS_REGION"),
             dagster_local_port=int(os.environ.get("DAGSTER_LOCAL_PORT", "13000")),
@@ -136,8 +156,8 @@ def prepare_config(
     raise E2EError(f"unsupported e2e environment: {env}")
 
 
-def _contract_dir(repo_root: Path, default: str) -> Path:
-    return Path(os.environ.get("OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR", repo_root / default)).resolve()
+def _contract_dir(distribution_root: Path, default: str) -> Path:
+    return Path(os.environ.get("OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR", distribution_root / default)).resolve()
 
 
 def check_commands(cfg: E2EConfig) -> None:

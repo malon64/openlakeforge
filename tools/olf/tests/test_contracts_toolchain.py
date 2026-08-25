@@ -7,6 +7,8 @@ executable resolution.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from olf.contracts import load_provider_contracts
@@ -38,3 +40,85 @@ def test_a_real_toolchain_failure_propagates_instead_of_being_swallowed(monkeypa
 
     with pytest.raises(ToolchainError):
         load_provider_contracts("some/terraform/dir")
+
+
+def test_external_state_root_is_translated_into_terraform_state_and_data_dir(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """An installed distribution's state lives under OLF_HOME
+    (OPENLAKEFORGE_TERRAFORM_STATE_ROOT/_DATA_ROOT), not next to
+    terraform_dir - load_provider_contracts must pass `-state=<path>` and
+    `TF_DATA_DIR` exactly as Terraform._run does, or it always reads an
+    absent state and returns None even after a real apply."""
+    import subprocess
+
+    from olf.tooling.resolver import ExecutableResolver
+
+    captured: dict = {}
+
+    class _Resolver(ExecutableResolver):
+        def resolve(self, tool: str):  # noqa: ANN001, ANN202
+            return Path("/usr/local/bin/terraform")
+
+    def _fake_run(argv, **kwargs):  # noqa: ANN001, ANN202
+        captured["argv"] = argv
+        captured["env"] = kwargs.get("env")
+        return subprocess.CompletedProcess(argv, 0, stdout='{"schema_version": "2.0.0"}', stderr="")
+
+    monkeypatch.setattr("olf.tooling.resolver.build_resolver", lambda environ=None: _Resolver())
+    monkeypatch.setattr("olf.contracts.subprocess.run", _fake_run)
+
+    terraform_dir = tmp_path / "environments" / "local"
+    environ = {
+        "OPENLAKEFORGE_TERRAFORM_DATA_ROOT": str(tmp_path / "terraform-data"),
+        "OPENLAKEFORGE_TERRAFORM_STATE_ROOT": str(tmp_path / "state"),
+        "PATH": "/usr/bin",
+    }
+
+    result = load_provider_contracts(str(terraform_dir), environ=environ)
+
+    assert result == {"schema_version": "2.0.0"}
+    argv = captured["argv"]
+    assert argv[0] == "/usr/local/bin/terraform"
+    assert argv[1] == f"-chdir={terraform_dir}"
+    assert "output" in argv
+    expected_state = tmp_path / "state" / "platform.tfstate"
+    assert f"-state={expected_state}" in argv
+    assert not expected_state.parent.exists(), "read-only contract reads must not create state directories"
+    assert captured["env"]["TF_DATA_DIR"] == str(tmp_path / "terraform-data" / "platform")
+
+
+def test_without_external_state_root_behaviour_is_unchanged(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    import subprocess
+
+    from olf.tooling.resolver import ExecutableResolver
+
+    captured: dict = {}
+
+    class _Resolver(ExecutableResolver):
+        def resolve(self, tool: str):  # noqa: ANN001, ANN202
+            return Path("/usr/local/bin/terraform")
+
+    def _fake_run(argv, **kwargs):  # noqa: ANN001, ANN202
+        captured["argv"] = argv
+        captured["env"] = kwargs.get("env")
+        return subprocess.CompletedProcess(argv, 0, stdout='{"schema_version": "2.0.0"}', stderr="")
+
+    monkeypatch.setattr("olf.tooling.resolver.build_resolver", lambda environ=None: _Resolver())
+    monkeypatch.setattr("olf.contracts.subprocess.run", _fake_run)
+
+    terraform_dir = tmp_path / "environments" / "local"
+    environ = {"PATH": "/usr/bin"}
+
+    result = load_provider_contracts(str(terraform_dir), environ=environ)
+
+    assert result == {"schema_version": "2.0.0"}
+    argv = captured["argv"]
+    assert argv == [
+        "/usr/local/bin/terraform",
+        f"-chdir={terraform_dir}",
+        "output",
+        "-json",
+        "provider_contracts",
+    ]
+    assert captured["env"] == environ

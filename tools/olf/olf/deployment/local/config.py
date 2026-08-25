@@ -218,7 +218,6 @@ class LocalDeploymentConfig:
         context: DeploymentContext,
         var_file: Path | None = None,
     ) -> LocalDeploymentConfig:
-        project_root = context.paths.repo_root
         distribution_root = context.paths.distribution_root
         cluster_name = context.kube_context.removeprefix("kind-") or context.kube_context
         return cls(
@@ -236,6 +235,6 @@ class LocalDeploymentConfig:
                 environ, repo_root=distribution_root, profile=context.profile, var_file=var_file
             ),
             prefetch=PrefetchSettings.from_environment(environ),
-            floe=FloeManifestSettings.from_environment(environ, repo_root=project_root),
+            floe=FloeManifestSettings.from_environment(environ, work_root=context.paths.work_root),
             force_foundation_down=_truthy(_env(environ, "LOCAL_FOUNDATION_FORCE_DOWN", "false")),
         )

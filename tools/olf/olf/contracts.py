@@ -20,6 +20,7 @@ Semantics preserved from the shell implementation:
 from __future__ import annotations
 
 import json
+import os
 import shlex
 import subprocess
 from collections.abc import Mapping
@@ -27,6 +28,8 @@ from pathlib import Path
 from typing import Any
 
 from openlakeforge_domain import inventory_for
+
+from olf.tooling.terraform import external_state_options
 
 PROVIDER_CONTRACT_SCHEMA_VERSION = "2.0.0"
 
@@ -59,13 +62,29 @@ def load_provider_contracts(
         terraform = str(resolver.resolve("terraform"))
     except ExecutableNotFoundError:
         return None
+    # An installed distribution's state lives under OLF_HOME, not next to
+    # terraform_dir - without this, `terraform output` reads the read-only
+    # payload's default (absent) state and this always returns None, even
+    # after a successful `terraform apply` (see olf.tooling.terraform.
+    # external_state_options, which Terraform._run also uses).
+    base_environ = environ if environ is not None else os.environ
+    overlay, state_path = external_state_options(Path(terraform_dir), base_environ, create=False)
+    args = ["output", "-json", "provider_contracts"]
+    if state_path is not None:
+        args.insert(1, f"-state={state_path}")
+    if state_path is not None:
+        command_env: dict[str, str] | None = {**dict(base_environ), **overlay}
+    elif environ is not None:
+        command_env = dict(environ)
+    else:
+        command_env = None
     try:
         result = subprocess.run(
-            [terraform, f"-chdir={terraform_dir}", "output", "-json", "provider_contracts"],
+            [terraform, f"-chdir={terraform_dir}", *args],
             capture_output=True,
             text=True,
             check=True,
-            env=dict(environ) if environ is not None else None,
+            env=command_env,
         )
     except (OSError, subprocess.CalledProcessError):
         return None

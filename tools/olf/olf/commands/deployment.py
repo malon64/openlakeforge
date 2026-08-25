@@ -14,48 +14,10 @@ from pathlib import Path
 
 import typer
 
+from olf.commands._shared import deployment_context as _build_context
 from olf.commands._shared import fail
 
 app_help = "Deployment lifecycle: foundation, platform, and artifact orchestration."
-
-
-def _build_context(
-    provider: str, *, profile: str, namespace: str, cluster_name: str, kubeconfig_path: str = "", project_root: str = ""
-):  # noqa: ANN202
-    from olf.deployment.context import DeploymentContext, Profile, Provider
-    from olf.distribution import DistributionError, runtime_layout
-
-    try:
-        resolved_provider = Provider(provider)
-    except ValueError as exc:
-        raise typer.Exit(code=fail(f"unknown --provider: {provider!r}")) from exc
-    try:
-        resolved_profile = Profile(profile)
-    except ValueError as exc:
-        raise typer.Exit(code=fail(f"unknown --profile: {profile!r} (expected 'full' or 'slim')")) from exc
-
-    layout_env = dict(os.environ)
-    if project_root:
-        layout_env["OPENLAKEFORGE_PROJECT_ROOT"] = project_root
-    try:
-        layout = runtime_layout(layout_env)
-    except DistributionError as exc:
-        raise typer.Exit(code=fail(str(exc))) from exc
-    kwargs: dict[str, object] = {
-        "repo_root": layout.project_root,
-        "distribution_root": layout.distribution_root,
-        "state_root": None if layout.is_source else layout.state_root,
-        "work_root": None if layout.is_source else layout.work_root,
-        "cache_root": None if layout.is_source else layout.cache_root,
-        "profile": resolved_profile,
-    }
-    if namespace:
-        kwargs["namespace"] = namespace
-    if resolved_provider == Provider.LOCAL and cluster_name:
-        kwargs["cluster_name"] = cluster_name
-    if kubeconfig_path:
-        kwargs["kubeconfig_path"] = Path(kubeconfig_path)
-    return DeploymentContext.for_provider(resolved_provider, **kwargs)
 
 
 def _build_engine(context, *, var_file: str):  # noqa: ANN001, ANN202
