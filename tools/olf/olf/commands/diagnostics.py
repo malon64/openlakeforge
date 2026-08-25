@@ -16,6 +16,19 @@ app = typer.Typer(help="Collect bounded deployment diagnostics.")
 _OUTPUT_ARGUMENT = typer.Argument(..., help="Directory to receive text diagnostics.")
 
 
+def _host_memory_snapshot() -> str:
+    """Return host memory evidence without requiring a platform-specific shell utility."""
+    try:
+        meminfo = Path("/proc/meminfo")
+        if meminfo.is_file():
+            return meminfo.read_text()
+        page_size = os.sysconf("SC_PAGE_SIZE")
+        physical_pages = os.sysconf("SC_PHYS_PAGES")
+        return f"total={page_size * physical_pages}\n"
+    except (OSError, ValueError, AttributeError) as exc:
+        return f"unavailable: {type(exc).__name__}: {exc}\n"
+
+
 def _capture(tools: Toolkit, output: Path, name: str, argv_factory: Callable[[], list[str]]) -> str:
     """Capture one diagnostic command, including command-resolution failures."""
     try:
@@ -49,6 +62,7 @@ def collect(
     selected_context = kube_context or os.environ.get("KUBE_CONTEXT", "")
     disk = shutil.disk_usage(output_dir)
     (output_dir / "host-disk.txt").write_text(f"total={disk.total}\nused={disk.used}\nfree={disk.free}\n")
+    (output_dir / "host-memory.txt").write_text(_host_memory_snapshot())
     tools = Toolkit.default()
     context = ["--context", selected_context] if selected_context else []
     def command(tool: str, *args: str) -> list[str]:

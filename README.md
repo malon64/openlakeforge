@@ -85,7 +85,7 @@ Slim contains the complete data path while leaving out the optional governance a
 Run the included data products end-to-end:
 
 ```bash
-uv run --project tools/olf --locked olf e2e run --env local --suite smoke
+uv run --project tools/olf --locked olf e2e run --env local --suite full
 ```
 
 Start local port forwarding:
