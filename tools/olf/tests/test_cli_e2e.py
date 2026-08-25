@@ -128,3 +128,26 @@ def test_e2e_run_maps_e2e_error_to_exit_1(monkeypatch: pytest.MonkeyPatch, tmp_p
 
     assert result.exit_code == 1
     assert "cluster not reachable" in result.output
+
+
+def test_e2e_run_surfaces_a_toolchain_failure_from_contract_resolution_cleanly(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A managed-toolchain provisioning failure (#127) raised while
+    resolving the provider-contract environment - before e2e.run() and its
+    own E2EError-only preflight are ever reached - must fail the same clean
+    way as an E2EError, not escape as a raw ToolchainError traceback."""
+    from olf import contracts as contracts_module
+    from olf.deployment.errors import ToolchainError
+
+    def _raise(terraform_dir):  # noqa: ANN001, ANN202
+        raise ToolchainError("terraform", reason="digest mismatch")
+
+    monkeypatch.setattr(contracts_module, "load_provider_contracts", _raise)
+    monkeypatch.setenv("OPENLAKEFORGE_REPO_ROOT", str(tmp_path))
+
+    result = runner.invoke(app, ["e2e", "run", "--env", "local"])
+
+    assert result.exit_code != 0
+    assert not isinstance(result.exception, ToolchainError)
+    assert "digest mismatch" in result.output

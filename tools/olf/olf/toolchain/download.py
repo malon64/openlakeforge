@@ -7,6 +7,7 @@ built on the `requests` dependency `olf` already carries.
 
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import os
 import tempfile
@@ -58,12 +59,34 @@ def cache_path(cache_root: Path, spec: ToolSpec) -> Path:
 def fetch_verified(downloader: Downloader, spec: ToolSpec, *, cache_root: Path) -> Path:
     """Return a cached, digest-verified copy of `spec`'s archive, downloading
     it first if it is not already cached (or if a stale cache entry no longer
-    matches its own name)."""
+    matches its own name).
+
+    Locked per digest, independent of any caller-side lock: this cache is
+    content-addressed and intentionally shared across every
+    `ToolchainManager` (and thus every distribution version) pointed at the
+    same `OLF_HOME`, so a manager's own per-version lock does not protect
+    it. Without a lock scoped here, two managers that happen to pin the
+    same tool digest and concurrently find a stale/corrupted cache entry
+    could both pass the staleness check and then race each other's
+    `unlink()` - the loser gets `FileNotFoundError` instead of the cache
+    being repaired.
+    """
     destination = cache_path(cache_root, spec)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = destination.parent / f"{destination.name}.lock"
+    with lock_path.open("a+") as lock_file:
+        fcntl.flock(lock_file, fcntl.LOCK_EX)
+        try:
+            return _fetch_verified_locked(downloader, spec, destination)
+        finally:
+            fcntl.flock(lock_file, fcntl.LOCK_UN)
+
+
+def _fetch_verified_locked(downloader: Downloader, spec: ToolSpec, destination: Path) -> Path:
     if destination.is_file() and _sha256(destination) == spec.sha256.removeprefix("sha256:"):
         return destination
     if destination.exists():
-        destination.unlink()
+        destination.unlink(missing_ok=True)
 
     downloader.fetch(spec.url, destination=destination)
     actual = _sha256(destination)

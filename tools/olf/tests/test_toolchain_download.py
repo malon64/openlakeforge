@@ -88,3 +88,64 @@ def test_fetch_verified_redownloads_a_stale_cache_entry(tmp_path: Path) -> None:
 def test_fetch_verified_propagates_download_failures(tmp_path: Path) -> None:
     with pytest.raises(RuntimeError, match="unreachable"):
         fetch_verified(_FailingDownloader(), _spec(), cache_root=tmp_path)
+
+
+def test_fetch_verified_serializes_concurrent_stale_cache_replacement(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Two managers sharing a digest (e.g. two distribution versions pinning
+    the same tool version) that both find a corrupted cache entry at the
+    same time must not race each other's unlink - the loser must not crash
+    with FileNotFoundError, and the cache must end up correctly repaired.
+
+    A real `Path.unlink()` is fast enough that plain GIL scheduling rarely
+    reproduces the race deterministically, so a small sleep is injected
+    around every unlink of the contested `destination` path to widen the
+    window - real time, not an artificial synchronization point, so a
+    correctly-locked implementation (whose second caller never even reaches
+    its own unlink because the earlier one already repaired the cache
+    under the lock) is unaffected rather than deadlocking on a barrier that
+    only one side reaches.
+    """
+    import threading
+    import time
+
+    spec = _spec()
+    destination = cache_path(tmp_path, spec)
+    destination.parent.mkdir(parents=True)
+    destination.write_bytes(b"corrupted leftover from a prior run")
+
+    real_unlink = Path.unlink
+
+    def _slow_unlink(self: Path, *args, **kwargs):  # noqa: ANN002, ANN003, ANN202
+        if self == destination:
+            time.sleep(0.05)
+        return real_unlink(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "unlink", _slow_unlink)
+
+    start_barrier = threading.Barrier(2)
+    errors: list[BaseException] = []
+    results: list[Path] = []
+    results_lock = threading.Lock()
+
+    def _fetch() -> None:
+        start_barrier.wait(timeout=5)
+        try:
+            result = fetch_verified(_FakeDownloader(), spec, cache_root=tmp_path)
+        except BaseException as exc:  # noqa: BLE001 - captured for the assertion below
+            errors.append(exc)
+        else:
+            with results_lock:
+                results.append(result)
+
+    threads = [threading.Thread(target=_fetch) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=10)
+
+    assert not errors, errors
+    assert len(results) == 2
+    assert results[0] == results[1] == destination
+    assert destination.read_bytes() == _CONTENT
