@@ -512,3 +512,28 @@ def test_resolve_reinstalls_from_the_verified_cache_when_the_executable_bit_is_l
     assert second_path == first_path
     assert os.access(second_path, os.X_OK)
     assert len(downloader.calls) == 1  # reused the cached archive, no re-download
+
+
+def test_from_catalog_path_raises_a_typed_error_for_invalid_yaml(tmp_path: Path) -> None:
+    catalog_path = tmp_path / "component-catalog.yaml"
+    catalog_path.write_text("distribution: [unterminated\n  - broken")
+
+    with pytest.raises(ToolchainCatalogError):
+        ToolchainManager.from_catalog_path(catalog_path, home=tmp_path / "home", platform=_PLATFORM)
+
+
+@pytest.mark.parametrize("malformed_root", [["a", "list"], "a scalar string", 42, None])
+def test_from_catalog_raises_a_typed_error_for_a_non_mapping_root(malformed_root: object, tmp_path: Path) -> None:
+    with pytest.raises(ToolchainCatalogError):
+        ToolchainManager.from_catalog(malformed_root, home=tmp_path / "home", platform=_PLATFORM)
+
+
+@pytest.mark.parametrize("malformed_distribution", [["a", "list"], "a scalar string", 42])
+def test_from_catalog_raises_a_typed_error_for_a_non_mapping_distribution(
+    malformed_distribution: object, tmp_path: Path
+) -> None:
+    catalog, _ = _catalog_and_digests()
+    catalog["distribution"] = malformed_distribution
+
+    with pytest.raises(ToolchainCatalogError):
+        ToolchainManager.from_catalog(catalog, home=tmp_path / "home", platform=_PLATFORM)

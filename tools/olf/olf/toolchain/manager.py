@@ -70,8 +70,15 @@ class ToolchainManager:
         platform: Platform | None = None,
         downloader: Downloader | None = None,
     ) -> ToolchainManager:
+        if not isinstance(catalog, dict):
+            raise ToolchainCatalogError(f"release catalog must be a mapping, got {type(catalog).__name__}")
+        distribution = catalog.get("distribution")
+        if distribution is not None and not isinstance(distribution, dict):
+            raise ToolchainCatalogError(
+                f"release catalog's distribution must be a mapping, got {type(distribution).__name__}"
+            )
         resolved_platform = platform or Platform.detect()
-        distribution_version = ((catalog.get("distribution") or {}).get("version")) or "unknown"
+        distribution_version = (distribution or {}).get("version") or "unknown"
         return cls(
             home=home or default_home(),
             distribution_version=str(distribution_version),
@@ -92,7 +99,10 @@ class ToolchainManager:
         path = Path(catalog_path)
         if not path.is_file():
             raise ToolchainCatalogError(f"release catalog not found at {path}")
-        catalog = yaml.safe_load(path.read_text())
+        try:
+            catalog = yaml.safe_load(path.read_text())
+        except yaml.YAMLError as exc:
+            raise ToolchainCatalogError(f"release catalog at {path} is not valid YAML: {exc}") from exc
         return cls.from_catalog(catalog, home=home, platform=platform, downloader=downloader)
 
     @property
