@@ -21,11 +21,13 @@ import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from functools import cached_property
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from olf.deployment.cloud.backend import CloudBackend, FoundationFacts
 from olf.deployment.cloud.config import CloudDeploymentConfig
-from olf.deployment.engine import Toolkit
+from olf.deployment.engine import DeploymentPhase, Toolkit
+from olf.deployment.inspection import DoctorItem, DoctorReport, base_report, docker_health
 
 if TYPE_CHECKING:
     from olf.deployment.context import DeploymentContext
@@ -140,3 +142,108 @@ class CloudProvider:
             print(line)  # noqa: T201 - user-facing CLI banner
         supervisor = PortForwardSupervisor(self.tools.kubectl, log_prefix=self.config.paths.port_forward_log_prefix)
         supervisor.run(spec, env=self.env)
+
+    def plan(self, phase: DeploymentPhase) -> bool:
+        from olf.deployment.cloud import foundation, platform
+        from olf.deployment.errors import DeploymentPreconditionError
+
+        changes = False
+        if phase in (DeploymentPhase.ALL, DeploymentPhase.FOUNDATION):
+            foundation_dir = self.config.paths.foundation_terraform_dir
+            tfvars = foundation._resolve_foundation_tfvars_file(
+                self.config, self.backend, self._environ, foundation_dir
+            )
+            self.tools.terraform.init(foundation_dir, env=self._base_env)
+            result = self.tools.terraform.plan(
+                foundation_dir,
+                var_files=(str(tfvars),) if tfvars is not None else (),
+                variables=self.backend.foundation_apply_variables(self.config, self._environ),
+                detailed_exitcode=True,
+                env=self._base_env,
+            )
+            changes = changes or result.returncode == 2
+        if phase in (DeploymentPhase.ALL, DeploymentPhase.PLATFORM):
+            if not self.config.paths.foundation_state_path.is_file():
+                if phase == DeploymentPhase.PLATFORM:
+                    raise DeploymentPreconditionError("foundation state is required before planning the cloud platform")
+                return changes
+            facts = self._foundation_facts
+            platform_dir = self.config.paths.platform_terraform_dir
+            platform.prepare_charts(self.config, self.tools, env=self.env)
+            self.tools.terraform.init(platform_dir, env=self.env)
+            result = self.tools.terraform.plan(
+                platform_dir,
+                var_files=(str(self.config.terraform.var_file),) if self.config.terraform.var_file is not None else (),
+                variables=self.backend.platform_apply_variables(self.config, facts),
+                detailed_exitcode=True,
+                env=self.env,
+            )
+            changes = changes or result.returncode == 2
+        return changes
+
+    def doctor(self, phase: DeploymentPhase) -> DoctorReport:
+        from olf.deployment.cloud import foundation
+        from olf.deployment.errors import DeploymentError
+
+        provider_cli = "aws" if self.backend.scope == "aws" else "az"
+        required = ["terraform", "kubectl", provider_cli]
+        if phase in (DeploymentPhase.ALL, DeploymentPhase.PLATFORM):
+            required.append("helm")
+        needs_docker = phase in (DeploymentPhase.ALL, DeploymentPhase.ARTIFACTS) or (
+            phase == DeploymentPhase.PLATFORM and self.config.features.analytics_enabled
+        )
+        if needs_docker:
+            required.append("docker")
+        items = base_report(repo_root=self.config.paths.repo_root, tools=self.tools, required_tools=required)
+        env = self.context.command_env()
+        if needs_docker:
+            items.append(docker_health(self.tools, env=env))
+        try:
+            self.backend.preflight(self.tools, env=env)
+        except Exception as exc:  # provider adapters provide the actionable message
+            items.append(DoctorItem(f"{self.backend.scope} authentication", False, str(exc)))
+        else:
+            items.append(DoctorItem(f"{self.backend.scope} authentication", True, "authenticated"))
+        if phase in (DeploymentPhase.ALL, DeploymentPhase.FOUNDATION):
+            foundation_dir = self.config.paths.foundation_terraform_dir
+            try:
+                tfvars = foundation._resolve_foundation_tfvars_file(  # noqa: SLF001 - shared foundation resolver.
+                    self.config, self.backend, self._environ, foundation_dir
+                )
+            except DeploymentError as exc:
+                items.append(DoctorItem(f"{self.backend.scope} foundation tfvars", False, str(exc)))
+            else:
+                if tfvars is not None:
+                    items.append(
+                        DoctorItem(f"{self.backend.scope} foundation tfvars", tfvars.is_file(), str(tfvars))
+                    )
+        if phase in (DeploymentPhase.ALL, DeploymentPhase.PLATFORM):
+            tfvars = self.config.terraform.var_file
+            if tfvars is not None:
+                items.append(DoctorItem(f"{self.backend.scope} platform tfvars", tfvars.is_file(), str(tfvars)))
+        if phase in (DeploymentPhase.PLATFORM, DeploymentPhase.ARTIFACTS):
+            items.append(
+                DoctorItem(
+                    "foundation state",
+                    self.config.paths.foundation_state_path.is_file(),
+                    str(self.config.paths.foundation_state_path),
+                )
+            )
+        if phase in (DeploymentPhase.ALL, DeploymentPhase.ARTIFACTS):
+            from olf.contracts import ProviderContractError, load_provider_contracts
+
+            contract_dir = Path(
+                self._environ.get("OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR", self.config.paths.platform_terraform_dir)
+            ).resolve()
+            try:
+                provider_contracts = load_provider_contracts(str(contract_dir))
+            except ProviderContractError as exc:
+                items.append(DoctorItem(f"{self.backend.scope} platform provider contracts", False, str(exc)))
+            else:
+                detail = str(contract_dir) if provider_contracts is not None else f"unavailable from {contract_dir}"
+                items.append(
+                    DoctorItem(
+                        f"{self.backend.scope} platform provider contracts", provider_contracts is not None, detail
+                    )
+                )
+        return DoctorReport(tuple(items))

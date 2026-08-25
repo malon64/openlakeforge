@@ -63,7 +63,7 @@ The easiest way to evaluate OpenLakeForge is with the local Kubernetes environme
 
 You need a working:
 
-**Docker engine · kind · kubectl · Terraform >= 1.7 · Helm · Python >= 3.12 · uv · Make**
+**Docker engine · kind · kubectl · Terraform >= 1.7 · Helm · Python >= 3.12 · uv**
 
 Make sure Docker is available from your shell:
 
@@ -77,7 +77,7 @@ Then clone OpenLakeForge and start the **Slim** profile:
 git clone https://github.com/malon64/openlakeforge.git
 cd openlakeforge
 
-make local-slim-up
+uv run --project tools/olf --locked olf deploy --provider local --profile slim
 ```
 
 Slim contains the complete data path while leaving out the optional governance and dashboarding services.
@@ -85,13 +85,13 @@ Slim contains the complete data path while leaving out the optional governance a
 Run the included data products end-to-end:
 
 ```bash
-make local-slim-e2e
+uv run --project tools/olf --locked olf e2e run --env local --suite full
 ```
 
 Start local port forwarding:
 
 ```bash
-make local-forward
+uv run --project tools/olf --locked olf forward --provider local --profile slim
 ```
 
 Dagster is then available at:
@@ -107,9 +107,9 @@ From there you can inspect the asset graph and launch the example pipelines.
 To include **OpenMetadata** and **Superset**, use the Full profile:
 
 ```bash
-make local-up
-make local-e2e
-make local-forward
+uv run --project tools/olf --locked olf deploy --provider local --profile full
+uv run --project tools/olf --locked olf e2e run --env local --suite full
+uv run --project tools/olf --locked olf forward --provider local --profile full
 ```
 
 ### Slim or Full?

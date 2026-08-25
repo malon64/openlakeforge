@@ -64,11 +64,11 @@ def activate_runtime_revision(runtime_root: Path, *, via: str = "port-forward") 
 
 
 def upload_runtime_manifests(runtime_root: Path, *, via: str = "port-forward") -> None:
-    from olf.commands.artifacts import artifacts_upload_manifests
+    from olf.commands.artifacts import upload_manifests
 
     _run_cli(
         "Legacy Floe manifest upload",
-        artifacts_upload_manifests,
+        upload_manifests,
         via=via,
         manifest_root="",
         runtime_root=str(runtime_root),

@@ -5,7 +5,7 @@ from pathlib import Path
 from _tooling_support import RecordedCall, RecordingRunner
 
 from olf.deployment.context import DeploymentContext
-from olf.deployment.engine import Toolkit
+from olf.deployment.engine import DeploymentPhase, Toolkit
 from olf.deployment.local.config import LocalDeploymentConfig
 from olf.deployment.local.provider import LocalProvider
 from olf.tooling.aws import AwsCli
@@ -100,3 +100,85 @@ def test_env_resolves_docker_host_from_ambient_context_when_unset(tmp_path: Path
     provider = LocalProvider.create(_config(tmp_path), toolkit=toolkit, environ={})
 
     assert provider.env["DOCKER_HOST"] == "unix:///colima/docker.sock"
+
+
+def test_foundation_doctor_does_not_require_helm(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    provider = LocalProvider.create(_config(tmp_path), toolkit=_toolkit(), environ={})
+    required: list[str] = []
+    health_calls: list[str] = []
+    monkeypatch.setattr(
+        "olf.deployment.local.provider.base_report",
+        lambda **kwargs: required.extend(kwargs["required_tools"]) or [],
+    )
+    monkeypatch.setattr(
+        "olf.deployment.local.provider.docker_health",
+        lambda *args, **kwargs: health_calls.append("docker") or None,
+    )
+
+    provider.doctor(DeploymentPhase.FOUNDATION)
+
+    assert required == ["terraform", "kubectl", "docker", "kind"]
+    assert health_calls == ["docker"]
+
+
+def test_artifacts_doctor_does_not_require_helm(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    provider = LocalProvider.create(_config(tmp_path), toolkit=_toolkit(), environ={})
+    required: list[str] = []
+    monkeypatch.setattr(
+        "olf.deployment.local.provider.base_report",
+        lambda **kwargs: required.extend(kwargs["required_tools"]) or [],
+    )
+    monkeypatch.setattr("olf.deployment.local.provider.docker_health", lambda *args, **kwargs: None)
+    monkeypatch.setattr("olf.contracts.load_provider_contracts", lambda *_args: None)
+
+    provider.doctor(DeploymentPhase.ARTIFACTS)
+
+    assert required == ["terraform", "kubectl", "docker", "kind"]
+
+
+def test_artifacts_doctor_requires_platform_provider_contracts(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    provider = LocalProvider.create(_config(tmp_path), toolkit=_toolkit(), environ={})
+    monkeypatch.setattr("olf.deployment.local.provider.docker_health", lambda *args, **kwargs: None)
+    monkeypatch.setattr("olf.contracts.load_provider_contracts", lambda *_args: None)
+
+    report = provider.doctor(DeploymentPhase.ARTIFACTS)
+
+    contracts_item = next(
+        item for item in report.items if item is not None and item.name == "local platform provider contracts"
+    )
+    assert contracts_item.ok is False
+
+
+def test_artifacts_doctor_uses_the_configured_contract_root(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    contract_root = tmp_path / "custom-platform"
+    observed: list[str] = []
+    provider = LocalProvider.create(
+        _config(tmp_path), toolkit=_toolkit(), environ={"OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR": str(contract_root)}
+    )
+    monkeypatch.setattr("olf.deployment.local.provider.docker_health", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        "olf.contracts.load_provider_contracts", lambda path: observed.append(path) or {"schema_version": "2.0.0"}
+    )
+
+    report = provider.doctor(DeploymentPhase.ARTIFACTS)
+
+    assert observed == [str(contract_root.resolve())]
+    contracts_item = next(
+        item for item in report.items if item is not None and item.name == "local platform provider contracts"
+    )
+    assert contracts_item.ok is True
+
+
+def test_platform_plan_prepares_cached_chart(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    config = _config(tmp_path)
+    config.paths.foundation_state_path.parent.mkdir(parents=True, exist_ok=True)
+    config.paths.foundation_state_path.write_text("{}")
+    provider = LocalProvider.create(config, toolkit=_toolkit(), environ={})
+    calls: list[str] = []
+    monkeypatch.setattr(
+        "olf.deployment.local.platform.prepare_charts", lambda *args, **kwargs: calls.append("charts")
+    )
+
+    provider.plan(DeploymentPhase.PLATFORM)
+
+    assert calls == ["charts"]

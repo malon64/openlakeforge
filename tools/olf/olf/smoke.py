@@ -1,34 +1,24 @@
-"""Bounded local deployment smoke orchestration."""
+"""Bounded local smoke orchestration without Make or shell subprocesses."""
 
 from __future__ import annotations
 
 import os
 import signal
-import subprocess
+import threading
 import time
 from collections.abc import Callable, Mapping
-from contextlib import suppress
-from dataclasses import dataclass
+from contextlib import contextmanager
+from pathlib import Path
+from unittest.mock import patch
 
-from olf import log
+from olf import config, e2e, log
+from olf.deployment.context import DeploymentContext, Profile
+from olf.deployment.engine import DeploymentEngine, DeploymentPhase, Toolkit, build_provider
+from olf.deployment.errors import DeploymentError
 
 
 class SmokeError(RuntimeError):
     """The bounded smoke deployment failed or exceeded its deadline."""
-
-
-@dataclass(frozen=True)
-class SmokePhase:
-    """One supported Make target in the local smoke path."""
-
-    label: str
-    target: str
-
-
-PHASES = (
-    SmokePhase("Deploying slim local platform", "local-slim-up"),
-    SmokePhase("Validating one product pipeline and Gold table", "local-slim-e2e E2E_SUITE=smoke"),
-)
 
 
 def run(
@@ -36,60 +26,66 @@ def run(
     timeout_seconds: int,
     environ: Mapping[str, str] | None = None,
     monotonic: Callable[[], float] = time.monotonic,
-    popen: Callable[..., subprocess.Popen[str]] = subprocess.Popen,
 ) -> None:
-    """Run the local slim smoke target sequence within one hard deadline."""
+    """Deploy slim local, then run its smoke suite under one elapsed-time budget."""
     if timeout_seconds <= 0:
         raise SmokeError("smoke timeout must be greater than zero seconds")
-
     started = monotonic()
-    deadline = started + timeout_seconds
     env = dict(environ or os.environ)
-    for phase in PHASES:
-        remaining = deadline - monotonic()
-        if remaining <= 0:
-            raise SmokeError(_timeout_message(timeout_seconds, phase.label))
-        log.step(f"{phase.label} ({int(remaining)}s remaining)...")
-        _run_make_phase(
-            phase,
-            env=env,
-            timeout_seconds=remaining,
-            budget_seconds=timeout_seconds,
-            popen=popen,
-        )
+    root = config.repo_root()
+    cluster_name = env.get("CLUSTER_NAME", "openlakeforge-local")
+    namespace = env.get("NAMESPACE") or env.get("OPENLAKEFORGE_KUBE_NAMESPACE") or "lakehouse"
+    kubeconfig_path = Path(env.get("LOCAL_KUBECONFIG_PATH", root / ".tmp/kubeconfigs/local.yaml"))
+    context = DeploymentContext.local(
+        repo_root=root,
+        profile=Profile.SLIM,
+        namespace=namespace,
+        cluster_name=cluster_name,
+        kubeconfig_path=kubeconfig_path,
+    )
+    try:
+        with _deadline(timeout_seconds):
+            with patch.dict(os.environ, env, clear=False):
+                log.step("Deploying slim local platform...")
+                provider = build_provider(context, toolkit=Toolkit.default(), environ=env)
+                DeploymentEngine(provider).deploy(DeploymentPhase.ALL)
+                _require_remaining(
+                    started, timeout_seconds, monotonic, "validating one product pipeline and Gold table"
+                )
+                log.step("Validating one product pipeline and Gold table...")
+                e2e.run(
+                    "local",
+                    suite="smoke",
+                    namespace=context.namespace,
+                    kube_context=context.kube_context,
+                    repo_root=root,
+                )
+    except DeploymentError as exc:
+        raise SmokeError(str(exc)) from exc
+    _require_remaining(started, timeout_seconds, monotonic, "completing smoke validation")
     log.info(f"Local slim smoke passed in {int(monotonic() - started)}s (budget: {timeout_seconds}s).")
 
 
-def _run_make_phase(
-    phase: SmokePhase,
-    *,
-    env: Mapping[str, str],
-    timeout_seconds: float,
-    budget_seconds: int,
-    popen: Callable[..., subprocess.Popen[str]],
-) -> None:
-    command = ["make", *phase.target.split()]
-    process = popen(command, env=dict(env), start_new_session=True, text=True)
+def _require_remaining(started: float, budget: int, monotonic: Callable[[], float], phase: str) -> None:
+    if monotonic() - started >= budget:
+        raise SmokeError(f"Local slim smoke exceeded its {budget}s time budget during: {phase}.")
+
+
+@contextmanager
+def _deadline(timeout_seconds: int):
+    """Interrupt blocking in-process deploy/e2e work at the smoke deadline."""
+    if threading.current_thread() is not threading.main_thread() or not hasattr(signal, "setitimer"):
+        yield
+        return
+    previous_handler = signal.getsignal(signal.SIGALRM)
+    previous_timer = signal.setitimer(signal.ITIMER_REAL, timeout_seconds)
+
+    def _expired(_signum: int, _frame: object) -> None:
+        raise SmokeError(f"Local slim smoke exceeded its {timeout_seconds}s time budget.")
+
+    signal.signal(signal.SIGALRM, _expired)
     try:
-        returncode = process.wait(timeout=timeout_seconds)
-    except subprocess.TimeoutExpired as exc:
-        _terminate_process_group(process)
-        raise SmokeError(_timeout_message(budget_seconds, phase.label)) from exc
-    if returncode != 0:
-        raise SmokeError(f"{phase.label} failed with exit code {returncode}.")
-
-
-def _terminate_process_group(process: subprocess.Popen[str]) -> None:
-    """Terminate Make and every child it started before returning control to CI."""
-    with suppress(ProcessLookupError):
-        os.killpg(process.pid, signal.SIGTERM)
-    try:
-        process.wait(timeout=10)
-    except subprocess.TimeoutExpired:
-        with suppress(ProcessLookupError):
-            os.killpg(process.pid, signal.SIGKILL)
-        process.wait(timeout=10)
-
-
-def _timeout_message(timeout_seconds: int, phase: str) -> str:
-    return f"Local slim smoke exceeded its {timeout_seconds}s time budget during: {phase}."
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, *previous_timer)
+        signal.signal(signal.SIGALRM, previous_handler)

@@ -68,7 +68,7 @@ jobs:
             dry_run="${{ inputs.dry_run }}"
             # A real publish must originate from the tag ref it claims to be:
             # keyless cosign derives the certificate identity from the running
-            # ref, and scripts/release/verify-install.sh only accepts
+            # ref, and `olf release verify-install` only accepts
             # identities ending in refs/tags/<tag>.
             if [[ "${dry_run}" != "true" && "${{ github.ref_type }}" != "tag" ]]; then
               echo "::error::Refusing to publish from ${{ github.ref }}." \
@@ -134,7 +134,7 @@ jobs:
         run: uv run --project tools/olf --locked olf release check --tag "${{ steps.version.outputs.tag }}"
 
       - name: Release-readiness gate (lockfiles in sync)
-        run: bash scripts/test/check-lockfiles.sh
+        run: uv run --project tools/olf --locked olf check lockfiles
 
       - name: Verify the tag matches the catalog version
         run: |
@@ -148,45 +148,7 @@ jobs:
         if: steps.mode.outputs.dry_run == 'false'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-
-          # Compare the release commit to main through the GitHub API rather
-          # than a shallow checkout: tags may refer to an older, still-valid
-          # main commit. In a <commit>...main comparison, ahead/identical
-          # means the commit is reachable from main.
-          ancestry_status="$(gh api \
-            "repos/${{ github.repository }}/compare/${GITHUB_SHA}...main" \
-            --jq '.status')"
-          case "${ancestry_status}" in
-            ahead|identical) ;;
-            *)
-              echo "::error::Release commit ${GITHUB_SHA} is not reachable from main " \
-                "(comparison status: ${ancestry_status}). Merge it and release from main." >&2
-              exit 1
-              ;;
-          esac
-
-          # Require the latest repository-checks workflow run for exactly this
-          # main commit. A matching historical success must not mask a newer
-          # failed or still-running check run.
-          runs="$(gh api \
-            "repos/${{ github.repository }}/actions/workflows/checks.yml/runs?head_sha=${GITHUB_SHA}&event=push&per_page=100")"
-          latest_check="$(jq -c --arg sha "${GITHUB_SHA}" '
-            [ .workflow_runs[]
-              | select(.head_sha == $sha and .head_branch == "main" and .event == "push")
-            ]
-            | sort_by(.created_at)
-            | last // empty
-          ' <<<"${runs}")"
-
-          if [[ -z "${latest_check}" ]] \
-              || [[ "$(jq -r '.status' <<<"${latest_check}")" != "completed" ]] \
-              || [[ "$(jq -r '.conclusion' <<<"${latest_check}")" != "success" ]]; then
-            echo "::error::Release commit ${GITHUB_SHA} does not have a successful completed " \
-              "Repository checks run on main. Run .github/workflows/checks.yml on main first." >&2
-            exit 1
-          fi
+        run: uv run --project tools/olf --locked olf release workflow require-green-main --repo "${{ github.repository }}" --sha "${{ github.sha }}"
 
       - name: Verify the release tag is create-only (immutable-semver)
         if: steps.mode.outputs.dry_run == 'false'

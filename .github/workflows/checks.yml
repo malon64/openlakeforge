@@ -14,8 +14,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
 
+      - name: Setup uv
+        uses: astral-sh/setup-uv@e58605a9b6da7c637471fab8847a5e5a6b8df081
+
       - name: Check Iteration 0 structure
-        run: make check-structure
+        run: uv run --project tools/olf --locked olf check structure
 
   infrastructure:
     name: Validate infrastructure contracts
@@ -38,10 +41,10 @@ jobs:
         uses: astral-sh/setup-uv@e58605a9b6da7c637471fab8847a5e5a6b8df081
 
       - name: Check immutable release inputs
-        run: make check-components
+        run: uv run --project tools/olf --locked olf check components
 
       - name: Check Terraform and Helm
-        run: make check-infra
+        run: uv run --project tools/olf --locked olf check infra
 
   contracts:
     name: Validate provider contracts
@@ -54,7 +57,7 @@ jobs:
         uses: astral-sh/setup-uv@e58605a9b6da7c637471fab8847a5e5a6b8df081
 
       - name: Check provider contract compatibility
-        run: make check-contracts
+        run: uv run --project tools/olf --locked olf check contracts
 
   project-code:
     name: Validate project-code runtime
@@ -72,10 +75,10 @@ jobs:
         uses: astral-sh/setup-uv@e58605a9b6da7c637471fab8847a5e5a6b8df081
 
       - name: Check project-code package
-        run: make check-project-code
+        run: uv run --project tools/olf --locked olf check project-code
 
       - name: Build project-code image
-        run: make project-code-image
+        run: uv run --project tools/olf --locked olf images build project-code
 
   tooling:
     name: Validate deployment tooling
@@ -112,7 +115,7 @@ jobs:
         uses: astral-sh/setup-uv@e58605a9b6da7c637471fab8847a5e5a6b8df081
 
       - name: Check product dbt projects
-        run: make check-dbt
+        run: uv run --project tools/olf --locked olf check dbt
 
   release-check:
     name: Validate release readiness
@@ -140,7 +143,7 @@ jobs:
         uses: astral-sh/setup-uv@e58605a9b6da7c637471fab8847a5e5a6b8df081
 
       - name: Validate release readiness (catches drift before a tag is cut)
-        run: make release-check
+        run: uv run --project tools/olf --locked olf check all
 
   kind-smoke:
     name: Deploy slim kind smoke
@@ -186,11 +189,11 @@ jobs:
           kubectl_version: v1.31.4
 
       - name: Deploy and validate slim smoke (45 minute budget)
-        run: make local-slim-smoke
+        run: uv run --project tools/olf --locked olf smoke run
 
       - name: Collect kind diagnostics
         if: failure()
-        run: scripts/ci/kind-diagnostics.sh .tmp/kind-smoke-diagnostics
+        run: uv run --project tools/olf --locked olf diagnostics collect .tmp/kind-smoke-diagnostics
 
       - name: Upload kind diagnostics
         if: failure()

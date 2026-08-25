@@ -58,6 +58,24 @@ def test_image_settings_repository_overrides_are_honored() -> None:
     assert settings.superset_image == "123.dkr.ecr.eu-west-1.amazonaws.com/superset:aws-abc123"
 
 
+def test_provider_prefixed_image_aliases_are_honored_after_generic_overrides() -> None:
+    for scope in ("aws", "azure"):
+        aliases = {
+            f"{scope.upper()}_PROJECT_CODE_IMAGE_REPOSITORY": "registry.example/project-code",
+            f"{scope.upper()}_PROJECT_CODE_IMAGE_TAG": f"{scope}-custom",
+            f"{scope.upper()}_SUPERSET_IMAGE_REPOSITORY": "registry.example/superset",
+            f"{scope.upper()}_SUPERSET_IMAGE_TAG": f"{scope}-custom",
+        }
+        settings = CloudImageSettings.from_environment(aliases, scope=scope, image_tag=f"{scope}-default")
+        generic_wins = CloudImageSettings.from_environment(
+            {**aliases, "PROJECT_CODE_IMAGE_TAG": "generic"}, scope=scope, image_tag=f"{scope}-default"
+        )
+
+        assert settings.project_code_image == f"registry.example/project-code:{scope}-custom"
+        assert settings.superset_image == f"registry.example/superset:{scope}-custom"
+        assert generic_wins.project_code_tag == "generic"
+
+
 def test_chart_settings_defaults_trino_and_dagster_package_paths(tmp_path: Path) -> None:
     helm_cache_dir = tmp_path / "helm/aws/charts"
 

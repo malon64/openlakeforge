@@ -12,11 +12,15 @@ import olf
 from olf.commands import (
     artifacts,
     catalog,
+    checks,
     contracts,
+    dbt,
     deployment,
+    diagnostics,
     domain,
     e2e,
     floe,
+    images,
     k8s,
     layers,
     openmetadata,
@@ -36,6 +40,10 @@ app = typer.Typer(
 )
 
 app.add_typer(contracts.app, name="contracts")
+app.add_typer(checks.app, name="check")
+app.add_typer(dbt.app, name="dbt")
+app.add_typer(diagnostics.app, name="diagnostics")
+app.add_typer(images.app, name="images")
 app.add_typer(catalog.app, name="catalog")
 app.add_typer(floe.app, name="floe")
 app.add_typer(artifacts.app, name="artifacts")
@@ -52,6 +60,8 @@ app.add_typer(domain.app, name="domain")
 app.add_typer(product.app, name="product")
 
 app.command("deploy")(deployment.deploy)
+app.command("plan")(deployment.plan)
+app.command("doctor")(deployment.doctor)
 app.command("destroy")(deployment.destroy)
 app.command("status")(deployment.status)
 app.command("forward")(deployment.forward)

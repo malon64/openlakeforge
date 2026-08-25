@@ -1,4 +1,6 @@
+from contextlib import nullcontext
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from typer.testing import CliRunner
@@ -40,6 +42,223 @@ def test_artifacts_deploy_optional_layers_skips_disabled_layers(monkeypatch: pyt
     assert "Skipping OpenMetadata governance metadata" in result.output
 
 
+def test_superset_deploy_reports_hydrates_selected_provider_contracts(monkeypatch: pytest.MonkeyPatch) -> None:
+    options: dict[str, str] = {}
+    calls: list[str] = []
+    monkeypatch.setattr(
+        "olf.commands.runtime.provider_contract_environment",
+        lambda **kwargs: options.update(kwargs) or nullcontext(),
+    )
+    monkeypatch.setattr("olf.commands.superset.deploy_superset_reports", lambda: calls.append("reports"))
+
+    result = runner.invoke(app, ["superset", "deploy-reports", "--provider", "aws"])
+
+    assert result.exit_code == 0
+    assert options["provider"] == "aws"
+    assert calls == ["reports"]
+
+
+def test_openmetadata_deploy_hydrates_selected_provider_contracts(monkeypatch: pytest.MonkeyPatch) -> None:
+    options: dict[str, str] = {}
+    calls: list[str] = []
+    monkeypatch.setattr(
+        "olf.commands.runtime.provider_contract_environment",
+        lambda **kwargs: options.update(kwargs) or nullcontext(),
+    )
+    monkeypatch.setattr("olf.commands.openmetadata.deploy_openmetadata_metadata", lambda: calls.append("metadata"))
+
+    result = runner.invoke(app, ["openmetadata", "deploy-metadata", "--provider", "azure"])
+
+    assert result.exit_code == 0
+    assert options["provider"] == "azure"
+    assert calls == ["metadata"]
+
+
+def test_artifacts_upload_hydrates_selected_provider_contracts(monkeypatch: pytest.MonkeyPatch) -> None:
+    options: dict[str, str] = {}
+    calls: list[dict[str, str]] = []
+    monkeypatch.setattr(
+        "olf.commands.runtime.provider_contract_environment",
+        lambda **kwargs: options.update(kwargs) or nullcontext(),
+    )
+    monkeypatch.setattr("olf.commands.artifacts.upload_manifests", lambda **kwargs: calls.append(kwargs))
+
+    result = runner.invoke(
+        app,
+        [
+            "artifacts",
+            "upload-manifests",
+            "--provider",
+            "aws",
+            "--namespace",
+            "custom-lakehouse",
+            "--via",
+            "direct",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert options["provider"] == "aws"
+    assert options["namespace"] == "custom-lakehouse"
+    assert calls == [{"via": "direct", "manifest_root": "", "runtime_root": ""}]
+
+
+def test_dbt_parse_hydrates_selected_provider_contracts(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    project = tmp_path / "gold/demo/dbt"
+    project.mkdir(parents=True)
+    (project / "dbt_project.yml").write_text("name: demo\nprofile: demo\n")
+    options: dict[str, str] = {}
+    commands: list[list[str]] = []
+
+    class Runner:
+        def run(self, argv, **kwargs):  # noqa: ANN001, ANN003
+            commands.append(argv)
+
+    class Resolver:
+        def resolve(self, name: str) -> Path:
+            assert name == "dbt"
+            return Path("dbt")
+
+    tools = SimpleNamespace(runner=Runner(), resolver=Resolver())
+    monkeypatch.setattr(
+        "olf.commands.runtime.provider_contract_environment",
+        lambda **kwargs: options.update(kwargs) or nullcontext(),
+    )
+    monkeypatch.setattr("olf.commands.dbt.Toolkit.default", lambda: tools)
+
+    result = runner.invoke(
+        app,
+        [
+            "dbt",
+            "parse",
+            "--project-dir",
+            str(project),
+            "--provider",
+            "aws",
+            "--profile",
+            "slim",
+            "--namespace",
+            "custom-lakehouse",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert options == {
+        "provider": "aws",
+        "profile": "slim",
+        "namespace": "custom-lakehouse",
+        "cluster_name": "",
+        "kubeconfig_path": "",
+    }
+    assert commands[-1][-2:] == ["--target", "aws_runtime"]
+
+
+def test_dbt_parse_selects_outputs_declared_by_provider_profiles() -> None:
+    from olf.commands import dbt
+
+    assert dbt._target_for_provider("local") == "local_runtime"
+    assert dbt._target_for_provider("aws") == "aws_runtime"
+    assert dbt._target_for_provider("azure") == "local_runtime"
+
+
+def test_floe_generation_passes_the_selected_namespace_to_the_local_profile(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    options: dict[str, str] = {}
+    generated: list[dict] = []
+
+    class FakeLocalProvider:
+        config = SimpleNamespace(floe=object())
+        tools = object()
+        env = {}
+
+    context = SimpleNamespace(
+        paths=SimpleNamespace(repo_root=tmp_path, platform_terraform_dir=tmp_path / "contracts"),
+        namespace="custom-lakehouse",
+        features=SimpleNamespace(governance_enabled=True),
+    )
+    monkeypatch.setattr(
+        "olf.commands.deployment._build_context",
+        lambda *args, **kwargs: options.update(kwargs) or context,
+    )
+    monkeypatch.setattr(
+        "olf.commands.deployment._build_engine",
+        lambda *args, **kwargs: SimpleNamespace(provider=FakeLocalProvider()),
+    )
+    monkeypatch.setattr("olf.deployment.local.provider.LocalProvider", FakeLocalProvider)
+    monkeypatch.setattr(
+        "olf.deployment.local.artifacts.applied_contract_environment", lambda *args, **kwargs: nullcontext({})
+    )
+    monkeypatch.setattr(
+        "olf.deployment.floe_manifests.generate_local_manifests", lambda *args, **kwargs: generated.append(kwargs)
+    )
+
+    result = runner.invoke(app, ["floe", "generate-manifests", "--namespace", "custom-lakehouse"])
+
+    assert result.exit_code == 0
+    assert options["namespace"] == "custom-lakehouse"
+    assert generated == [
+        {
+            "repo_root": tmp_path,
+            "namespace": "custom-lakehouse",
+            "governance_enabled": True,
+            "environ": {},
+            "env": {},
+        }
+    ]
+
+
+def test_floe_generation_honors_custom_contract_root_for_cloud(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    captured: dict[str, object] = {}
+
+    class FakeBackend:
+        def generate_floe_manifests(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
+            captured["generation"] = kwargs
+
+    class FakeCloudProvider:
+        _foundation_facts = SimpleNamespace(kube_context="custom-cluster")
+        config = object()
+        backend = FakeBackend()
+        tools = object()
+        env = {}
+
+    contract_root = tmp_path / "custom-contracts"
+    context = SimpleNamespace(
+        paths=SimpleNamespace(
+            repo_root=tmp_path,
+            platform_terraform_dir=tmp_path / "default-contracts",
+            kubeconfig_path=tmp_path / "kubeconfig.yaml",
+            port_forward_log_prefix=tmp_path / "port-forward",
+        ),
+        namespace="custom-lakehouse",
+        features=SimpleNamespace(governance_enabled=True),
+    )
+    monkeypatch.setenv("OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR", str(contract_root))
+    monkeypatch.setattr("olf.commands.deployment._build_context", lambda *args, **kwargs: context)
+    monkeypatch.setattr(
+        "olf.commands.deployment._build_engine",
+        lambda *args, **kwargs: SimpleNamespace(provider=FakeCloudProvider()),
+    )
+    monkeypatch.setattr(
+        "olf.deployment.contract_env.applied_contract_environment",
+        lambda **kwargs: captured.update(kwargs) or nullcontext({}),
+    )
+
+    result = runner.invoke(app, ["floe", "generate-manifests", "--provider", "aws"])
+
+    assert result.exit_code == 0
+    assert captured["contract_terraform_dir"] == contract_root
+    assert captured["generation"] == {
+        "repo_root": tmp_path,
+        "namespace": "custom-lakehouse",
+        "governance_enabled": True,
+        "environ": {},
+        "env": {},
+    }
+
+
 def test_revision_compute_command_prints_runtime_artifact_revision(tmp_path: Path) -> None:
     path = tmp_path / "manifests/sales/sales.manifest.json"
     path.parent.mkdir(parents=True)
@@ -64,6 +283,7 @@ def test_superset_export_reports_defaults_come_from_the_first_dashboard(monkeypa
         "olf.superset.export_report",
         lambda *args, **kwargs: calls.append(kwargs),
     )
+    monkeypatch.setattr("olf.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
 
     result = runner.invoke(app, ["superset", "export-reports"])
 
@@ -135,6 +355,7 @@ dashboards:
     monkeypatch.setenv("OPENLAKEFORGE_REPO_ROOT", str(tmp_path))
     calls: list[dict] = []
     monkeypatch.setattr("olf.superset.export_report", lambda *args, **kwargs: calls.append(kwargs))
+    monkeypatch.setattr("olf.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
 
     result = runner.invoke(app, ["superset", "export-reports"])
 

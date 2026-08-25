@@ -7,6 +7,7 @@ ever builds or interprets a shell command string.
 from __future__ import annotations
 
 import os
+import signal
 import subprocess
 import sys
 import threading
@@ -202,6 +203,7 @@ class ProcessRunner:
             stderr=subprocess.PIPE,
             text=True,
             shell=False,
+            start_new_session=os.name == "posix",
         )
 
         stdout_lines: list[str] = []
@@ -221,14 +223,30 @@ class ProcessRunner:
 
         try:
             returncode = process.wait(timeout=timeout_seconds)
-        except subprocess.TimeoutExpired:
-            process.kill()
+        except BaseException:
+            # A caller may enforce a deadline with a signal (as `olf smoke`
+            # does), which interrupts `wait()` with its own exception rather
+            # than subprocess.TimeoutExpired. Stop the child before joining
+            # the pipe readers so a hung command cannot keep those pipes open
+            # and defeat the enclosing deadline.
+            _terminate_streaming_process(process)
             process.wait()
-            stdout_thread.join()
-            stderr_thread.join()
             raise
         finally:
             stdout_thread.join()
             stderr_thread.join()
 
         return returncode, "".join(stdout_lines), "".join(stderr_lines)
+
+
+def _terminate_streaming_process(process) -> None:  # noqa: ANN001
+    """Stop a streamed child and its descendants without involving a shell."""
+    if process.poll() is not None:
+        return
+    if os.name == "posix":
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+            return
+        except (AttributeError, ProcessLookupError):
+            pass
+    process.kill()

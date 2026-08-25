@@ -36,7 +36,7 @@ def _retry_if_logging(description: str, policy: RetryPolicy):  # noqa: ANN202
     return _predicate
 
 
-def _prepare_charts(config: CloudDeploymentConfig, tools: Toolkit, *, env: Mapping[str, str]) -> None:
+def prepare_charts(config: CloudDeploymentConfig, tools: Toolkit, *, env: Mapping[str, str]) -> None:
     prepare_cached_chart(
         ChartRequest(
             display_name="Trino",
@@ -85,7 +85,7 @@ def platform_up(
         log.step("Skipping Superset image build: analytics layer is disabled.")
 
     config.context.prepare_directories()
-    _prepare_charts(config, tools, env=env)
+    prepare_charts(config, tools, env=env)
 
     log.step(f"Initializing Terraform {backend.scope} platform...")
     tools.terraform.init(platform_dir, env=env)

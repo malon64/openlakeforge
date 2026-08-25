@@ -46,6 +46,25 @@ def test_applied_contract_environment_applies_and_restores(monkeypatch: pytest.M
     assert os.environ["SOME_STALE_VAR"] == "old-value"
 
 
+def test_applied_contract_environment_honors_contract_root_override(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config = _config(tmp_path)
+    override = tmp_path / "custom-contracts"
+    captured: dict[str, Path] = {}
+    monkeypatch.setenv("OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR", str(override))
+    monkeypatch.setattr(
+        artifacts.contract_env,
+        "applied_contract_environment",
+        lambda **kwargs: captured.update(kwargs) or _empty_contract_environment(),
+    )
+
+    with artifacts.applied_contract_environment(config):
+        pass
+
+    assert captured["contract_terraform_dir"] == override
+
+
 def test_artifacts_deploy_preserves_step_order(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     config = _config(tmp_path)
     tools = _toolkit()
@@ -127,3 +146,9 @@ def _fake_contextmanager(on_enter):  # noqa: ANN001, ANN202
         yield dict(os.environ)
 
     return _cm
+
+
+def _empty_contract_environment():  # noqa: ANN202
+    from contextlib import nullcontext
+
+    return nullcontext({})

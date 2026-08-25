@@ -410,9 +410,12 @@ def test_release_workflow_disables_redundant_matrix_sbom_uploads() -> None:
     assert sbom_step["with"]["upload-artifact"] is False
 
 
-def test_verify_install_uses_uv_managed_python_only() -> None:
-    verifier = (ROOT / "scripts/release/verify-install.sh").read_text()
+def test_release_cli_exposes_bundle_building_without_a_shell_wrapper() -> None:
+    from typer.testing import CliRunner
 
-    assert "python3" not in verifier
-    assert 'uv run --project "${REPO_ROOT}/tools/olf" --locked python "$@"' in verifier
-    assert verifier.count("run_python -c") == 5
+    from olf.cli import app
+
+    result = CliRunner().invoke(app, ["release", "--help"])
+
+    assert result.exit_code == 0
+    assert "build-bundle" in result.output

@@ -49,7 +49,7 @@ labels expressing intended sequence within a milestone.
 | `infra/terraform/modules/` | Component modules grouped by capability |
 | `infra/helm/values/local/` | Helm values for the local profile |
 | `images/project-code/` | The Dagster runtime image |
-| `scripts/test/` | Structure, contract, component, and lockfile checks |
+| `tools/olf/` | Python CLI, deployment orchestration, checks, artifacts, and e2e |
 | `release/component-catalog.yaml` | Immutable version and digest pins |
 | `docs/schema/lakehouse.schema.json`, `docs/schema/source.schema.json` | Schemas `lakehouse.yaml` and `source.yaml` validate against |
 
@@ -106,7 +106,7 @@ Test behaviour against fixtures rather than source text. New `olf` behaviour
 ships with tests in the same change.
 
 **Terraform.** Modules follow `main.tf` / `variables.tf` / `outputs.tf`;
-`scripts/test/check-structure.sh` requires all three for registered modules.
+`olf check structure` requires all three for registered Terraform modules.
 Variables carry a `description` and an explicit `type`.
 
 **Docs.** Hard-wrap around 80 columns, as the existing files do. Prefer tables
@@ -117,24 +117,19 @@ the architecture charts use the Kubernetes-icon SVG toolkit in
 **Commits.** `type: subject`, imperative, lowercase after the colon. Types in
 use: `feat`, `fix`, `docs`, `refactor`, `chore`. The body explains why.
 
-**Structure.** `scripts/test/check-structure.sh` holds an explicit list of
-required paths. A new file that should always exist must be registered there.
+**Structure.** `olf check structure` holds the repository skeleton contract and
+rejects tracked shell scripts. A new file that should always exist must be
+registered there.
 
 ## Gates — all must pass before opening a pull request
 
 ```bash
-make check-structure
-make check-components
-make check-contracts
-make check-infra
-make check-project-code
-make check-dbt
-make check-lockfiles
+uv run --project tools/olf olf check all
 uv run --project tools/olf ruff check tools/olf
 uv run --project tools/olf pytest tools/olf/tests
 ```
 
-`make release-check` runs the check targets above plus the release-readiness
+`olf check all` runs the check targets above plus the release-readiness
 gate. It runs on every pull request via `.github/workflows/checks.yml`. Note
 that `main` is currently unprotected, so no check is merge-blocking yet — see
 "Known gaps".
@@ -142,11 +137,11 @@ that `main` is currently unprotected, so no check is merge-blocking yet — see
 When a change touches the deployed stack, verify at runtime as well:
 
 ```bash
-make local-up
-make local-e2e
+uv run --project tools/olf olf deploy --provider local
+uv run --project tools/olf olf e2e run --env local
 ```
 
-`make local-e2e` launches every product pipeline, verifies Silver and Gold
+`olf e2e run --env local` launches every product pipeline, verifies Silver and Gold
 tables through Trino, checks Superset dashboards and OpenMetadata assets, and
 confirms ops-bucket artifacts exist.
 
@@ -155,7 +150,7 @@ confirms ops-bucket artifacts exist.
 - Never commit to `main`. Branch, then open a pull request.
 - Never edit generated Floe manifests under
   `lakehouse_code/silver/<domain>/contracts/floe/manifests/`. They are produced
-  by `scripts/artifacts/floe-manifest.sh` and owned by Floe.
+  by `olf floe generate-manifests` and owned by Floe.
 - Never unpin an image or chart to make something work.
 - Never widen scope beyond the issue. Note adjacent problems in the pull request
   body instead of fixing them silently.

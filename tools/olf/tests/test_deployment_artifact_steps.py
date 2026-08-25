@@ -107,7 +107,7 @@ def test_upload_runtime_manifests_passes_via_through(monkeypatch: pytest.MonkeyP
     def _fake_upload(*, via: str, manifest_root: str, runtime_root: str) -> None:
         calls.append({"via": via, "manifest_root": manifest_root, "runtime_root": runtime_root})
 
-    monkeypatch.setattr("olf.commands.artifacts.artifacts_upload_manifests", _fake_upload)
+    monkeypatch.setattr("olf.commands.artifacts.upload_manifests", _fake_upload)
 
     artifact_steps.upload_runtime_manifests(tmp_path, via="direct")
 
@@ -118,7 +118,7 @@ def test_upload_runtime_manifests_wraps_typer_exit(monkeypatch: pytest.MonkeyPat
     def _raises_exit(*, via: str, manifest_root: str, runtime_root: str) -> None:  # noqa: ARG001
         raise typer.Exit(code=1)
 
-    monkeypatch.setattr("olf.commands.artifacts.artifacts_upload_manifests", _raises_exit)
+    monkeypatch.setattr("olf.commands.artifacts.upload_manifests", _raises_exit)
 
     with pytest.raises(artifact_steps.ArtifactOperationError):
         artifact_steps.upload_runtime_manifests(tmp_path)

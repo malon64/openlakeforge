@@ -27,6 +27,25 @@ def platform_var_files(config: LocalDeploymentConfig) -> tuple[str, ...]:
     return (str(config.terraform.var_file),) if config.terraform.var_file is not None else ()
 
 
+def prepare_charts(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[str, str]) -> None:
+    """Ensure Terraform's locally referenced Trino chart archive is available."""
+    config.context.prepare_directories()
+    prepare_cached_chart(
+        ChartRequest(
+            display_name="Trino",
+            repo_name="trino",
+            repo_url=config.charts.trino_repository_url,
+            chart_ref=config.charts.trino_chart_ref,
+            version=config.charts.trino_version,
+            package_path=config.charts.trino_package_path,
+        ),
+        helm=tools.helm,
+        paths=config.paths,
+        env=env,
+        retry_policy=config.terraform.apply_retry,
+    )
+
+
 def platform_apply_variables(config: LocalDeploymentConfig) -> dict[str, str]:
     images = config.images
     return {
@@ -112,21 +131,7 @@ def platform_up(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[s
     else:
         log.step("Skipping Superset image build: analytics layer is disabled.")
 
-    config.context.prepare_directories()
-    prepare_cached_chart(
-        ChartRequest(
-            display_name="Trino",
-            repo_name="trino",
-            repo_url=config.charts.trino_repository_url,
-            chart_ref=config.charts.trino_chart_ref,
-            version=config.charts.trino_version,
-            package_path=config.charts.trino_package_path,
-        ),
-        helm=tools.helm,
-        paths=config.paths,
-        env=env,
-        retry_policy=config.terraform.apply_retry,
-    )
+    prepare_charts(config, tools, env=env)
 
     log.step("Initializing Terraform...")
     tools.terraform.init(platform_dir, env=env)
