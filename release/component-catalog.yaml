@@ -39,12 +39,12 @@ components:
         linux-amd64: sha256:298e19e9c6c17199011404278f0ff8168a7eca4217edad9097af577023a5620f
         linux-arm64: sha256:b97e93c20e3be4b8c8fa1235a41b4d77d4f2022ed3d899230dbbbbd43d26f872
     kind:
-      version: "0.26.0"
+      version: "0.30.0"
       platforms:
-        darwin-amd64: sha256:a2c30525db86a7807ad4bba0094437406518f41d8a2882e6ea659d94099adcc4
-        darwin-arm64: sha256:e5bf92d8d46017e23482bfe266929d4d82e6f8c754e216c105cb7fbea937bea2
-        linux-amd64: sha256:d445b44c28297bc23fd67e51cc24bb294ae7b977712be2d4d312883d0835829b
-        linux-arm64: sha256:53fffdc37bd7149ccea440b1bdde2464f517d2c462dc8913ad37e7939e7f422d
+        darwin-amd64: sha256:4f0b6e3b88bdc66d922c08469f05ef507d4903dd236e6319199bb9c868eed274
+        darwin-arm64: sha256:ceaf40df1d1551c481fb50e3deb5c3deecad5fd599df5469626b70ddf52a1518
+        linux-amd64: sha256:517ab7fc89ddeed5fa65abf71530d90648d9638ef0c4cde22c2c11f8097b8889
+        linux-arm64: sha256:7ea2de9d2d190022ed4a8a4e3ac0636c8a455e460b9a13ccf19f15d07f4f00eb
   python:
     project_code_lock: images/project-code/requirements.lock
     tooling_lock: tools/olf/uv.lock

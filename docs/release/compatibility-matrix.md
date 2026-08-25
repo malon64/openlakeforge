@@ -67,7 +67,7 @@ Terraform, Helm, kubectl, and kind are provisioned by `olf toolchain` (#127) rat
 | Tool | Version |
 | --- | --- |
 | helm | 3.18.6 |
-| kind | 0.26.0 |
+| kind | 0.30.0 |
 | kubectl | 1.31.4 |
 | terraform | 1.8.5 |
 
