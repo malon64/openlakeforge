@@ -131,6 +131,7 @@ def test_prepare_kube_context_refreshes_existing_aws_context(monkeypatch: pytest
     # both bindings need the same fake to capture every command.
     monkeypatch.setattr(_runner, "_run", run)
     monkeypatch.setattr(_shell, "_run", run)
+    monkeypatch.setattr(_runner, "_kubectl_executable", lambda: "kubectl")
     monkeypatch.setattr(
         _runner,
         "terraform_output",
@@ -186,6 +187,7 @@ def test_prepare_kube_context_uses_provider_default_for_direct_cloud_runs(
     run = lambda args, capture=False: commands.append(args) or ""  # noqa: E731
     monkeypatch.setattr(_runner, "_run", run)
     monkeypatch.setattr(_shell, "_run", run)
+    monkeypatch.setattr(_runner, "_kubectl_executable", lambda: "kubectl")
     monkeypatch.setattr(_runner, "terraform_output", lambda _dir, name: terraform_outputs[name])
 
     _runner.prepare_kube_context(e2e_cfg(tmp_path, env=env, suite="smoke"))
@@ -205,6 +207,7 @@ def test_prepare_kube_context_selects_existing_local_context(monkeypatch: pytest
         return ""
 
     monkeypatch.setattr(_runner, "_run", run)
+    monkeypatch.setattr(_runner, "_kubectl_executable", lambda: "kubectl")
 
     _runner.prepare_kube_context(e2e_cfg(tmp_path))
 
@@ -228,6 +231,7 @@ def test_prepare_kube_context_updates_aws_context_when_existing_context_is_unusa
     monkeypatch.setattr(_runner, "_run", run)
     monkeypatch.setattr(_shell, "_run", run)
     monkeypatch.setattr(_shell.time, "sleep", lambda _delay: None)
+    monkeypatch.setattr(_runner, "_kubectl_executable", lambda: "kubectl")
     monkeypatch.setattr(
         _runner,
         "terraform_output",
@@ -261,6 +265,7 @@ def test_terraform_output_json_reads_location_list(monkeypatch: pytest.MonkeyPat
         "_run",
         lambda args, *, capture=False: commands.append(args) or '["openlakeforge-dagster"]',
     )
+    monkeypatch.setattr(_shell, "_terraform_executable", lambda: "terraform")
 
     assert _shell.terraform_output_json(tmp_path / "contract", "dagster_code_location_names") == [
         "openlakeforge-dagster"
@@ -278,6 +283,7 @@ def test_terraform_output_json_reads_location_list(monkeypatch: pytest.MonkeyPat
 
 def test_terraform_output_json_rejects_invalid_json(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr(_shell, "_run", lambda *_args, **_kwargs: "not-json")
+    monkeypatch.setattr(_shell, "_terraform_executable", lambda: "terraform")
 
     with pytest.raises(E2EError, match="not valid JSON"):
         _shell.terraform_output_json(tmp_path / "contract", "dagster_code_location_names")
@@ -332,3 +338,23 @@ def test_run_retry_transient_kubectl_does_not_retry_query_errors(
     with pytest.raises(E2EError, match="TABLE_NOT_FOUND"):
         _shell._run_retry_transient_kubectl(["kubectl", "exec"], attempts=3)
     assert attempts == 1
+
+
+def test_check_commands_translates_a_toolchain_error_into_an_e2e_error(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A managed tool that fails to provision (bad digest, broken download,
+    unwritable cache) must surface as E2EError - the only exception type
+    `olf e2e run` catches - not escape as a raw ToolchainError traceback."""
+    from olf.deployment.errors import ToolchainError
+
+    class _FailingResolver:
+        def resolve(self, tool: str) -> Path:
+            if tool == "terraform":
+                raise ToolchainError(tool, reason="digest mismatch")
+            return Path(f"/usr/bin/{tool}")
+
+    monkeypatch.setattr("olf.tooling.resolver.build_resolver", lambda: _FailingResolver())
+
+    with pytest.raises(E2EError, match="digest mismatch"):
+        _runner.check_commands(e2e_cfg(tmp_path))

@@ -9,9 +9,29 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from openlakeforge_domain import inventory_for
 
 from olf.e2e._shell import E2EConfig, Environment, Suite
+
+
+@pytest.fixture(autouse=True)
+def _isolate_toolchain(monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest.TempPathFactory) -> None:
+    """Every test defaults to host-mode executable resolution with an
+    isolated `OLF_HOME`.
+
+    `olf.tooling.resolver.build_resolver()` provisions managed tools (#127)
+    over the network into `OLF_HOME` (`~/.openlakeforge` by default) unless
+    told otherwise. Without this guard, any test that exercises a real
+    (unmocked) `kubectl`/`terraform` execution path - directly or via
+    `olf.k8s`/`olf.e2e._shell` - would silently download real Terraform/
+    kubectl/helm/kind binaries onto the network and into the developer's
+    actual home directory. Tests that specifically exercise managed-mode
+    resolution (`tests/test_toolchain_*.py`) override both variables
+    themselves with an injected fake downloader.
+    """
+    monkeypatch.setenv("OLF_TOOLCHAIN_MODE", "host")
+    monkeypatch.setenv("OLF_HOME", str(tmp_path_factory.mktemp("olf-home")))
 
 E2E_REPO_ROOT = Path(__file__).resolve().parents[3]
 E2E_INVENTORY = inventory_for(E2E_REPO_ROOT)

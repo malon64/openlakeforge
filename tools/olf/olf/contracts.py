@@ -36,10 +36,29 @@ class ProviderContractError(ValueError):
 
 
 def load_provider_contracts(terraform_dir: str) -> dict[str, Any] | None:
-    """Read the Terraform provider_contracts output, or None before apply."""
+    """Read the Terraform provider_contracts output, or None before apply.
+
+    Only a missing executable (`ExecutableNotFoundError`) is treated as
+    "not applied yet" - matching this function's pre-#127 behaviour, where
+    `terraform` simply not being on `PATH` fell into the same `OSError`
+    branch below. A managed-toolchain provisioning failure
+    (`ToolchainError`: a bad digest, a broken download, a malformed
+    catalog) is a real operational problem, not an unapplied-state signal,
+    and must propagate rather than be silently treated as "no contracts
+    yet" - a caller that swallowed it would fall back to defaults (e.g.
+    enabling governance/analytics for what should be a slim deployment)
+    instead of failing closed.
+    """
+    from olf.deployment.errors import ExecutableNotFoundError
+    from olf.tooling.resolver import build_resolver
+
+    try:
+        terraform = str(build_resolver().resolve("terraform"))
+    except ExecutableNotFoundError:
+        return None
     try:
         result = subprocess.run(
-            ["terraform", f"-chdir={terraform_dir}", "output", "-json", "provider_contracts"],
+            [terraform, f"-chdir={terraform_dir}", "output", "-json", "provider_contracts"],
             capture_output=True,
             text=True,
             check=True,

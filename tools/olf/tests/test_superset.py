@@ -3,7 +3,7 @@ from zipfile import ZipFile
 
 import pytest
 
-from olf import superset
+from olf import k8s, superset
 
 
 def test_bundle_identity_from_source_dir() -> None:
@@ -61,3 +61,28 @@ def test_unpack_export_bundle_replaces_managed_assets(tmp_path: Path) -> None:
     assert (target / "metadata.yaml").read_text() == "type: assets\n"
     assert (target / "dashboards" / "d.yaml").exists()
     assert not (target / "dashboards" / "stale.yaml").exists()
+
+
+def test_exec_pod_python_resolves_kubectl_through_the_managed_toolchain(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`_exec_pod_python` (and the other kubectl exec/copy call sites in
+    this module) must resolve the executable the same way `k8s._kubectl`
+    does - a bare `["kubectl", ...]` argv would fail on a clean machine
+    with no host kubectl, even though the managed toolchain provisioned
+    one (#127)."""
+    calls: list[list[str]] = []
+
+    def fake_run(argv, **kwargs):  # noqa: ANN001, ANN202
+        calls.append(argv)
+
+        class _Result:
+            returncode = 0
+
+        return _Result()
+
+    monkeypatch.setattr(superset.subprocess, "run", fake_run)
+    monkeypatch.setattr(k8s, "_kubectl_executable", lambda: "/managed/bin/kubectl")
+    monkeypatch.setenv("KUBE_CONTEXT", "kind-openlakeforge-local")
+
+    superset._exec_pod_python("superset-pod", "lakehouse", "print('hi')", [])
+
+    assert calls[0][0] == "/managed/bin/kubectl"

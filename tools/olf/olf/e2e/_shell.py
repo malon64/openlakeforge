@@ -18,6 +18,7 @@ from typing import Any, Literal
 from openlakeforge_domain import DomainInventory
 
 from olf import contracts, log
+from olf.tooling.resolver import build_resolver
 
 Environment = Literal["local", "azure", "aws"]
 Suite = Literal["full", "smoke"]
@@ -55,6 +56,21 @@ class E2EConfig:
     seaweedfs_local_port: int | None = None
 
 
+def _kubectl_executable() -> str:
+    """The resolved (possibly managed, #127) kubectl executable path.
+
+    A separate function so tests can substitute a literal `"kubectl"`
+    without exercising real toolchain resolution.
+    """
+    return str(build_resolver().resolve("kubectl"))
+
+
+def _terraform_executable() -> str:
+    """The resolved (possibly managed, #127) terraform executable path. See
+    `_kubectl_executable`."""
+    return str(build_resolver().resolve("terraform"))
+
+
 def kubectl(
     cfg: E2EConfig,
     args: list[str],
@@ -62,7 +78,7 @@ def kubectl(
     capture: bool = False,
     retry_transient: bool = False,
 ) -> str:
-    command = ["kubectl", "--context", cfg.kube_context, *args]
+    command = [_kubectl_executable(), "--context", cfg.kube_context, *args]
     if retry_transient:
         return _run_retry_transient_kubectl(command, capture=capture)
     return _run(command, capture=capture)
@@ -120,13 +136,15 @@ def is_transient_kubectl_error(error: Exception) -> bool:
 def terraform_output(terraform_dir: Path | None, name: str) -> str:
     if terraform_dir is None:
         raise E2EError(f"cannot read Terraform output {name}: no Terraform directory configured.")
-    return _run(["terraform", f"-chdir={terraform_dir}", "output", "-raw", name], capture=True).strip()
+    return _run(
+        [_terraform_executable(), f"-chdir={terraform_dir}", "output", "-raw", name], capture=True
+    ).strip()
 
 
 def terraform_output_json(terraform_dir: Path | None, name: str) -> Any:
     if terraform_dir is None:
         raise E2EError(f"cannot read Terraform output {name}: no Terraform directory configured.")
-    raw = _run(["terraform", f"-chdir={terraform_dir}", "output", "-json", name], capture=True)
+    raw = _run([_terraform_executable(), f"-chdir={terraform_dir}", "output", "-json", name], capture=True)
     try:
         return json.loads(raw)
     except json.JSONDecodeError as exc:

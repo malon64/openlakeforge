@@ -8,6 +8,7 @@ import typer
 
 from olf import config
 from olf import contracts as contracts_module
+from olf.commands._shared import fail
 
 app = typer.Typer(help="Provider-contract runtime environment helpers.")
 
@@ -25,7 +26,17 @@ def contracts_env(
     Falls back to local defaults when the Terraform stack has not been applied
     yet. Intended for `eval` from scripts/contracts/load-runtime-env.sh.
     """
-    provider_contracts = contracts_module.load_provider_contracts(terraform_dir)
+    from olf.deployment.errors import DeploymentError
+
+    try:
+        provider_contracts = contracts_module.load_provider_contracts(terraform_dir)
+    except DeploymentError as exc:
+        # A managed-toolchain provisioning failure (#127) resolving
+        # terraform is a real operational problem, not "not applied yet" -
+        # load_provider_contracts() already distinguishes the two and lets
+        # this propagate; normalize it into the same clean CLI failure
+        # every other olf command produces instead of a raw traceback.
+        raise typer.Exit(code=fail(str(exc))) from exc
     exports, unsets = contracts_module.build_contract_env(os.environ, provider_contracts, repo_root=config.repo_root())
     output = contracts_module.render_shell_exports(exports, unsets)
     if output:

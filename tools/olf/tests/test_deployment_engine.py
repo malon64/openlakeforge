@@ -133,7 +133,10 @@ def test_build_provider_returns_cloud_provider_for_aws_and_azure(tmp_path) -> No
 
 
 def test_toolkit_default_includes_aws_and_azure_adapters() -> None:
-    toolkit = Toolkit.default()
+    # aws/az are not managed tools (#127), so host mode is enough here and
+    # keeps this test independent of the managed-toolchain resolution path,
+    # which is covered by tests/test_toolchain_resolver.py.
+    toolkit = Toolkit.default(environ={"OLF_TOOLCHAIN_MODE": "host"})
 
     assert isinstance(toolkit.aws, AwsCli)
     assert isinstance(toolkit.azure, AzureCli)

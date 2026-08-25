@@ -27,3 +27,15 @@ variable "reset_existing_cluster" {
   type        = bool
   default     = false
 }
+
+variable "kind_executable_path" {
+  description = "Absolute path to the kind executable the local-exec provisioner invokes. Empty resolves 'kind' from PATH (host mode, or direct 'terraform apply' outside olf); olf's managed toolchain (#127) always sets this explicitly."
+  type        = string
+  default     = ""
+}
+
+variable "kubectl_executable_path" {
+  description = "Absolute path to the kubectl executable the local-exec provisioner invokes. Empty resolves 'kubectl' from PATH (host mode, or direct 'terraform apply' outside olf); olf's managed toolchain (#127) always sets this explicitly."
+  type        = string
+  default     = ""
+}

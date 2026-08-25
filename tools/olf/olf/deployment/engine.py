@@ -27,7 +27,7 @@ from olf.tooling.helm import Helm
 from olf.tooling.kind import Kind
 from olf.tooling.kubectl import Kubectl
 from olf.tooling.process import ProcessRunner
-from olf.tooling.resolver import ExecutableResolver, PathExecutableResolver
+from olf.tooling.resolver import ExecutableResolver, build_resolver
 from olf.tooling.terraform import Terraform
 
 if TYPE_CHECKING:
@@ -62,9 +62,10 @@ class Toolkit:
         *,
         log_commands: bool = False,
         overrides: Mapping[str, Path] | None = None,
+        environ: Mapping[str, str] | None = None,
     ) -> Toolkit:
         runner = ProcessRunner(log_commands=log_commands)
-        resolver = PathExecutableResolver(overrides=overrides)
+        resolver = build_resolver(overrides=overrides, environ=environ)
         return cls(
             runner=runner,
             resolver=resolver,

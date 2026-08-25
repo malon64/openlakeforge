@@ -63,7 +63,13 @@ The easiest way to evaluate OpenLakeForge is with the local Kubernetes environme
 
 You need a working:
 
-**Docker engine · kind · kubectl · Terraform >= 1.7 · Helm · Python >= 3.12 · uv**
+**Docker engine · Python >= 3.12 · uv**
+
+`olf` (#127) provisions its own versioned Terraform, Helm, kubectl, and kind
+under `~/.openlakeforge` at the exact versions
+[`release/component-catalog.yaml`](release/component-catalog.yaml) pins — you
+do not need to install them yourself. Set `OLF_TOOLCHAIN_MODE=host` to use
+your own host-installed copies instead.
 
 Make sure Docker is available from your shell:
 
@@ -71,12 +77,18 @@ Make sure Docker is available from your shell:
 docker ps
 ```
 
-Then clone OpenLakeForge and start the **Slim** profile:
+Then clone OpenLakeForge and check the toolchain before deploying:
 
 ```bash
 git clone https://github.com/malon64/openlakeforge.git
 cd openlakeforge
 
+uv run --project tools/olf --locked olf doctor --provider local --profile slim
+```
+
+Start the **Slim** profile:
+
+```bash
 uv run --project tools/olf --locked olf deploy --provider local --profile slim
 ```
 

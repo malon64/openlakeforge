@@ -70,6 +70,7 @@ def e2e_run(
     """
     from olf import e2e
     from olf.deployment import contract_env
+    from olf.deployment.errors import DeploymentError
 
     valid_envs = {"local", "azure", "aws"}
     valid_suites = {"", "full", "smoke"}
@@ -104,5 +105,10 @@ def e2e_run(
                 kube_context=kube_context,
                 repo_root=repo_root,
             )
-    except e2e.E2EError as exc:
+    except (e2e.E2EError, DeploymentError) as exc:
+        # DeploymentError covers a managed-toolchain provisioning failure
+        # (#127) raised while resolving the provider-contract environment,
+        # before e2e.run() (and its own E2EError-only preflight) is ever
+        # reached - it must fail the same clean way, not escape as a raw
+        # traceback.
         raise typer.Exit(code=fail(str(exc))) from exc

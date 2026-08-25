@@ -127,6 +127,8 @@ It provides shared cross-environment functionality used by local, AWS, and Azure
 * Kubernetes project-code image updates
 * release validation
 * end-to-end environment testing
+* a managed Terraform/Helm/kubectl/kind toolchain, so those tools do not
+  need to be installed on the host
 
 The current CLI is primarily used by OpenLakeForge's deployment workflows and Make targets, but its commands can also be invoked directly for advanced workflows and debugging.
 

@@ -47,17 +47,20 @@ OpenLakeForge currently runs locally from a source checkout.
 
 You need the following tools available on your `PATH`:
 
-| Tool             | Purpose                               |
-| ---------------- | ------------------------------------- |
-| Git              | Clone OpenLakeForge                   |
-| Docker engine    | Container runtime used by kind        |
-| kind             | Local Kubernetes cluster              |
-| kubectl          | Kubernetes access and troubleshooting |
-| Terraform >= 1.7 | Infrastructure provisioning           |
-| Helm             | Kubernetes application deployment     |
-| Python >= 3.12   | OpenLakeForge tooling                 |
-| uv               | Python dependency and CLI execution   |
-| Make             | OpenLakeForge workflow entry points   |
+| Tool           | Purpose                              |
+| -------------- | ------------------------------------- |
+| Git            | Clone OpenLakeForge                   |
+| Docker engine  | Container runtime used by kind        |
+| Python >= 3.12 | OpenLakeForge tooling                 |
+| uv             | Python dependency and CLI execution   |
+| Make           | OpenLakeForge workflow entry points   |
+
+`olf` ([#127](https://github.com/malon64/openlakeforge/issues/127))
+provisions its own versioned Terraform, Helm, kubectl, and kind under
+`~/.openlakeforge` at the exact versions
+[`release/component-catalog.yaml`](../../release/component-catalog.yaml)
+pins — you do not need to install them yourself. Set
+`OLF_TOOLCHAIN_MODE=host` to use your own host-installed copies instead.
 
 You do **not** need Docker Desktop specifically.
 
@@ -70,10 +73,6 @@ Check that each command is available:
 ```bash
 git --version
 docker --version
-kind --version
-kubectl version --client
-terraform version
-helm version
 python3 --version
 uv --version
 make --version
@@ -99,6 +98,12 @@ cd openlakeforge
 OpenLakeForge commands in this guide should be executed from the repository root.
 
 > OpenLakeForge is currently alpha. A standalone installation artifact is being developed so future releases will not require operating directly from a source checkout.
+
+Then check the managed toolchain is provisioned:
+
+```bash
+uv run --project tools/olf --locked olf doctor --provider local --profile slim
+```
 
 ---
 
@@ -533,15 +538,25 @@ Make sure your Docker-compatible engine is running and accessible from the same 
 
 ## A required command is missing
 
-The deployment scripts fail early when required tools are not available on `PATH`.
-
-For example:
+`olf` provisions its own managed Terraform, Helm, kubectl, and kind, so this
+usually means Git, Docker, Python, uv, or Make (the actual host
+prerequisites) is missing:
 
 ```text
-ERROR: 'terraform' not found on PATH
+ERROR: 'docker' not found on PATH
 ```
 
 Install the missing tool and run the command again.
+
+If `olf` itself reports it cannot provision a managed tool, run
+`olf doctor` for the actionable reason:
+
+```bash
+uv run --project tools/olf --locked olf doctor --provider local --profile slim
+```
+
+If you set `OLF_TOOLCHAIN_MODE=host` to use your own host-installed
+Terraform, Helm, kubectl, or kind, make sure that tool is on `PATH`.
 
 ---
 

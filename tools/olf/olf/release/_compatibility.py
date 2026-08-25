@@ -116,6 +116,22 @@ def render_compatibility_matrix(catalog: dict[str, Any], repo_root: str | Path =
         lines.append(f"| {chart} | {chart_version} |")
     lines.append("")
 
+    toolchain = components.get("toolchain") or {}
+    if toolchain:
+        lines.append("## Managed toolchain")
+        lines.append("")
+        lines.append(
+            "Terraform, Helm, kubectl, and kind are provisioned by `olf toolchain` "
+            "(#127) rather than installed by the consumer; versions below are what "
+            "the current release provisions."
+        )
+        lines.append("")
+        lines.append("| Tool | Version |")
+        lines.append("| --- | --- |")
+        for tool, entry in sorted(toolchain.items()):
+            lines.append(f"| {tool} | {entry.get('version', 'unknown') if isinstance(entry, dict) else 'unknown'} |")
+        lines.append("")
+
     lines.append("## Container images")
     lines.append("")
     lines.append("| Image | Reference |")

@@ -7,12 +7,18 @@ Terraform remains the state/drift engine and Helm remains the chart/release
 engine; `olf` invokes both with structured argv, retries, and diagnostics. See
 [ADR 0028](../../docs/adr/0028-python-owns-repository-orchestration.md).
 
+`olf` also owns its own versioned Terraform, Helm, kubectl, and kind under
+`OLF_HOME` (default `~/.openlakeforge`) - a host installation of those tools
+is not required. `OLF_TOOLCHAIN_MODE=host` resolves them from `PATH` instead.
+See [ADR 0029](../../docs/adr/0029-olf-owns-a-managed-toolchain.md).
+
 ## Commands
 
 | Command | Purpose |
 | --- | --- |
-| `olf doctor --provider P [--phase PHASE]` / `olf plan --provider P [--phase PHASE]` | Read-only preflight and Terraform planning with typed provider/profile/phase options. |
+| `olf doctor --provider P [--phase PHASE]` / `olf plan --provider P [--phase PHASE]` | Read-only preflight and Terraform planning with typed provider/profile/phase options; provisions the managed toolchain as a side effect. |
 | `olf deploy\|destroy\|status\|forward --provider P` | Orchestrate a provider lifecycle without shell wrappers. |
+| `olf toolchain list\|install\|path\|clean` | Inspect, provision, or remove the managed Terraform/Helm/kubectl/kind toolchain under `OLF_HOME`. |
 | `olf check structure\|components\|contracts\|infra\|project-code\|dbt\|lockfiles\|all` | Repository validation gates. |
 | `olf images build\|load project-code\|superset` | Local Docker build and Kind load operations. |
 | `olf diagnostics collect OUTPUT_DIR` | Collect bounded host, Docker, Kubernetes, event, and pod-log evidence. |

@@ -117,3 +117,9 @@ profile selection) behind `AwsBackend`/`AzureBackend`.
 `0028-python-owns-repository-orchestration.md` fully supersedes ADR 0017's
 shell-orchestration decision. `olf` owns repository orchestration; Make and
 workflow commands are delegates, while Terraform and Helm remain their engines.
+
+`0029-olf-owns-a-managed-toolchain.md` extends ADR 0028: `olf` downloads,
+verifies, and privately invokes its own versioned Terraform, Helm, kubectl,
+and kind binaries under `OLF_HOME` instead of requiring them installed
+globally, closing issue #127. `aws`/`az` remain host prerequisites for now,
+with the SDK-replacement path documented and deferred to a follow-up issue.

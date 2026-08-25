@@ -10,8 +10,12 @@ environment variables (Azure).
 
 ## Prerequisites
 
-Install and put on your `PATH`: `terraform` (>= 1.7.0), `kubectl`, `helm`,
-`docker`, `python3`, `uv`, `make`, plus the CLI for your cloud (`aws` or `az`).
+Install and put on your `PATH`: `docker`, `python3`, `uv`, `make`, plus the
+CLI for your cloud (`aws` or `az` — these are not yet managed by `olf`; see
+ADR 0029). `olf` provisions its own versioned `terraform`, `kubectl`, and
+`helm` under `OLF_HOME` (default `~/.openlakeforge`) — a host installation of
+those three is not required. Set `OLF_TOOLCHAIN_MODE=host` to use your own
+instead.
 
 Terraform state is stored **locally** (no remote backend), so run the `make`
 targets from the same machine/checkout each time for a given environment.

@@ -20,6 +20,7 @@ from collections.abc import Iterator
 from datetime import UTC, datetime
 
 from olf import log
+from olf.tooling.resolver import build_resolver
 
 
 class KubectlError(RuntimeError):
@@ -40,6 +41,26 @@ def kubectl_command(args: list[str], *, kube_context: str | None = None) -> list
     return command
 
 
+def _kubectl_executable() -> str:
+    """The resolved (possibly managed, #127) kubectl executable path.
+
+    A separate function so tests can substitute a literal `"kubectl"`
+    without exercising real toolchain resolution.
+    """
+    return str(build_resolver().resolve("kubectl"))
+
+
+def _resolved_kubectl_argv(args: list[str], *, kube_context: str | None = None) -> list[str]:
+    """`kubectl_command`'s argv with `kubectl` substituted for its resolved
+    executable path, used at every actual subprocess execution site.
+    `kubectl_command` itself stays a pure argv builder so callers/tests that
+    only need the command shape never pay for resolution.
+    """
+    command = kubectl_command(args, kube_context=kube_context)
+    command[0] = _kubectl_executable()
+    return command
+
+
 def _kubectl(
     args: list[str],
     *,
@@ -47,7 +68,7 @@ def _kubectl(
     check: bool = True,
     kube_context: str | None = None,
 ) -> str:
-    command = kubectl_command(args, kube_context=kube_context)
+    command = _resolved_kubectl_argv(args, kube_context=kube_context)
     result = subprocess.run(
         command,
         capture_output=capture,
@@ -137,7 +158,7 @@ def port_forward(
     service-specific health probe (Polaris OAuth, OpenMetadata JWKS, S3 bucket).
     """
     port = local_port or _free_local_port()
-    command = kubectl_command(
+    command = _resolved_kubectl_argv(
         [
             "port-forward",
             f"svc/{service}",

@@ -73,8 +73,9 @@ class _ScriptedRunner(RecordingRunner):
 
 def test_foundation_apply_variables_exact_order_and_content(tmp_path: Path) -> None:
     config = _config(tmp_path)
+    tools = _toolkit_with_runner(RecordingRunner())
 
-    variables = foundation.foundation_apply_variables(config)
+    variables = foundation.foundation_apply_variables(config, tools)
 
     assert list(variables.keys()) == [
         "cluster_name",
@@ -82,17 +83,23 @@ def test_foundation_apply_variables_exact_order_and_content(tmp_path: Path) -> N
         "kubeconfig_path",
         "kind_wait_timeout",
         "reset_existing_cluster",
+        "kind_executable_path",
+        "kubectl_executable_path",
     ]
     assert variables["cluster_name"] == "openlakeforge-local"
     assert variables["reset_existing_cluster"] == "false"
+    assert variables["kind_executable_path"] == "kind"
+    assert variables["kubectl_executable_path"] == "kubectl"
 
 
-def test_foundation_destroy_variables_are_the_three_var_subset(tmp_path: Path) -> None:
+def test_foundation_destroy_variables_are_the_four_var_subset(tmp_path: Path) -> None:
     config = _config(tmp_path)
+    tools = _toolkit_with_runner(RecordingRunner())
 
-    variables = foundation.foundation_destroy_variables(config)
+    variables = foundation.foundation_destroy_variables(config, tools)
 
-    assert list(variables.keys()) == ["cluster_name", "cluster_config_path", "kubeconfig_path"]
+    assert list(variables.keys()) == ["cluster_name", "cluster_config_path", "kubeconfig_path", "kind_executable_path"]
+    assert variables["kind_executable_path"] == "kind"
 
 
 def test_foundation_up_applies_exports_kubeconfig_and_checks_reachability(tmp_path: Path) -> None:

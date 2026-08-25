@@ -212,7 +212,9 @@ def _exec_pod_python(pod: str, namespace: str, script: str, args: list[str]) -> 
     quoted = " ".join(f"'{arg}'" for arg in args)
     command = f". /app/pythonpath/superset_bootstrap.sh; python - {quoted}"
     subprocess.run(
-        k8s.kubectl_command(["exec", "-i", pod, "-c", "superset", "-n", namespace, "--", "/bin/sh", "-ec", command]),
+        k8s._resolved_kubectl_argv(  # noqa: SLF001 - internal helper reuse
+            ["exec", "-i", pod, "-c", "superset", "-n", namespace, "--", "/bin/sh", "-ec", command]
+        ),
         input=script,
         text=True,
         check=True,
@@ -258,7 +260,7 @@ def deploy_reports(
         log.step(f"Copying {bundle_path} to {pod}:{remote_bundle}")
         with bundle_path.open("rb") as body:
             subprocess.run(
-                k8s.kubectl_command(
+                k8s._resolved_kubectl_argv(  # noqa: SLF001 - internal helper reuse
                     [
                         "exec",
                         "-i",
@@ -307,7 +309,9 @@ def export_report(
 
     with local_bundle.open("wb") as out:
         subprocess.run(
-            k8s.kubectl_command(["exec", pod, "-c", "superset", "-n", namespace, "--", "cat", remote_bundle]),
+            k8s._resolved_kubectl_argv(  # noqa: SLF001 - internal helper reuse
+                ["exec", pod, "-c", "superset", "-n", namespace, "--", "cat", remote_bundle]
+            ),
             stdout=out,
             check=True,
         )

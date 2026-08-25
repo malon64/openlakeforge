@@ -131,7 +131,7 @@ class LocalProvider:
             self.tools.terraform.init(self.config.paths.foundation_terraform_dir, env=self.env)
             result = self.tools.terraform.plan(
                 self.config.paths.foundation_terraform_dir,
-                variables=foundation.foundation_apply_variables(self.config),
+                variables=foundation.foundation_apply_variables(self.config, self.tools),
                 detailed_exitcode=True,
                 env=self.env,
             )

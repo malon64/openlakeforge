@@ -48,6 +48,52 @@ def _check_version_matches_tag(catalog: dict[str, Any], tag: str | None) -> Chec
     return CheckResult("tag matches catalog distribution.version", True, f"{tag} == {expected_tag}")
 
 
+_TOOLCHAIN_SHA256_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
+_TOOLCHAIN_PLATFORMS = ("darwin-amd64", "darwin-arm64", "linux-amd64", "linux-arm64")
+
+
+def _check_toolchain_pinned(catalog: dict[str, Any]) -> CheckResult:
+    """Every managed tool (#127) has a concrete version - never `latest` -
+    and a well-formed digest for every supported platform."""
+    from olf.toolchain.spec import MANAGED_TOOLS
+
+    toolchain = (catalog.get("components") or {}).get("toolchain")
+    if not isinstance(toolchain, dict):
+        return CheckResult("managed toolchain is pinned", False, "components.toolchain is missing")
+
+    problems: list[str] = []
+    missing_tools = [tool for tool in MANAGED_TOOLS if tool not in toolchain]
+    if missing_tools:
+        problems.append(f"missing entries: {', '.join(missing_tools)}")
+
+    for tool in MANAGED_TOOLS:
+        entry = toolchain.get(tool)
+        if tool in missing_tools:
+            continue
+        if not isinstance(entry, dict):
+            problems.append(f"{tool} entry must be a mapping, got {entry!r}")
+            continue
+        version = entry.get("version")
+        if not isinstance(version, str) or not version or version == "latest":
+            problems.append(f"{tool}.version must be a concrete version, got {version!r}")
+        platforms = entry.get("platforms")
+        if not isinstance(platforms, dict):
+            problems.append(f"{tool}.platforms must be a mapping")
+            continue
+        missing_platforms = [p for p in _TOOLCHAIN_PLATFORMS if p not in platforms]
+        if missing_platforms:
+            problems.append(f"{tool}.platforms is missing {', '.join(missing_platforms)}")
+        malformed = sorted(
+            p for p, digest in platforms.items() if not _TOOLCHAIN_SHA256_PATTERN.match(str(digest))
+        )
+        if malformed:
+            problems.append(f"{tool}.platforms has malformed digest(s) for {', '.join(malformed)}")
+
+    if problems:
+        return CheckResult("managed toolchain is pinned", False, "; ".join(problems))
+    return CheckResult("managed toolchain is pinned", True, f"{len(MANAGED_TOOLS)} tool(s) checked")
+
+
 def _check_images_digest_pinned(catalog: dict[str, Any]) -> CheckResult:
     images = (catalog.get("components") or {}).get("images") or {}
     if not images:
@@ -409,6 +455,7 @@ def run_release_check(
     report = ReleaseCheckReport()
     report.results.append(_check_version_matches_tag(catalog, tag))
     report.results.append(_check_images_digest_pinned(catalog))
+    report.results.append(_check_toolchain_pinned(catalog))
     report.results.append(_check_images_match_deployment_sources(root, catalog))
     report.results.append(_check_actions_sha_pinned(root, catalog))
     report.results.append(_check_dockerfiles_pinned(root))

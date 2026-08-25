@@ -30,6 +30,7 @@ from olf.commands import (
     smoke,
     source,
     superset,
+    toolchain,
 )
 
 app = typer.Typer(
@@ -58,6 +59,7 @@ app.add_typer(release.app, name="release")
 app.add_typer(source.app, name="source")
 app.add_typer(domain.app, name="domain")
 app.add_typer(product.app, name="product")
+app.add_typer(toolchain.app, name="toolchain")
 
 app.command("deploy")(deployment.deploy)
 app.command("plan")(deployment.plan)
