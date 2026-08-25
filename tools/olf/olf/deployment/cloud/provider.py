@@ -180,6 +180,9 @@ class CloudProvider:
         return changes
 
     def doctor(self, phase: DeploymentPhase) -> DoctorReport:
+        from olf.deployment.cloud import foundation
+        from olf.deployment.errors import DeploymentError
+
         provider_cli = "aws" if self.backend.scope == "aws" else "az"
         required = ["terraform", "kubectl", provider_cli]
         if phase in (DeploymentPhase.ALL, DeploymentPhase.PLATFORM):
@@ -199,6 +202,23 @@ class CloudProvider:
             items.append(DoctorItem(f"{self.backend.scope} authentication", False, str(exc)))
         else:
             items.append(DoctorItem(f"{self.backend.scope} authentication", True, "authenticated"))
+        if phase in (DeploymentPhase.ALL, DeploymentPhase.FOUNDATION):
+            foundation_dir = self.config.paths.foundation_terraform_dir
+            try:
+                tfvars = foundation._resolve_foundation_tfvars_file(  # noqa: SLF001 - shared foundation resolver.
+                    self.config, self.backend, self._environ, foundation_dir
+                )
+            except DeploymentError as exc:
+                items.append(DoctorItem(f"{self.backend.scope} foundation tfvars", False, str(exc)))
+            else:
+                if tfvars is not None:
+                    items.append(
+                        DoctorItem(f"{self.backend.scope} foundation tfvars", tfvars.is_file(), str(tfvars))
+                    )
+        if phase in (DeploymentPhase.ALL, DeploymentPhase.PLATFORM):
+            tfvars = self.config.terraform.var_file
+            if tfvars is not None:
+                items.append(DoctorItem(f"{self.backend.scope} platform tfvars", tfvars.is_file(), str(tfvars)))
         if phase in (DeploymentPhase.PLATFORM, DeploymentPhase.ARTIFACTS):
             items.append(
                 DoctorItem(

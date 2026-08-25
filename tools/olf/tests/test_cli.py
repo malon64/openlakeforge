@@ -208,6 +208,57 @@ def test_floe_generation_passes_the_selected_namespace_to_the_local_profile(
     ]
 
 
+def test_floe_generation_honors_custom_contract_root_for_cloud(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    captured: dict[str, object] = {}
+
+    class FakeBackend:
+        def generate_floe_manifests(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
+            captured["generation"] = kwargs
+
+    class FakeCloudProvider:
+        _foundation_facts = SimpleNamespace(kube_context="custom-cluster")
+        config = object()
+        backend = FakeBackend()
+        tools = object()
+        env = {}
+
+    contract_root = tmp_path / "custom-contracts"
+    context = SimpleNamespace(
+        paths=SimpleNamespace(
+            repo_root=tmp_path,
+            platform_terraform_dir=tmp_path / "default-contracts",
+            kubeconfig_path=tmp_path / "kubeconfig.yaml",
+            port_forward_log_prefix=tmp_path / "port-forward",
+        ),
+        namespace="custom-lakehouse",
+        features=SimpleNamespace(governance_enabled=True),
+    )
+    monkeypatch.setenv("OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR", str(contract_root))
+    monkeypatch.setattr("olf.commands.deployment._build_context", lambda *args, **kwargs: context)
+    monkeypatch.setattr(
+        "olf.commands.deployment._build_engine",
+        lambda *args, **kwargs: SimpleNamespace(provider=FakeCloudProvider()),
+    )
+    monkeypatch.setattr(
+        "olf.deployment.contract_env.applied_contract_environment",
+        lambda **kwargs: captured.update(kwargs) or nullcontext({}),
+    )
+
+    result = runner.invoke(app, ["floe", "generate-manifests", "--provider", "aws"])
+
+    assert result.exit_code == 0
+    assert captured["contract_terraform_dir"] == contract_root
+    assert captured["generation"] == {
+        "repo_root": tmp_path,
+        "namespace": "custom-lakehouse",
+        "governance_enabled": True,
+        "environ": {},
+        "env": {},
+    }
+
+
 def test_revision_compute_command_prints_runtime_artifact_revision(tmp_path: Path) -> None:
     path = tmp_path / "manifests/sales/sales.manifest.json"
     path.parent.mkdir(parents=True)

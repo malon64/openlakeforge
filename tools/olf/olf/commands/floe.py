@@ -28,6 +28,7 @@ def generate_manifests(
 ) -> None:
     """Generate Floe manifests using resolved provider contracts, never shell exports."""
     from olf.commands.deployment import _build_context, _build_engine
+    from olf.commands.runtime import _contract_terraform_dir
     from olf.deployment import contract_env
     from olf.deployment.errors import DeploymentError
     from olf.deployment.floe_manifests import generate_local_manifests
@@ -58,7 +59,7 @@ def generate_manifests(
         else:
             facts = deployment_provider._foundation_facts  # noqa: SLF001 - provider resolves cloud context once.
             with contract_env.applied_contract_environment(
-                contract_terraform_dir=context.paths.platform_terraform_dir,
+                contract_terraform_dir=_contract_terraform_dir(context.paths.platform_terraform_dir),
                 repo_root=context.paths.repo_root,
                 namespace=context.namespace,
                 kube_context=facts.kube_context,

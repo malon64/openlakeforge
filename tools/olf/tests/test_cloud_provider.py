@@ -14,6 +14,8 @@ from pathlib import Path
 import pytest
 from _cloud_support import FakeCloudBackend
 
+from olf.deployment.cloud.aws import AwsBackend
+from olf.deployment.cloud.azure import AzureBackend
 from olf.deployment.cloud.backend import FoundationFacts
 from olf.deployment.cloud.config import CloudDeploymentConfig
 from olf.deployment.cloud.provider import CloudProvider
@@ -202,3 +204,42 @@ def test_full_platform_doctor_requires_and_probes_docker(tmp_path: Path, monkeyp
 
     assert required == ["terraform", "kubectl", "aws", "helm", "docker"]
     assert health_calls == ["docker"]
+
+
+def test_azure_foundation_doctor_reports_missing_required_tfvars(tmp_path: Path) -> None:
+    context = DeploymentContext.azure(repo_root=tmp_path)
+    config = CloudDeploymentConfig.from_environment({}, context=context)
+    provider = CloudProvider.create(config, AzureBackend(), toolkit=_toolkit(), environ={})
+
+    report = provider.doctor(DeploymentPhase.FOUNDATION)
+
+    tfvars_item = next(item for item in report.items if item.name == "azure foundation tfvars")
+    assert not tfvars_item.ok
+    assert "Azure foundation configuration not found" in tfvars_item.detail
+
+
+def test_cloud_doctor_reports_missing_explicit_tfvars_for_each_consuming_phase(tmp_path: Path) -> None:
+    context = DeploymentContext.aws(repo_root=tmp_path)
+    environ = {"AWS_TFVARS_FILE": "missing.tfvars"}
+    config = CloudDeploymentConfig.from_environment(environ, context=context)
+    provider = CloudProvider.create(config, AwsBackend(), toolkit=_toolkit(), environ=environ)
+
+    report = provider.doctor(DeploymentPhase.ALL)
+
+    tfvars_items = {item.name: item for item in report.items if item.name.endswith("tfvars")}
+    assert not tfvars_items["aws foundation tfvars"].ok
+    assert not tfvars_items["aws platform tfvars"].ok
+
+
+def test_local_platform_doctor_reports_missing_explicit_tfvars(tmp_path: Path) -> None:
+    from olf.deployment.local.config import LocalDeploymentConfig
+    from olf.deployment.local.provider import LocalProvider
+
+    context = DeploymentContext.local(repo_root=tmp_path)
+    config = LocalDeploymentConfig.from_environment({"LOCAL_TFVARS_FILE": "missing.tfvars"}, context=context)
+    provider = LocalProvider.create(config, toolkit=_toolkit(), environ={})
+
+    report = provider.doctor(DeploymentPhase.PLATFORM)
+
+    tfvars_item = next(item for item in report.items if item.name == "local platform tfvars")
+    assert not tfvars_item.ok

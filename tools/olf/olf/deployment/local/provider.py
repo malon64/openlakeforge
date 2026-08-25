@@ -161,6 +161,10 @@ class LocalProvider:
             required_tools=required,
         )
         items.append(docker_health(self.tools, env=self.context.command_env()))
+        if phase in (DeploymentPhase.ALL, DeploymentPhase.PLATFORM):
+            tfvars = self.config.terraform.var_file
+            if tfvars is not None:
+                items.append(DoctorItem("local platform tfvars", tfvars.is_file(), str(tfvars)))
         if phase in (DeploymentPhase.PLATFORM, DeploymentPhase.ARTIFACTS):
             items.append(
                 DoctorItem(
