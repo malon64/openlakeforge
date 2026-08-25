@@ -110,17 +110,22 @@ class ToolchainManager:
         return self.version_dir / f"{RECEIPT_FILENAME}.lock"
 
     @contextlib.contextmanager
-    def _locked_receipt(self) -> Iterator[None]:
-        """Serialize receipt read-modify-write across concurrent `olf`
-        processes sharing this `OLF_HOME` (e.g. two local invocations, or a
-        future parallel CI matrix sharing a persistent toolchain cache).
+    def _locked_toolchain_update(self) -> Iterator[None]:
+        """Serialize an entire provision-and-record sequence across
+        concurrent `olf` processes sharing this `OLF_HOME` (e.g. two
+        checkouts with different catalog pins, or a future parallel CI
+        matrix sharing a persistent toolchain cache).
 
-        Without this, two processes racing to provision the same
-        never-before-installed toolchain can each read an empty receipt,
-        install their own tool, and then clobber each other's write - the
-        loser's tool entry is silently discarded, forcing a wasteful
-        reprovision next run. `flock` is POSIX-only, matching this
-        project's darwin/linux-only `Platform` support.
+        The lock must span the installed-state check, the download/install,
+        and the receipt write together - not just the receipt write. Two
+        processes wanting different versions of the same tool can otherwise
+        both pass the (unlocked) staleness check, race each other's
+        `os.replace` onto the same activated binary path, and then each
+        record their own version in the receipt: the loser's receipt entry
+        can win even though the winner's binary is what's actually active,
+        leaving the receipt and the on-disk binary permanently
+        inconsistent. `flock` is POSIX-only, matching this project's
+        darwin/linux-only `Platform` support.
         """
         self._lock_path.parent.mkdir(parents=True, exist_ok=True)
         with self._lock_path.open("a+") as lock_file:
@@ -162,18 +167,30 @@ class ToolchainManager:
     def resolve(self, tool: str) -> Path:
         """Return the activated path for `tool`, provisioning it on first use."""
         spec = self._spec(tool)
-        current = self.installed(tool)
-        if current is not None and current.version == spec.version and current.sha256 == spec.sha256:
-            return current.path
+        current = self._current_if_matching(tool, spec)
+        if current is not None:
+            return current
 
-        archive_path = fetch_verified(self.downloader, spec, cache_root=self.cache_root)
-        activated = install_archive(archive_path, spec, bin_dir=self.bin_dir)
+        with self._locked_toolchain_update():
+            # Re-check now that the lock is held: another process may have
+            # just finished installing this exact version while we waited.
+            current = self._current_if_matching(tool, spec)
+            if current is not None:
+                return current
 
-        with self._locked_receipt():
+            archive_path = fetch_verified(self.downloader, spec, cache_root=self.cache_root)
+            activated = install_archive(archive_path, spec, bin_dir=self.bin_dir)
+
             receipt = self._read_receipt()
             receipt[tool] = {"version": spec.version, "sha256": spec.sha256}
             self._write_receipt(receipt)
-        return activated
+            return activated
+
+    def _current_if_matching(self, tool: str, spec: ToolSpec) -> Path | None:
+        current = self.installed(tool)
+        if current is not None and current.version == spec.version and current.sha256 == spec.sha256:
+            return current.path
+        return None
 
     def ensure_all(self) -> dict[str, Path]:
         return {tool: self.resolve(tool) for tool in self.specs}

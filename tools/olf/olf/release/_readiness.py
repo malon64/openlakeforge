@@ -68,7 +68,10 @@ def _check_toolchain_pinned(catalog: dict[str, Any]) -> CheckResult:
 
     for tool in MANAGED_TOOLS:
         entry = toolchain.get(tool)
+        if tool in missing_tools:
+            continue
         if not isinstance(entry, dict):
+            problems.append(f"{tool} entry must be a mapping, got {entry!r}")
             continue
         version = entry.get("version")
         if not isinstance(version, str) or not version or version == "latest":

@@ -280,3 +280,87 @@ def test_concurrent_resolves_of_different_tools_do_not_clobber_each_others_recei
     assert not errors, errors
     receipt = json.loads(manager.receipt_path.read_text())
     assert set(receipt) == {"terraform", "helm"}
+
+
+class _TimingDownloader:
+    """Wraps a real fake downloader but records the wall-clock interval
+    each `fetch()` call spans, in a shared list guarded by a lock. A short
+    sleep widens the window so two racing threads are very likely to
+    overlap unless something outside `fetch()` itself already serializes
+    them - i.e. this observes whether the *caller's* critical section
+    (installed-state check through receipt write) is exclusive, not just
+    whether `fetch()` calls happen to interleave.
+    """
+
+    def __init__(self, inner: _FakeDownloader, intervals: list, lock) -> None:  # noqa: ANN001
+        self._inner = inner
+        self._intervals = intervals
+        self._lock = lock
+        self.calls = inner.calls
+
+    def fetch(self, url: str, *, destination: Path) -> None:
+        import time
+
+        start = time.monotonic()
+        time.sleep(0.05)
+        self._inner.fetch(url, destination=destination)
+        end = time.monotonic()
+        with self._lock:
+            self._intervals.append((start, end))
+
+
+def _intervals_overlap(intervals: list[tuple[float, float]]) -> bool:
+    ordered = sorted(intervals)
+    return any(a_end > b_start for (_, a_end), (b_start, _) in zip(ordered, ordered[1:], strict=False))
+
+
+def test_concurrent_resolves_of_different_versions_never_leave_a_binary_receipt_mismatch(tmp_path: Path) -> None:
+    """Two `olf` processes pinning different versions of the same tool
+    (e.g. two checkouts sharing OLF_HOME) must never end up with a receipt
+    that claims one version while the activated binary is actually the
+    other - each racing writer must see the other's outcome atomically,
+    which requires their entire provision-and-record sequences to never
+    overlap in wall-clock time.
+    """
+    import threading
+
+    home = tmp_path / "home"
+    catalog_a, _ = _catalog_and_digests(version="1.0.0")
+    catalog_b, _ = _catalog_and_digests(version="2.0.0")
+    manager_a, downloader_a = _manager(tmp_path, catalog=catalog_a, home=home)
+    manager_b, downloader_b = _manager(tmp_path, catalog=catalog_b, home=home)
+
+    intervals: list[tuple[float, float]] = []
+    intervals_lock = threading.Lock()
+    manager_a.downloader = _TimingDownloader(downloader_a, intervals, intervals_lock)
+    manager_b.downloader = _TimingDownloader(downloader_b, intervals, intervals_lock)
+
+    errors: list[BaseException] = []
+    start_barrier = threading.Barrier(2)
+
+    def _resolve(manager: ToolchainManager) -> None:
+        start_barrier.wait(timeout=5)
+        try:
+            manager.resolve("kubectl")
+        except BaseException as exc:  # noqa: BLE001 - captured for the assertion below
+            errors.append(exc)
+
+    threads = [threading.Thread(target=_resolve, args=(m,)) for m in (manager_a, manager_b)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=10)
+
+    assert not errors, errors
+    assert len(intervals) == 2  # both threads actually downloaded, so overlap would have been possible
+    assert not _intervals_overlap(intervals), (
+        "the two provisioning sequences overlapped - the lock did not serialize them"
+    )
+
+    receipt = json.loads(manager_a.receipt_path.read_text())
+    recorded_version = receipt["kubectl"]["version"]
+    activated_bytes = (manager_a.bin_dir / "kubectl").read_bytes()
+    expected_bytes = f"pretend kubectl binary v{recorded_version}".encode()
+    assert activated_bytes == expected_bytes, (
+        f"receipt says {recorded_version!r} but the activated binary does not match it"
+    )

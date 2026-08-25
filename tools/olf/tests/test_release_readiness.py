@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import pytest
 import yaml
 
 from olf.release import _readiness
@@ -54,6 +55,18 @@ def test_check_toolchain_pinned_flags_missing_tool() -> None:
     result = _readiness._check_toolchain_pinned(catalog)
     assert not result.ok
     assert "kind" in result.detail
+
+
+@pytest.mark.parametrize("malformed", [None, "1.0.0", 42, ["not", "a", "mapping"]])
+def test_check_toolchain_pinned_flags_a_non_mapping_entry(malformed: object) -> None:
+    """A present-but-malformed entry (e.g. `terraform: null`) must be
+    flagged, not silently skipped - `build_spec()` would otherwise crash on
+    `entry.get()` at runtime for a catalog this check already approved."""
+    catalog = _valid_toolchain_catalog()
+    catalog["components"]["toolchain"]["terraform"] = malformed
+    result = _readiness._check_toolchain_pinned(catalog)
+    assert not result.ok
+    assert "terraform" in result.detail
 
 
 def test_check_toolchain_pinned_rejects_latest_version() -> None:
