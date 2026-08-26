@@ -144,17 +144,25 @@ class TerraformSettings:
         cls,
         environ: Mapping[str, str],
         *,
-        repo_root: Path,
+        distribution_root: Path,
+        project_root: Path,
         profile: Profile,
         var_file: Path | None = None,
     ) -> TerraformSettings:
-        raw = str(var_file) if var_file is not None else environ.get("LOCAL_TFVARS_FILE", "")
-        if not raw and profile == Profile.SLIM:
-            raw = "infra/terraform/environments/local/slim.tfvars"
+        """`distribution_root` and `project_root` coincide in source mode,
+        so this split only matters for an installed run: the platform-owned
+        `slim.tfvars` default lives in the distribution payload, but a
+        user-provided `--var-file`/`LOCAL_TFVARS_FILE` is the user's own
+        tfvars, which - with `--project-root` - lives in their writable
+        project, never inside the read-only payload.
+        """
+        user_raw = str(var_file) if var_file is not None else environ.get("LOCAL_TFVARS_FILE", "")
         resolved: Path | None = None
-        if raw:
-            candidate = Path(raw)
-            resolved = candidate if candidate.is_absolute() else repo_root / candidate
+        if user_raw:
+            candidate = Path(user_raw)
+            resolved = candidate if candidate.is_absolute() else project_root / candidate
+        elif profile == Profile.SLIM:
+            resolved = distribution_root / "infra/terraform/environments/local/slim.tfvars"
         return cls(
             var_file=resolved,
             apply_retry=RetryPolicy(
@@ -232,7 +240,11 @@ class LocalDeploymentConfig:
                 installed=context.paths.installed,
             ),
             terraform=TerraformSettings.from_environment(
-                environ, repo_root=distribution_root, profile=context.profile, var_file=var_file
+                environ,
+                distribution_root=distribution_root,
+                project_root=context.paths.repo_root,
+                profile=context.profile,
+                var_file=var_file,
             ),
             prefetch=PrefetchSettings.from_environment(environ),
             floe=FloeManifestSettings.from_environment(environ, work_root=context.paths.work_root),

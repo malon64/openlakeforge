@@ -215,3 +215,61 @@ def test_dagster_chart_rejects_digest_mismatch(tmp_path: Path) -> None:
     assert not request.package_path.exists()
     # The mismatch must be caught before the archive is ever unpacked.
     assert not any(c.argv[1] == "package" for c in runner.calls)
+
+
+def test_dagster_chart_writes_a_digest_sidecar_for_a_pinned_cache_entry(tmp_path: Path) -> None:
+    archive_bytes = _fake_dagster_archive_bytes()
+    request = _dagster_request(tmp_path)
+    request = ChartRequest(**{**request.__dict__, "sha256": hashlib.sha256(archive_bytes).hexdigest()})
+    runner = _DagsterPackagingRunner(archive_bytes=archive_bytes)
+    helm = Helm(runner, PathExecutableResolver(overrides={"helm": Path("helm")}))
+    context = DeploymentContext.local(repo_root=tmp_path)
+
+    prepare_cached_dagster_chart_no_schema(request, helm=helm, paths=context.paths, env={}, retry_policy=_POLICY)
+
+    sidecar = request.package_path.with_name(request.package_path.name + ".sha256")
+    assert sidecar.is_file()
+    assert sidecar.read_text().strip() == hashlib.sha256(request.package_path.read_bytes()).hexdigest()
+
+
+def test_dagster_chart_reuses_a_pinned_cache_entry_whose_sidecar_matches(tmp_path: Path) -> None:
+    request = _dagster_request(tmp_path)
+    request = ChartRequest(**{**request.__dict__, "sha256": "a" * 64})
+    request.package_path.parent.mkdir(parents=True)
+    request.package_path.write_bytes(b"cached-derivative")
+    sidecar = request.package_path.with_name(request.package_path.name + ".sha256")
+    sidecar.write_text(hashlib.sha256(b"cached-derivative").hexdigest() + "\n")
+    runner = RecordingRunner(CommandResult(argv=(), returncode=0, stdout="", stderr="", duration_seconds=0.0))
+    helm = Helm(runner, PathExecutableResolver(overrides={"helm": Path("helm")}))
+    context = DeploymentContext.local(repo_root=tmp_path)
+
+    result = prepare_cached_dagster_chart_no_schema(
+        request, helm=helm, paths=context.paths, env={}, retry_policy=_POLICY
+    )
+
+    assert result == request.package_path
+    assert request.package_path.read_bytes() == b"cached-derivative"
+    assert len(runner.calls) == 1  # only the `helm show chart` cache-validity check
+
+
+def test_dagster_chart_redownloads_when_a_pinned_cache_entry_has_no_sidecar(tmp_path: Path) -> None:
+    """A structurally-valid but corrupted-or-replaced cached derivative must
+    not be trusted just because `helm show chart` can parse it - a missing
+    or mismatched digest sidecar must force a fresh, re-verified download.
+    """
+    archive_bytes = _fake_dagster_archive_bytes()
+    request = _dagster_request(tmp_path)
+    request = ChartRequest(**{**request.__dict__, "sha256": hashlib.sha256(archive_bytes).hexdigest()})
+    request.package_path.parent.mkdir(parents=True)
+    request.package_path.write_bytes(b"corrupted-but-helm-parses-it")
+    runner = _DagsterPackagingRunner(archive_bytes=archive_bytes)
+    helm = Helm(runner, PathExecutableResolver(overrides={"helm": Path("helm")}))
+    context = DeploymentContext.local(repo_root=tmp_path)
+
+    result = prepare_cached_dagster_chart_no_schema(
+        request, helm=helm, paths=context.paths, env={}, retry_policy=_POLICY
+    )
+
+    assert result == request.package_path
+    assert request.package_path.read_bytes() == b"fake-chart"  # freshly re-packaged, not the corrupted bytes
+    assert any(c.argv[1:3] == ["pull", "dagster/dagster"] for c in runner.calls)

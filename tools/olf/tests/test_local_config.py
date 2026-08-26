@@ -144,3 +144,47 @@ def test_source_checkout_does_not_pin_chart_digests(tmp_path: Path) -> None:
     config = LocalDeploymentConfig.from_environment({}, context=context)
 
     assert config.charts.trino_sha256 is None
+
+
+def test_relative_local_var_file_resolves_against_the_writable_project(tmp_path: Path) -> None:
+    """A relative `--var-file`/`LOCAL_TFVARS_FILE` is the user's own tfvars -
+    for an installed deployment with `--project-root`, that file lives in
+    the writable project, never inside the read-only distribution payload.
+    Regression test: this used to resolve against distribution_root.
+    """
+    project = tmp_path / "project"
+    distribution = tmp_path / "distribution"
+    project.mkdir()
+    distribution.mkdir()
+    context = DeploymentContext.local(repo_root=project, distribution_root=distribution)
+
+    config = LocalDeploymentConfig.from_environment({}, context=context, var_file=Path("custom.tfvars"))
+
+    assert config.terraform.var_file == project / "custom.tfvars"
+
+
+def test_relative_local_tfvars_file_env_var_resolves_against_the_writable_project(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    distribution = tmp_path / "distribution"
+    project.mkdir()
+    distribution.mkdir()
+    context = DeploymentContext.local(repo_root=project, distribution_root=distribution)
+
+    config = LocalDeploymentConfig.from_environment({"LOCAL_TFVARS_FILE": "custom.tfvars"}, context=context)
+
+    assert config.terraform.var_file == project / "custom.tfvars"
+
+
+def test_slim_default_tfvars_still_resolves_against_the_distribution_payload(tmp_path: Path) -> None:
+    """The platform-owned `slim.tfvars` default is part of the distribution
+    payload, not the user's project - it must keep resolving against
+    distribution_root even when project_root differs."""
+    project = tmp_path / "project"
+    distribution = tmp_path / "distribution"
+    project.mkdir()
+    distribution.mkdir()
+    context = DeploymentContext.local(repo_root=project, distribution_root=distribution, profile=Profile.SLIM)
+
+    config = LocalDeploymentConfig.from_environment({}, context=context)
+
+    assert config.terraform.var_file == distribution / "infra/terraform/environments/local/slim.tfvars"

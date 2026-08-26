@@ -152,6 +152,27 @@ def prepare_cached_chart(
     return request.package_path
 
 
+def _derivative_digest_sidecar(package_path: Path) -> Path:
+    return package_path.with_name(package_path.name + ".sha256")
+
+
+def _cached_derivative_is_trustworthy(package_path: Path) -> bool:
+    """A repacked derivative's own digest can never match the catalog pin
+    (its content changed by stripping the schema), so cache-hit integrity
+    is checked against a digest sidecar this function itself wrote when it
+    created the file - not the catalog pin. Without this, a corrupted or
+    replaced-but-still-Helm-parseable cached file in the writable shared
+    cache would be reused indefinitely, since `helm show chart` only checks
+    structural validity, not content.
+    """
+    sidecar = _derivative_digest_sidecar(package_path)
+    try:
+        expected = sidecar.read_text().strip()
+    except OSError:
+        return False
+    return bool(expected) and _digest(package_path) == expected
+
+
 def prepare_cached_dagster_chart_no_schema(
     request: ChartRequest,
     *,
@@ -173,18 +194,28 @@ def prepare_cached_dagster_chart_no_schema(
     chart), the downloaded archive is verified against it *before* being
     unpacked and re-packaged - the repacked artifact's own digest can never
     match the catalog pin (its content changed), so this is the only point
-    where the upstream chart's integrity can be checked at all.
+    where the upstream chart's integrity can be checked at all. The
+    transformed package itself is then re-verified on every future cache hit
+    against a digest sidecar recorded when it was created (see
+    `_cached_derivative_is_trustworthy`).
     """
     repository_config = paths.helm_repository_config
     repository_cache = paths.helm_repository_cache
+    digest_sidecar = _derivative_digest_sidecar(request.package_path)
 
-    if request.package_path.is_file() and helm.show_chart(
-        request.package_path, repository_config=repository_config, repository_cache=repository_cache, env=env
-    ).ok:
+    cache_is_trustworthy = (
+        request.package_path.is_file()
+        and (request.sha256 is None or _cached_derivative_is_trustworthy(request.package_path))
+        and helm.show_chart(
+            request.package_path, repository_config=repository_config, repository_cache=repository_cache, env=env
+        ).ok
+    )
+    if cache_is_trustworthy:
         log.step(f"Using cached Dagster Helm chart: {request.package_path}")
         return request.package_path
 
     request.package_path.unlink(missing_ok=True)
+    digest_sidecar.unlink(missing_ok=True)
 
     chart_name = request.chart_ref.rsplit("/", 1)[-1]
     paths.work_root.mkdir(parents=True, exist_ok=True)
@@ -232,5 +263,7 @@ def prepare_cached_dagster_chart_no_schema(
         packaged_path = paths.helm_cache_dir / f"{chart_name}-{request.version}.tgz"
         request.package_path.parent.mkdir(parents=True, exist_ok=True)
         packaged_path.rename(request.package_path)
+        if request.sha256 is not None:
+            digest_sidecar.write_text(_digest(request.package_path) + "\n")
 
     return request.package_path
