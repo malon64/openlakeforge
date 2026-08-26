@@ -1,4 +1,4 @@
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -56,6 +56,20 @@ def test_superset_deploy_reports_hydrates_selected_provider_contracts(monkeypatc
     assert result.exit_code == 0
     assert options["provider"] == "aws"
     assert calls == ["reports"]
+
+
+def test_superset_deploy_reports_threads_a_custom_project_root(monkeypatch: pytest.MonkeyPatch) -> None:
+    options: dict[str, str] = {}
+    monkeypatch.setattr(
+        "olf.commands.runtime.provider_contract_environment",
+        lambda **kwargs: options.update(kwargs) or nullcontext(),
+    )
+    monkeypatch.setattr("olf.commands.superset.deploy_superset_reports", lambda: None)
+
+    result = runner.invoke(app, ["superset", "deploy-reports", "--project-root", "/srv/my-project"])
+
+    assert result.exit_code == 0
+    assert options["project_root"] == "/srv/my-project"
 
 
 def test_openmetadata_deploy_hydrates_selected_provider_contracts(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -149,8 +163,49 @@ def test_dbt_parse_hydrates_selected_provider_contracts(monkeypatch: pytest.Monk
         "namespace": "custom-lakehouse",
         "cluster_name": "",
         "kubeconfig_path": "",
+        "project_root": "",
     }
     assert commands[-1][-2:] == ["--target", "aws_runtime"]
+
+
+def test_dbt_parse_discovers_projects_under_the_contract_environments_repo_root(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Project discovery must read config.repo_root() *after* entering the
+    contract environment, since that's what applies --project-root's
+    OPENLAKEFORGE_REPO_ROOT - reading it beforehand always resolved the
+    ambient/default root instead of a custom --project-root selection.
+    """
+    project_root = tmp_path / "custom-project"
+    project = project_root / "lakehouse_code/gold/demo/dbt"
+    project.mkdir(parents=True)
+    (project / "dbt_project.yml").write_text("name: demo\nprofile: demo\n")
+    commands: list[list[str]] = []
+
+    class Runner:
+        def run(self, argv, **kwargs):  # noqa: ANN001, ANN003
+            commands.append(argv)
+
+    class Resolver:
+        def resolve(self, name: str) -> Path:
+            assert name == "dbt"
+            return Path("dbt")
+
+    tools = SimpleNamespace(runner=Runner(), resolver=Resolver())
+
+    @contextmanager
+    def fake_provider_contract_environment(**kwargs):  # noqa: ANN003, ANN202
+        monkeypatch.setenv("OPENLAKEFORGE_REPO_ROOT", kwargs["project_root"])
+        yield
+
+    monkeypatch.setattr("olf.commands.runtime.provider_contract_environment", fake_provider_contract_environment)
+    monkeypatch.setattr("olf.commands.dbt.Toolkit.default", lambda: tools)
+
+    result = runner.invoke(app, ["dbt", "parse", "--project-root", str(project_root)])
+
+    assert result.exit_code == 0
+    assert commands[-1][-2:] == ["--target", "local_runtime"]
+    assert str(project) in commands[-1]
 
 
 def test_dbt_parse_selects_outputs_declared_by_provider_profiles() -> None:

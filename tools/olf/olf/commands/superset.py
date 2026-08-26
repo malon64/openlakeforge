@@ -20,6 +20,7 @@ def superset_deploy_reports(
     namespace: str = typer.Option("", "--namespace", help="Kubernetes namespace override."),
     cluster_name: str = typer.Option("", "--cluster-name", help="Local kind cluster name override."),
     kubeconfig_path: str = typer.Option("", "--kubeconfig-path", help="Kubeconfig file path override."),
+    project_root: str = typer.Option("", "--project-root", help="Writable project root; defaults to the bundled demo."),
 ) -> None:
     """Build and import reports using the selected provider's Terraform contracts."""
     from olf.commands.runtime import provider_contract_environment
@@ -30,6 +31,7 @@ def superset_deploy_reports(
         namespace=namespace,
         cluster_name=cluster_name,
         kubeconfig_path=kubeconfig_path,
+        project_root=project_root,
     ):
         deploy_superset_reports()
 
@@ -62,6 +64,7 @@ def superset_export_reports(
     namespace: str = typer.Option("", "--namespace", help="Kubernetes namespace override."),
     cluster_name: str = typer.Option("", "--cluster-name", help="Local kind cluster name override."),
     kubeconfig_path: str = typer.Option("", "--kubeconfig-path", help="Kubeconfig file path override."),
+    project_root: str = typer.Option("", "--project-root", help="Writable project root; defaults to the bundled demo."),
 ) -> None:
     """Export reports using the selected provider's Terraform contracts."""
     from olf.commands.runtime import provider_contract_environment
@@ -72,6 +75,7 @@ def superset_export_reports(
         namespace=namespace,
         cluster_name=cluster_name,
         kubeconfig_path=kubeconfig_path,
+        project_root=project_root,
     ):
         export_superset_reports()
 

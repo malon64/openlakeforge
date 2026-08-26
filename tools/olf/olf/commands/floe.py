@@ -25,6 +25,7 @@ def generate_manifests(
     namespace: str = typer.Option("", "--namespace", help="Kubernetes namespace override."),
     cluster_name: str = typer.Option("", "--cluster-name", help="Local kind cluster name override."),
     kubeconfig_path: str = typer.Option("", "--kubeconfig-path", help="Kubeconfig file path override."),
+    project_root: str = typer.Option("", "--project-root", help="Writable project root; defaults to the bundled demo."),
 ) -> None:
     """Generate Floe manifests using resolved provider contracts, never shell exports."""
     from olf.commands.deployment import _build_context, _build_engine
@@ -42,6 +43,7 @@ def generate_manifests(
             namespace=namespace,
             cluster_name=cluster_name,
             kubeconfig_path=kubeconfig_path,
+            project_root=project_root,
         )
         engine = _build_engine(context, var_file="")
         deployment_provider = engine.provider
