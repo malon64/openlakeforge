@@ -280,6 +280,8 @@ def test_platform_apply_variables_include_aws_region_and_resolved_repository(tmp
         "aws_region",
         "kube_context",
         "kubeconfig_path",
+        "helm_repository_cache_path",
+        "helm_repository_config_path",
         "foundation_state_path",
         "project_code_image_repository",
         "project_code_image_tag",
@@ -306,6 +308,8 @@ def test_platform_destroy_variables_are_the_five_var_subset(tmp_path: Path) -> N
         "aws_region",
         "kube_context",
         "kubeconfig_path",
+        "helm_repository_cache_path",
+        "helm_repository_config_path",
         "foundation_state_path",
     }
 

@@ -53,6 +53,13 @@ def platform_apply_variables(config: LocalDeploymentConfig) -> dict[str, str]:
         "namespace": config.namespace,
         "kube_context": config.kube_context,
         "kubeconfig_path": str(config.paths.kubeconfig_path),
+        # The Terraform helm provider (not the `helm` CLI olf's own tooling
+        # wraps) writes its own repository cache/config from these two
+        # variables. Its computed default lives beneath the Terraform root,
+        # which for an installed distribution is the read-only payload -
+        # always pass the writable paths olf already resolved.
+        "helm_repository_cache_path": str(config.paths.helm_repository_cache),
+        "helm_repository_config_path": str(config.paths.helm_repository_config),
         "foundation_state_path": str(config.paths.foundation_state_path),
         "project_code_image_repository": images.project_code_repository,
         "project_code_image_tag": images.project_code_tag,
@@ -72,6 +79,8 @@ def platform_destroy_variables(config: LocalDeploymentConfig) -> dict[str, str]:
         "namespace": config.namespace,
         "kube_context": config.kube_context,
         "kubeconfig_path": str(config.paths.kubeconfig_path),
+        "helm_repository_cache_path": str(config.paths.helm_repository_cache),
+        "helm_repository_config_path": str(config.paths.helm_repository_config),
         "foundation_state_path": str(config.paths.foundation_state_path),
     }
 

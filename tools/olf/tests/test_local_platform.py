@@ -61,6 +61,8 @@ def test_platform_apply_variables_exact_order(tmp_path: Path) -> None:
         "namespace",
         "kube_context",
         "kubeconfig_path",
+        "helm_repository_cache_path",
+        "helm_repository_config_path",
         "foundation_state_path",
         "project_code_image_repository",
         "project_code_image_tag",
@@ -82,7 +84,14 @@ def test_platform_destroy_variables_are_the_four_var_subset(tmp_path: Path) -> N
 
     variables = platform.platform_destroy_variables(config)
 
-    assert list(variables.keys()) == ["namespace", "kube_context", "kubeconfig_path", "foundation_state_path"]
+    assert list(variables.keys()) == [
+        "namespace",
+        "kube_context",
+        "kubeconfig_path",
+        "helm_repository_cache_path",
+        "helm_repository_config_path",
+        "foundation_state_path",
+    ]
 
 
 def test_platform_var_files_empty_for_full_present_for_slim(tmp_path: Path) -> None:

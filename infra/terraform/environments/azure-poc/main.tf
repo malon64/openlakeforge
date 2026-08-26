@@ -33,14 +33,22 @@ provider "helm" {
 }
 
 locals {
-  kubeconfig_path             = var.kubeconfig_path != null ? abspath(pathexpand(var.kubeconfig_path)) : coalesce(try(local.foundation_contract.kubeconfig_path, null), abspath("${path.root}/../../../../.tmp/kubeconfigs/azure.yaml"))
-  helm_repository_cache_path  = abspath("${path.root}/../../../../.tmp/helm/azure/repository-cache")
-  helm_repository_config_path = abspath("${path.root}/../../../../.tmp/helm/azure/repositories.yaml")
-  artifact_base_uri           = "s3://${var.ops_bucket_name}"
-  floe_manifest_base_uri      = "${local.artifact_base_uri}/floe/manifests"
-  floe_report_base_uri        = "${local.artifact_base_uri}/floe/reports"
-  log_base_uri                = "${local.artifact_base_uri}/logs"
-  run_artifact_base_uri       = "${local.artifact_base_uri}/run-artifacts"
+  kubeconfig_path = var.kubeconfig_path != null ? abspath(pathexpand(var.kubeconfig_path)) : coalesce(try(local.foundation_contract.kubeconfig_path, null), abspath("${path.root}/../../../../.tmp/kubeconfigs/azure.yaml"))
+  helm_repository_cache_path = (
+    var.helm_repository_cache_path != null
+    ? abspath(pathexpand(var.helm_repository_cache_path))
+    : abspath("${path.root}/../../../../.tmp/helm/azure/repository-cache")
+  )
+  helm_repository_config_path = (
+    var.helm_repository_config_path != null
+    ? abspath(pathexpand(var.helm_repository_config_path))
+    : abspath("${path.root}/../../../../.tmp/helm/azure/repositories.yaml")
+  )
+  artifact_base_uri      = "s3://${var.ops_bucket_name}"
+  floe_manifest_base_uri = "${local.artifact_base_uri}/floe/manifests"
+  floe_report_base_uri   = "${local.artifact_base_uri}/floe/reports"
+  log_base_uri           = "${local.artifact_base_uri}/logs"
+  run_artifact_base_uri  = "${local.artifact_base_uri}/run-artifacts"
   domain_floe_manifest_uris = {
     sales        = "${local.floe_manifest_base_uri}/sales/sales.manifest.json"
     supply_chain = "${local.floe_manifest_base_uri}/supply_chain/supply_chain.manifest.json"

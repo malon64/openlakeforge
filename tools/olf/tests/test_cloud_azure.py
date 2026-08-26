@@ -329,6 +329,8 @@ def test_platform_apply_variables_have_no_aws_region(tmp_path: Path) -> None:
         "namespace",
         "kube_context",
         "kubeconfig_path",
+        "helm_repository_cache_path",
+        "helm_repository_config_path",
         "foundation_state_path",
         "project_code_image_repository",
         "project_code_image_tag",
@@ -350,7 +352,14 @@ def test_platform_destroy_variables_are_the_four_var_subset(tmp_path: Path) -> N
 
     variables = backend.platform_destroy_variables(config, _FACTS)
 
-    assert set(variables.keys()) == {"namespace", "kube_context", "kubeconfig_path", "foundation_state_path"}
+    assert set(variables.keys()) == {
+        "namespace",
+        "kube_context",
+        "kubeconfig_path",
+        "helm_repository_cache_path",
+        "helm_repository_config_path",
+        "foundation_state_path",
+    }
 
 
 def test_cleanup_polaris_jobs_before_apply_is_true() -> None:
