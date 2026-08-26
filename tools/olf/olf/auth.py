@@ -53,6 +53,44 @@ def _uses_azure_automation(environ: Mapping[str, str]) -> bool:
     return any(environ.get(name) for name in _AZURE_AUTOMATION_VARIABLES)
 
 
+def _aws_instance_profile_available() -> bool:
+    """Detect an EC2 instance-profile credential the environment cannot show.
+
+    Every other AWS automation source - static keys, IRSA/EKS Pod Identity's
+    web identity token, an ECS/EKS-agent container role - sets an environment
+    variable `_uses_aws_automation` can see. A bare EC2 instance profile,
+    discovered through IMDS, sets none of them; without this check a saved
+    OLF browser session would silently outrank the workload identity ADR 0030
+    requires to win. Bounded to a short timeout and a single attempt: IMDS is
+    unreachable (not merely absent) off EC2, and this must not add a
+    multi-second stall to every interactive deploy that has a saved session.
+    """
+    from botocore.utils import InstanceMetadataFetcher
+
+    try:
+        return bool(InstanceMetadataFetcher(timeout=0.1, num_attempts=1).retrieve_iam_role_credentials())
+    except Exception:
+        return False
+
+
+def _azure_managed_identity_available() -> bool:
+    """Detect a system-assigned Azure managed identity the environment cannot show.
+
+    App Service/Functions managed identity sets IDENTITY_ENDPOINT/MSI_ENDPOINT,
+    already covered by `_uses_azure_automation`. A VM/VMSS system-assigned
+    identity is discovered through IMDS and sets nothing - same rationale and
+    latency bound as `_aws_instance_profile_available`; a token fetched here
+    is simply discarded, the real one is minted fresh when actually used.
+    """
+    from azure.identity import ManagedIdentityCredential
+
+    try:
+        ManagedIdentityCredential(connection_timeout=1, retry_total=0).get_token(_ARM_SCOPE)
+        return True
+    except Exception:
+        return False
+
+
 def credential_selection_environment(provider: str, environ: Mapping[str, str]) -> dict[str, str]:
     """Return only cloud credential-selection variables for a child command.
 
@@ -79,8 +117,18 @@ def _sso_client(service: str, *, region: str) -> Any:
 
 
 def auth_home(environ: Mapping[str, str] | None = None) -> Path:
+    """Return the absolute OLF authentication directory.
+
+    Resolved deliberately: these paths are handed to child processes that run
+    with a different working directory - Terraform's `AWS_CONFIG_FILE` and
+    credential_process, and the Azure bridge directory prepended to `PATH`
+    (Terraform `-chdir` switches the process directory). A relative `OLF_HOME`
+    would leave both pointing somewhere that does not exist, so managed
+    authentication would fail after a successful login.
+    """
     raw = (environ or os.environ).get("OLF_HOME")
-    return (Path(raw).expanduser() if raw else Path.home() / ".openlakeforge") / "auth"
+    home = Path(raw).expanduser() if raw else Path.home() / ".openlakeforge"
+    return (home / "auth").resolve()
 
 
 def _state_path(provider: str, environ: Mapping[str, str] | None = None) -> Path:
@@ -220,12 +268,12 @@ def login_aws(
     sso = _sso_client("sso", region=sso_region)
     accounts = list(sso.get_paginator("list_accounts").paginate(accessToken=token["accessToken"]))
     flattened_accounts = [account for page in accounts for account in page["accountList"]]
-    selected_account = account_id or _choose(flattened_accounts, "accountId", choose, "AWS account")
+    selected_account = _resolve_choice(account_id, flattened_accounts, "accountId", choose, "AWS account")
     roles = list(
         sso.get_paginator("list_account_roles").paginate(accessToken=token["accessToken"], accountId=selected_account)
     )
     flattened_roles = [role for page in roles for role in page["roleList"]]
-    selected_role = role_name or _choose(flattened_roles, "roleName", choose, "AWS role")
+    selected_role = _resolve_choice(role_name, flattened_roles, "roleName", choose, "AWS role")
     state = {
         "source": "olf-sso",
         "start_url": start_url,
@@ -241,6 +289,25 @@ def login_aws(
     }
     save_state("aws", state, env)
     return state
+
+
+def _resolve_choice(
+    explicit: str | None, items: list[Mapping[str, Any]], key: str, choose: Any | None, label: str
+) -> str:
+    """Return the caller's explicit selection, or prompt for one.
+
+    An explicit `--account-id`/`--role-name` is validated against what the
+    session actually offers. Persisting an unlisted value would report
+    "authentication ready" and then fail much later inside
+    `get_role_credentials`, where the cause is far from obvious.
+    """
+    if not explicit:
+        return _choose(items, key, choose, label)
+    available = [str(item[key]) for item in items if item.get(key)]
+    if explicit not in available:
+        offered = ", ".join(sorted(available)) or "(none)"
+        raise AuthenticationError(f"{label} {explicit!r} is not available for this session; offered: {offered}.")
+    return explicit
 
 
 def _choose(items: list[Mapping[str, Any]], key: str, choose: Any | None, label: str) -> str:
@@ -264,6 +331,8 @@ def aws_session(environ: Mapping[str, str], *, region: str | None = None) -> Any
     state = load_state("aws", environ)
     if state is None:
         return boto3.Session(profile_name=environ.get("AWS_PROFILE"), region_name=region)
+    if _aws_instance_profile_available():
+        return boto3.Session(region_name=region)
     if state.get("source") == "profile":
         return boto3.Session(profile_name=str(state["profile"]), region_name=region)
     if state.get("source") != "olf-sso":
@@ -417,6 +486,11 @@ def azure_credential(environ: Mapping[str, str]) -> Any:
     state = load_state("azure", environ)
     if state is None:
         return DefaultAzureCredential(exclude_interactive_browser_credential=True)
+    if _azure_managed_identity_available():
+        return DefaultAzureCredential(
+            exclude_azure_cli_credential=True,
+            exclude_interactive_browser_credential=True,
+        )
     source = state.get("source")
     if source == "azure-cli":
         return AzureCliCredential(tenant_id=state.get("tenant_id") or None)
@@ -456,6 +530,10 @@ def terraform_auth_environment(provider: str, environ: Mapping[str, str]) -> dic
         return {}
     state = load_state(provider, environ)
     if state is None:
+        return {}
+    if provider == "aws" and _aws_instance_profile_available():
+        return {}
+    if provider == "azure" and _azure_managed_identity_available():
         return {}
     if provider == "aws" and state.get("source") == "olf-sso":
         config_path = auth_home(environ) / "aws-terraform-config"

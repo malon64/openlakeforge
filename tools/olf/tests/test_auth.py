@@ -413,3 +413,138 @@ def test_azure_bridge_rejects_unsupported_commands_before_resolving_credentials(
         azure_bridge_main()
 
     assert "unsupported Azure CLI command" in capsys.readouterr().err
+
+
+def test_auth_home_is_absolute_for_a_relative_olf_home() -> None:
+    """`AWS_CONFIG_FILE` and the Azure bridge PATH entry are handed to child
+    processes that run from a different directory (Terraform `-chdir` switches
+    the process directory), so a relative `OLF_HOME` must not leak through.
+    """
+    resolved = auth.auth_home({"OLF_HOME": "relative-home"})
+
+    assert resolved.is_absolute()
+    assert resolved.name == "auth"
+
+
+def test_aws_login_rejects_a_role_the_session_does_not_offer(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A typo'd `--role-name` must fail at login, not much later inside
+    `get_role_credentials` where the cause is unrecognisable.
+    """
+    monkeypatch.setenv("OLF_HOME", str(tmp_path))
+    monkeypatch.setattr(auth.boto3, "client", lambda service, **_kwargs: _Oidc() if service == "sso-oidc" else _Sso())
+
+    with pytest.raises(auth.AuthenticationError, match="not available for this session"):
+        auth.login_aws(
+            start_url="https://portal.awsapps.com/start",
+            sso_region="eu-west-1",
+            role_name="Adminstrator",  # codespell:ignore - deliberate typo under test
+            open_browser=False,
+        )
+
+    assert auth.load_state("aws") is None
+
+
+def test_aws_login_accepts_an_offered_role_without_prompting(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("OLF_HOME", str(tmp_path))
+    monkeypatch.setattr(auth.boto3, "client", lambda service, **_kwargs: _Oidc() if service == "sso-oidc" else _Sso())
+
+    state = auth.login_aws(
+        start_url="https://portal.awsapps.com/start",
+        sso_region="eu-west-1",
+        account_id="123",
+        role_name="Administrator",
+        open_browser=False,
+    )
+
+    assert state["role_name"] == "Administrator"
+    assert state["account_id"] == "123"
+
+
+def test_aws_instance_profile_takes_precedence_over_a_saved_browser_session(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """An EC2 instance-profile credential, discovered through IMDS, sets no
+    environment variable `_uses_aws_automation` can see - unlike every other
+    AWS automation source. Without checking IMDS directly, a saved OLF
+    browser session on the same host would silently outrank the workload
+    identity ADR 0030 requires to win, breaking unattended deployment when
+    the session is stale or deploying as the wrong principal when it is not.
+    """
+    env = {"OLF_HOME": str(tmp_path)}
+    auth.save_state("aws", {"source": "profile", "profile": "stale-dev-profile"}, env)
+    monkeypatch.setattr(auth, "_aws_instance_profile_available", lambda: True)
+    calls: list[dict[str, object]] = []
+    monkeypatch.setattr(auth.boto3, "Session", lambda **kwargs: calls.append(kwargs) or object())
+
+    auth.aws_session(env)
+
+    assert calls == [{"region_name": None}]
+
+
+def test_aws_saved_session_wins_when_no_instance_profile_is_present(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    env = {"OLF_HOME": str(tmp_path)}
+    auth.save_state("aws", {"source": "profile", "profile": "my-profile"}, env)
+    monkeypatch.setattr(auth, "_aws_instance_profile_available", lambda: False)
+    calls: list[dict[str, object]] = []
+    monkeypatch.setattr(auth.boto3, "Session", lambda **kwargs: calls.append(kwargs) or object())
+
+    auth.aws_session(env)
+
+    assert calls == [{"profile_name": "my-profile", "region_name": None}]
+
+
+def test_terraform_auth_environment_defers_to_an_aws_instance_profile(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    env = {"OLF_HOME": str(tmp_path)}
+    auth.save_state("aws", {"source": "olf-sso", "access_token": "access"}, env)
+    monkeypatch.setattr(auth, "_aws_instance_profile_available", lambda: True)
+
+    assert auth.terraform_auth_environment("aws", env) == {}
+
+
+def test_azure_managed_identity_takes_precedence_over_a_saved_browser_session(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The VM/VMSS system-assigned managed identity equivalent of the AWS
+    instance-profile gap above: discovered through IMDS, sets nothing
+    `_uses_azure_automation` can see.
+    """
+    env = {"OLF_HOME": str(tmp_path)}
+    auth.save_state("azure", {"source": "azure-cli", "subscription_id": "sub-id"}, env)
+    monkeypatch.setattr(auth, "_azure_managed_identity_available", lambda: True)
+
+    credential = auth.azure_credential(env)
+
+    assert type(credential).__name__ == "DefaultAzureCredential"
+
+
+def test_terraform_auth_environment_defers_to_an_azure_managed_identity(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    env = {"OLF_HOME": str(tmp_path)}
+    auth.save_state("azure", {"source": "azure-cli", "subscription_id": "sub-id"}, env)
+    monkeypatch.setattr(auth, "_azure_managed_identity_available", lambda: True)
+
+    assert auth.terraform_auth_environment("azure", env) == {}
+
+
+def test_aws_instance_profile_probe_is_bounded_and_offline_safe() -> None:
+    """Must not add a multi-second stall to a normal interactive deploy when
+    IMDS is unreachable (every non-EC2 host, including every developer
+    laptop and CI runner without an instance profile).
+    """
+    import time
+
+    start = time.monotonic()
+    available = auth._aws_instance_profile_available()  # noqa: SLF001
+    elapsed = time.monotonic() - start
+
+    assert available is False
+    assert elapsed < 3.0
