@@ -129,7 +129,7 @@ def test_artifacts_doctor_does_not_require_helm(tmp_path: Path, monkeypatch) -> 
         lambda **kwargs: required.extend(kwargs["required_tools"]) or [],
     )
     monkeypatch.setattr("olf.deployment.local.provider.docker_health", lambda *args, **kwargs: None)
-    monkeypatch.setattr("olf.contracts.load_provider_contracts", lambda *_args: None)
+    monkeypatch.setattr("olf.contracts.load_provider_contracts", lambda *_args, **_kwargs: None)
 
     provider.doctor(DeploymentPhase.ARTIFACTS)
 
@@ -139,7 +139,7 @@ def test_artifacts_doctor_does_not_require_helm(tmp_path: Path, monkeypatch) -> 
 def test_artifacts_doctor_requires_platform_provider_contracts(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
     provider = LocalProvider.create(_config(tmp_path), toolkit=_toolkit(), environ={})
     monkeypatch.setattr("olf.deployment.local.provider.docker_health", lambda *args, **kwargs: None)
-    monkeypatch.setattr("olf.contracts.load_provider_contracts", lambda *_args: None)
+    monkeypatch.setattr("olf.contracts.load_provider_contracts", lambda *_args, **_kwargs: None)
 
     report = provider.doctor(DeploymentPhase.ARTIFACTS)
 
@@ -157,7 +157,8 @@ def test_artifacts_doctor_uses_the_configured_contract_root(tmp_path: Path, monk
     )
     monkeypatch.setattr("olf.deployment.local.provider.docker_health", lambda *args, **kwargs: None)
     monkeypatch.setattr(
-        "olf.contracts.load_provider_contracts", lambda path: observed.append(path) or {"schema_version": "2.0.0"}
+        "olf.contracts.load_provider_contracts",
+        lambda path, *, environ=None: observed.append(path) or {"schema_version": "2.0.0"},
     )
 
     report = provider.doctor(DeploymentPhase.ARTIFACTS)

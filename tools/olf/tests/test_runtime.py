@@ -33,7 +33,9 @@ def test_standalone_local_contract_context_honors_custom_contract_root(monkeypat
     )
     monkeypatch.setattr(
         "olf.deployment.local.artifacts.applied_contract_environment",
-        lambda config, *, contract_terraform_dir: captured.update(contract_terraform_dir=contract_terraform_dir)
+        lambda config, *, contract_terraform_dir, environ=None: captured.update(
+            contract_terraform_dir=contract_terraform_dir
+        )
         or nullcontext(),
     )
 

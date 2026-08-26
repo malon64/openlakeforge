@@ -37,9 +37,15 @@ def provider_contract_environment(
     )
     deployment_provider = _build_engine(context, var_file="").provider
     if isinstance(deployment_provider, LocalProvider):
+        # environ=deployment_provider.env: an installed distribution's
+        # state/data roots live under OLF_HOME, not next to the contract
+        # Terraform dir - without this, the contract read below silently
+        # falls back to bare os.environ and always resolves to "no
+        # contracts yet", even after a real platform apply.
         with applied_contract_environment(
             deployment_provider.config,
             contract_terraform_dir=_contract_terraform_dir(context.paths.platform_terraform_dir),
+            environ=deployment_provider.env,
         ):
             yield
         return
@@ -51,5 +57,6 @@ def provider_contract_environment(
         kube_context=facts.kube_context,
         kubeconfig_path=context.paths.kubeconfig_path,
         port_forward_log_prefix=context.paths.port_forward_log_prefix,
+        environ=deployment_provider.env,
     ):
         yield
