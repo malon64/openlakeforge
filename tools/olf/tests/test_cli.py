@@ -484,6 +484,7 @@ def test_catalog_sync_namespaces_dispatches_to_glue_for_aws_glue_provider(
     monkeypatch.setattr(
         catalog, "_sync_polaris_namespaces", lambda **kwargs: calls.append({"backend": "polaris"})
     )
+    monkeypatch.setattr("olf.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
 
     result = runner.invoke(app, ["catalog", "sync-namespaces", "--dry-run"])
 
@@ -506,6 +507,7 @@ def test_catalog_sync_namespaces_dispatches_to_polaris_by_default(monkeypatch: p
     monkeypatch.setattr(
         catalog, "_sync_glue_namespaces", lambda **kwargs: calls.append({"backend": "glue"})
     )
+    monkeypatch.setattr("olf.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
 
     result = runner.invoke(app, ["catalog", "sync-namespaces", "--prune"])
 
@@ -525,6 +527,7 @@ def test_catalog_sync_namespaces_treats_false_prune_environment_as_disabled(
         "_sync_polaris_namespaces",
         lambda *, desired, dry_run, prune: calls.append({"dry_run": dry_run, "prune": prune}),
     )
+    monkeypatch.setattr("olf.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
 
     result = runner.invoke(app, ["catalog", "sync-namespaces"])
 
@@ -539,9 +542,34 @@ def test_catalog_sync_namespaces_rejects_an_unknown_provider(monkeypatch: pytest
     monkeypatch.setenv("OPENLAKEFORGE_CATALOG_PROVIDER", "snowflake")
     monkeypatch.setattr(catalog, "_sync_polaris_namespaces", lambda **kwargs: calls.append("polaris"))
     monkeypatch.setattr(catalog, "_sync_glue_namespaces", lambda **kwargs: calls.append("glue"))
+    monkeypatch.setattr("olf.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
 
     result = runner.invoke(app, ["catalog", "sync-namespaces"])
 
     assert result.exit_code == 1
     assert calls == []
     assert "snowflake" in result.output
+
+
+def test_catalog_sync_namespaces_hydrates_selected_provider_contracts(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`olf catalog sync-namespaces` is a standalone Phase 2 command, same as
+    `olf superset deploy-reports` etc. - it must hydrate the selected
+    provider/project's contract environment before reading domain
+    descriptors, not just the installed default.
+    """
+    from olf.commands import catalog
+
+    options: dict[str, str] = {}
+    monkeypatch.setattr(
+        "olf.commands.runtime.provider_contract_environment",
+        lambda **kwargs: options.update(kwargs) or nullcontext(),
+    )
+    monkeypatch.setattr(catalog, "_sync_polaris_namespaces", lambda **kwargs: None)
+
+    result = runner.invoke(
+        app, ["catalog", "sync-namespaces", "--provider", "aws", "--project-root", "/srv/my-project"]
+    )
+
+    assert result.exit_code == 0
+    assert options["provider"] == "aws"
+    assert options["project_root"] == "/srv/my-project"

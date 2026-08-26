@@ -36,9 +36,14 @@ def _run_cli(description: str, fn: Any, *args: Any, **kwargs: Any) -> None:
 
 
 def sync_catalog_namespaces() -> None:
-    from olf.commands.catalog import catalog_sync_namespaces
+    # sync_namespaces, not the catalog_sync_namespaces typer command: this
+    # already runs inside the deploy flow's own hydrated contract
+    # environment (see local/artifacts.py, cloud/artifacts.py) - resolving
+    # a second one here would be redundant and could pick a different
+    # provider/project selection than the one already active.
+    from olf.commands.catalog import sync_namespaces
 
-    _run_cli("Catalog namespace reconciliation", catalog_sync_namespaces, dry_run=False, prune=None)
+    _run_cli("Catalog namespace reconciliation", sync_namespaces, dry_run=False, prune=None)
 
 
 def _artifact_bucket() -> str:

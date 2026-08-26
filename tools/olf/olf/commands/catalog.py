@@ -95,19 +95,13 @@ def _sync_glue_namespaces(*, desired: tuple, dry_run: bool, prune: bool) -> None
         raise typer.Exit(code=fail(str(exc))) from exc
 
 
-@app.command("sync-namespaces")
-def catalog_sync_namespaces(
-    dry_run: bool = typer.Option(False, "--dry-run", help="Print the plan without changing the catalog."),
-    prune: bool | None = typer.Option(
-        None,
-        "--prune/--no-prune",
-        help="Remove managed metadata for undeclared products; object-store files are retained.",
-    ),
-) -> None:
+def sync_namespaces(*, dry_run: bool, prune: bool | None) -> None:
     """Reconcile catalog namespaces (Polaris) or databases (Glue) with the domain descriptors.
 
     Phase 2 owns namespace lifecycle (ADR 0022), so this runs before any table
-    is written.
+    is written. Plain function (not the typer command) so the full deploy
+    flow - already inside a hydrated contract environment - can call it
+    directly without re-resolving one.
     """
     from olf import catalog as catalog_module
 
@@ -129,3 +123,32 @@ def catalog_sync_namespaces(
         _sync_glue_namespaces(desired=desired, dry_run=dry_run, prune=prune)
     else:
         raise typer.Exit(code=fail(f"Catalog provider {provider!r} has no namespace reconciliation backend."))
+
+
+@app.command("sync-namespaces")
+def catalog_sync_namespaces(
+    dry_run: bool = typer.Option(False, "--dry-run", help="Print the plan without changing the catalog."),
+    prune: bool | None = typer.Option(
+        None,
+        "--prune/--no-prune",
+        help="Remove managed metadata for undeclared products; object-store files are retained.",
+    ),
+    provider: str = typer.Option("local", "--provider", help="Provider owning the deployed contracts."),
+    profile: str = typer.Option("full", "--profile", help="full or slim."),
+    namespace: str = typer.Option("", "--namespace", help="Kubernetes namespace override."),
+    cluster_name: str = typer.Option("", "--cluster-name", help="Local kind cluster name override."),
+    kubeconfig_path: str = typer.Option("", "--kubeconfig-path", help="Kubeconfig file path override."),
+    project_root: str = typer.Option("", "--project-root", help="Writable project root; defaults to the bundled demo."),
+) -> None:
+    """Hydrate the selected provider's contracts, then reconcile catalog namespaces."""
+    from olf.commands.runtime import provider_contract_environment
+
+    with provider_contract_environment(
+        provider=provider,
+        profile=profile,
+        namespace=namespace,
+        cluster_name=cluster_name,
+        kubeconfig_path=kubeconfig_path,
+        project_root=project_root,
+    ):
+        sync_namespaces(dry_run=dry_run, prune=prune)
