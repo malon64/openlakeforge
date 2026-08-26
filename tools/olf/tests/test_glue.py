@@ -4,7 +4,7 @@ import boto3
 from botocore.stub import Stubber
 from openlakeforge_domain import CatalogNamespace
 
-from olf import glue
+from olf import auth, glue
 from olf.catalog import CATALOG_KEY, MANAGED_BY_KEY, MANAGED_BY_VALUE, NamespaceState
 
 
@@ -19,6 +19,24 @@ def make_client() -> tuple[glue.GlueClient, Stubber]:
     stubber = Stubber(boto_client)
     client = glue.GlueClient(glue.GlueConfig(catalog_id="123456789012", region="us-east-1"), _client=boto_client)
     return client, stubber
+
+
+def test_default_client_uses_the_selected_olf_aws_session(monkeypatch) -> None:  # noqa: ANN001
+    calls: list[object] = []
+    sdk_client = object()
+
+    class Session:
+        def client(self, service: str, **kwargs):  # noqa: ANN003, ANN201
+            calls.append((service, kwargs))
+            return sdk_client
+
+    monkeypatch.setattr(auth, "aws_session", lambda environ, *, region: calls.append((environ, region)) or Session())
+
+    client = glue.GlueClient(glue.GlueConfig(catalog_id="123456789012", region="eu-west-1"))
+
+    assert client._client is sdk_client
+    assert calls[0][1] == "eu-west-1"
+    assert calls[1] == ("glue", {"region_name": "eu-west-1"})
 
 
 def test_list_namespaces_paginates_and_maps_location_uri() -> None:

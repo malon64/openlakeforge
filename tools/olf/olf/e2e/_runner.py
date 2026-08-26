@@ -8,7 +8,6 @@ imports from every capability module, to sequence them into `run()`.
 from __future__ import annotations
 
 import os
-import shutil
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -160,12 +159,6 @@ def check_commands(cfg: E2EConfig) -> None:
             # letting it escape as a raw traceback.
             missing.append(f"{managed_tool} ({exc})")
 
-    host_commands: list[str] = []
-    if cfg.env == "azure":
-        host_commands.append("az")
-    if cfg.env == "aws":
-        host_commands.append("aws")
-    missing.extend(cmd for cmd in host_commands if shutil.which(cmd) is None)
     if missing:
         raise E2EError(f"missing required command(s): {', '.join(missing)}")
 
@@ -180,39 +173,20 @@ def prepare_kube_context(cfg: E2EConfig) -> None:
             raise E2EError("Azure e2e requires a foundation Terraform directory.")
         resource_group = terraform_output(cfg.foundation_terraform_dir, "resource_group_name")
         cluster_name = terraform_output(cfg.foundation_terraform_dir, "cluster_name")
-        _run(
-            [
-                "az",
-                "aks",
-                "get-credentials",
-                "--resource-group",
-                resource_group,
-                "--name",
-                cluster_name,
-                "--file",
-                str(kubeconfig),
-                "--overwrite-existing",
-            ]
+        from olf.tooling.azure import AzureSdk
+
+        AzureSdk().aks_get_credentials(
+            cluster_name, resource_group=resource_group, kubeconfig_path=kubeconfig, overwrite=True
         )
     elif cfg.env == "aws":
         if cfg.foundation_terraform_dir is None:
             raise E2EError("AWS e2e requires a foundation Terraform directory.")
         region = terraform_output(cfg.foundation_terraform_dir, "aws_region")
         cluster_name = terraform_output(cfg.foundation_terraform_dir, "cluster_name")
-        _run(
-            [
-                "aws",
-                "eks",
-                "update-kubeconfig",
-                "--region",
-                region,
-                "--name",
-                cluster_name,
-                "--kubeconfig",
-                str(kubeconfig),
-                "--alias",
-                cfg.kube_context,
-            ]
+        from olf.tooling.aws import AwsSdk
+
+        AwsSdk().eks_update_kubeconfig(
+            cluster_name, region=region, kubeconfig_path=kubeconfig, alias=cfg.kube_context
         )
     _run_retry(
         [_kubectl_executable(), "cluster-info", "--context", cfg.kube_context], capture=True, attempts=6, delay=5

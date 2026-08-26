@@ -20,8 +20,8 @@ private networking, and managed observability.
 
 The shell running the Azure workflow needs:
 
-- Azure CLI logged in with `az login`.
-- The intended subscription selected with `az account set`.
+- Azure authentication established with `olf auth login --provider azure`.
+- The intended subscription selected during that login.
 - Permissions to create resource groups, AKS clusters, ACR registries, and role
   assignments.
 - Terraform, Helm, kubectl, Docker, and Python 3.

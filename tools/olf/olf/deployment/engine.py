@@ -3,8 +3,8 @@
 `DeploymentEngine` sequences a `DeploymentProvider`'s lifecycle steps in the
 order ADR 0008 requires (foundation -> platform -> dynamic artifacts, never
 the other way around). `Toolkit` bundles the process-execution primitives
-every provider needs, including the `aws`/`azure` CLI adapters used by the
-cloud provider (issue #125). `build_provider` is the single seam that
+every provider needs, including the SDK-backed AWS and Azure adapters used by
+the cloud provider (issue #125). `build_provider` is the single seam that
 dispatches on `context.provider` - nothing provider-specific otherwise
 belongs in this module.
 """
@@ -20,8 +20,8 @@ from typing import TYPE_CHECKING, Protocol
 from olf.deployment.context import DeploymentContext, Provider
 from olf.deployment.errors import UnsupportedProviderError
 from olf.deployment.inspection import DoctorReport
-from olf.tooling.aws import AwsCli
-from olf.tooling.azure import AzureCli
+from olf.tooling.aws import AwsSdk
+from olf.tooling.azure import AzureSdk
 from olf.tooling.docker import Docker
 from olf.tooling.helm import Helm
 from olf.tooling.kind import Kind
@@ -53,8 +53,8 @@ class Toolkit:
     kubectl: Kubectl
     docker: Docker
     kind: Kind
-    aws: AwsCli
-    azure: AzureCli
+    aws: AwsSdk
+    azure: AzureSdk
 
     @classmethod
     def default(
@@ -74,8 +74,8 @@ class Toolkit:
             kubectl=Kubectl(runner, resolver),
             docker=Docker(runner, resolver),
             kind=Kind(runner, resolver),
-            aws=AwsCli(runner, resolver),
-            azure=AzureCli(runner, resolver),
+            aws=AwsSdk(),
+            azure=AzureSdk(),
         )
 
 

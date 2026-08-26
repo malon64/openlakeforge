@@ -208,7 +208,7 @@ locals {
     credentials_secret_name  = null
     access_key_id_key        = null
     secret_access_key_key    = null
-    local_upload_access_mode = "aws-cli"
+    local_upload_access_mode = "direct"
     local_only               = false
     poc_only                 = true
   }

@@ -41,6 +41,22 @@ def _fake_contract_env(on_enter):  # noqa: ANN001, ANN202
     return _cm
 
 
+def test_applied_authentication_environment_exposes_and_restores_olf_selection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OLF_HOME", "/original")
+    monkeypatch.setenv("AWS_PROFILE", "ambient")
+
+    with artifacts._applied_authentication_environment(
+        "aws", {"OLF_HOME": "/selected", "AWS_PROFILE": "olf-sso"}
+    ):
+        assert os.environ["OLF_HOME"] == "/selected"
+        assert os.environ["AWS_PROFILE"] == "olf-sso"
+
+    assert os.environ["OLF_HOME"] == "/original"
+    assert os.environ["AWS_PROFILE"] == "ambient"
+
+
 def test_artifacts_deploy_preserves_step_order(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     config = _config(tmp_path)
     tools = _toolkit()

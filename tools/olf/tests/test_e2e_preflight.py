@@ -29,19 +29,24 @@ def test_aws_storage_and_glue_smoke_check_uses_bucket_and_databases(
     every expected database name comes straight from the inventory, and the
     check asserts against AWS directly rather than against the contract."""
     provider_contracts = {"artifact_bucket": {"bucket_name": "openlakeforge-ops"}}
-    commands: list[list[str]] = []
+    calls: list[tuple[str, str]] = []
     monkeypatch.setattr(_preflight, "load_provider_contracts_or_raise", lambda _cfg: provider_contracts)
     # aws_stack_region (called by check_aws_storage_and_glue) calls terraform_output
     # internally within _shell's own module namespace, not _preflight's.
     monkeypatch.setattr(_shell, "terraform_output", lambda _dir, name: "eu-central-1" if name == "aws_region" else "")
-    monkeypatch.setattr(_preflight, "_run", lambda args, capture=False: commands.append(args) or "")
+
+    class Session:
+        def client(self, name, **_kwargs):  # noqa: ANN001, ANN003, ANN202
+            if name == "s3":
+                return type("S3", (), {"head_bucket": lambda _self, *, Bucket: calls.append(("bucket", Bucket))})()
+            return type("Glue", (), {"get_database": lambda _self, *, Name: calls.append(("database", Name))})()
+
+    monkeypatch.setattr(_preflight, "aws_session", lambda *_args, **_kwargs: Session())
 
     _preflight.check_aws_storage_and_glue(e2e_cfg(tmp_path, env="aws", suite="smoke"))
 
-    assert ["aws", "s3api", "head-bucket", "--bucket", "openlakeforge-ops"] in commands
-    glue_commands = [command for command in commands if command[:3] == ["aws", "glue", "get-database"]]
-    assert len(glue_commands) == len(EXPECTED_GLUE_SCHEMAS)
-    assert all(command[4] == "eu-central-1" for command in glue_commands)
+    assert ("bucket", "openlakeforge-ops") in calls
+    assert {name for kind, name in calls if kind == "database"} == EXPECTED_GLUE_SCHEMAS
 
 
 def test_aws_stack_region_prefers_foundation_output(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

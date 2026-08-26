@@ -65,7 +65,20 @@ class CloudProvider:
         if not self._environ.get("DOCKER_HOST"):
             docker_host = self.tools.docker.resolve_current_engine_endpoint(env=dict(self._environ))
         self.config.context.prepare_directories()
-        return self.config.context.command_env(docker_host=docker_host)
+        base = self.config.context.command_env(docker_host=docker_host)
+        # Terraform receives SDK-mediated credentials only for OLF-managed
+        # browser sessions. Ambient SDK/CI credentials retain their normal
+        # provider-native behavior.
+        from olf.auth import credential_selection_environment, terraform_auth_environment
+
+        command_environment = {
+            **base,
+            **credential_selection_environment(self.backend.scope, self._environ),
+        }
+        return {
+            **command_environment,
+            **terraform_auth_environment(self.backend.scope, command_environment),
+        }
 
     @cached_property
     def _foundation_facts(self) -> FoundationFacts:
@@ -185,8 +198,7 @@ class CloudProvider:
         from olf.deployment.cloud import foundation
         from olf.deployment.errors import DeploymentError
 
-        provider_cli = "aws" if self.backend.scope == "aws" else "az"
-        required = ["terraform", "kubectl", provider_cli]
+        required = ["terraform", "kubectl"]
         if phase in (DeploymentPhase.ALL, DeploymentPhase.PLATFORM):
             required.append("helm")
         needs_docker = phase in (DeploymentPhase.ALL, DeploymentPhase.ARTIFACTS) or (
@@ -195,7 +207,20 @@ class CloudProvider:
         if needs_docker:
             required.append("docker")
         items = base_report(repo_root=self.config.paths.repo_root, tools=self.tools, required_tools=required)
-        env = self.context.command_env()
+        from olf.auth import credential_selection_environment
+
+        # `command_env` scopes DOCKER_CONFIG to an OLF-owned directory, which
+        # drops the user's `currentContext`. Resolve the active engine
+        # endpoint the same way `_base_env` does, or docker_health reports a
+        # non-default context (colima, Rancher Desktop, a remote engine) as
+        # unreachable while `olf deploy` uses it perfectly well.
+        docker_host = None
+        if needs_docker and not self._environ.get("DOCKER_HOST"):
+            docker_host = self.tools.docker.resolve_current_engine_endpoint(env=dict(self._environ))
+        env = self.context.command_env(
+            base=credential_selection_environment(self.backend.scope, self._environ),
+            docker_host=docker_host,
+        )
         if needs_docker:
             items.append(docker_health(self.tools, env=env))
         try:

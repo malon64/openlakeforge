@@ -162,7 +162,13 @@ class LocalProvider:
             tools=self.tools,
             required_tools=required,
         )
-        items.append(docker_health(self.tools, env=self.context.command_env()))
+        # See the cloud provider's doctor: a scoped DOCKER_CONFIG loses the
+        # user's `currentContext`, so resolve the active engine endpoint or a
+        # non-default context is falsely reported unreachable.
+        docker_host = None
+        if not self._environ.get("DOCKER_HOST"):
+            docker_host = self.tools.docker.resolve_current_engine_endpoint(env=dict(self._environ))
+        items.append(docker_health(self.tools, env=self.context.command_env(docker_host=docker_host)))
         if phase in (DeploymentPhase.ALL, DeploymentPhase.PLATFORM):
             tfvars = self.config.terraform.var_file
             if tfvars is not None:

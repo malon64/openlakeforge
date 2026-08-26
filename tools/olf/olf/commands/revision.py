@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-import boto3
 import typer
 
 from olf import config
@@ -110,7 +110,10 @@ def _artifact_storage_client(via: str, bucket: str) -> Iterator[Any]:
     from olf import k8s, s3
 
     if via == "direct":
-        yield boto3.client("s3", region_name=config.env("OPENLAKEFORGE_STORAGE_REGION") or None)
+        from olf.auth import aws_session
+
+        region = config.env("OPENLAKEFORGE_STORAGE_REGION") or None
+        yield aws_session(os.environ, region=region).client("s3", region_name=region)
         return
     if via != "port-forward":
         raise typer.Exit(code=fail(f"unknown --via mode: {via!r} (expected 'port-forward' or 'direct')."))

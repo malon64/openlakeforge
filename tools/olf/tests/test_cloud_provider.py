@@ -9,6 +9,7 @@ command environment, or `KUBE_CONTEXT` gets baked in empty.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -23,6 +24,7 @@ from olf.deployment.cloud.provider import CloudProvider
 from olf.deployment.context import DeploymentContext
 from olf.deployment.engine import DeploymentPhase, Toolkit
 from olf.deployment.errors import DeploymentPreconditionError
+from olf.tooling.azure import AzureSdk
 
 _FACTS = FoundationFacts(
     cluster_name="eks-openlakeforge-poc",
@@ -64,6 +66,80 @@ def test_env_resolves_kube_context_from_foundation_facts(
     resolved_env = provider.env
 
     assert resolved_env["KUBE_CONTEXT"] == _FACTS.kube_context
+
+
+def test_base_environment_preserves_automation_credentials_for_sdk_selection(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = _config(tmp_path)
+    backend = FakeCloudBackend(scope="aws", facts=_FACTS)
+    provider = CloudProvider.create(
+        config,
+        backend,
+        toolkit=_toolkit(),
+        environ={"AWS_WEB_IDENTITY_TOKEN_FILE": "/tmp/token", "AWS_ROLE_ARN": "arn:aws:iam::123:role/ci"},
+    )
+    monkeypatch.setattr(provider.tools.docker, "resolve_current_engine_endpoint", lambda **_kwargs: None)
+    seen: dict[str, str] = {}
+    monkeypatch.setattr(
+        "olf.auth.terraform_auth_environment",
+        lambda _provider, env: seen.update(env) or {},
+    )
+
+    _ = provider._base_env
+
+    assert seen["AWS_WEB_IDENTITY_TOKEN_FILE"] == "/tmp/token"
+    assert seen["AWS_ROLE_ARN"] == "arn:aws:iam::123:role/ci"
+
+
+def test_doctor_uses_the_selected_authentication_environment(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    backend = FakeCloudBackend(scope="aws", facts=_FACTS)
+    provider = CloudProvider.create(
+        config,
+        backend,
+        toolkit=_toolkit(),
+        environ={"OLF_HOME": "/custom/olf", "AWS_PROFILE": "company-sso"},
+    )
+    seen: dict[str, str] = {}
+    backend.preflight = lambda _tools, *, env: seen.update(env)  # type: ignore[method-assign]
+
+    provider.doctor(DeploymentPhase.FOUNDATION)
+
+    assert seen["OLF_HOME"] == "/custom/olf"
+    assert seen["AWS_PROFILE"] == "company-sso"
+
+
+def test_doctor_reports_azure_authenticated_after_login_with_multiple_subscriptions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`doctor()` builds its preflight environment from
+    `credential_selection_environment` alone - no `ARM_SUBSCRIPTION_ID`
+    overlay from Terraform's authentication environment. An identity with
+    several subscriptions and only saved `olf auth login` state must still
+    report authenticated instead of "Azure subscription is not selected".
+    """
+    context = DeploymentContext.azure(repo_root=tmp_path)
+    config = CloudDeploymentConfig.from_environment({}, context=context)
+    backend = AzureBackend()
+    subscriptions = [
+        SimpleNamespace(subscription_id="sub-id", display_name="One", tenant_id="tenant", state="Enabled"),
+        SimpleNamespace(subscription_id="other-sub-id", display_name="Two", tenant_id="tenant", state="Enabled"),
+    ]
+    azure_sdk = AzureSdk(
+        credential=SimpleNamespace(get_token=lambda *_args: SimpleNamespace(token="arm-token")),
+        subscription_client_factory=lambda _credential: SimpleNamespace(
+            subscriptions=SimpleNamespace(list=lambda: subscriptions)
+        ),
+    )
+    toolkit = replace(_toolkit(), azure=azure_sdk)
+    provider = CloudProvider.create(config, backend, toolkit=toolkit, environ={"OLF_HOME": str(tmp_path)})
+    monkeypatch.setattr("olf.auth.selected_azure_subscription", lambda _environ: "other-sub-id")
+
+    report = provider.doctor(DeploymentPhase.FOUNDATION)
+
+    auth_item = next(item for item in report.items if item.name == "azure authentication")
+    assert auth_item.ok is True
 
 
 def test_env_is_cached_and_facts_are_resolved_only_once(
@@ -187,7 +263,7 @@ def test_foundation_doctor_does_not_require_or_probe_later_phase_tools(
 
     provider.doctor(DeploymentPhase.FOUNDATION)
 
-    assert required == ["terraform", "kubectl", "aws"]
+    assert required == ["terraform", "kubectl"]
 
 
 def test_artifacts_doctor_requires_and_probes_docker(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -208,7 +284,7 @@ def test_artifacts_doctor_requires_and_probes_docker(tmp_path: Path, monkeypatch
 
     provider.doctor(DeploymentPhase.ARTIFACTS)
 
-    assert required == ["terraform", "kubectl", "aws", "docker"]
+    assert required == ["terraform", "kubectl", "docker"]
     assert health_calls == ["docker"]
 
 
@@ -243,7 +319,7 @@ def test_full_platform_doctor_requires_and_probes_docker(tmp_path: Path, monkeyp
 
     provider.doctor(DeploymentPhase.PLATFORM)
 
-    assert required == ["terraform", "kubectl", "aws", "helm", "docker"]
+    assert required == ["terraform", "kubectl", "helm", "docker"]
     assert health_calls == ["docker"]
 
 
@@ -284,3 +360,45 @@ def test_local_platform_doctor_reports_missing_explicit_tfvars(tmp_path: Path) -
 
     tfvars_item = next(item for item in report.items if item.name == "local platform tfvars")
     assert not tfvars_item.ok
+
+
+def test_doctor_resolves_the_active_docker_context_for_the_engine_check(tmp_path: Path) -> None:
+    """`command_env` scopes DOCKER_CONFIG to an OLF-owned directory, which
+    drops the user's `currentContext`. Without resolving the active engine
+    endpoint, `docker version` falls back to the default context's socket and
+    doctor reports a colima/Rancher/remote engine as unreachable even though
+    `olf deploy` (via `_base_env`) drives it perfectly well.
+    """
+    config = _config(tmp_path)
+    backend = FakeCloudBackend(scope="aws", facts=_FACTS)
+    provider = CloudProvider.create(config, backend, toolkit=_toolkit(), environ={})
+    seen: dict[str, str] = {}
+    provider.tools.docker.resolve_current_engine_endpoint = (  # type: ignore[method-assign]
+        lambda **_kwargs: "unix:///Users/dev/.colima/default/docker.sock"
+    )
+    provider.tools.docker.version = lambda *, env: seen.update(env) or SimpleNamespace(  # type: ignore[method-assign]
+        ok=True, stdout="Docker Engine", stderr=""
+    )
+
+    provider.doctor(DeploymentPhase.ARTIFACTS)
+
+    assert seen["DOCKER_HOST"] == "unix:///Users/dev/.colima/default/docker.sock"
+
+
+def test_doctor_keeps_an_explicit_docker_host_override(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    backend = FakeCloudBackend(scope="aws", facts=_FACTS)
+    provider = CloudProvider.create(
+        config, backend, toolkit=_toolkit(), environ={"DOCKER_HOST": "tcp://explicit:2375"}
+    )
+    resolved: list[str] = []
+    provider.tools.docker.resolve_current_engine_endpoint = (  # type: ignore[method-assign]
+        lambda **_kwargs: resolved.append("called") or "unix:///should/not/be/used.sock"
+    )
+    provider.tools.docker.version = lambda *, env: SimpleNamespace(  # type: ignore[method-assign]
+        ok=True, stdout="Docker Engine", stderr=""
+    )
+
+    provider.doctor(DeploymentPhase.ARTIFACTS)
+
+    assert resolved == [], "an explicit DOCKER_HOST must not be overridden by context detection"

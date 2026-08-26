@@ -123,3 +123,8 @@ verifies, and privately invokes its own versioned Terraform, Helm, kubectl,
 and kind binaries under `OLF_HOME` instead of requiring them installed
 globally, closing issue #127. `aws`/`az` remain host prerequisites for now,
 with the SDK-replacement path documented and deferred to a follow-up issue.
+
+`0030-sdk-managed-cloud-authentication.md` supersedes ADR 0029's remaining
+cloud-CLI prerequisite: `olf` authenticates AWS IAM Identity Center and Azure
+users through the official SDKs, while retaining narrowly-scoped Terraform
+credential bridges where provider implementations require them.

@@ -11,6 +11,7 @@ import typer
 import olf
 from olf.commands import (
     artifacts,
+    auth,
     catalog,
     checks,
     contracts,
@@ -48,6 +49,7 @@ app.add_typer(images.app, name="images")
 app.add_typer(catalog.app, name="catalog")
 app.add_typer(floe.app, name="floe")
 app.add_typer(artifacts.app, name="artifacts")
+app.add_typer(auth.app, name="auth")
 app.add_typer(layers.app, name="layers")
 app.add_typer(revision.app, name="revision")
 app.add_typer(superset.app, name="superset")
