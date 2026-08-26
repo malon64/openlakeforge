@@ -2,7 +2,10 @@
 
 ## Status
 
-Accepted
+Superseded by [ADR 0023](0023-native-openlineage-emission-restored.md) for
+the lineage deferral: native OpenLineage emission was restored once Floe and
+dbt-trino could target OpenMetadata's endpoint directly. This ADR's rejection
+of the OpenLineage proxy and of a custom Dagster REST push remains binding.
 
 ## Context
 
