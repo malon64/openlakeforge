@@ -7,12 +7,12 @@ the tables below -- regenerate with:
 (or `uv run --project tools/olf olf release compatibility-matrix --output ...`
 from the repo root). The same command produces the copy embedded in every
 release bundle by .github/workflows/release.yml, so this file always matches
-what a tagged release publishes as of the last catalog update. `make
-release-check` fails if this checked-in file drifts from a fresh render;
+what a tagged release publishes as of the last catalog update.
+`olf check all` fails if this checked-in file drifts from a fresh render;
 regenerate it whenever release/component-catalog.yaml changes.
 -->
 
-# OpenLakeForge 0.1.0-alpha.1 compatibility matrix
+# OpenLakeForge 0.2.0-alpha.1 compatibility matrix
 
 Generated from `release/component-catalog.yaml`. Every version below is the exact input pinned for this release; see [docs/release/component-catalog.md](component-catalog.md) for the update process.
 
