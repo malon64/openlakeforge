@@ -45,6 +45,11 @@ diagnostics only — they are no longer discovered by any default runtime path. 
 [v1alpha1 → v1alpha2 migration](../migrations/domain-v1alpha1-to-v1alpha2.md) for that
 earlier, now-historical migration.
 
+`olf init --empty` intentionally writes a transitional `lakehouse.yaml` with
+empty `sources` and `domains` lists. It is accepted only by the source/domain/
+product scaffolding workflow; `olf check`, deployment, and end-to-end commands
+remain strict until scaffolding has created the first runnable product.
+
 ---
 
 ## Ownership model

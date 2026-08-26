@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from openlakeforge_domain import load_lakehouse_inventory
+from openlakeforge_domain import load_transitional_lakehouse_inventory
 
 from olf.scaffold import _lakehouse_edit, _templates
 from olf.scaffold import domain as domain_module
@@ -74,7 +74,7 @@ def plan_product_new(
     if len(set(gold_tables)) != len(gold_tables):
         raise ScaffoldError(f"product {product!r}: --gold-table values must be unique")
 
-    inventory = load_lakehouse_inventory(repo_root)
+    inventory = load_transitional_lakehouse_inventory(repo_root)
     if product in {p.id for p in inventory.products}:
         raise ScaffoldError(f"product id {product!r} must be globally unique across the lakehouse")
 

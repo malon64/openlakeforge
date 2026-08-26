@@ -525,9 +525,10 @@ def load_lakehouse_inventory_from_descriptors(
     source_paths: Sequence[str | Path],
     *,
     source_label: str | Path | None = None,
+    allow_incomplete: bool = False,
 ) -> LakehouseInventory:
     """Load and validate one Lakehouse descriptor plus its Source descriptors."""
-    lakehouse_document = load_lakehouse_descriptor(lakehouse_path)
+    lakehouse_document = load_lakehouse_descriptor(lakehouse_path, allow_incomplete=allow_incomplete)
     sources: list[Source] = []
     for source_path in source_paths:
         document = load_source_descriptor(source_path)
@@ -595,18 +596,27 @@ def load_lakehouse_inventory_from_descriptors(
     return inventory
 
 
-def load_lakehouse_inventory(path: str | Path) -> LakehouseInventory:
+def load_lakehouse_inventory(path: str | Path, *, allow_incomplete: bool = False) -> LakehouseInventory:
     """Load and validate ``lakehouse_code/lakehouse.yaml`` plus every source."""
     lakehouse_root = _lakehouse_root(Path(path))
     lakehouse_descriptor = lakehouse_root / "lakehouse.yaml"
     if not lakehouse_descriptor.is_file():
         raise LakehouseDescriptorError(f"{lakehouse_root}: no lakehouse descriptor found at lakehouse.yaml")
     source_descriptors = sorted(lakehouse_root.glob("bronze/*/source.yaml"))
-    if not source_descriptors:
+    if not source_descriptors and not allow_incomplete:
         raise LakehouseDescriptorError(f"{lakehouse_root}: no source descriptors found at bronze/*/source.yaml")
     return load_lakehouse_inventory_from_descriptors(
-        lakehouse_descriptor, source_descriptors, source_label=lakehouse_root
+        lakehouse_descriptor, source_descriptors, source_label=lakehouse_root, allow_incomplete=allow_incomplete
     )
+
+
+def load_transitional_lakehouse_inventory(path: str | Path) -> LakehouseInventory:
+    """Load an `olf init --empty` project while it has no runnable product.
+
+    This is intentionally limited to scaffold planning. Deployment and
+    ordinary descriptor validation retain the strict v1alpha3 contract.
+    """
+    return load_lakehouse_inventory(path, allow_incomplete=True)
 
 
 @cache

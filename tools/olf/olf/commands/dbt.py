@@ -23,7 +23,9 @@ def parse(
     namespace: str = typer.Option("", "--namespace", help="Kubernetes namespace override."),
     cluster_name: str = typer.Option("", "--cluster-name", help="Local kind cluster name override."),
     kubeconfig_path: str = typer.Option("", "--kubeconfig-path", help="Kubeconfig file path override."),
-    project_root: str = typer.Option("", "--project-root", help="Writable project root; defaults to the bundled demo."),
+    project_root: str = typer.Option(
+        "", "--project-root", help="Writable project root; defaults to the current directory."
+    ),
 ) -> None:
     """Render profiles, resolve dependencies, and parse projects using provider contracts."""
     from olf.commands.runtime import provider_contract_environment

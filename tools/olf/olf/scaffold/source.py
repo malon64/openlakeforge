@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from openlakeforge_domain import load_lakehouse_inventory
+from openlakeforge_domain import load_transitional_lakehouse_inventory
 
 from olf.scaffold import _lakehouse_edit, _templates
 from olf.scaffold._csv import placeholder_example_csv
@@ -26,7 +26,7 @@ def plan_source_new(
     if len(set(resources)) != len(resources):
         raise ScaffoldError(f"source {source!r}: --resource values must be unique")
 
-    inventory = load_lakehouse_inventory(repo_root)
+    inventory = load_transitional_lakehouse_inventory(repo_root)
     if source in inventory.source_names:
         raise ScaffoldError(f"source {source!r} already exists in lakehouse.yaml")
 

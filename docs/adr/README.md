@@ -132,3 +132,8 @@ credential bridges where provider implementations require them.
 `0031-pypi-embedded-platform-payload.md` establishes PyPI as the consumer
 distribution, with a verified immutable Terraform/Helm/runtime payload in the
 universal `openlakeforge` wheel and sdist.
+
+`0032-installed-project-root-and-transitional-projects.md` completes ADR 0031:
+an installed `olf` treats the current directory as the project root, platform
+assets stay in the immutable payload, and `olf init --empty` projects are
+accepted only by scaffolding until their first product exists.

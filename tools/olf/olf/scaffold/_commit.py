@@ -26,7 +26,12 @@ import tempfile
 from pathlib import Path
 
 import yaml
-from openlakeforge_domain import LakehouseDescriptorError, LakehouseInventory, load_lakehouse_inventory
+from openlakeforge_domain import (
+    LakehouseDescriptorError,
+    LakehouseInventory,
+    load_lakehouse_inventory,
+    load_transitional_lakehouse_inventory,
+)
 
 from olf.contracts_check import descriptor_schema_errors
 from olf.scaffold._shared import ScaffoldError, ScaffoldFile, ScaffoldPlan
@@ -120,7 +125,13 @@ def _check_asset_key_collisions(inventory: LakehouseInventory) -> None:
         raise ScaffoldError("; ".join(collisions))
 
 
-def _verify(repo_root: Path, plan: ScaffoldPlan) -> None:
+def _verify(
+    repo_root: Path,
+    plan: ScaffoldPlan,
+    *,
+    schema_root: Path | None = None,
+    allow_transitional: bool = False,
+) -> None:
     _check_yaml_well_formed(plan.files)
     _check_yaml_well_formed(plan.edits)
 
@@ -128,10 +139,7 @@ def _verify(repo_root: Path, plan: ScaffoldPlan) -> None:
     with tempfile.TemporaryDirectory(prefix="olf-scaffold-verify-") as tmp:
         verify_lakehouse = Path(tmp) / "lakehouse_code"
         (verify_lakehouse / "bronze").mkdir(parents=True)
-        verify_schema_dir = Path(tmp) / "docs" / "schema"
-        verify_schema_dir.mkdir(parents=True)
-        for schema_name in ("lakehouse.schema.json", "source.schema.json"):
-            shutil.copy(repo_root / "docs" / "schema" / schema_name, verify_schema_dir / schema_name)
+        resolved_schema_root = schema_root or repo_root / "docs" / "schema"
         for source_yaml in sorted(lakehouse_src.glob("bronze/*/source.yaml")):
             destination = verify_lakehouse / source_yaml.relative_to(lakehouse_src)
             destination.parent.mkdir(parents=True, exist_ok=True)
@@ -146,11 +154,14 @@ def _verify(repo_root: Path, plan: ScaffoldPlan) -> None:
             destination.write_text(scaffold_file.content, encoding="utf-8")
         (verify_lakehouse / "lakehouse.yaml").write_text(plan.lakehouse_yaml, encoding="utf-8")
 
-        errors = descriptor_schema_errors(Path(tmp))
+        errors = descriptor_schema_errors(
+            Path(tmp), schema_root=resolved_schema_root, allow_incomplete=allow_transitional
+        )
         if errors:
             raise ScaffoldError("; ".join(errors))
+        load = load_transitional_lakehouse_inventory if allow_transitional else load_lakehouse_inventory
         try:
-            inventory = load_lakehouse_inventory(Path(tmp))
+            inventory = load(Path(tmp))
         except LakehouseDescriptorError as exc:
             raise ScaffoldError(str(exc)) from exc
         _check_asset_key_collisions(inventory)
@@ -199,9 +210,20 @@ def _write(repo_root: Path, plan: ScaffoldPlan) -> None:
         raise
 
 
-def commit_plan(repo_root: Path, plan: ScaffoldPlan) -> None:
+def commit_plan(
+    repo_root: Path,
+    plan: ScaffoldPlan,
+    *,
+    schema_root: Path | None = None,
+    allow_transitional: bool = False,
+) -> None:
     """Verify `plan` against the canonical model in an isolated temp tree,
-    then write every file for real. Writes nothing on failure."""
+    then write every file for real. Writes nothing on failure.
+
+    `allow_transitional` is for the steps that legitimately leave an
+    `olf init --empty` project short of a runnable product -- `source new` and
+    `domain new`. `product new` always verifies strictly, so the first product
+    is what converts a transitional project into a schema-valid v1alpha3 one."""
     check_no_existing_targets(repo_root, plan.files)
-    _verify(repo_root, plan)
+    _verify(repo_root, plan, schema_root=schema_root, allow_transitional=allow_transitional)
     _write(repo_root, plan)

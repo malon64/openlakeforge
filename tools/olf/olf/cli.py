@@ -25,6 +25,7 @@ from olf.commands import (
     e2e,
     floe,
     images,
+    init,
     k8s,
     layers,
     openmetadata,
@@ -73,6 +74,7 @@ app.command("doctor")(deployment.doctor)
 app.command("destroy")(deployment.destroy)
 app.command("status")(deployment.status)
 app.command("forward")(deployment.forward)
+app.command("init")(init.initialize)
 
 
 @app.callback()

@@ -389,7 +389,12 @@ def runtime_layout(environ: dict[str, str] | None = None) -> RuntimeLayout:
 
     manager = DistributionManager.from_embedded(home=default_home(env))
     root = manager.ensure()
-    project = Path(env.get("OPENLAKEFORGE_PROJECT_ROOT", root)).resolve()
+    # A packaged distribution's payload is immutable and is never a user's
+    # working directory.  Consumer commands therefore target the current
+    # directory unless the caller explicitly selects another project.  This
+    # is intentionally different from source mode, whose checkout remains
+    # the contributor default.
+    project = Path(env.get("OPENLAKEFORGE_PROJECT_ROOT", Path.cwd())).resolve()
     return RuntimeLayout(
         mode="installed",
         distribution_root=root,

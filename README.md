@@ -63,7 +63,7 @@ The easiest way to evaluate OpenLakeForge is with the local Kubernetes environme
 
 You need a working:
 
-**Docker engine · Python >= 3.12 · uv**
+**Docker engine · Python >= 3.12**
 
 `olf` (#127) provisions its own versioned Terraform, Helm, kubectl, and kind
 under `~/.openlakeforge` at the exact versions
@@ -77,12 +77,26 @@ Make sure Docker is available from your shell:
 docker ps
 ```
 
-Install the release and check the toolchain before deploying:
+Create a project directory, install the release, and initialize its writable
+user code:
 
 ```bash
-uv tool install "openlakeforge==0.1.0a1" --python 3.12
-olf doctor --provider local --profile slim
+mkdir my-lakehouse
+cd my-lakehouse
+
+pip install "openlakeforge==0.1.0a1"
+olf init
 ```
+
+`uv tool install "openlakeforge==0.1.0a1" --python 3.12` works too, but `uv`
+is not a prerequisite.
+
+`olf init` verifies the packaged platform payload, provisions or reuses the
+pinned toolchain, checks that Docker is reachable, and copies the demo
+`lakehouse_code/` into the current directory as your own writable code. Use
+`olf init --empty` to start from a bare project instead — it has no source or
+product yet, so scaffold both with `olf source new` and `olf product new`
+before deploying.
 
 Start the **Slim** profile:
 

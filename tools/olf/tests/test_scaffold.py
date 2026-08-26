@@ -16,6 +16,7 @@ import yaml
 from openlakeforge_domain import load_lakehouse_inventory
 from typer.testing import CliRunner
 
+from olf import contracts_check
 from olf.cli import app
 from olf.scaffold._commit import commit_plan
 from olf.scaffold._shared import ScaffoldError
@@ -1292,3 +1293,79 @@ def test_cli_source_new_end_to_end(tmp_path: Path) -> None:
     )
     inventory = load_lakehouse_inventory(repo_root)
     assert "marketing_platform" in inventory.source_names
+
+
+# --------------------------------------------------------------------------
+# transitional projects (`olf init --empty`)
+# --------------------------------------------------------------------------
+
+
+_EMPTY_LAKEHOUSE = """\
+apiVersion: openlakeforge.io/v1alpha3
+kind: Lakehouse
+name: openlakeforge
+displayName: OpenLakeForge
+description: Empty OpenLakeForge project. Add a source and product before deployment.
+status: planned
+sources: []
+domains: []
+dashboards: []
+"""
+
+
+def _seed_empty_project(tmp_path: Path) -> Path:
+    """The tree `olf init --empty` leaves behind, without the toolchain work."""
+    lakehouse_code = tmp_path / "lakehouse_code"
+    for package in ("", "bronze", "silver", "gold", "dashboards/superset", "pipelines/dagster"):
+        directory = lakehouse_code / package if package else lakehouse_code
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / "__init__.py").write_text("", encoding="utf-8")
+    (lakehouse_code / "lakehouse.yaml").write_text(_EMPTY_LAKEHOUSE, encoding="utf-8")
+    return tmp_path
+
+
+def test_scaffolding_walks_an_empty_project_to_strict_v1alpha3_validity(tmp_path: Path) -> None:
+    repo_root = _seed_empty_project(tmp_path)
+
+    _run("source", "new", "crm", "--resource", "accounts", "--repo-root", str(repo_root))
+    _run("domain", "new", "sales", "--input", "crm/accounts", "--repo-root", str(repo_root))
+    _run(
+        "product",
+        "new",
+        "sales/accounts_report",
+        "--silver-input",
+        "accounts",
+        "--gold-table",
+        "mart_accounts",
+        "--repo-root",
+        str(repo_root),
+    )
+
+    inventory = load_lakehouse_inventory(repo_root)
+    assert [product.id for product in inventory.products] == ["accounts_report"]
+    assert contracts_check.descriptor_schema_errors(repo_root, schema_root=ROOT / "docs" / "schema") == []
+
+
+def test_product_new_will_not_leave_an_empty_project_transitional(tmp_path: Path) -> None:
+    """`product new` is the step that must produce a strict, deployable
+    descriptor, so it never inherits the transitional waiver: with no source
+    to consume, it fails rather than writing a half-valid lakehouse."""
+    repo_root = _seed_empty_project(tmp_path)
+
+    result = runner.invoke(
+        app,
+        [
+            "product",
+            "new",
+            "sales/accounts_report",
+            "--input",
+            "crm/accounts",
+            "--gold-table",
+            "mart_accounts",
+            "--repo-root",
+            str(repo_root),
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert load_lakehouse_inventory(repo_root, allow_incomplete=True).products == ()

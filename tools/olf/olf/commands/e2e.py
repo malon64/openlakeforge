@@ -59,7 +59,7 @@ def e2e_run(
     env: str = typer.Option(..., "--env", help="Environment to validate: local, azure, or aws."),
     suite: str = typer.Option("", "--suite", help="Suite to run: full or smoke. Defaults to full."),
     project_root: str = typer.Option(
-        "", "--project-root", help="Writable project root; defaults to the bundled demo."
+        "", "--project-root", help="Writable project root; defaults to the current directory."
     ),
 ) -> None:
     """Run end-to-end validation for a deployed OpenLakeForge environment.

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import typer
 
-from olf.commands._project import writable_project_root
+from olf.commands._project import writable_project_layout
 from olf.commands._shared import fail
 from olf.scaffold._commit import commit_plan
 from olf.scaffold._shared import ScaffoldError, parse_source_resource
@@ -35,7 +35,8 @@ def product_new(
     Bronze loader for a source resource that already exists. Creates the
     domain inline (via --input) when DOMAIN is not declared yet."""
     try:
-        root = writable_project_root(repo_root)
+        layout = writable_project_layout(repo_root)
+        root = layout.project_root
         inputs = tuple(parse_source_resource(value) for value in input_)
         plan = plan_product_new(
             root,
@@ -46,7 +47,7 @@ def product_new(
             gold_tables=tuple(gold_table),
             with_report=with_report,
         )
-        commit_plan(root, plan)
+        commit_plan(root, plan, schema_root=layout.distribution_root / "docs" / "schema")
     except (RuntimeError, ScaffoldError) as exc:
         raise typer.Exit(code=fail(str(exc))) from exc
     for line in plan.summary:

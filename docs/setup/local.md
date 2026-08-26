@@ -43,9 +43,39 @@ Dagster orchestrates the complete pipeline.
 
 ## Requirements
 
-OpenLakeForge currently runs locally from a source checkout.
+For the supported consumer path, you need a Docker-compatible engine and
+Python 3.12 or later. Git, uv, Make, Terraform, Helm, kubectl, and kind are
+not host prerequisites.
 
-You need the following tools available on your `PATH`:
+```bash
+mkdir my-lakehouse
+cd my-lakehouse
+pip install openlakeforge
+olf init
+olf deploy --provider local --profile slim
+olf e2e run --env local --suite smoke
+```
+
+`olf init` verifies the packaged platform payload, installs or reuses the
+release-pinned Terraform, Helm, kubectl, and kind toolchain, checks Docker,
+and creates a writable `lakehouse_code/` directory. It never installs Docker,
+uses Git, or overwrites an existing `lakehouse_code/` directory.
+
+`olf init --empty` creates a transitional project with no source, domain, or
+product. Scaffold its first source and product before deploying:
+
+```bash
+olf source new crm --resource accounts
+olf product new sales/accounts_report --input crm/accounts --gold-table mart_accounts
+```
+
+The empty descriptor deliberately does not pass strict descriptor validation
+until that first product exists.
+
+## Contributor checkout
+
+Contributors work from a source checkout and its Make delegates instead. That
+workflow needs the following tools on your `PATH`:
 
 | Tool           | Purpose                              |
 | -------------- | ------------------------------------- |
@@ -88,16 +118,14 @@ If this command fails, fix your Docker installation before continuing.
 
 ---
 
-## Clone OpenLakeForge
+### Clone OpenLakeForge
 
 ```bash
 git clone https://github.com/malon64/openlakeforge.git
 cd openlakeforge
 ```
 
-OpenLakeForge commands in this guide should be executed from the repository root.
-
-> OpenLakeForge is currently alpha. A standalone installation artifact is being developed so future releases will not require operating directly from a source checkout.
+OpenLakeForge contributor commands should be executed from the repository root.
 
 Then check the managed toolchain is provisioned:
 

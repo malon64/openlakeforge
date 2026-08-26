@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import typer
 
-from olf.commands._project import writable_project_root
+from olf.commands._project import writable_project_layout
 from olf.commands._shared import fail
 from olf.scaffold._commit import commit_plan
 from olf.scaffold._shared import ScaffoldError
@@ -23,9 +23,12 @@ def source_new(
     """Generate a new Source: `source.yaml`, a dlt loader, and one placeholder
     example CSV per --resource. Adds SOURCE to lakehouse.yaml's `sources:`."""
     try:
-        root = writable_project_root(repo_root)
+        layout = writable_project_layout(repo_root)
+        root = layout.project_root
         plan = plan_source_new(root, source=source, display_name=display_name, resources=tuple(resource))
-        commit_plan(root, plan)
+        commit_plan(
+            root, plan, schema_root=layout.distribution_root / "docs" / "schema", allow_transitional=True
+        )
     except (RuntimeError, ScaffoldError) as exc:
         raise typer.Exit(code=fail(str(exc))) from exc
     for line in plan.summary:

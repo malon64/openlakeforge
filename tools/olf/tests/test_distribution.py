@@ -120,3 +120,56 @@ def test_checkout_defaults_to_source_mode_even_when_a_payload_has_been_generated
 
     assert layout.is_source
     assert layout.distribution_root == Path(__file__).resolve().parents[3]
+
+
+def test_installed_layout_defaults_the_project_to_the_current_directory(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    payload = tmp_path / "payload"
+    (payload / "release").mkdir(parents=True)
+    (payload / "release" / "component-catalog.yaml").write_text("distribution:\n  version: 0.1.0-alpha.1\n")
+    (tmp_path / "project").mkdir()
+
+    class Manager:
+        home = tmp_path / "olf-home"
+        version = "0.1.0-alpha.1"
+        sha256 = "a" * 64
+
+        def ensure(self) -> Path:
+            return payload
+
+    monkeypatch.setattr("olf.distribution.DistributionManager.from_embedded", lambda **_kwargs: Manager())
+    monkeypatch.chdir(tmp_path / "project")
+
+    layout = runtime_layout({"OLF_DISTRIBUTION_MODE": "installed"})
+
+    assert layout.project_root == (tmp_path / "project").resolve()
+
+
+def test_installed_layout_keeps_platform_assets_in_the_payload_when_a_project_is_selected(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    payload = tmp_path / "payload"
+    (payload / "release").mkdir(parents=True)
+    (payload / "release" / "component-catalog.yaml").write_text("distribution:\n  version: 0.1.0-alpha.1\n")
+    project = tmp_path / "project"
+    project.mkdir()
+
+    class Manager:
+        home = tmp_path / "olf-home"
+        version = "0.1.0-alpha.1"
+        sha256 = "a" * 64
+
+        def ensure(self) -> Path:
+            return payload
+
+    monkeypatch.setattr("olf.distribution.DistributionManager.from_embedded", lambda **_kwargs: Manager())
+    monkeypatch.chdir(tmp_path)
+
+    layout = runtime_layout(
+        {"OLF_DISTRIBUTION_MODE": "installed", "OPENLAKEFORGE_PROJECT_ROOT": str(project)}
+    )
+
+    assert layout.project_root == project.resolve()
+    assert layout.distribution_root == payload
+    assert layout.catalog_path == payload / "release" / "component-catalog.yaml"
