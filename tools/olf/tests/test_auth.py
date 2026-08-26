@@ -166,6 +166,36 @@ def test_auth_status_redacts_tokens_and_logout_only_removes_olf_state(
     assert auth.load_state("aws") is None
 
 
+def test_azure_status_translates_an_expired_sdk_token_into_a_clean_cli_error(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """When the saved Azure state's SDK token cache is expired, unavailable,
+    or corrupt, `get_token()` raises an azure-core/azure-identity exception,
+    not this project's `AuthenticationError`. `status` must translate it into
+    the same actionable CLI error used for every other authentication
+    failure - not let a raw traceback surface for the common re-login case.
+    """
+    from azure.core.exceptions import ClientAuthenticationError
+
+    import olf.commands.auth as auth_command
+
+    monkeypatch.setenv("OLF_HOME", str(tmp_path))
+    auth.save_state("azure", {"source": "azure-cli", "subscription_id": "sub-id"})
+
+    class _ExpiredCredential:
+        def get_token(self, *_args, **_kwargs):  # noqa: ANN002, ANN003, ANN202
+            raise ClientAuthenticationError(message="token cache expired")
+
+    monkeypatch.setattr(auth_command, "azure_credential", lambda *_args: _ExpiredCredential())
+    runner = CliRunner()
+
+    result = runner.invoke(app, ["auth", "status", "--provider", "azure"])
+
+    assert result.exit_code != 0
+    assert "Traceback" not in result.output
+    assert "olf auth login --provider azure" in result.output
+
+
 def test_terraform_auth_environment_keeps_automation_ahead_of_saved_state(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

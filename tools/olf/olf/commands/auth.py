@@ -117,7 +117,20 @@ def status(provider: str = typer.Option(..., "--provider", help="aws or azure.")
                 safe["account"] = safe.get("account_id", "unknown")
             safe["expiry"] = safe.get("access_expires_at", "managed by AWS SDK")
         else:
-            token = azure_credential(os.environ).get_token("https://management.azure.com/.default")
+            from azure.core.exceptions import ClientAuthenticationError
+
+            try:
+                token = azure_credential(os.environ).get_token("https://management.azure.com/.default")
+            except ClientAuthenticationError as exc:
+                # Covers azure-identity's CredentialUnavailableError and
+                # AuthenticationRequiredError (an expired/unavailable cache,
+                # or a browser session saved with disable_automatic_
+                # authentication that needs a fresh interactive login) - the
+                # common re-login case, not just a genuinely unknown source.
+                raise AuthenticationError(
+                    "Azure authentication is present but the SDK could not obtain a token "
+                    f"(likely expired or unavailable): {exc}. Run 'olf auth login --provider azure'."
+                ) from exc
             safe["principal"] = safe.get("principal", "managed by Azure SDK")
             safe["subscription"] = safe.get("subscription_id", "unknown")
             safe["expiry"] = datetime.fromtimestamp(token.expires_on, UTC).isoformat()
