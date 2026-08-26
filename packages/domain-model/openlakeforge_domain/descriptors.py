@@ -247,7 +247,9 @@ def _validate_dashboard(dashboard: Mapping[str, Any], *, source: str) -> None:
         )
 
 
-def validate_lakehouse_descriptor(document: Mapping[str, Any], *, source: str = "lakehouse.yaml") -> None:
+def validate_lakehouse_descriptor(
+    document: Mapping[str, Any], *, source: str = "lakehouse.yaml", allow_incomplete: bool = False
+) -> None:
     """Validate the v1alpha3 Lakehouse envelope, domains, and dashboards."""
     if document.get("apiVersion") != LAKEHOUSE_API_VERSION:
         raise LakehouseDescriptorError(
@@ -263,14 +265,14 @@ def validate_lakehouse_descriptor(document: Mapping[str, Any], *, source: str = 
     _non_empty_string(document["status"], field="status", source=source)
     _optional_string(document["description"], field="description", source=source)
     sources = document["sources"]
-    if not isinstance(sources, list) or not sources:
+    if not isinstance(sources, list) or (not sources and not allow_incomplete):
         raise LakehouseDescriptorError(f"{source}: sources must be a non-empty array")
     for index, source_name in enumerate(sources):
         _identifier(source_name, field=f"sources[{index}]", source=source)
     if len(sources) != len(set(sources)):
         raise LakehouseDescriptorError(f"{source}: sources must not contain duplicates")
     domains = document["domains"]
-    if not isinstance(domains, list) or not domains:
+    if not isinstance(domains, list) or (not domains and not allow_incomplete):
         raise LakehouseDescriptorError(f"{source}: domains must be a non-empty array")
     seen_domains: set[str] = set()
     seen_products: set[str] = set()
@@ -287,7 +289,7 @@ def validate_lakehouse_descriptor(document: Mapping[str, Any], *, source: str = 
                     f"{source}: product id {product['id']!r} must be globally unique across domains"
                 )
             seen_products.add(product["id"])
-    if not seen_products:
+    if not seen_products and not allow_incomplete:
         raise LakehouseDescriptorError(
             f"{source}: lakehouse must declare at least one product across its domains "
             "(an individual domain may have zero products while it is being seeded, "
@@ -320,14 +322,14 @@ def validate_lakehouse_descriptor(document: Mapping[str, Any], *, source: str = 
         )
 
 
-def load_lakehouse_descriptor(path: str | Path) -> dict[str, Any]:
+def load_lakehouse_descriptor(path: str | Path, *, allow_incomplete: bool = False) -> dict[str, Any]:
     """Load and validate the v1alpha3 Lakehouse descriptor at ``path``."""
     source = str(path)
     with Path(path).open(encoding="utf-8") as handle:
         document = yaml.safe_load(handle)
     if not isinstance(document, dict):
         raise LakehouseDescriptorError(f"{source}: descriptor must contain a YAML object")
-    validate_lakehouse_descriptor(document, source=source)
+    validate_lakehouse_descriptor(document, source=source, allow_incomplete=allow_incomplete)
     return document
 
 

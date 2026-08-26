@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from openlakeforge_domain import LakehouseInventory, load_lakehouse_inventory
+from openlakeforge_domain import LakehouseInventory, load_transitional_lakehouse_inventory
 
 from olf.scaffold import _lakehouse_edit, _templates
 from olf.scaffold._csv import infer_columns
@@ -103,7 +103,7 @@ def plan_domain_new(
     if not inputs:
         raise ScaffoldError("domain new: at least one --input <source>/<resource> is required")
 
-    inventory = load_lakehouse_inventory(repo_root)
+    inventory = load_transitional_lakehouse_inventory(repo_root)
     if domain in inventory.domain_names:
         raise ScaffoldError(f"domain {domain!r} already exists in lakehouse.yaml")
 

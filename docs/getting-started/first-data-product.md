@@ -47,12 +47,12 @@ mart_campaign_performance
 
 # Fast path: the scaffold
 
-`olf` generates this exact file tree for you. Run it via `uv run --project tools/olf
-olf ...` (there is no repository-wide `olf` install on `PATH`):
+`olf` generates this exact file tree for you. From an initialized installed
+project, run:
 
 ```bash
-uv run --project tools/olf olf source new marketing_platform --resource campaigns
-uv run --project tools/olf olf product new marketing/campaign_performance \
+olf source new marketing_platform --resource campaigns
+olf product new marketing/campaign_performance \
   --input marketing_platform/campaigns \
   --gold-table mart_campaign_performance
 ```
@@ -65,16 +65,17 @@ A domain can also be created up front, ahead of any product — useful when you 
 Silver tables you want before you know what will consume them:
 
 ```bash
-uv run --project tools/olf olf source new workday --resource employees
-uv run --project tools/olf olf domain new hr --input workday/employees
+olf source new workday --resource employees
+olf domain new hr --input workday/employees
 # ... later, once you know what product to build:
-uv run --project tools/olf olf product new hr/headcount \
+olf product new hr/headcount \
   --silver-input employees --gold-table mart_headcount_by_org
 ```
 
-Run `uv run --project tools/olf olf source new --help` (and the `domain`/`product`
-equivalents) for the full flag reference, including `--with-report` to also scaffold a
-Superset report skeleton.
+Run `olf source new --help` (and the `domain`/`product` equivalents) for the
+full flag reference, including `--with-report` to also scaffold a Superset
+report skeleton. In a contributor checkout, prefix the same commands with
+`uv run --project tools/olf`.
 
 The rest of this tutorial builds the same `campaign_performance` product by hand, file
 by file. Read it to understand *what* the scaffold generates and *why* — the file tree
@@ -106,8 +107,10 @@ This tutorial assumes you already have the local **Slim** environment running.
 If not:
 
 ```bash
-make local-slim-up
+olf deploy --provider local --profile slim
 ```
+
+In a contributor checkout, use `make local-slim-up` instead.
 
 See the [local installation guide](../setup/local.md) for the complete setup.
 

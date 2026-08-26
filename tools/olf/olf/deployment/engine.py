@@ -18,8 +18,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
 from olf.deployment.context import DeploymentContext, Provider
-from olf.deployment.errors import UnsupportedProviderError
-from olf.deployment.inspection import DoctorReport
+from olf.deployment.errors import DeploymentPreconditionError, UnsupportedProviderError
+from olf.deployment.inspection import DoctorReport, project_not_runnable_reason
 from olf.tooling.aws import AwsSdk
 from olf.tooling.azure import AzureSdk
 from olf.tooling.docker import Docker
@@ -119,6 +119,8 @@ class DeploymentEngine:
     )
 
     def deploy(self, phase: DeploymentPhase = DeploymentPhase.ALL) -> None:
+        if phase in (DeploymentPhase.ALL, DeploymentPhase.ARTIFACTS):
+            self._require_runnable_project()
         phases = self._phase_deploy_order if phase == DeploymentPhase.ALL else (phase,)
         for step in phases:
             self._deploy_step(step)
@@ -160,6 +162,19 @@ class DeploymentEngine:
             self.provider.artifacts_deploy()
         else:
             raise ValueError(f"deploy does not support phase {phase!r}")
+
+    def _require_runnable_project(self) -> None:
+        """Fail before a dynamic-artifact deploy mutates infrastructure.
+
+        Static foundation/platform phases intentionally remain descriptor-free
+        under ADR 0008, so only ARTIFACTS (and the ALL sequence that contains
+        it) needs a runnable project. Reported here rather than deep inside an
+        artifact step so an `olf init --empty` project is told what it is
+        missing before anything is applied.
+        """
+        reason = project_not_runnable_reason(self.provider.context.paths.repo_root)
+        if reason is not None:
+            raise DeploymentPreconditionError(f"project is not runnable: {reason}")
 
 
 def build_provider(

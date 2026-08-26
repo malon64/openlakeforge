@@ -14,6 +14,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import yaml
+from openlakeforge_domain import LakehouseDescriptorError, load_lakehouse_inventory
+
 from olf.deployment.errors import DeploymentError, ExecutableNotFoundError, ToolchainError
 from olf.tooling.resolver import ManagedExecutableResolver
 
@@ -53,6 +56,21 @@ def _toolchain_mode_item(tools: Toolkit) -> DoctorItem:
     return DoctorItem("toolchain mode", True, detail)
 
 
+def project_not_runnable_reason(project_root: Path) -> str | None:
+    """Return why `project_root` cannot run a dynamic-artifact deploy, or None.
+
+    A project is runnable once its descriptors load strictly: an
+    `olf init --empty` project only becomes runnable after `olf source new`
+    and `olf product new`. Unreadable or malformed descriptors are reported
+    the same way rather than raised, because both callers -- `olf doctor` and
+    the deploy precondition -- exist to explain the problem."""
+    try:
+        load_lakehouse_inventory(project_root)
+    except (LakehouseDescriptorError, yaml.YAMLError, OSError) as exc:
+        return str(exc)
+    return None
+
+
 def base_report(
     *,
     project_root: Path,
@@ -60,8 +78,14 @@ def base_report(
     tools: Toolkit,
     required_tools: Iterable[str],
 ) -> list[DoctorItem]:
+    reason = project_not_runnable_reason(project_root)
+    project_item = (
+        DoctorItem("project", True, str(project_root))
+        if reason is None
+        else DoctorItem("project", False, f"{project_root}: not runnable: {reason}")
+    )
     items = [
-        DoctorItem("project", (project_root / "lakehouse_code/lakehouse.yaml").is_file(), str(project_root)),
+        project_item,
         DoctorItem(
             "platform distribution",
             (distribution_root / "release/component-catalog.yaml").is_file(),

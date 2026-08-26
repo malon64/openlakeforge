@@ -366,3 +366,70 @@ def test_lakehouse_schema_accepts_a_product_less_domain_alongside_a_productful_o
     errors = list(validator.iter_errors(document))
 
     assert errors == []
+
+
+_TRANSITIONAL_LAKEHOUSE = """\
+apiVersion: openlakeforge.io/v1alpha3
+kind: Lakehouse
+name: openlakeforge
+displayName: OpenLakeForge
+description: Empty OpenLakeForge project.
+status: planned
+sources: []
+domains: []
+dashboards: []
+"""
+
+
+def test_allow_incomplete_waives_only_the_transitional_cardinality_gaps(tmp_path: Path) -> None:
+    repo_root = _repo_with_schemas(tmp_path)
+    lakehouse_code = repo_root / "lakehouse_code"
+    lakehouse_code.mkdir()
+    (lakehouse_code / "lakehouse.yaml").write_text(_TRANSITIONAL_LAKEHOUSE)
+
+    assert contracts_check.descriptor_schema_errors(repo_root) != []
+    assert contracts_check.descriptor_schema_errors(repo_root, allow_incomplete=True) == []
+
+
+def test_allow_incomplete_still_rejects_every_other_schema_violation(tmp_path: Path) -> None:
+    """The transitional waiver is a cardinality escape hatch, not a bypass.
+
+    A scaffold step that emits a structurally wrong descriptor must still
+    fail, even while the project legitimately has no product yet.
+    """
+    repo_root = _repo_with_schemas(tmp_path)
+    lakehouse_code = repo_root / "lakehouse_code"
+    lakehouse_code.mkdir()
+    document = yaml.safe_load(_TRANSITIONAL_LAKEHOUSE)
+    document["name"] = "Not An Identifier"
+    (lakehouse_code / "lakehouse.yaml").write_text(yaml.safe_dump(document))
+
+    errors = contracts_check.descriptor_schema_errors(repo_root, allow_incomplete=True)
+
+    assert any("name" in error for error in errors), errors
+
+
+def test_allow_incomplete_does_not_relax_source_descriptors(tmp_path: Path) -> None:
+    repo_root = _repo_with_schemas(tmp_path)
+    lakehouse_code = repo_root / "lakehouse_code"
+    (lakehouse_code / "bronze" / "crm").mkdir(parents=True)
+    (lakehouse_code / "lakehouse.yaml").write_text(_TRANSITIONAL_LAKEHOUSE)
+    source = yaml.safe_load((FIXTURES / "descriptors" / "valid_source.yaml").read_text())
+    source["resources"] = []
+    (lakehouse_code / "bronze" / "crm" / "source.yaml").write_text(yaml.safe_dump(source))
+
+    errors = contracts_check.descriptor_schema_errors(repo_root, allow_incomplete=True)
+
+    assert any("resources" in error for error in errors), errors
+
+
+def test_schema_root_resolves_schemas_outside_the_project(tmp_path: Path) -> None:
+    """Installed mode keeps the schemas in the immutable payload while the
+    descriptors live in the user's writable project."""
+    distribution = _repo_with_schemas(tmp_path / "distribution")
+    project = tmp_path / "project"
+    _write_descriptor(project, "valid_lakehouse.yaml")
+
+    assert contracts_check.descriptor_schema_errors(
+        project, schema_root=distribution / "docs" / "schema"
+    ) == []

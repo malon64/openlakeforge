@@ -141,13 +141,39 @@ class ContractsCheckReport:
         return "\n".join(lines)
 
 
-def descriptor_schema_errors(repo_root: Path) -> list[str]:
+# The exact cardinality rules an `olf init --empty` project has not satisfied
+# yet. `allow_incomplete` waives these three and nothing else, so a
+# transitional project still fails on every other descriptor, identity, and
+# reference rule.
+_TRANSITIONAL_SCHEMA_GAPS: frozenset[tuple[tuple[str, ...], str]] = frozenset(
+    {
+        (("sources",), "minItems"),
+        (("domains",), "minItems"),
+        (("domains",), "contains"),
+    }
+)
+
+
+def _is_transitional_gap(error: jsonschema.ValidationError) -> bool:
+    location = tuple(str(part) for part in error.absolute_path)
+    return (location, error.validator) in _TRANSITIONAL_SCHEMA_GAPS
+
+
+def descriptor_schema_errors(
+    repo_root: Path, *, schema_root: Path | None = None, allow_incomplete: bool = False
+) -> list[str]:
     """Validate `lakehouse_code/lakehouse.yaml` and every
     `lakehouse_code/bronze/*/source.yaml` against the canonical model and
     versioned JSON Schema. The two validators run independently; neither one
     substitutes for the other. Returns an empty list when everything is
     valid. Shared by `olf contracts check` and the `olf source|domain|product
-    new` scaffold engine's pre-commit verification."""
+    new` scaffold engine's pre-commit verification.
+
+    `schema_root` points at the directory holding the versioned JSON Schemas
+    when they live outside `repo_root` — an installed distribution keeps them
+    in its immutable payload while the descriptors live in the user project.
+    `allow_incomplete` waives only the transitional cardinality gaps listed in
+    `_TRANSITIONAL_SCHEMA_GAPS`."""
     lakehouse_path = repo_root / "lakehouse_code" / "lakehouse.yaml"
     source_paths = sorted((repo_root / "lakehouse_code" / "bronze").glob("*/source.yaml"))
     descriptor_paths = [lakehouse_path, *source_paths]
@@ -160,7 +186,7 @@ def descriptor_schema_errors(repo_root: Path) -> list[str]:
         kind = "lakehouse" if descriptor_path == lakehouse_path else "source"
         try:
             if kind == "lakehouse":
-                document = load_lakehouse_descriptor(descriptor_path)
+                document = load_lakehouse_descriptor(descriptor_path, allow_incomplete=allow_incomplete)
             else:
                 document = load_source_descriptor(descriptor_path)
         except LakehouseDescriptorError as exc:
@@ -168,10 +194,14 @@ def descriptor_schema_errors(repo_root: Path) -> list[str]:
             continue
 
         schema_relpath = _SCHEMA_BY_KIND[kind]
-        schema_path = repo_root / schema_relpath
+        schema_path = (
+            schema_root / Path(schema_relpath).name if schema_root is not None else repo_root / schema_relpath
+        )
         schema = json.loads(schema_path.read_text(encoding="utf-8"))
         validator = jsonschema.Draft202012Validator(schema)
         schema_errors = sorted(validator.iter_errors(document), key=lambda e: list(e.absolute_path))
+        if allow_incomplete:
+            schema_errors = [error for error in schema_errors if not _is_transitional_gap(error)]
         for error in schema_errors:
             location = "/".join(str(part) for part in error.absolute_path) or "<root>"
             errors.append(f"{rel_path}: schema violation at {location}: {error.message}")

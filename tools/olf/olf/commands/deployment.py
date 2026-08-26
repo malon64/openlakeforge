@@ -54,7 +54,9 @@ def deploy(
     namespace: str = typer.Option("", "--namespace", help="Kubernetes namespace override."),
     cluster_name: str = typer.Option("", "--cluster-name", help="Local kind cluster name override."),
     kubeconfig_path: str = typer.Option("", "--kubeconfig-path", help="Local kubeconfig file path override."),
-    project_root: str = typer.Option("", "--project-root", help="Writable project root; defaults to the bundled demo."),
+    project_root: str = typer.Option(
+        "", "--project-root", help="Writable project root; defaults to the current directory."
+    ),
     var_file: str = typer.Option("", "--var-file", help="Terraform tfvars file override."),
 ) -> None:
     """Deploy a provider's lifecycle, or a single phase of it."""
@@ -83,7 +85,9 @@ def plan(
     namespace: str = typer.Option("", "--namespace", help="Kubernetes namespace override."),
     cluster_name: str = typer.Option("", "--cluster-name", help="Local kind cluster name override."),
     kubeconfig_path: str = typer.Option("", "--kubeconfig-path", help="Kubeconfig file path override."),
-    project_root: str = typer.Option("", "--project-root", help="Writable project root; defaults to the bundled demo."),
+    project_root: str = typer.Option(
+        "", "--project-root", help="Writable project root; defaults to the current directory."
+    ),
     var_file: str = typer.Option("", "--var-file", help="Terraform tfvars file override."),
     detailed_exitcode: bool = typer.Option(False, "--detailed-exitcode", help="Return 2 when changes are pending."),
 ) -> None:
@@ -116,7 +120,9 @@ def doctor(
     namespace: str = typer.Option("", "--namespace", help="Kubernetes namespace override."),
     cluster_name: str = typer.Option("", "--cluster-name", help="Local kind cluster name override."),
     kubeconfig_path: str = typer.Option("", "--kubeconfig-path", help="Kubeconfig file path override."),
-    project_root: str = typer.Option("", "--project-root", help="Writable project root; defaults to the bundled demo."),
+    project_root: str = typer.Option(
+        "", "--project-root", help="Writable project root; defaults to the current directory."
+    ),
     var_file: str = typer.Option("", "--var-file", help="Terraform tfvars file override."),
 ) -> None:
     """Check host tools, source inputs, and provider authentication without mutating deployment state."""
@@ -148,7 +154,9 @@ def destroy(
     namespace: str = typer.Option("", "--namespace", help="Kubernetes namespace override."),
     cluster_name: str = typer.Option("", "--cluster-name", help="Local kind cluster name override."),
     kubeconfig_path: str = typer.Option("", "--kubeconfig-path", help="Local kubeconfig file path override."),
-    project_root: str = typer.Option("", "--project-root", help="Writable project root; defaults to the bundled demo."),
+    project_root: str = typer.Option(
+        "", "--project-root", help="Writable project root; defaults to the current directory."
+    ),
     var_file: str = typer.Option("", "--var-file", help="Terraform tfvars file override."),
     force: bool = typer.Option(
         False, "--force", help="Destroy the foundation even if platform resources remain."
@@ -178,7 +186,9 @@ def status(
     namespace: str = typer.Option("", "--namespace", help="Kubernetes namespace override."),
     cluster_name: str = typer.Option("", "--cluster-name", help="Local kind cluster name override."),
     kubeconfig_path: str = typer.Option("", "--kubeconfig-path", help="Local kubeconfig file path override."),
-    project_root: str = typer.Option("", "--project-root", help="Writable project root; defaults to the bundled demo."),
+    project_root: str = typer.Option(
+        "", "--project-root", help="Writable project root; defaults to the current directory."
+    ),
 ) -> None:
     """Print pod/service/PVC status for the deployed namespace."""
     from olf.deployment.errors import DeploymentError
@@ -205,7 +215,9 @@ def forward(
     namespace: str = typer.Option("", "--namespace", help="Kubernetes namespace override."),
     cluster_name: str = typer.Option("", "--cluster-name", help="Local kind cluster name override."),
     kubeconfig_path: str = typer.Option("", "--kubeconfig-path", help="Local kubeconfig file path override."),
-    project_root: str = typer.Option("", "--project-root", help="Writable project root; defaults to the bundled demo."),
+    project_root: str = typer.Option(
+        "", "--project-root", help="Writable project root; defaults to the current directory."
+    ),
 ) -> None:
     """Start port-forwards for the deployed services (Ctrl-C to stop all)."""
     from olf.deployment.errors import DeploymentError

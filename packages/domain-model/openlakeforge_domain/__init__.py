@@ -41,6 +41,7 @@ from .inventory import (
     load_domain_inventory_from_descriptors,
     load_lakehouse_inventory,
     load_lakehouse_inventory_from_descriptors,
+    load_transitional_lakehouse_inventory,
 )
 
 __all__ = [
@@ -76,6 +77,7 @@ __all__ = [
     "load_lakehouse_descriptor",
     "load_lakehouse_inventory",
     "load_lakehouse_inventory_from_descriptors",
+    "load_transitional_lakehouse_inventory",
     "load_source_descriptor",
     "validate_domain_descriptor",
     "validate_lakehouse_descriptor",
