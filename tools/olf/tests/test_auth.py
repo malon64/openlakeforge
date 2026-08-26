@@ -224,6 +224,31 @@ def test_aws_session_does_not_force_a_profile_when_automation_credentials_are_pr
     assert calls == [{"region_name": "eu-west-1"}]
 
 
+def test_explicit_aws_profile_takes_precedence_over_saved_olf_sso(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    env = {"OLF_HOME": str(tmp_path), "AWS_PROFILE": "company-sso"}
+    auth.save_state("aws", {"source": "olf-sso", "access_token": "access"}, env)
+    monkeypatch.setattr(auth, "_aws_instance_profile_available", lambda: False)
+    calls: list[dict[str, object]] = []
+    monkeypatch.setattr(auth.boto3, "Session", lambda **kwargs: calls.append(kwargs) or object())
+
+    auth.aws_session(env, region="eu-west-1")
+
+    assert calls == [{"region_name": "eu-west-1"}]
+    assert auth.terraform_auth_environment("aws", env) == {}
+
+
+def test_olf_generated_credential_process_profile_remains_managed(tmp_path: Path) -> None:
+    env = {
+        "OLF_HOME": str(tmp_path),
+        "AWS_PROFILE": "openlakeforge",
+        "AWS_CONFIG_FILE": str(tmp_path / "auth" / "aws-terraform-config"),
+    }
+
+    assert not auth._uses_external_aws_profile(env)  # noqa: SLF001
+
+
 def test_credential_selection_environment_excludes_unrelated_values() -> None:
     assert auth.credential_selection_environment(
         "aws",
@@ -597,6 +622,29 @@ def test_azure_managed_identity_takes_precedence_over_a_saved_browser_session(
     credential = auth.azure_credential(env)
 
     assert type(credential).__name__ == "DefaultAzureCredential"
+
+
+def test_user_assigned_azure_managed_identity_takes_precedence_over_saved_browser_session(
+    tmp_path: Path,
+) -> None:
+    env = {
+        "OLF_HOME": str(tmp_path),
+        "ARM_USE_MSI": "true",
+        "ARM_CLIENT_ID": "user-assigned-client-id",
+    }
+    auth.save_state("azure", {"source": "azure-cli", "subscription_id": "sub-id"}, env)
+
+    credential = auth.azure_credential(env)
+
+    assert type(credential).__name__ == "ManagedIdentityCredential"
+    assert auth._uses_azure_automation(env)  # noqa: SLF001
+    assert auth.terraform_auth_environment("azure", env) == {}
+
+
+def test_azure_client_id_selects_a_user_assigned_managed_identity() -> None:
+    credential = auth.azure_credential({"AZURE_CLIENT_ID": "user-assigned-client-id"})
+
+    assert type(credential).__name__ == "ManagedIdentityCredential"
 
 
 def test_terraform_auth_environment_defers_to_an_azure_managed_identity(

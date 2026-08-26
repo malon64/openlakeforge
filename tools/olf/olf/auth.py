@@ -49,6 +49,20 @@ def _uses_aws_automation(environ: Mapping[str, str]) -> bool:
     return any(environ.get(name) for name in _AWS_AUTOMATION_VARIABLES)
 
 
+def _uses_external_aws_profile(environ: Mapping[str, str]) -> bool:
+    """Whether an operator selected a shared AWS profile/configuration.
+
+    OLF's own IAM Identity Center Terraform bridge temporarily sets
+    ``AWS_CONFIG_FILE`` and ``AWS_PROFILE=openlakeforge``. That pair must
+    continue to resolve the saved OLF SSO state, not recursively treat the
+    generated credential-process profile as an external choice.
+    """
+    profile = environ.get("AWS_PROFILE")
+    config_file = environ.get("AWS_CONFIG_FILE")
+    managed_config = str(auth_home(environ) / "aws-terraform-config")
+    return bool(profile or config_file) and not (profile == "openlakeforge" and config_file == managed_config)
+
+
 _ARM_CLIENT_SECRET_VARS = ("ARM_CLIENT_ID", "ARM_TENANT_ID", "ARM_CLIENT_SECRET")
 _ARM_CERTIFICATE_VARS = ("ARM_CLIENT_ID", "ARM_TENANT_ID", "ARM_CLIENT_CERTIFICATE_PATH")
 _ARM_OIDC_TOKEN_VARS = ("ARM_CLIENT_ID", "ARM_TENANT_ID", "ARM_OIDC_TOKEN")
@@ -56,6 +70,8 @@ _ARM_OIDC_TOKEN_FILE_VARS = ("ARM_CLIENT_ID", "ARM_TENANT_ID", "ARM_OIDC_TOKEN_F
 
 
 def _uses_azure_automation(environ: Mapping[str, str]) -> bool:
+    if _azure_managed_identity_client_id(environ) is not None:
+        return True
     if any(environ.get(name) for name in _AZURE_AUTOMATION_VARIABLES):
         return True
     # AzureRM's provider reads these directly - it never goes through
@@ -74,6 +90,17 @@ def _uses_azure_automation(environ: Mapping[str, str]) -> bool:
     )
 
 
+def _azure_managed_identity_client_id(environ: Mapping[str, str]) -> str | None:
+    """Return an explicitly selected user-assigned managed identity, if any."""
+    azure_client_id = environ.get("AZURE_CLIENT_ID")
+    if azure_client_id:
+        return azure_client_id
+    use_msi = environ.get("ARM_USE_MSI", "").strip().lower()
+    if use_msi in {"1", "true", "yes"}:
+        return environ.get("ARM_CLIENT_ID") or None
+    return None
+
+
 def _azure_automation_credential(environ: Mapping[str, str]) -> Any | None:
     """Translate AzureRM's native ARM_* automation variables into a credential.
 
@@ -81,6 +108,12 @@ def _azure_automation_credential(environ: Mapping[str, str]) -> Any | None:
     falls back to `DefaultAzureCredential` for the AZURE_*/managed-identity
     forms `_uses_azure_automation` also recognizes.
     """
+    managed_identity_client_id = _azure_managed_identity_client_id(environ)
+    if managed_identity_client_id is not None:
+        from azure.identity import ManagedIdentityCredential
+
+        return ManagedIdentityCredential(client_id=managed_identity_client_id)
+
     client_id = environ.get("ARM_CLIENT_ID")
     tenant_id = environ.get("ARM_TENANT_ID")
     if not client_id or not tenant_id:
@@ -393,7 +426,7 @@ def _choose(items: list[Mapping[str, Any]], key: str, choose: Any | None, label:
 
 def aws_session(environ: Mapping[str, str], *, region: str | None = None) -> Any:
     """Return a boto3 session sourced from OLF state or normal SDK discovery."""
-    if _uses_aws_automation(environ):
+    if _uses_aws_automation(environ) or _uses_external_aws_profile(environ):
         # An explicit AWS_PROFILE disables botocore's environment-credential
         # provider, so injected automation keys/web-identity tokens would be
         # silently ignored. Let botocore's own chain apply normal precedence.
@@ -615,7 +648,7 @@ def selected_azure_subscription(environ: Mapping[str, str]) -> str | None:
 
 def terraform_auth_environment(provider: str, environ: Mapping[str, str]) -> dict[str, str]:
     """Return Terraform-only authentication overrides for managed browser state."""
-    if provider == "aws" and _uses_aws_automation(environ):
+    if provider == "aws" and (_uses_aws_automation(environ) or _uses_external_aws_profile(environ)):
         return {}
     if provider == "azure" and _uses_azure_automation(environ):
         return {}
