@@ -121,14 +121,23 @@ def build_resolver(
 
     home = Path(env["OLF_HOME"]).expanduser().resolve() if env.get("OLF_HOME") else None
     if env.get("OLF_DISTRIBUTION_ROOT"):
-        catalog_root = Path(env["OLF_DISTRIBUTION_ROOT"]).resolve()
+        catalog_path = Path(env["OLF_DISTRIBUTION_ROOT"]).resolve() / "release" / "component-catalog.yaml"
     elif env.get("OPENLAKEFORGE_REPO_ROOT"):
-        catalog_root = Path(env["OPENLAKEFORGE_REPO_ROOT"]).resolve()
+        catalog_path = Path(env["OPENLAKEFORGE_REPO_ROOT"]).resolve() / "release" / "component-catalog.yaml"
     else:
-        from olf import config
+        # No scoped environment to inherit from: this is a top-level command
+        # (`olf doctor`, `olf e2e run`, a bare contract read) rather than a
+        # child of `olf deploy`, which exports OLF_DISTRIBUTION_ROOT via
+        # `DeploymentContext.command_env`. Resolving relative to the current
+        # directory sent an installed user's default (managed) toolchain
+        # lookup to `./release/component-catalog.yaml`, so every managed tool
+        # failed with "release catalog not found" in their own project folder.
+        from olf.distribution import DistributionError, runtime_layout
 
-        catalog_root = config.distribution_root()
-    catalog_path = catalog_root / "release" / "component-catalog.yaml"
+        try:
+            catalog_path = runtime_layout(dict(env)).catalog_path
+        except DistributionError as exc:
+            raise ToolchainError("toolchain", reason=str(exc)) from exc
     try:
         manager = ToolchainManager.from_catalog_path(catalog_path, home=home)
     except (UnsupportedPlatformError, ToolchainCatalogError) as exc:

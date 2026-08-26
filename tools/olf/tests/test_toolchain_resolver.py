@@ -140,7 +140,35 @@ def test_build_resolver_overrides_win_over_managed_mode(monkeypatch: pytest.Monk
 def test_build_resolver_managed_mode_fails_closed_on_a_missing_catalog(tmp_path: Path) -> None:
     empty_repo = tmp_path / "empty-repo"
     empty_repo.mkdir()
+    with pytest.raises(ToolchainError):
+        build_resolver(
+            environ={
+                "OLF_TOOLCHAIN_MODE": "managed",
+                "OLF_HOME": str(tmp_path / "home"),
+                "OLF_DISTRIBUTION_ROOT": str(empty_repo),
+            }
+        )
+
+
+def test_build_resolver_managed_mode_resolves_the_catalog_outside_the_current_directory(tmp_path: Path) -> None:
+    """With no scoped environment to inherit (a top-level `olf doctor`/
+    `olf e2e run`, not a child of `olf deploy`), the catalog must come from
+    the active runtime layout - not from the current working directory.
+
+    Regression test: resolving relative to the cwd meant an installed user
+    running any managed-toolchain command from their own (catalog-free)
+    project folder got "release catalog not found at
+    ./release/component-catalog.yaml", which broke the default toolchain
+    mode for every quick-start command.
+    """
+    elsewhere = tmp_path / "some-user-project"
+    elsewhere.mkdir()
+
     with pytest.MonkeyPatch.context() as mp:
-        mp.setattr("olf.config.repo_root", lambda: empty_repo)
-        with pytest.raises(ToolchainError):
-            build_resolver(environ={"OLF_TOOLCHAIN_MODE": "managed", "OLF_HOME": str(tmp_path / "home")})
+        mp.chdir(elsewhere)
+        resolver = build_resolver(
+            environ={"OLF_TOOLCHAIN_MODE": "managed", "OLF_HOME": str(tmp_path / "home")}
+        )
+
+    assert isinstance(resolver, ManagedExecutableResolver)
+    assert set(resolver.manager.specs) == {"terraform", "helm", "kubectl", "kind"}

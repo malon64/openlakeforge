@@ -11,27 +11,39 @@ from __future__ import annotations
 
 import typer
 
-from olf import config
 from olf.commands._shared import fail
 
 app = typer.Typer(help="Inspect and manage the managed CLI toolchain (Terraform, Helm, kubectl, kind).")
 
 
 def _manager():  # noqa: ANN202
+    """Resolve the catalog through the active runtime layout.
+
+    `olf toolchain` is a top-level command, so it runs *outside* the scoped
+    environment `DeploymentContext.command_env` builds - it cannot read
+    `OLF_DISTRIBUTION_ROOT` from a parent `olf deploy`. Resolving the
+    catalog from the current directory (the previous behaviour) meant an
+    installed user running `olf toolchain install` from their own project
+    folder got "release catalog not found at ./release/component-catalog.yaml"
+    instead of the payload's catalog. `runtime_layout()` returns the right
+    catalog in both modes, and still honours an explicit
+    `OLF_DISTRIBUTION_ROOT`/`OPENLAKEFORGE_REPO_ROOT` override.
+    """
+    from olf.distribution import runtime_layout
     from olf.toolchain.manager import ToolchainManager
 
-    catalog_path = config.distribution_root() / "release" / "component-catalog.yaml"
-    return ToolchainManager.from_catalog_path(catalog_path)
+    return ToolchainManager.from_catalog_path(runtime_layout().catalog_path)
 
 
 @app.command("list")
 def list_tools() -> None:
     """Show each managed tool's declared (catalog) and installed versions."""
+    from olf.distribution import DistributionError
     from olf.toolchain.errors import ToolchainError
 
     try:
         manager = _manager()
-    except ToolchainError as exc:
+    except (ToolchainError, DistributionError) as exc:
         raise typer.Exit(code=fail(str(exc))) from exc
 
     typer.echo(f"distribution {manager.distribution_version}  platform {manager.platform}  home {manager.home}")
