@@ -72,7 +72,13 @@ class Terraform:
         if state_path is not None:
             command_env.update(overlay)
             if command_args and command_args[0] == "init":
-                if command_env.get("OPENLAKEFORGE_TERRAFORM_READONLY_LOCKFILE") == "true":
+                if command_env.get(
+                    "OPENLAKEFORGE_TERRAFORM_READONLY_LOCKFILE"
+                ) == "true" and (terraform_dir / ".terraform.lock.hcl").is_file():
+                    # Terraform rejects `-lockfile=readonly` outright when no
+                    # dependency lock file exists yet - true for
+                    # `foundations/local-kind`, which declares no providers
+                    # at all (only the built-in `terraform_data` resource).
                     command_args.append("-lockfile=readonly")
             else:
                 insert_at = 2 if command_args[:1] == ["state"] else 1
