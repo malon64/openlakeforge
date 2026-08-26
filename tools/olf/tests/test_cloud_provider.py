@@ -360,3 +360,45 @@ def test_local_platform_doctor_reports_missing_explicit_tfvars(tmp_path: Path) -
 
     tfvars_item = next(item for item in report.items if item.name == "local platform tfvars")
     assert not tfvars_item.ok
+
+
+def test_doctor_resolves_the_active_docker_context_for_the_engine_check(tmp_path: Path) -> None:
+    """`command_env` scopes DOCKER_CONFIG to an OLF-owned directory, which
+    drops the user's `currentContext`. Without resolving the active engine
+    endpoint, `docker version` falls back to the default context's socket and
+    doctor reports a colima/Rancher/remote engine as unreachable even though
+    `olf deploy` (via `_base_env`) drives it perfectly well.
+    """
+    config = _config(tmp_path)
+    backend = FakeCloudBackend(scope="aws", facts=_FACTS)
+    provider = CloudProvider.create(config, backend, toolkit=_toolkit(), environ={})
+    seen: dict[str, str] = {}
+    provider.tools.docker.resolve_current_engine_endpoint = (  # type: ignore[method-assign]
+        lambda **_kwargs: "unix:///Users/dev/.colima/default/docker.sock"
+    )
+    provider.tools.docker.version = lambda *, env: seen.update(env) or SimpleNamespace(  # type: ignore[method-assign]
+        ok=True, stdout="Docker Engine", stderr=""
+    )
+
+    provider.doctor(DeploymentPhase.ARTIFACTS)
+
+    assert seen["DOCKER_HOST"] == "unix:///Users/dev/.colima/default/docker.sock"
+
+
+def test_doctor_keeps_an_explicit_docker_host_override(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    backend = FakeCloudBackend(scope="aws", facts=_FACTS)
+    provider = CloudProvider.create(
+        config, backend, toolkit=_toolkit(), environ={"DOCKER_HOST": "tcp://explicit:2375"}
+    )
+    resolved: list[str] = []
+    provider.tools.docker.resolve_current_engine_endpoint = (  # type: ignore[method-assign]
+        lambda **_kwargs: resolved.append("called") or "unix:///should/not/be/used.sock"
+    )
+    provider.tools.docker.version = lambda *, env: SimpleNamespace(  # type: ignore[method-assign]
+        ok=True, stdout="Docker Engine", stderr=""
+    )
+
+    provider.doctor(DeploymentPhase.ARTIFACTS)
+
+    assert resolved == [], "an explicit DOCKER_HOST must not be overridden by context detection"

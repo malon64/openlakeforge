@@ -209,7 +209,18 @@ class CloudProvider:
         items = base_report(repo_root=self.config.paths.repo_root, tools=self.tools, required_tools=required)
         from olf.auth import credential_selection_environment
 
-        env = self.context.command_env(base=credential_selection_environment(self.backend.scope, self._environ))
+        # `command_env` scopes DOCKER_CONFIG to an OLF-owned directory, which
+        # drops the user's `currentContext`. Resolve the active engine
+        # endpoint the same way `_base_env` does, or docker_health reports a
+        # non-default context (colima, Rancher Desktop, a remote engine) as
+        # unreachable while `olf deploy` uses it perfectly well.
+        docker_host = None
+        if needs_docker and not self._environ.get("DOCKER_HOST"):
+            docker_host = self.tools.docker.resolve_current_engine_endpoint(env=dict(self._environ))
+        env = self.context.command_env(
+            base=credential_selection_environment(self.backend.scope, self._environ),
+            docker_host=docker_host,
+        )
         if needs_docker:
             items.append(docker_health(self.tools, env=env))
         try:
