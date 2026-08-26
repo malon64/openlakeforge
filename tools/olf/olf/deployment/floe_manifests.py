@@ -202,13 +202,19 @@ def _mounted_container_path(path: Path, *, repo_root: Path, runtime_root: Path) 
 def _resolve_base_profile(
     settings: FloeManifestSettings,
     *,
-    repo_root: Path,
+    distribution_root: Path,
     namespace: str,
     governance_enabled: bool,
     environ: Mapping[str, str],
 ) -> Path:
     if namespace == "lakehouse" and governance_enabled:
-        return repo_root / _CHECKED_IN_PROFILE_RELATIVE_PATH
+        # The checked-in profile is distribution-owned (tracked under
+        # libs/), not project-owned - a writable --project-root only
+        # supplies lakehouse_code (see project_code_build_context's build
+        # contract), so resolving this against repo_root instead would
+        # fail to find it for an installed local/Azure deployment with a
+        # selected project.
+        return distribution_root / _CHECKED_IN_PROFILE_RELATIVE_PATH
 
     profiles_dir = settings.runtime_artifact_dir / "profiles"
     profiles_dir.mkdir(parents=True, exist_ok=True)
@@ -342,6 +348,7 @@ def generate_local_manifests(
     tools: Toolkit,
     *,
     repo_root: Path,
+    distribution_root: Path,
     namespace: str,
     governance_enabled: bool,
     environ: Mapping[str, str],
@@ -349,7 +356,11 @@ def generate_local_manifests(
 ) -> list[Path]:
     configs = _prepare_runtime_root_and_discover_configs(settings, repo_root=repo_root)
     base_profile = _resolve_base_profile(
-        settings, repo_root=repo_root, namespace=namespace, governance_enabled=governance_enabled, environ=environ
+        settings,
+        distribution_root=distribution_root,
+        namespace=namespace,
+        governance_enabled=governance_enabled,
+        environ=environ,
     )
     strategy = RenderedProfileStrategy(base_profile=base_profile)
     return _generate_manifests_for_configs(

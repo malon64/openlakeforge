@@ -84,6 +84,7 @@ def artifacts_deploy(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapp
             config.floe,
             tools,
             repo_root=config.paths.repo_root,
+            distribution_root=config.paths.distribution_root,
             namespace=config.namespace,
             governance_enabled=config.features.governance_enabled,
             environ=contract_environ,

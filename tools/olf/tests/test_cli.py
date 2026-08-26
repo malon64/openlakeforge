@@ -173,7 +173,9 @@ def test_floe_generation_passes_the_selected_namespace_to_the_local_profile(
         env = {}
 
     context = SimpleNamespace(
-        paths=SimpleNamespace(repo_root=tmp_path, platform_terraform_dir=tmp_path / "contracts"),
+        paths=SimpleNamespace(
+            repo_root=tmp_path, distribution_root=tmp_path, platform_terraform_dir=tmp_path / "contracts"
+        ),
         namespace="custom-lakehouse",
         features=SimpleNamespace(governance_enabled=True),
     )
@@ -200,6 +202,7 @@ def test_floe_generation_passes_the_selected_namespace_to_the_local_profile(
     assert generated == [
         {
             "repo_root": tmp_path,
+            "distribution_root": tmp_path,
             "namespace": "custom-lakehouse",
             "governance_enabled": True,
             "environ": {},
@@ -228,6 +231,7 @@ def test_floe_generation_honors_custom_contract_root_for_cloud(
     context = SimpleNamespace(
         paths=SimpleNamespace(
             repo_root=tmp_path,
+            distribution_root=tmp_path,
             platform_terraform_dir=tmp_path / "default-contracts",
             kubeconfig_path=tmp_path / "kubeconfig.yaml",
             port_forward_log_prefix=tmp_path / "port-forward",
@@ -252,6 +256,7 @@ def test_floe_generation_honors_custom_contract_root_for_cloud(
     assert captured["contract_terraform_dir"] == contract_root
     assert captured["generation"] == {
         "repo_root": tmp_path,
+        "distribution_root": tmp_path,
         "namespace": "custom-lakehouse",
         "governance_enabled": True,
         "environ": {},

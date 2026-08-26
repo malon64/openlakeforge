@@ -75,6 +75,7 @@ def test_generate_local_manifests_uses_checked_in_profile_when_governance_enable
         settings,
         tools,
         repo_root=repo_root,
+        distribution_root=repo_root,
         namespace="lakehouse",
         governance_enabled=True,
         environ={},
@@ -98,6 +99,7 @@ def test_generate_local_manifests_renders_profile_when_governance_disabled(tmp_p
         settings,
         tools,
         repo_root=repo_root,
+        distribution_root=repo_root,
         namespace="lakehouse",
         governance_enabled=False,
         environ={"OPENLAKEFORGE_GOVERNANCE_ENABLED": "false"},
@@ -116,7 +118,14 @@ def test_generate_local_manifests_runs_validate_then_generate_via_docker(tmp_pat
     tools = _toolkit(runner)
 
     floe_manifests.generate_local_manifests(
-        settings, tools, repo_root=repo_root, namespace="lakehouse", governance_enabled=True, environ={}, env={}
+        settings,
+        tools,
+        repo_root=repo_root,
+        distribution_root=repo_root,
+        namespace="lakehouse",
+        governance_enabled=True,
+        environ={},
+        env={},
     )
 
     subcommands = [call.argv[call.argv.index(settings.image) + 1] for call in runner.calls]
@@ -140,7 +149,14 @@ def test_generate_local_manifests_makes_manifest_dir_writable_by_the_container_u
     tools = _toolkit(RecordingRunner(CommandResult(argv=(), returncode=0, stdout="", stderr="", duration_seconds=0.0)))
 
     floe_manifests.generate_local_manifests(
-        settings, tools, repo_root=repo_root, namespace="lakehouse", governance_enabled=True, environ={}, env={}
+        settings,
+        tools,
+        repo_root=repo_root,
+        distribution_root=repo_root,
+        namespace="lakehouse",
+        governance_enabled=True,
+        environ={},
+        env={},
     )
 
     manifest_dir = settings.runtime_artifact_dir / "manifests/orders"
@@ -166,7 +182,14 @@ def test_generate_local_manifests_mounts_runtime_root_outside_repo_root(tmp_path
     tools = _toolkit(runner)
 
     manifests = floe_manifests.generate_local_manifests(
-        settings, tools, repo_root=repo_root, namespace="lakehouse", governance_enabled=True, environ={}, env={}
+        settings,
+        tools,
+        repo_root=repo_root,
+        distribution_root=repo_root,
+        namespace="lakehouse",
+        governance_enabled=True,
+        environ={},
+        env={},
     )
 
     assert manifests == [runtime_root / "manifests/orders/orders.manifest.json"]
@@ -206,6 +229,7 @@ def test_generate_local_manifests_mounts_rendered_profile_under_runtime_root(tmp
         settings,
         tools,
         repo_root=repo_root,
+        distribution_root=repo_root,
         namespace="lakehouse",
         governance_enabled=False,
         environ={"OPENLAKEFORGE_GOVERNANCE_ENABLED": "false"},
@@ -242,7 +266,14 @@ def test_generate_local_manifests_raises_when_no_configs_found(tmp_path: Path) -
 
     with pytest.raises(DeploymentPreconditionError):
         floe_manifests.generate_local_manifests(
-            settings, tools, repo_root=repo_root, namespace="lakehouse", governance_enabled=True, environ={}, env={}
+            settings,
+        tools,
+        repo_root=repo_root,
+        distribution_root=repo_root,
+        namespace="lakehouse",
+        governance_enabled=True,
+        environ={},
+        env={},
         )
 
 
@@ -254,7 +285,14 @@ def test_generate_local_manifests_rejects_multiple_configs_for_one_domain(tmp_pa
 
     with pytest.raises(DeploymentPreconditionError, match="duplicate configs found for: orders"):
         floe_manifests.generate_local_manifests(
-            settings, tools, repo_root=repo_root, namespace="lakehouse", governance_enabled=True, environ={}, env={}
+            settings,
+        tools,
+        repo_root=repo_root,
+        distribution_root=repo_root,
+        namespace="lakehouse",
+        governance_enabled=True,
+        environ={},
+        env={},
         )
 
 
