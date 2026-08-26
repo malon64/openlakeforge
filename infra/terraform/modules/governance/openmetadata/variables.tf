@@ -21,6 +21,12 @@ variable "chart_version" {
   default     = "1.12.10"
 }
 
+variable "chart_package_path" {
+  description = "Optional local OpenMetadata Helm chart package path. When set, Terraform installs this package instead of downloading from chart_repository."
+  type        = string
+  default     = null
+}
+
 variable "base_values_file" {
   description = "Path to the non-secret base Helm values file for the openmetadata chart."
   type        = string
@@ -35,6 +41,12 @@ variable "deps_chart_version" {
   description = "openmetadata-dependencies Helm chart version. Should match chart_version."
   type        = string
   default     = "1.12.10"
+}
+
+variable "deps_chart_package_path" {
+  description = "Optional local openmetadata-dependencies Helm chart package path. When set, Terraform installs this package instead of downloading from chart_repository."
+  type        = string
+  default     = null
 }
 
 variable "postgresql_contract" {

@@ -19,11 +19,17 @@ resource "kubernetes_secret_v1" "bootstrap_credentials" {
   type = "Opaque"
 }
 
+locals {
+  chart_package = var.chart_package_path != null ? var.chart_package_path : "polaris"
+  chart_repo    = var.chart_package_path != null ? null : var.chart_repository
+  chart_ver     = var.chart_package_path != null ? null : var.chart_version
+}
+
 resource "helm_release" "polaris" {
   name       = var.release_name
-  repository = var.chart_repository
-  chart      = "polaris"
-  version    = var.chart_version
+  repository = local.chart_repo
+  chart      = local.chart_package
+  version    = local.chart_ver
   namespace  = var.namespace
 
   wait    = true

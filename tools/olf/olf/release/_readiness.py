@@ -427,69 +427,44 @@ def _check_dockerfiles_pinned(repo_root: Path) -> CheckResult:
     return CheckResult("Dockerfile base images are digest-pinned", True)
 
 
-@dataclass(frozen=True)
-class _DeploymentWrapperChartVersion:
-    """Chart version exported by a supported platform deployment wrapper."""
-
-    path: str
-    chart: str
-    variable: str
-
-
-_DEPLOYMENT_WRAPPER_CHART_VERSIONS = (
-    _DeploymentWrapperChartVersion("tools/olf/olf/deployment/local/config.py", "trino", "TRINO_CHART_VERSION"),
-    _DeploymentWrapperChartVersion("tools/olf/olf/deployment/cloud/config.py", "trino", "TRINO_CHART_VERSION"),
-    _DeploymentWrapperChartVersion("tools/olf/olf/deployment/cloud/config.py", "dagster", "DAGSTER_CHART_VERSION"),
-)
-
-
-def _wrapper_chart_version_default(source_path: Path, variable: str) -> str | None:
-    """Read a provider config's chart-version default.
-
-    Every deployment provider (local since #124, AWS/Azure since #125) reads
-    its chart-version default through ``_env(environ, "VAR", "version")``.
-    """
-    text = source_path.read_text()
-    pattern = re.compile(rf'_env\(\s*environ,\s*"{re.escape(variable)}",\s*"(?P<version>[^"]+)"\s*\)')
-    match = pattern.search(text)
-    return match.group("version") if match else None
-
-
 def _check_chart_versions_match_deployment_wrappers(repo_root: Path) -> CheckResult:
-    """Ensure cached chart packages and Terraform module defaults stay aligned.
+    """Ensure every catalog-routed chart's fallback default and Terraform
+    module default stay aligned, and that the two chart sets match exactly.
 
-    The platform wrappers pass chart package paths to Terraform for Trino and
-    Dagster, which bypasses each module's ``helm_release.version`` argument.
-    The compatibility matrix is still sourced from the module defaults, so
-    every wrapper default must match that matrix value.
+    Every deployment provider (#124 local, #125 AWS/Azure) now resolves
+    every deployed chart through `olf.deployment.charts.CHART_DEFAULTS`
+    rather than a Trino/Dagster-only pair of hardcoded fields (#147) - a
+    chart added to a Terraform module without a matching `CHART_DEFAULTS`
+    entry would otherwise fetch straight from its upstream repository,
+    unverified against the component catalog, and go unnoticed exactly as
+    5 of the 7 catalog charts did before this check existed.
     """
+    from olf.deployment.charts import CHART_DEFAULTS
+
     module_versions = _helm_chart_versions_from_terraform_modules(repo_root)
+    module_charts = frozenset(module_versions)
+    default_charts = frozenset(CHART_DEFAULTS)
+
     problems: list[str] = []
+    only_in_terraform = sorted(module_charts - default_charts)
+    if only_in_terraform:
+        problems.append(f"Terraform module chart(s) with no CHART_DEFAULTS entry: {', '.join(only_in_terraform)}")
+    only_in_defaults = sorted(default_charts - module_charts)
+    if only_in_defaults:
+        problems.append(f"CHART_DEFAULTS entry with no Terraform module: {', '.join(only_in_defaults)}")
+
     checked = 0
-    for source in _DEPLOYMENT_WRAPPER_CHART_VERSIONS:
-        source_path = repo_root / source.path
-        if not source_path.is_file():
-            problems.append(f"{source.path}: deployment wrapper does not exist")
-            continue
-        wrapper_version = _wrapper_chart_version_default(source_path, source.variable)
-        if wrapper_version is None:
-            problems.append(f"{source.path}: missing {source.variable} default")
-            continue
-        module_version = module_versions.get(source.chart)
-        if module_version is None:
-            problems.append(f"{source.path}: no Terraform chart_version default for {source.chart}")
-            continue
+    for name in sorted(module_charts & default_charts):
         checked += 1
-        if wrapper_version != module_version:
+        default_version = CHART_DEFAULTS[name].version
+        module_version = module_versions[name]
+        if default_version != module_version:
             problems.append(
-                f"{source.path}: {source.variable}={wrapper_version!r} but "
-                f"Terraform {source.chart} chart_version={module_version!r}"
+                f"{name}: CHART_DEFAULTS version={default_version!r} but Terraform chart_version={module_version!r}"
             )
     if problems:
-        return CheckResult(
-            "Helm chart versions match deployment wrappers", False, "; ".join(problems)
-        )
-    return CheckResult("Helm chart versions match deployment wrappers", True, f"{checked} wrapper value(s) checked")
+        return CheckResult("Helm chart versions match deployment wrappers", False, "; ".join(problems))
+    return CheckResult("Helm chart versions match deployment wrappers", True, f"{checked} chart(s) checked")
 
 
 def run_release_check(

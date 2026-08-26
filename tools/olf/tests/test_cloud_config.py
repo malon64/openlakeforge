@@ -10,7 +10,7 @@ from olf.deployment.cloud.config import (
     CloudTerraformSettings,
     default_image_tag,
 )
-from olf.deployment.context import DeploymentContext
+from olf.deployment.context import DeploymentContext, DeploymentFeatures
 
 
 def test_aws_image_settings_defaults_to_ecr_public_python_base_image() -> None:
@@ -76,32 +76,42 @@ def test_provider_prefixed_image_aliases_are_honored_after_generic_overrides() -
         assert generic_wins.project_code_tag == "generic"
 
 
+_FULL_FEATURES = DeploymentFeatures(governance_enabled=True, analytics_enabled=True)
+
+
 def _no_catalog_kwargs(tmp_path: Path) -> dict:
     return {
         "cache_root": tmp_path / "cache",
         "catalog_path": tmp_path / "no-such-catalog.yaml",
         "installed": False,
+        "scope": "aws",
+        "features": _FULL_FEATURES,
     }
 
 
 def _write_catalog(tmp_path: Path, *, trino_sha256: str, dagster_sha256: str) -> Path:
+    """A catalog covering every chart `CloudChartSettings` might resolve -
+    a real `component-catalog.yaml` always declares all of them, so a
+    partial fixture would make `CatalogChart.load` raise for any chart
+    beyond the two this fixture used to focus on."""
+    from olf.deployment.charts import CHART_DEFAULTS
+
+    overrides = {"trino": trino_sha256, "dagster": dagster_sha256}
+    lines = ["components:", "  helm:", "    charts:"]
+    for index, (name, default) in enumerate(CHART_DEFAULTS.items()):
+        sha256 = overrides.get(name, f"{index:0>2}" * 32)
+        lines.extend(
+            [
+                f"      {name}:",
+                f"        repository: {default.repository}",
+                f"        reference: {default.chart_ref}",
+                f"        version: {default.version}",
+                f'        sha256: "{sha256}"',
+            ]
+        )
     catalog_path = tmp_path / "release/component-catalog.yaml"
     catalog_path.parent.mkdir(parents=True, exist_ok=True)
-    catalog_path.write_text(
-        "components:\n"
-        "  helm:\n"
-        "    charts:\n"
-        "      trino:\n"
-        "        repository: https://trinodb.github.io/charts\n"
-        "        reference: trino/trino\n"
-        "        version: 1.42.2\n"
-        f"        sha256: {trino_sha256}\n"
-        "      dagster:\n"
-        "        repository: https://dagster-io.github.io/helm\n"
-        "        reference: dagster/dagster\n"
-        "        version: 1.13.6\n"
-        f"        sha256: {dagster_sha256}\n"
-    )
+    catalog_path.write_text("\n".join(lines) + "\n")
     return catalog_path
 
 
@@ -112,12 +122,50 @@ def test_chart_settings_defaults_trino_and_dagster_package_paths(tmp_path: Path)
         {}, helm_cache_dir=helm_cache_dir, **_no_catalog_kwargs(tmp_path)
     )
 
-    assert settings.trino_package_path == helm_cache_dir / "trino-1.42.2.tgz"
-    assert settings.dagster_package_path == helm_cache_dir / "dagster-1.13.6-no-schema.tgz"
-    assert settings.trino_chart_ref == "trino/trino"
-    assert settings.dagster_chart_ref == "dagster/dagster"
-    assert settings.trino_sha256 is None
-    assert settings.dagster_sha256 is None
+    assert settings["trino"].package_path == helm_cache_dir / "trino-1.42.2.tgz"
+    assert settings["dagster"].package_path == helm_cache_dir / "dagster-1.13.6-no-schema.tgz"
+    assert settings["trino"].chart_ref == "trino/trino"
+    assert settings["dagster"].chart_ref == "dagster/dagster"
+    assert settings["trino"].sha256 is None
+    assert settings["dagster"].sha256 is None
+
+
+def test_chart_settings_scope_excludes_seaweedfs_and_polaris_for_aws(tmp_path: Path) -> None:
+    settings = CloudChartSettings.from_environment(
+        {}, helm_cache_dir=tmp_path / "helm/aws/charts", **_no_catalog_kwargs(tmp_path)
+    )
+
+    assert set(settings.settings) == {
+        "trino",
+        "dagster",
+        "openmetadata",
+        "openmetadata-dependencies",
+        "superset",
+    }
+
+
+def test_chart_settings_scope_includes_seaweedfs_and_polaris_for_azure(tmp_path: Path) -> None:
+    kwargs = _no_catalog_kwargs(tmp_path)
+    kwargs["scope"] = "azure"
+    settings = CloudChartSettings.from_environment({}, helm_cache_dir=tmp_path / "helm/azure/charts", **kwargs)
+
+    assert set(settings.settings) == {
+        "trino",
+        "dagster",
+        "seaweedfs",
+        "polaris",
+        "openmetadata",
+        "openmetadata-dependencies",
+        "superset",
+    }
+
+
+def test_chart_settings_slim_profile_excludes_governance_and_analytics_charts(tmp_path: Path) -> None:
+    kwargs = _no_catalog_kwargs(tmp_path)
+    kwargs["features"] = DeploymentFeatures(governance_enabled=False, analytics_enabled=False)
+    settings = CloudChartSettings.from_environment({}, helm_cache_dir=tmp_path / "helm/aws/charts", **kwargs)
+
+    assert set(settings.settings) == {"trino", "dagster"}
 
 
 def test_chart_settings_honors_explicit_package_path_overrides(tmp_path: Path) -> None:
@@ -133,8 +181,8 @@ def test_chart_settings_honors_explicit_package_path_overrides(tmp_path: Path) -
         **_no_catalog_kwargs(tmp_path),
     )
 
-    assert settings.trino_package_path == trino_override
-    assert settings.dagster_package_path == dagster_override
+    assert settings["trino"].package_path == trino_override
+    assert settings["dagster"].package_path == dagster_override
 
 
 def test_chart_settings_pins_digests_from_catalog_when_installed(tmp_path: Path) -> None:
@@ -153,14 +201,16 @@ def test_chart_settings_pins_digests_from_catalog_when_installed(tmp_path: Path)
         cache_root=cache_root,
         catalog_path=catalog_path,
         installed=True,
+        scope="aws",
+        features=_FULL_FEATURES,
     )
 
-    assert settings.trino_sha256 == trino_sha256
-    assert settings.dagster_sha256 == dagster_sha256
-    assert settings.trino_package_path == cache_root / "helm" / f"{trino_sha256}.tgz"
-    assert settings.dagster_package_path == cache_root / "helm" / f"{dagster_sha256}-no-schema.tgz"
-    assert settings.trino_version == "1.42.2"
-    assert settings.dagster_version == "1.13.6"
+    assert settings["trino"].sha256 == trino_sha256
+    assert settings["dagster"].sha256 == dagster_sha256
+    assert settings["trino"].package_path == cache_root / "helm" / f"{trino_sha256}.tgz"
+    assert settings["dagster"].package_path == cache_root / "helm" / f"{dagster_sha256}-no-schema.tgz"
+    assert settings["trino"].version == "1.42.2"
+    assert settings["dagster"].version == "1.13.6"
 
 
 def test_chart_settings_does_not_pin_digests_in_source_mode_even_with_a_catalog(tmp_path: Path) -> None:
@@ -172,10 +222,12 @@ def test_chart_settings_does_not_pin_digests_in_source_mode_even_with_a_catalog(
         cache_root=tmp_path / "cache",
         catalog_path=catalog_path,
         installed=False,
+        scope="aws",
+        features=_FULL_FEATURES,
     )
 
-    assert settings.trino_sha256 is None
-    assert settings.dagster_sha256 is None
+    assert settings["trino"].sha256 is None
+    assert settings["dagster"].sha256 is None
 
 
 def test_aws_terraform_settings_uses_default_tfvars_only_if_it_exists(tmp_path: Path) -> None:

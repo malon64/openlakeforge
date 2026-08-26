@@ -148,6 +148,24 @@ variable "dagster_chart_package_path" {
   default     = null
 }
 
+variable "openmetadata_chart_package_path" {
+  description = "Optional local OpenMetadata Helm chart package used by aws-up to avoid transient chart download failures."
+  type        = string
+  default     = null
+}
+
+variable "openmetadata_deps_chart_package_path" {
+  description = "Optional local openmetadata-dependencies Helm chart package used by aws-up to avoid transient chart download failures."
+  type        = string
+  default     = null
+}
+
+variable "superset_chart_package_path" {
+  description = "Optional local Superset Helm chart package used by aws-up to avoid transient chart download failures."
+  type        = string
+  default     = null
+}
+
 variable "rds_instance_class" {
   description = "RDS PostgreSQL instance class for the AWS POC."
   type        = string

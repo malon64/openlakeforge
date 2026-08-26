@@ -6,6 +6,32 @@ from olf.deployment.context import DeploymentContext, Profile
 from olf.deployment.local.config import LocalDeploymentConfig
 
 
+def _write_full_catalog(repo_root: Path, *, overrides: dict[str, str] | None = None) -> Path:
+    """A catalog covering every chart the local provider might resolve - a
+    real `component-catalog.yaml` always declares all of them, so a partial
+    fixture would make `CatalogChart.load` raise for any chart beyond the
+    one(s) a given test focuses on."""
+    from olf.deployment.charts import CHART_DEFAULTS
+
+    overrides = overrides or {}
+    lines = ["components:", "  helm:", "    charts:"]
+    for index, (name, default) in enumerate(CHART_DEFAULTS.items()):
+        sha256 = overrides.get(name, f"{index:0>2}" * 32)
+        lines.extend(
+            [
+                f"      {name}:",
+                f"        repository: {default.repository}",
+                f"        reference: {default.chart_ref}",
+                f"        version: {default.version}",
+                f'        sha256: "{sha256}"',
+            ]
+        )
+    catalog_path = repo_root / "release/component-catalog.yaml"
+    catalog_path.parent.mkdir(parents=True, exist_ok=True)
+    catalog_path.write_text("\n".join(lines) + "\n")
+    return catalog_path
+
+
 def test_full_profile_defaults(tmp_path: Path) -> None:
     context = DeploymentContext.local(repo_root=tmp_path, profile=Profile.FULL)
 
@@ -18,8 +44,17 @@ def test_full_profile_defaults(tmp_path: Path) -> None:
     assert config.images.project_code_image == "ghcr.io/openlakeforge/project-code:local"
     assert config.images.superset_image == "ghcr.io/openlakeforge/superset:local"
     assert config.images.project_code_pull_policy == "Never"
-    assert config.charts.trino_version == "1.42.2"
-    assert config.charts.trino_package_path == context.paths.helm_cache_dir / "trino-1.42.2.tgz"
+    assert config.charts["trino"].version == "1.42.2"
+    assert config.charts["trino"].package_path == context.paths.helm_cache_dir / "trino-1.42.2.tgz"
+    assert set(config.charts.settings) == {
+        "trino",
+        "dagster",
+        "seaweedfs",
+        "polaris",
+        "openmetadata",
+        "openmetadata-dependencies",
+        "superset",
+    }
     assert config.terraform.var_file is None
     assert config.terraform.apply_retry.max_attempts == 4
     assert config.terraform.apply_retry.delay_seconds == 20.0
@@ -99,19 +134,8 @@ def test_installed_default_project_still_pins_the_catalog_chart_digest(tmp_path:
     Trino chart Helm downloaded instead of verifying the catalog digest.
     """
     payload = tmp_path / "payload"
-    catalog = payload / "release/component-catalog.yaml"
-    catalog.parent.mkdir(parents=True)
     digest = "a" * 64
-    catalog.write_text(
-        "components:\n"
-        "  helm:\n"
-        "    charts:\n"
-        "      trino:\n"
-        "        repository: https://trinodb.github.io/charts\n"
-        "        reference: trino/trino\n"
-        "        version: 1.42.2\n"
-        f"        sha256: {digest}\n"
-    )
+    _write_full_catalog(payload, overrides={"trino": digest})
     context = DeploymentContext.local(
         repo_root=payload,
         distribution_root=payload,
@@ -122,28 +146,17 @@ def test_installed_default_project_still_pins_the_catalog_chart_digest(tmp_path:
 
     config = LocalDeploymentConfig.from_environment({}, context=context)
 
-    assert config.charts.trino_sha256 == digest
-    assert config.charts.trino_package_path == tmp_path / "cache/helm" / f"{digest}.tgz"
+    assert config.charts["trino"].sha256 == digest
+    assert config.charts["trino"].package_path == tmp_path / "cache/helm" / f"{digest}.tgz"
 
 
 def test_source_checkout_does_not_pin_chart_digests(tmp_path: Path) -> None:
-    catalog = tmp_path / "release/component-catalog.yaml"
-    catalog.parent.mkdir(parents=True)
-    catalog.write_text(
-        "components:\n"
-        "  helm:\n"
-        "    charts:\n"
-        "      trino:\n"
-        "        repository: https://trinodb.github.io/charts\n"
-        "        reference: trino/trino\n"
-        "        version: 1.42.2\n"
-        f"        sha256: {'a' * 64}\n"
-    )
+    _write_full_catalog(tmp_path, overrides={"trino": "a" * 64})
     context = DeploymentContext.local(repo_root=tmp_path)
 
     config = LocalDeploymentConfig.from_environment({}, context=context)
 
-    assert config.charts.trino_sha256 is None
+    assert config.charts["trino"].sha256 is None
 
 
 def test_relative_local_var_file_resolves_against_the_writable_project(tmp_path: Path) -> None:

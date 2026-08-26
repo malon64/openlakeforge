@@ -11,6 +11,7 @@ from collections.abc import Mapping
 from pathlib import Path
 
 from olf import log
+from olf.deployment.charts import TERRAFORM_VARIABLE_KEY
 from olf.deployment.cloud.backend import FoundationFacts, output_raw_or_empty
 from olf.deployment.cloud.config import CloudDeploymentConfig
 from olf.deployment.engine import Toolkit
@@ -159,9 +160,7 @@ class AwsBackend:
             "superset_image_repository": images.superset_repository,
             "superset_image_tag": images.superset_tag,
             "superset_image_pull_policy": images.superset_pull_policy,
-            "trino_chart_package_path": str(config.charts.trino_package_path),
-            "dagster_chart_package_path": str(config.charts.dagster_package_path),
-        }
+        } | {TERRAFORM_VARIABLE_KEY[setting.name]: str(setting.package_path) for setting in config.charts.values()}
 
     def platform_destroy_variables(self, config: CloudDeploymentConfig, facts: FoundationFacts) -> dict[str, str]:
         return {

@@ -1,9 +1,18 @@
+locals {
+  deps_chart      = var.deps_chart_package_path != null ? var.deps_chart_package_path : "openmetadata-dependencies"
+  deps_repository = var.deps_chart_package_path != null ? null : var.chart_repository
+  deps_version    = var.deps_chart_package_path != null ? null : var.deps_chart_version
+  chart           = var.chart_package_path != null ? var.chart_package_path : "openmetadata"
+  repository      = var.chart_package_path != null ? null : var.chart_repository
+  version         = var.chart_package_path != null ? null : var.chart_version
+}
+
 # OpenSearch via the openmetadata-dependencies chart (Airflow + MySQL disabled)
 resource "helm_release" "openmetadata_deps" {
   name       = "${var.release_name}-deps"
-  repository = var.chart_repository
-  chart      = "openmetadata-dependencies"
-  version    = var.deps_chart_version
+  repository = local.deps_repository
+  chart      = local.deps_chart
+  version    = local.deps_version
   namespace  = var.namespace
 
   wait    = true
@@ -17,9 +26,9 @@ resource "helm_release" "openmetadata_deps" {
 # Main OpenMetadata application
 resource "helm_release" "openmetadata" {
   name       = var.release_name
-  repository = var.chart_repository
-  chart      = "openmetadata"
-  version    = var.chart_version
+  repository = local.repository
+  chart      = local.chart
+  version    = local.version
   namespace  = var.namespace
 
   wait            = true

@@ -135,3 +135,33 @@ variable "dagster_chart_package_path" {
   type        = string
   default     = null
 }
+
+variable "seaweedfs_chart_package_path" {
+  description = "Optional local SeaweedFS Helm chart package used by azure-up to avoid transient chart download failures."
+  type        = string
+  default     = null
+}
+
+variable "polaris_chart_package_path" {
+  description = "Optional local Polaris Helm chart package used by azure-up to avoid transient chart download failures."
+  type        = string
+  default     = null
+}
+
+variable "openmetadata_chart_package_path" {
+  description = "Optional local OpenMetadata Helm chart package used by azure-up to avoid transient chart download failures."
+  type        = string
+  default     = null
+}
+
+variable "openmetadata_deps_chart_package_path" {
+  description = "Optional local openmetadata-dependencies Helm chart package used by azure-up to avoid transient chart download failures."
+  type        = string
+  default     = null
+}
+
+variable "superset_chart_package_path" {
+  description = "Optional local Superset Helm chart package used by azure-up to avoid transient chart download failures."
+  type        = string
+  default     = null
+}

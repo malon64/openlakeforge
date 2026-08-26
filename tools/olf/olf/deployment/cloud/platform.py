@@ -13,7 +13,7 @@ from collections.abc import Mapping
 
 from olf import log
 from olf.deployment import kube_ops
-from olf.deployment.charts import ChartRequest, prepare_cached_chart, prepare_cached_dagster_chart_no_schema
+from olf.deployment.charts import prepare_chart
 from olf.deployment.cloud.backend import CloudBackend, FoundationFacts
 from olf.deployment.cloud.config import CloudDeploymentConfig
 from olf.deployment.engine import Toolkit
@@ -37,36 +37,14 @@ def _retry_if_logging(description: str, policy: RetryPolicy):  # noqa: ANN202
 
 
 def prepare_charts(config: CloudDeploymentConfig, tools: Toolkit, *, env: Mapping[str, str]) -> None:
-    prepare_cached_chart(
-        ChartRequest(
-            display_name="Trino",
-            repo_name="trino",
-            repo_url=config.charts.trino_repository_url,
-            chart_ref=config.charts.trino_chart_ref,
-            version=config.charts.trino_version,
-            package_path=config.charts.trino_package_path,
-            sha256=config.charts.trino_sha256,
-        ),
-        helm=tools.helm,
-        paths=config.paths,
-        env=env,
-        retry_policy=config.terraform.apply_retry,
-    )
-    prepare_cached_dagster_chart_no_schema(
-        ChartRequest(
-            display_name="Dagster",
-            repo_name="dagster",
-            repo_url=config.charts.dagster_repository_url,
-            chart_ref=config.charts.dagster_chart_ref,
-            version=config.charts.dagster_version,
-            package_path=config.charts.dagster_package_path,
-            sha256=config.charts.dagster_sha256,
-        ),
-        helm=tools.helm,
-        paths=config.paths,
-        env=env,
-        retry_policy=config.terraform.apply_retry,
-    )
+    for setting in config.charts.values():
+        prepare_chart(
+            setting,
+            helm=tools.helm,
+            paths=config.paths,
+            env=env,
+            retry_policy=config.terraform.apply_retry,
+        )
 
 
 def platform_up(

@@ -294,6 +294,9 @@ def test_platform_apply_variables_include_aws_region_and_resolved_repository(tmp
         "superset_image_pull_policy",
         "trino_chart_package_path",
         "dagster_chart_package_path",
+        "openmetadata_chart_package_path",
+        "openmetadata_deps_chart_package_path",
+        "superset_chart_package_path",
     }
 
 
