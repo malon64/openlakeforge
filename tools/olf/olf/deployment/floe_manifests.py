@@ -61,10 +61,18 @@ class FloeManifestSettings:
 
     @classmethod
     def from_environment(
-        cls, environ: Mapping[str, str], *, repo_root: Path, scope: str = "local"
+        cls, environ: Mapping[str, str], *, work_root: Path, scope: str = "local"
     ) -> FloeManifestSettings:
+        """`work_root` (not the project root) hosts generated runtime
+        artifacts: an installed distribution's project root defaults to the
+        immutable, read-only payload (`DistributionManager.ensure()` chmods
+        it 0555), so writing runtime artifacts there fails with
+        `PermissionError`. `work_root` is always writable -
+        `DeploymentContext` resolves it under `OLF_HOME/work` when
+        installed, `<project>/.tmp` in source mode (unchanged default).
+        """
         version = _env(environ, "FLOE_VERSION", "0.6.11")
-        default_runtime_dir = repo_root / f".tmp/floe-runtime/{scope}"
+        default_runtime_dir = work_root / f"floe-runtime/{scope}"
         return cls(
             version=version,
             image=_env(environ, "FLOE_IMAGE", f"ghcr.io/malon64/floe:{version}"),
@@ -169,16 +177,44 @@ def _container_path(repo_root: Path, path: Path) -> str:
     return f"/work/{relative}"
 
 
+def _mounted_container_path(path: Path, *, repo_root: Path, runtime_root: Path) -> str:
+    """Map a generated artifact path into the Floe container's mounts.
+
+    Rendered configs and manifests always live under `runtime_root`, which
+    is `settings.runtime_artifact_dir` (`work_root/floe-runtime/<scope>`) -
+    a separate `-v runtime_root:/runtime` bind mount is required once
+    `runtime_root` is no longer nested under `repo_root` (an installed
+    distribution's `work_root` is under `OLF_HOME`, not the read-only
+    payload `repo_root` resolves to without `--project-root`). The
+    checked-in governance profile is the one path here that stays under
+    `repo_root` and resolves through the existing `/work` mount.
+    """
+    resolved = path if path.is_absolute() else repo_root / path
+    if resolved == runtime_root:
+        return "/runtime"
+    try:
+        relative = resolved.relative_to(runtime_root)
+    except ValueError:
+        return _container_path(repo_root, resolved)
+    return f"/runtime/{relative}"
+
+
 def _resolve_base_profile(
     settings: FloeManifestSettings,
     *,
-    repo_root: Path,
+    distribution_root: Path,
     namespace: str,
     governance_enabled: bool,
     environ: Mapping[str, str],
 ) -> Path:
     if namespace == "lakehouse" and governance_enabled:
-        return repo_root / _CHECKED_IN_PROFILE_RELATIVE_PATH
+        # The checked-in profile is distribution-owned (tracked under
+        # libs/), not project-owned - a writable --project-root only
+        # supplies lakehouse_code (see project_code_build_context's build
+        # contract), so resolving this against repo_root instead would
+        # fail to find it for an installed local/Azure deployment with a
+        # selected project.
+        return distribution_root / _CHECKED_IN_PROFILE_RELATIVE_PATH
 
     profiles_dir = settings.runtime_artifact_dir / "profiles"
     profiles_dir.mkdir(parents=True, exist_ok=True)
@@ -242,9 +278,10 @@ def _generate_manifests_for_configs(
         manifest_dir.chmod(0o777)
         manifest_path = manifest_dir / f"{domain}.manifest.json"
 
-        floe_config_path = _container_path(repo_root, runtime_config_path)
-        floe_profile_path = _container_path(repo_root, profile_path)
-        floe_manifest_path = _container_path(repo_root, manifest_path)
+        floe_config_path = _mounted_container_path(runtime_config_path, repo_root=repo_root, runtime_root=runtime_root)
+        floe_profile_path = _mounted_container_path(profile_path, repo_root=repo_root, runtime_root=runtime_root)
+        floe_manifest_path = _mounted_container_path(manifest_path, repo_root=repo_root, runtime_root=runtime_root)
+        volumes = [f"{repo_root}:/work", f"{runtime_root}:/runtime"]
 
         log.step(f"Validating Floe config: {config_path}")
         tools.docker.run_container(
@@ -252,7 +289,7 @@ def _generate_manifests_for_configs(
             ["validate", "-c", floe_config_path, "-p", floe_profile_path],
             platform=settings.platform,
             env_names=env_names,
-            volumes=[f"{repo_root}:/work"],
+            volumes=volumes,
             workdir="/",
             env=env,
         )
@@ -281,7 +318,7 @@ def _generate_manifests_for_configs(
             ],
             platform=settings.platform,
             env_names=env_names,
-            volumes=[f"{repo_root}:/work"],
+            volumes=volumes,
             workdir="/",
             env=env,
         )
@@ -311,6 +348,7 @@ def generate_local_manifests(
     tools: Toolkit,
     *,
     repo_root: Path,
+    distribution_root: Path,
     namespace: str,
     governance_enabled: bool,
     environ: Mapping[str, str],
@@ -318,7 +356,11 @@ def generate_local_manifests(
 ) -> list[Path]:
     configs = _prepare_runtime_root_and_discover_configs(settings, repo_root=repo_root)
     base_profile = _resolve_base_profile(
-        settings, repo_root=repo_root, namespace=namespace, governance_enabled=governance_enabled, environ=environ
+        settings,
+        distribution_root=distribution_root,
+        namespace=namespace,
+        governance_enabled=governance_enabled,
+        environ=environ,
     )
     strategy = RenderedProfileStrategy(base_profile=base_profile)
     return _generate_manifests_for_configs(

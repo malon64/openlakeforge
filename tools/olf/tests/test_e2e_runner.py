@@ -13,6 +13,46 @@ def test_default_suite_is_full(env: Environment) -> None:
     assert _runner.default_suite(env) == "full"
 
 
+def test_prepare_config_derives_terraform_roots_from_distribution_root(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """An installed distribution's writable project root (bundled demo or
+    `--project-root`) is not where its Terraform roots live - those are in
+    the read-only payload extracted under `OLF_HOME`. `distribution_root`
+    must drive `foundation_terraform_dir`/`contract_terraform_dir`
+    independently of `repo_root`, or `olf e2e run` searches an installed
+    project root that has no `infra/` tree at all."""
+    monkeypatch.delenv("OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR", raising=False)
+    distribution_root = tmp_path / "distribution"
+
+    cfg = _runner.prepare_config(
+        "local",
+        suite=None,
+        namespace="lakehouse",
+        kube_context="",
+        repo_root=E2E_REPO_ROOT,
+        distribution_root=distribution_root,
+    )
+
+    assert cfg.repo_root == E2E_REPO_ROOT
+    assert cfg.distribution_root == distribution_root
+    assert cfg.foundation_terraform_dir == distribution_root / "infra/terraform/foundations/local-kind"
+    assert cfg.contract_terraform_dir == distribution_root / "infra/terraform/environments/local"
+
+
+def test_prepare_config_distribution_root_defaults_to_repo_root(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Source-mode checkouts (the pre-#127/#145 behaviour) have one root -
+    unset `distribution_root` must fall back to `repo_root` exactly."""
+    monkeypatch.delenv("OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR", raising=False)
+
+    cfg = _runner.prepare_config(
+        "local", suite=None, namespace="lakehouse", kube_context="", repo_root=E2E_REPO_ROOT
+    )
+
+    assert cfg.distribution_root == E2E_REPO_ROOT
+    assert cfg.foundation_terraform_dir == E2E_REPO_ROOT / "infra/terraform/foundations/local-kind"
+
+
 def test_aws_default_suite_includes_smoke_and_full_checks(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     calls: list[str] = []
 
@@ -269,7 +309,7 @@ def test_terraform_output_json_reads_location_list(monkeypatch: pytest.MonkeyPat
     monkeypatch.setattr(
         _shell,
         "_run",
-        lambda args, *, capture=False: commands.append(args) or '["openlakeforge-dagster"]',
+        lambda args, *, capture=False, env=None: commands.append(args) or '["openlakeforge-dagster"]',
     )
     monkeypatch.setattr(_shell, "_terraform_executable", lambda: "terraform")
 
@@ -293,6 +333,55 @@ def test_terraform_output_json_rejects_invalid_json(monkeypatch: pytest.MonkeyPa
 
     with pytest.raises(E2EError, match="not valid JSON"):
         _shell.terraform_output_json(tmp_path / "contract", "dagster_code_location_names")
+
+
+def test_terraform_output_honors_external_state_root(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """An installed distribution's AWS/Azure foundation state lives under
+    OLF_HOME (OPENLAKEFORGE_TERRAFORM_STATE_ROOT/_DATA_ROOT), not next to
+    the foundation Terraform directory - terraform_output must translate
+    that the same way `Terraform._run` does, or every foundation read
+    (region, cluster name) silently targets the payload's absent state."""
+    captured: dict = {}
+
+    def run(args: list[str], *, capture: bool = False, env=None) -> str:  # noqa: ANN001
+        captured["args"] = args
+        captured["env"] = env
+        return "us-east-1"
+
+    monkeypatch.setattr(_shell, "_run", run)
+    monkeypatch.setattr(_shell, "_terraform_executable", lambda: "terraform")
+    monkeypatch.setenv("OPENLAKEFORGE_TERRAFORM_DATA_ROOT", str(tmp_path / "terraform-data"))
+    monkeypatch.setenv("OPENLAKEFORGE_TERRAFORM_STATE_ROOT", str(tmp_path / "state"))
+
+    foundation_dir = tmp_path / "foundations" / "aws-eks"
+    assert _shell.terraform_output(foundation_dir, "aws_region") == "us-east-1"
+
+    expected_state = tmp_path / "state" / "foundation.tfstate"
+    assert f"-state={expected_state}" in captured["args"]
+    assert not expected_state.parent.exists(), "a read-only output call must not create state directories"
+    assert captured["env"]["TF_DATA_DIR"] == str(tmp_path / "terraform-data" / "foundation")
+
+
+def test_terraform_output_without_external_state_root_is_unchanged(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    captured: dict = {}
+
+    def run(args: list[str], *, capture: bool = False, env=None) -> str:  # noqa: ANN001
+        captured["args"] = args
+        captured["env"] = env
+        return "us-east-1"
+
+    monkeypatch.setattr(_shell, "_run", run)
+    monkeypatch.setattr(_shell, "_terraform_executable", lambda: "terraform")
+
+    foundation_dir = tmp_path / "foundations" / "aws-eks"
+    assert _shell.terraform_output(foundation_dir, "aws_region") == "us-east-1"
+
+    assert captured["args"] == ["terraform", f"-chdir={foundation_dir}", "output", "-raw", "aws_region"]
+    assert captured["env"] is None
 
 
 def test_run_retry_retries_transient_command_errors(monkeypatch: pytest.MonkeyPatch) -> None:

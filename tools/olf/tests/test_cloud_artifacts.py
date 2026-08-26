@@ -189,7 +189,9 @@ def test_applied_contract_environment_uses_facts_kube_context(tmp_path: Path, mo
 
     seen_context = {}
 
-    def _fake_generate(cfg, tls, *, repo_root, namespace, governance_enabled, environ, env):  # noqa: ANN001
+    def _fake_generate(  # noqa: ANN001
+        cfg, tls, *, repo_root, distribution_root, namespace, governance_enabled, environ, env
+    ):
         seen_context["kube_context"] = environ.get("KUBE_CONTEXT")
         return []
 

@@ -132,6 +132,7 @@ class CloudBackend(Protocol):
         tools: Toolkit,
         *,
         repo_root: Path,
+        distribution_root: Path,
         namespace: str,
         governance_enabled: bool,
         environ: Mapping[str, str],

@@ -158,7 +158,8 @@ class LocalProvider:
         if phase in (DeploymentPhase.ALL, DeploymentPhase.PLATFORM):
             required.append("helm")
         items = base_report(
-            repo_root=self.config.paths.repo_root,
+            project_root=self.config.paths.repo_root,
+            distribution_root=self.config.paths.distribution_root,
             tools=self.tools,
             required_tools=required,
         )
@@ -188,7 +189,12 @@ class LocalProvider:
                 self._environ.get("OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR", self.config.paths.platform_terraform_dir)
             ).resolve()
             try:
-                provider_contracts = load_provider_contracts(str(contract_dir))
+                # environ=self._environ (not bare os.environ): an installed
+                # distribution's platform state lives under OLF_HOME, not
+                # next to contract_dir - without the scoped environ here,
+                # `terraform output` reads the read-only payload's absent
+                # default state and this always reports "unavailable".
+                provider_contracts = load_provider_contracts(str(contract_dir), environ=self._environ)
             except ProviderContractError as exc:
                 items.append(DoctorItem("local platform provider contracts", False, str(exc)))
             else:

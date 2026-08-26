@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from olf.deployment.charts import CatalogChart
 from olf.deployment.context import DeploymentContext
 from olf.deployment.env_settings import env as _env
 from olf.deployment.env_settings import retry_policy as _retry_policy
@@ -40,8 +41,10 @@ _DEFAULT_PYTHON_BASE_IMAGE = {
 }
 
 
-def _git_or_time_tag(repo_root: Path) -> str:
-    """Port of `scripts/lib/common.sh::git_or_time_tag`."""
+def _git_sha_tag(repo_root: Path) -> str | None:
+    """Port of `scripts/lib/common.sh::git_or_time_tag`'s git branch, made
+    optional so callers can try other stable sources before resorting to a
+    timestamp."""
     try:
         result = subprocess.run(
             ["git", "-C", str(repo_root), "rev-parse", "--short", "HEAD"],
@@ -49,16 +52,47 @@ def _git_or_time_tag(repo_root: Path) -> str:
             text=True,
             check=True,
         )
-        sha = result.stdout.strip()
-        if sha:
-            return sha
     except (subprocess.CalledProcessError, FileNotFoundError):
-        pass
-    return datetime.now(UTC).strftime("%Y%m%d%H%M%S")
+        return None
+    sha = result.stdout.strip()
+    return sha or None
 
 
-def default_image_tag(repo_root: Path, *, scope: str) -> str:
-    return f"{scope}-{_git_or_time_tag(repo_root)}"
+def _distribution_identity_tag(distribution_root: Path) -> str | None:
+    """A stable tag derived from an installed distribution's own
+    content-addressed path (`DistributionManager.payload_root` -
+    `OLF_HOME/distributions/<version>/<sha256>/payload`), or `None` outside
+    that layout (source checkouts, or a distribution_root that happens not
+    to look like it).
+    """
+    sha256_dir = distribution_root.parent.name
+    if len(sha256_dir) == 64 and all(char in "0123456789abcdef" for char in sha256_dir):
+        return sha256_dir[:12]
+    return None
+
+
+def default_image_tag(repo_root: Path, *, scope: str, distribution_root: Path | None = None) -> str:
+    """Resolve the fallback image tag used when `{SCOPE}_IMAGE_TAG` is unset.
+
+    Prefers `repo_root`'s git SHA. Falls back to a tag derived from
+    `distribution_root`'s content-addressed payload path when given and
+    installed - stable across the separate `olf deploy` invocations one
+    `--phase platform` then `--phase artifacts` run makes, unlike the
+    wall-clock timestamp last resort: a fresh timestamp on every invocation
+    left the platform phase configuring Dagster with one tag while the
+    artifacts phase built and pushed a different one, so the code server
+    could never pull the image actually pushed. Only a genuinely non-git,
+    non-installed project root (a source-mode non-git checkout) reaches the
+    timestamp.
+    """
+    git_tag = _git_sha_tag(repo_root)
+    if git_tag is not None:
+        return f"{scope}-{git_tag}"
+    if distribution_root is not None:
+        stable_tag = _distribution_identity_tag(distribution_root)
+        if stable_tag is not None:
+            return f"{scope}-{stable_tag}"
+    return f"{scope}-{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}"
 
 
 def _image_env(environ: Mapping[str, str], *, scope: str, name: str, default: str) -> str:
@@ -148,34 +182,70 @@ class CloudChartSettings:
     trino_chart_ref: str
     trino_version: str
     trino_package_path: Path
+    trino_sha256: str | None
     dagster_repository_url: str
     dagster_chart_ref: str
     dagster_version: str
     dagster_package_path: Path
+    dagster_sha256: str | None
 
     @classmethod
-    def from_environment(cls, environ: Mapping[str, str], *, helm_cache_dir: Path) -> CloudChartSettings:
+    def from_environment(
+        cls,
+        environ: Mapping[str, str],
+        *,
+        helm_cache_dir: Path,
+        cache_root: Path,
+        catalog_path: Path,
+        installed: bool,
+    ) -> CloudChartSettings:
+        """Mirrors `olf.deployment.local.config.ChartSettings.from_environment`:
+        an installed distribution pins each chart's digest from the
+        component catalog, so a downloaded Trino/Dagster archive is verified
+        before use exactly as the local provider's Trino chart already is
+        (`prepare_cached_chart`/`prepare_cached_dagster_chart_no_schema`).
+        Source-mode runs (`installed=False`) keep resolving purely from
+        `TRINO_CHART_VERSION`/`DAGSTER_CHART_VERSION`, with `sha256=None`.
+        """
+        trino_catalog_chart = CatalogChart.load(catalog_path, "trino") if catalog_path.is_file() else None
+        dagster_catalog_chart = CatalogChart.load(catalog_path, "dagster") if catalog_path.is_file() else None
         trino_version = _env(environ, "TRINO_CHART_VERSION", "1.42.2")
         dagster_version = _env(environ, "DAGSTER_CHART_VERSION", "1.13.6")
+        default_trino_package_path = (
+            trino_catalog_chart.request(cache_root=cache_root).package_path
+            if installed and trino_catalog_chart is not None
+            else helm_cache_dir / f"trino-{trino_version}.tgz"
+        )
+        default_dagster_package_path = (
+            dagster_catalog_chart.request(cache_root=cache_root, variant="no-schema").package_path
+            if installed and dagster_catalog_chart is not None
+            else helm_cache_dir / f"dagster-{dagster_version}-no-schema.tgz"
+        )
         return cls(
-            trino_repository_url=_env(environ, "TRINO_CHART_REPOSITORY", "https://trinodb.github.io/charts"),
-            trino_chart_ref="trino/trino",
-            trino_version=trino_version,
-            trino_package_path=Path(
-                _env(environ, "TRINO_CHART_PACKAGE_PATH", str(helm_cache_dir / f"trino-{trino_version}.tgz"))
+            trino_repository_url=_env(
+                environ,
+                "TRINO_CHART_REPOSITORY",
+                trino_catalog_chart.repository if trino_catalog_chart is not None else "https://trinodb.github.io/charts",
             ),
+            trino_chart_ref="trino/trino",
+            trino_version=_env(
+                environ, "TRINO_CHART_VERSION", trino_catalog_chart.version if trino_catalog_chart else "1.42.2"
+            ),
+            trino_package_path=Path(_env(environ, "TRINO_CHART_PACKAGE_PATH", str(default_trino_package_path))),
+            trino_sha256=trino_catalog_chart.sha256 if installed and trino_catalog_chart is not None else None,
             dagster_repository_url=_env(
-                environ, "DAGSTER_CHART_REPOSITORY", "https://dagster-io.github.io/helm"
+                environ,
+                "DAGSTER_CHART_REPOSITORY",
+                dagster_catalog_chart.repository if dagster_catalog_chart is not None else "https://dagster-io.github.io/helm",
             ),
             dagster_chart_ref="dagster/dagster",
-            dagster_version=dagster_version,
-            dagster_package_path=Path(
-                _env(
-                    environ,
-                    "DAGSTER_CHART_PACKAGE_PATH",
-                    str(helm_cache_dir / f"dagster-{dagster_version}-no-schema.tgz"),
-                )
+            dagster_version=_env(
+                environ, "DAGSTER_CHART_VERSION", dagster_catalog_chart.version if dagster_catalog_chart else "1.13.6"
             ),
+            dagster_package_path=Path(
+                _env(environ, "DAGSTER_CHART_PACKAGE_PATH", str(default_dagster_package_path))
+            ),
+            dagster_sha256=dagster_catalog_chart.sha256 if installed and dagster_catalog_chart is not None else None,
         )
 
 
@@ -266,22 +336,28 @@ class CloudDeploymentConfig:
         var_file: Path | None = None,
     ) -> CloudDeploymentConfig:
         scope = context.provider.value
-        repo_root = context.paths.repo_root
+        project_root = context.paths.repo_root
+        distribution_root = context.paths.distribution_root
         raw_tag = environ.get(f"{scope.upper()}_IMAGE_TAG")
-        tag = raw_tag if raw_tag else default_image_tag(repo_root, scope=scope)
+        tag = raw_tag if raw_tag else default_image_tag(project_root, scope=scope, distribution_root=distribution_root)
         terraform = CloudTerraformSettings.from_environment(
-            environ, repo_root=repo_root, platform_terraform_dir=context.paths.platform_terraform_dir, scope=scope
+            environ,
+            repo_root=project_root,
+            platform_terraform_dir=context.paths.platform_terraform_dir,
+            scope=scope,
         )
         if var_file is not None:
             # Terraform runs with `-chdir=<foundation-or-platform-root>`, so
             # a relative `--var-file` would resolve beneath whichever
             # Terraform root happens to run first (AWS reuses this override
-            # across two different roots), not beneath the repo. Normalize
-            # against repo_root here, matching how the environment-based
-            # override (CloudTerraformSettings.from_environment) and the
-            # local provider already resolve relative var files.
+            # across two different roots), not beneath either root proper.
+            # Normalize against project_root, not distribution_root: the
+            # tfvars file is the user's own account/tag configuration, which
+            # for an installed deployment with --project-root lives in their
+            # writable project, never inside the read-only distribution
+            # payload. Matches `AWS_TFVARS_FILE`'s resolution just above.
             if not var_file.is_absolute():
-                var_file = repo_root / var_file
+                var_file = project_root / var_file
             # AWS reuses the same explicit override for both foundation and
             # platform (var_file); Azure's platform apply must NEVER see a
             # tfvars file (ADR 0027), so the override travels through
@@ -297,8 +373,14 @@ class CloudDeploymentConfig:
         return cls(
             context=context,
             images=CloudImageSettings.from_environment(environ, scope=scope, image_tag=tag),
-            charts=CloudChartSettings.from_environment(environ, helm_cache_dir=context.paths.helm_cache_dir),
+            charts=CloudChartSettings.from_environment(
+                environ,
+                helm_cache_dir=context.paths.helm_cache_dir,
+                cache_root=context.paths.cache_root,
+                catalog_path=context.paths.distribution_root / "release/component-catalog.yaml",
+                installed=context.paths.installed,
+            ),
             terraform=terraform,
-            floe=FloeManifestSettings.from_environment(environ, repo_root=repo_root, scope=scope),
+            floe=FloeManifestSettings.from_environment(environ, work_root=context.paths.work_root, scope=scope),
             force_foundation_down=_truthy(_env(environ, f"{scope.upper()}_FOUNDATION_FORCE_DOWN", "false")),
         )

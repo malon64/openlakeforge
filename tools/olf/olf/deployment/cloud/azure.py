@@ -151,6 +151,12 @@ class AzureBackend:
             "namespace": config.namespace,
             "kube_context": facts.kube_context,
             "kubeconfig_path": str(config.paths.kubeconfig_path),
+            # See local/platform.py::platform_apply_variables: the Terraform
+            # helm provider's own repository cache/config default lives
+            # beneath the Terraform root, which for an installed
+            # distribution is the read-only payload.
+            "helm_repository_cache_path": str(config.paths.helm_repository_cache),
+            "helm_repository_config_path": str(config.paths.helm_repository_config),
             "foundation_state_path": str(config.paths.foundation_state_path),
             "project_code_image_repository": images.project_code_repository,
             "project_code_image_tag": images.project_code_tag,
@@ -170,6 +176,8 @@ class AzureBackend:
             "namespace": config.namespace,
             "kube_context": facts.kube_context,
             "kubeconfig_path": str(config.paths.kubeconfig_path),
+            "helm_repository_cache_path": str(config.paths.helm_repository_cache),
+            "helm_repository_config_path": str(config.paths.helm_repository_config),
             "foundation_state_path": str(config.paths.foundation_state_path),
         }
 
@@ -192,6 +200,7 @@ class AzureBackend:
         tools: Toolkit,
         *,
         repo_root: Path,
+        distribution_root: Path,
         namespace: str,
         governance_enabled: bool,
         environ: Mapping[str, str],
@@ -202,6 +211,7 @@ class AzureBackend:
             config.floe,
             tools,
             repo_root=repo_root,
+            distribution_root=distribution_root,
             namespace=namespace,
             governance_enabled=governance_enabled,
             environ=environ,

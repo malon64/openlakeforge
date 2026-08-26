@@ -11,6 +11,7 @@ import json
 import os
 import subprocess
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
@@ -19,6 +20,7 @@ from openlakeforge_domain import DomainInventory
 
 from olf import contracts, log
 from olf.tooling.resolver import build_resolver
+from olf.tooling.terraform import external_state_options
 
 Environment = Literal["local", "azure", "aws"]
 Suite = Literal["full", "smoke"]
@@ -46,6 +48,7 @@ class E2EConfig:
     namespace: str
     kube_context: str
     repo_root: Path
+    distribution_root: Path
     foundation_terraform_dir: Path | None
     contract_terraform_dir: Path
     inventory: DomainInventory
@@ -84,8 +87,8 @@ def kubectl(
     return _run(command, capture=capture)
 
 
-def _run(args: list[str], *, capture: bool = False) -> str:
-    result = subprocess.run(args, capture_output=capture, text=True, check=False)
+def _run(args: list[str], *, capture: bool = False, env: Mapping[str, str] | None = None) -> str:
+    result = subprocess.run(args, capture_output=capture, text=True, check=False, env=env)
     if result.returncode != 0:
         detail = (result.stderr if capture else "") or ""
         raise E2EError(f"{' '.join(args)} failed: {detail.strip()}")
@@ -133,18 +136,34 @@ def is_transient_kubectl_error(error: Exception) -> bool:
     return any(marker in message for marker in TRANSIENT_KUBECTL_ERROR_MARKERS)
 
 
+def _terraform_output_args(terraform_dir: Path, *, mode: str, name: str) -> tuple[list[str], dict[str, str] | None]:
+    """Build a `terraform output` argv/env pair for the AWS/Azure foundation
+    reads in this module - the same external-state translation
+    `Terraform._run`/`olf.contracts.load_provider_contracts` apply, or an
+    installed distribution's foundation state under `OLF_HOME` is never
+    found (see `olf.tooling.terraform.external_state_options`).
+    """
+    overlay, state_path = external_state_options(terraform_dir, os.environ, create=False)
+    args = [_terraform_executable(), f"-chdir={terraform_dir}", "output"]
+    if state_path is not None:
+        args.append(f"-state={state_path}")
+    args.extend([f"-{mode}", name])
+    env = {**os.environ, **overlay} if overlay else None
+    return args, env
+
+
 def terraform_output(terraform_dir: Path | None, name: str) -> str:
     if terraform_dir is None:
         raise E2EError(f"cannot read Terraform output {name}: no Terraform directory configured.")
-    return _run(
-        [_terraform_executable(), f"-chdir={terraform_dir}", "output", "-raw", name], capture=True
-    ).strip()
+    args, env = _terraform_output_args(terraform_dir, mode="raw", name=name)
+    return _run(args, capture=True, env=env).strip()
 
 
 def terraform_output_json(terraform_dir: Path | None, name: str) -> Any:
     if terraform_dir is None:
         raise E2EError(f"cannot read Terraform output {name}: no Terraform directory configured.")
-    raw = _run([_terraform_executable(), f"-chdir={terraform_dir}", "output", "-json", name], capture=True)
+    args, env = _terraform_output_args(terraform_dir, mode="json", name=name)
+    raw = _run(args, capture=True, env=env)
     try:
         return json.loads(raw)
     except json.JSONDecodeError as exc:

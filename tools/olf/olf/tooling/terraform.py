@@ -13,6 +13,40 @@ from olf.tooling.process import CommandResult, ProcessRunner
 from olf.tooling.resolver import ExecutableResolver
 
 
+def external_state_options(
+    terraform_dir: Path, environ: Mapping[str, str], *, create: bool = True
+) -> tuple[dict[str, str], Path | None]:
+    """Derive the `TF_DATA_DIR` overlay and `-state=<path>` value for state and
+    plugin data rooted outside `terraform_dir` (installed distributions).
+
+    Every direct Terraform invocation - `Terraform._run` and any caller that
+    shells out to `terraform` on its own (`olf.contracts.load_provider_contracts`,
+    `olf.e2e._shell.terraform_output`) - must resolve state and data roots
+    identically, or an installed deployment's `-chdir`'d `terraform output`
+    silently reads the read-only payload's default (absent) state instead of
+    the one `terraform apply` wrote under `OLF_HOME`.
+
+    Returns `({}, None)` when either `OPENLAKEFORGE_TERRAFORM_DATA_ROOT` or
+    `OPENLAKEFORGE_TERRAFORM_STATE_ROOT` is unset, matching source-mode /
+    non-distribution runs where Terraform's own directory-relative defaults
+    apply. `create=False` skips creating the directories, for read-only
+    callers (contract/output reads) that must not conjure state directories
+    that a prior `apply` never created.
+    """
+    data_root = environ.get("OPENLAKEFORGE_TERRAFORM_DATA_ROOT")
+    state_root = environ.get("OPENLAKEFORGE_TERRAFORM_STATE_ROOT")
+    if not data_root or not state_root:
+        return {}, None
+    group = terraform_dir.parent.name
+    scope = "foundation" if group == "foundations" else "platform"
+    data_dir = Path(data_root) / scope
+    state_path = Path(state_root) / f"{scope}.tfstate"
+    if create:
+        data_dir.mkdir(parents=True, exist_ok=True)
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+    return {"TF_DATA_DIR": str(data_dir)}, state_path
+
+
 class Terraform:
     def __init__(self, runner: ProcessRunner, resolver: ExecutableResolver) -> None:
         self._runner = runner
@@ -32,10 +66,27 @@ class Terraform:
         retry_if: RetryPredicate | None = None,
         stream_output: bool = False,
     ) -> CommandResult:
-        argv = [str(self._executable()), f"-chdir={terraform_dir}", *args]
+        command_env = dict(env or {})
+        command_args = list(args)
+        overlay, state_path = external_state_options(terraform_dir, command_env)
+        if state_path is not None:
+            command_env.update(overlay)
+            if command_args and command_args[0] == "init":
+                if command_env.get(
+                    "OPENLAKEFORGE_TERRAFORM_READONLY_LOCKFILE"
+                ) == "true" and (terraform_dir / ".terraform.lock.hcl").is_file():
+                    # Terraform rejects `-lockfile=readonly` outright when no
+                    # dependency lock file exists yet - true for
+                    # `foundations/local-kind`, which declares no providers
+                    # at all (only the built-in `terraform_data` resource).
+                    command_args.append("-lockfile=readonly")
+            else:
+                insert_at = 2 if command_args[:1] == ["state"] else 1
+                command_args.insert(insert_at, f"-state={state_path}")
+        argv = [str(self._executable()), f"-chdir={terraform_dir}", *command_args]
         return self._runner.run(
             argv,
-            env=env,
+            env=command_env or None,
             check=check,
             retry_policy=retry_policy,
             retry_if=retry_if,

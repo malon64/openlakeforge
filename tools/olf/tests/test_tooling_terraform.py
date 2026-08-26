@@ -142,6 +142,44 @@ def test_init_builds_expected_argv() -> None:
     assert runner.last_call.argv == ["terraform", f"-chdir={terraform_dir}", "init"]
 
 
+def test_installed_distribution_uses_external_state_data_and_readonly_lockfile(tmp_path: Path) -> None:
+    terraform, runner = _terraform()
+    terraform_dir = tmp_path / "payload/infra/terraform/environments/local"
+    terraform_dir.mkdir(parents=True)
+    (terraform_dir / ".terraform.lock.hcl").write_text("")
+    env = {
+        "OPENLAKEFORGE_TERRAFORM_DATA_ROOT": str(tmp_path / "work/terraform-data"),
+        "OPENLAKEFORGE_TERRAFORM_STATE_ROOT": str(tmp_path / "state"),
+        "OPENLAKEFORGE_TERRAFORM_READONLY_LOCKFILE": "true",
+    }
+
+    terraform.init(terraform_dir, env=env)
+    assert runner.last_call.argv[-2:] == ["init", "-lockfile=readonly"]
+    assert runner.last_call.kwargs["env"]["TF_DATA_DIR"] == str(tmp_path / "work/terraform-data/platform")
+
+    terraform.state_show(terraform_dir, "kubernetes_namespace_v1.lakehouse", env=env)
+    assert "-state=" + str(tmp_path / "state/platform.tfstate") in runner.last_call.argv
+
+
+def test_installed_distribution_skips_readonly_lockfile_when_none_is_checked_in(tmp_path: Path) -> None:
+    """`foundations/local-kind` declares no providers, so it has no
+    `.terraform.lock.hcl` - `-lockfile=readonly` must not be added there, or
+    Terraform rejects the init outright with no lock file to enforce.
+    """
+    terraform, runner = _terraform()
+    terraform_dir = tmp_path / "payload/infra/terraform/foundations/local-kind"
+    terraform_dir.mkdir(parents=True)
+    env = {
+        "OPENLAKEFORGE_TERRAFORM_DATA_ROOT": str(tmp_path / "work/terraform-data"),
+        "OPENLAKEFORGE_TERRAFORM_STATE_ROOT": str(tmp_path / "state"),
+        "OPENLAKEFORGE_TERRAFORM_READONLY_LOCKFILE": "true",
+    }
+
+    terraform.init(terraform_dir, env=env)
+
+    assert runner.last_call.argv[-1:] == ["init"]
+
+
 def test_apply_forwards_retry_policy_to_runner() -> None:
     from olf.deployment.retry import RetryPolicy
 

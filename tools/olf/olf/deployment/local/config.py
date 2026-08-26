@@ -12,6 +12,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
+from olf.deployment.charts import CatalogChart
 from olf.deployment.context import DeploymentContext, Profile
 from olf.deployment.env_settings import env as _env
 from olf.deployment.env_settings import float_env as _float_env
@@ -101,16 +102,35 @@ class ChartSettings:
     trino_chart_ref: str
     trino_version: str
     trino_package_path: Path
+    trino_sha256: str | None
 
     @classmethod
-    def from_environment(cls, environ: Mapping[str, str], *, helm_cache_dir: Path) -> ChartSettings:
+    def from_environment(
+        cls,
+        environ: Mapping[str, str],
+        *,
+        helm_cache_dir: Path,
+        cache_root: Path,
+        catalog_path: Path,
+        installed: bool,
+    ) -> ChartSettings:
+        catalog_chart = CatalogChart.load(catalog_path, "trino") if catalog_path.is_file() else None
         version = _env(environ, "TRINO_CHART_VERSION", "1.42.2")
-        default_package_path = helm_cache_dir / f"trino-{version}.tgz"
+        default_package_path = (
+            cache_root / "helm" / f"{catalog_chart.sha256}.tgz"
+            if installed and catalog_chart is not None
+            else helm_cache_dir / f"trino-{version}.tgz"
+        )
         return cls(
-            trino_repository_url=_env(environ, "TRINO_CHART_REPOSITORY", "https://trinodb.github.io/charts"),
+            trino_repository_url=_env(
+                environ,
+                "TRINO_CHART_REPOSITORY",
+                catalog_chart.repository if catalog_chart is not None else "https://trinodb.github.io/charts",
+            ),
             trino_chart_ref="trino/trino",
-            trino_version=version,
+            trino_version=_env(environ, "TRINO_CHART_VERSION", catalog_chart.version if catalog_chart else "1.42.2"),
             trino_package_path=Path(_env(environ, "TRINO_CHART_PACKAGE_PATH", str(default_package_path))),
+            trino_sha256=catalog_chart.sha256 if installed and catalog_chart is not None else None,
         )
 
 
@@ -124,17 +144,25 @@ class TerraformSettings:
         cls,
         environ: Mapping[str, str],
         *,
-        repo_root: Path,
+        distribution_root: Path,
+        project_root: Path,
         profile: Profile,
         var_file: Path | None = None,
     ) -> TerraformSettings:
-        raw = str(var_file) if var_file is not None else environ.get("LOCAL_TFVARS_FILE", "")
-        if not raw and profile == Profile.SLIM:
-            raw = "infra/terraform/environments/local/slim.tfvars"
+        """`distribution_root` and `project_root` coincide in source mode,
+        so this split only matters for an installed run: the platform-owned
+        `slim.tfvars` default lives in the distribution payload, but a
+        user-provided `--var-file`/`LOCAL_TFVARS_FILE` is the user's own
+        tfvars, which - with `--project-root` - lives in their writable
+        project, never inside the read-only payload.
+        """
+        user_raw = str(var_file) if var_file is not None else environ.get("LOCAL_TFVARS_FILE", "")
         resolved: Path | None = None
-        if raw:
-            candidate = Path(raw)
-            resolved = candidate if candidate.is_absolute() else repo_root / candidate
+        if user_raw:
+            candidate = Path(user_raw)
+            resolved = candidate if candidate.is_absolute() else project_root / candidate
+        elif profile == Profile.SLIM:
+            resolved = distribution_root / "infra/terraform/environments/local/slim.tfvars"
         return cls(
             var_file=resolved,
             apply_retry=RetryPolicy(
@@ -198,17 +226,27 @@ class LocalDeploymentConfig:
         context: DeploymentContext,
         var_file: Path | None = None,
     ) -> LocalDeploymentConfig:
-        repo_root = context.paths.repo_root
+        distribution_root = context.paths.distribution_root
         cluster_name = context.kube_context.removeprefix("kind-") or context.kube_context
         return cls(
             context=context,
-            cluster=ClusterSettings.from_environment(environ, repo_root=repo_root, cluster_name=cluster_name),
+            cluster=ClusterSettings.from_environment(environ, repo_root=distribution_root, cluster_name=cluster_name),
             images=ImageSettings.from_environment(environ),
-            charts=ChartSettings.from_environment(environ, helm_cache_dir=context.paths.helm_cache_dir),
+            charts=ChartSettings.from_environment(
+                environ,
+                helm_cache_dir=context.paths.helm_cache_dir,
+                cache_root=context.paths.cache_root,
+                catalog_path=context.paths.distribution_root / "release/component-catalog.yaml",
+                installed=context.paths.installed,
+            ),
             terraform=TerraformSettings.from_environment(
-                environ, repo_root=repo_root, profile=context.profile, var_file=var_file
+                environ,
+                distribution_root=distribution_root,
+                project_root=context.paths.repo_root,
+                profile=context.profile,
+                var_file=var_file,
             ),
             prefetch=PrefetchSettings.from_environment(environ),
-            floe=FloeManifestSettings.from_environment(environ, repo_root=repo_root),
+            floe=FloeManifestSettings.from_environment(environ, work_root=context.paths.work_root),
             force_foundation_down=_truthy(_env(environ, "LOCAL_FOUNDATION_FORCE_DOWN", "false")),
         )

@@ -23,6 +23,7 @@ def test_check_ops_artifacts_uses_configured_bucket_for_local(monkeypatch: pytes
         namespace="lakehouse",
         kube_context="kind-openlakeforge-local",
         repo_root=tmp_path,
+        distribution_root=tmp_path,
         foundation_terraform_dir=tmp_path / "foundation",
         contract_terraform_dir=tmp_path / "contract",
         inventory=E2E_INVENTORY,

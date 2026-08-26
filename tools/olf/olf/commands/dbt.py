@@ -23,18 +23,11 @@ def parse(
     namespace: str = typer.Option("", "--namespace", help="Kubernetes namespace override."),
     cluster_name: str = typer.Option("", "--cluster-name", help="Local kind cluster name override."),
     kubeconfig_path: str = typer.Option("", "--kubeconfig-path", help="Kubeconfig file path override."),
+    project_root: str = typer.Option("", "--project-root", help="Writable project root; defaults to the bundled demo."),
 ) -> None:
     """Render profiles, resolve dependencies, and parse projects using provider contracts."""
     from olf.commands.runtime import provider_contract_environment
 
-    root = config.repo_root()
-    if str(root) not in sys.path:
-        sys.path.insert(0, str(root))
-    from libs.dbt.render_profiles import discover_project_dirs, write_profile
-
-    projects = [Path(project_dir).resolve()] if project_dir else discover_project_dirs(root / "lakehouse_code/gold")
-    if not projects:
-        raise typer.Exit(code=fail("no product dbt projects found"))
     try:
         with provider_contract_environment(
             provider=provider,
@@ -42,7 +35,29 @@ def parse(
             namespace=namespace,
             cluster_name=cluster_name,
             kubeconfig_path=kubeconfig_path,
+            project_root=project_root,
         ):
+            # Resolved *inside* the contract environment: it's what sets
+            # OPENLAKEFORGE_REPO_ROOT/OLF_DISTRIBUTION_ROOT from
+            # --project-root in the first place, so reading these before
+            # entering it always resolved the ambient/default roots
+            # instead. `libs` is distribution-owned, not project-owned -
+            # a --project-root selection containing only lakehouse_code
+            # (per the image-build contract) has no `libs` of its own, so
+            # the distribution root must be on sys.path too, not just the
+            # project root.
+            root = config.repo_root()
+            distribution_root = config.distribution_root()
+            for path in (str(root), str(distribution_root)):
+                if path not in sys.path:
+                    sys.path.insert(0, path)
+            from libs.dbt.render_profiles import discover_project_dirs, write_profile
+
+            projects = (
+                [Path(project_dir).resolve()] if project_dir else discover_project_dirs(root / "lakehouse_code/gold")
+            )
+            if not projects:
+                raise typer.Exit(code=fail("no product dbt projects found"))
             tools = Toolkit.default()
             dbt = str(tools.resolver.resolve("dbt"))
             for project in projects:

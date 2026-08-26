@@ -10,6 +10,18 @@ variable "kubeconfig_path" {
   default     = null
 }
 
+variable "helm_repository_cache_path" {
+  description = "Optional Helm provider repository cache directory. Defaults to the repository-local .tmp/helm/local/repository-cache; an installed distribution's payload is read-only, so this must be overridden to a writable path under OLF_HOME."
+  type        = string
+  default     = null
+}
+
+variable "helm_repository_config_path" {
+  description = "Optional Helm provider repository config file. Defaults to the repository-local .tmp/helm/local/repositories.yaml; an installed distribution's payload is read-only, so this must be overridden to a writable path under OLF_HOME."
+  type        = string
+  default     = null
+}
+
 variable "kube_context" {
   description = "Fallback kubeconfig context for the local foundation cluster when the foundation state is not inspected by wrapper scripts."
   type        = string

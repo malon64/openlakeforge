@@ -457,6 +457,7 @@ def test_launch_and_poll_dagster_jobs_defaults_to_previous_shell_timeout(
         namespace="lakehouse",
         kube_context="kind-openlakeforge-local",
         repo_root=tmp_path,
+        distribution_root=tmp_path,
         foundation_terraform_dir=tmp_path / "foundation",
         contract_terraform_dir=tmp_path / "contract",
         inventory=E2E_INVENTORY,

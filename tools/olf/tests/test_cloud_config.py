@@ -76,15 +76,48 @@ def test_provider_prefixed_image_aliases_are_honored_after_generic_overrides() -
         assert generic_wins.project_code_tag == "generic"
 
 
+def _no_catalog_kwargs(tmp_path: Path) -> dict:
+    return {
+        "cache_root": tmp_path / "cache",
+        "catalog_path": tmp_path / "no-such-catalog.yaml",
+        "installed": False,
+    }
+
+
+def _write_catalog(tmp_path: Path, *, trino_sha256: str, dagster_sha256: str) -> Path:
+    catalog_path = tmp_path / "release/component-catalog.yaml"
+    catalog_path.parent.mkdir(parents=True, exist_ok=True)
+    catalog_path.write_text(
+        "components:\n"
+        "  helm:\n"
+        "    charts:\n"
+        "      trino:\n"
+        "        repository: https://trinodb.github.io/charts\n"
+        "        reference: trino/trino\n"
+        "        version: 1.42.2\n"
+        f"        sha256: {trino_sha256}\n"
+        "      dagster:\n"
+        "        repository: https://dagster-io.github.io/helm\n"
+        "        reference: dagster/dagster\n"
+        "        version: 1.13.6\n"
+        f"        sha256: {dagster_sha256}\n"
+    )
+    return catalog_path
+
+
 def test_chart_settings_defaults_trino_and_dagster_package_paths(tmp_path: Path) -> None:
     helm_cache_dir = tmp_path / "helm/aws/charts"
 
-    settings = CloudChartSettings.from_environment({}, helm_cache_dir=helm_cache_dir)
+    settings = CloudChartSettings.from_environment(
+        {}, helm_cache_dir=helm_cache_dir, **_no_catalog_kwargs(tmp_path)
+    )
 
     assert settings.trino_package_path == helm_cache_dir / "trino-1.42.2.tgz"
     assert settings.dagster_package_path == helm_cache_dir / "dagster-1.13.6-no-schema.tgz"
     assert settings.trino_chart_ref == "trino/trino"
     assert settings.dagster_chart_ref == "dagster/dagster"
+    assert settings.trino_sha256 is None
+    assert settings.dagster_sha256 is None
 
 
 def test_chart_settings_honors_explicit_package_path_overrides(tmp_path: Path) -> None:
@@ -97,10 +130,52 @@ def test_chart_settings_honors_explicit_package_path_overrides(tmp_path: Path) -
             "DAGSTER_CHART_PACKAGE_PATH": str(dagster_override),
         },
         helm_cache_dir=tmp_path / "helm/aws/charts",
+        **_no_catalog_kwargs(tmp_path),
     )
 
     assert settings.trino_package_path == trino_override
     assert settings.dagster_package_path == dagster_override
+
+
+def test_chart_settings_pins_digests_from_catalog_when_installed(tmp_path: Path) -> None:
+    """Mirrors the local provider's Trino digest pinning
+    (`olf.deployment.local.config.ChartSettings`): an installed
+    distribution must verify both cloud charts against the component
+    catalog, not accept whatever Helm downloads."""
+    trino_sha256 = "a" * 64
+    dagster_sha256 = "b" * 64
+    catalog_path = _write_catalog(tmp_path, trino_sha256=trino_sha256, dagster_sha256=dagster_sha256)
+    cache_root = tmp_path / "cache"
+
+    settings = CloudChartSettings.from_environment(
+        {},
+        helm_cache_dir=tmp_path / "helm/aws/charts",
+        cache_root=cache_root,
+        catalog_path=catalog_path,
+        installed=True,
+    )
+
+    assert settings.trino_sha256 == trino_sha256
+    assert settings.dagster_sha256 == dagster_sha256
+    assert settings.trino_package_path == cache_root / "helm" / f"{trino_sha256}.tgz"
+    assert settings.dagster_package_path == cache_root / "helm" / f"{dagster_sha256}-no-schema.tgz"
+    assert settings.trino_version == "1.42.2"
+    assert settings.dagster_version == "1.13.6"
+
+
+def test_chart_settings_does_not_pin_digests_in_source_mode_even_with_a_catalog(tmp_path: Path) -> None:
+    catalog_path = _write_catalog(tmp_path, trino_sha256="a" * 64, dagster_sha256="b" * 64)
+
+    settings = CloudChartSettings.from_environment(
+        {},
+        helm_cache_dir=tmp_path / "helm/aws/charts",
+        cache_root=tmp_path / "cache",
+        catalog_path=catalog_path,
+        installed=False,
+    )
+
+    assert settings.trino_sha256 is None
+    assert settings.dagster_sha256 is None
 
 
 def test_aws_terraform_settings_uses_default_tfvars_only_if_it_exists(tmp_path: Path) -> None:
@@ -185,6 +260,32 @@ def test_default_image_tag_falls_back_to_utc_timestamp_outside_a_git_repo(tmp_pa
     assert re.fullmatch(r"aws-\d{14}", tag), tag
 
 
+def test_default_image_tag_prefers_a_stable_distribution_identity_over_a_timestamp(tmp_path: Path) -> None:
+    """An installed, non-git project root (the bundled demo, or a plain
+    --project-root folder) must not fall back to the wall-clock timestamp:
+    separate `olf deploy --phase platform` and `--phase artifacts` are
+    separate CLI invocations, so a fresh timestamp each time would leave
+    platform configuring Dagster with one tag while artifacts builds and
+    pushes a different one - the code server could never pull it."""
+    digest = "a" * 64
+    payload = tmp_path / "distributions/0.1.0-alpha.1" / digest / "payload"
+    payload.mkdir(parents=True)
+
+    first = default_image_tag(payload, scope="aws", distribution_root=payload)
+    second = default_image_tag(payload, scope="aws", distribution_root=payload)
+
+    assert first == second
+    assert first == f"aws-{digest[:12]}"
+
+
+def test_default_image_tag_ignores_a_distribution_root_that_is_not_content_addressed(tmp_path: Path) -> None:
+    """A source checkout's distribution_root == repo_root, so its parent
+    directory name is arbitrary - must not be mistaken for a payload digest."""
+    tag = default_image_tag(tmp_path, scope="aws", distribution_root=tmp_path)
+
+    assert re.fullmatch(r"aws-\d{14}", tag), tag
+
+
 def test_cloud_deployment_config_from_environment_builds_full_config(tmp_path: Path) -> None:
     context = DeploymentContext.aws(repo_root=tmp_path)
 
@@ -206,6 +307,37 @@ def test_cloud_deployment_config_var_file_argument_overrides_resolved_default_fo
 
     assert config.terraform.var_file == explicit
     assert config.terraform.foundation_var_file == explicit
+
+
+def test_relative_var_file_resolves_against_the_writable_project_not_the_payload(tmp_path: Path) -> None:
+    """A relative `--var-file` is the user's own account/tag tfvars - for an
+    installed deployment with `--project-root`, that file lives in the
+    user's writable project, never inside the read-only distribution
+    payload. Regression test: this used to resolve against
+    distribution_root, pointing at a file that can't exist there.
+    """
+    project = tmp_path / "project"
+    distribution = tmp_path / "distribution"
+    project.mkdir()
+    distribution.mkdir()
+    context = DeploymentContext.aws(repo_root=project, distribution_root=distribution)
+
+    config = CloudDeploymentConfig.from_environment({}, context=context, var_file=Path("sandbox.tfvars"))
+
+    assert config.terraform.var_file == project / "sandbox.tfvars"
+    assert config.terraform.foundation_var_file == project / "sandbox.tfvars"
+
+
+def test_relative_aws_tfvars_file_env_var_resolves_against_the_writable_project(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    distribution = tmp_path / "distribution"
+    project.mkdir()
+    distribution.mkdir()
+    context = DeploymentContext.aws(repo_root=project, distribution_root=distribution)
+
+    config = CloudDeploymentConfig.from_environment({"AWS_TFVARS_FILE": "sandbox.tfvars"}, context=context)
+
+    assert config.terraform.var_file == project / "sandbox.tfvars"
 
 
 def test_cloud_deployment_config_var_file_argument_resolves_relative_paths_against_repo_root(

@@ -13,7 +13,7 @@ issue #125's AWS/Azure providers reuse it unmodified.
 from __future__ import annotations
 
 import os
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -29,9 +29,21 @@ def applied_contract_environment(
     kube_context: str,
     kubeconfig_path: Path,
     port_forward_log_prefix: Path,
+    environ: Mapping[str, str] | None = None,
 ) -> Iterator[dict[str, str]]:
-    provider_contracts = contracts.load_provider_contracts(str(contract_terraform_dir))
-    exports, unsets = contracts.build_contract_env(os.environ, provider_contracts, repo_root=repo_root)
+    # Contract reads are Terraform operations too.  Start with the process
+    # environment and overlay the provider's scoped command environment so an
+    # installed wheel uses its extracted catalog and external state rather
+    # than resolving either from the current checkout.
+    base = dict(os.environ)
+    if environ is not None:
+        base.update(environ)
+    provider_contracts = (
+        contracts.load_provider_contracts(str(contract_terraform_dir), environ=base)
+        if environ
+        else contracts.load_provider_contracts(str(contract_terraform_dir))
+    )
+    exports, unsets = contracts.build_contract_env(base, provider_contracts, repo_root=repo_root)
 
     extra = {
         "OPENLAKEFORGE_REPO_ROOT": str(repo_root),
@@ -42,7 +54,7 @@ def applied_contract_environment(
     }
 
     previous: dict[str, str | None] = {}
-    applied = {**exports, **extra}
+    applied = {**base, **exports, **extra}
     for name, value in applied.items():
         previous[name] = os.environ.get(name)
         os.environ[name] = value

@@ -19,7 +19,7 @@ def test_sync_catalog_namespaces_wraps_typer_exit(monkeypatch: pytest.MonkeyPatc
     def _raises_exit(*, dry_run: bool, prune: Any) -> None:  # noqa: ARG001
         raise typer.Exit(code=1)
 
-    monkeypatch.setattr("olf.commands.catalog.catalog_sync_namespaces", _raises_exit)
+    monkeypatch.setattr("olf.commands.catalog.sync_namespaces", _raises_exit)
 
     with pytest.raises(artifact_steps.ArtifactOperationError):
         artifact_steps.sync_catalog_namespaces()

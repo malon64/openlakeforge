@@ -44,6 +44,7 @@ def e2e_cfg(tmp_path: Path, env: Environment = "local", suite: Suite = "full") -
         namespace="lakehouse",
         kube_context="kind-openlakeforge-local",
         repo_root=tmp_path,
+        distribution_root=tmp_path,
         foundation_terraform_dir=tmp_path / "foundation",
         contract_terraform_dir=tmp_path / "contract",
         inventory=E2E_INVENTORY,

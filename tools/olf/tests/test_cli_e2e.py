@@ -18,7 +18,7 @@ def _no_real_contract_resolution(monkeypatch: pytest.MonkeyPatch) -> None:
     """
     from olf import contracts as contracts_module
 
-    monkeypatch.setattr(contracts_module, "load_provider_contracts", lambda terraform_dir: None)
+    monkeypatch.setattr(contracts_module, "load_provider_contracts", lambda terraform_dir, *, environ=None: None)
     monkeypatch.setattr(
         contracts_module, "build_contract_env", lambda base, contracts_value, *, repo_root: ({}, [])
     )
@@ -43,7 +43,7 @@ def test_e2e_run_is_self_sufficient_no_shell_wrapper_needed(
 ) -> None:
     calls: list[dict] = []
 
-    def _fake_run(env, *, suite, namespace, kube_context, repo_root):  # noqa: ANN001
+    def _fake_run(env, *, suite, namespace, kube_context, repo_root, distribution_root):  # noqa: ANN001
         calls.append(
             {"env": env, "suite": suite, "namespace": namespace, "kube_context": kube_context, "repo_root": repo_root}
         )
@@ -76,7 +76,7 @@ def test_e2e_run_falls_back_to_provider_cluster_name_when_kube_context_unset(
     """
     calls: list[dict] = []
 
-    def _fake_run(env, *, suite, namespace, kube_context, repo_root):  # noqa: ANN001
+    def _fake_run(env, *, suite, namespace, kube_context, repo_root, distribution_root):  # noqa: ANN001
         calls.append({"kube_context": kube_context})
 
     monkeypatch.setenv("OPENLAKEFORGE_REPO_ROOT", str(tmp_path))
@@ -101,7 +101,7 @@ def test_e2e_run_honors_provider_kubeconfig_path_override(monkeypatch: pytest.Mo
     override = tmp_path / "custom/aws-kubeconfig.yaml"
     seen: dict = {}
 
-    def _fake_run(env, *, suite, namespace, kube_context, repo_root):  # noqa: ANN001, ARG001
+    def _fake_run(env, *, suite, namespace, kube_context, repo_root, distribution_root):  # noqa: ANN001, ARG001
         seen["kubeconfig"] = os.environ.get("KUBECONFIG")
 
     monkeypatch.setenv("OPENLAKEFORGE_REPO_ROOT", str(tmp_path))
@@ -113,6 +113,74 @@ def test_e2e_run_honors_provider_kubeconfig_path_override(monkeypatch: pytest.Mo
 
     assert result.exit_code == 0, result.output
     assert seen["kubeconfig"] == str(override)
+
+
+def test_e2e_run_resolves_installed_layout_via_deployment_context(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """An installed distribution's project root (the bundled demo, or
+    `--project-root`) is not where its Terraform roots or kubeconfig live -
+    both must come from the same `DeploymentContext` `olf deploy` builds
+    (`distribution_root`, `context.paths.platform_terraform_dir`,
+    `context.paths.kubeconfig_path`), not from the caller's current
+    directory. This exercises `deployment_context` being called with
+    `--project-root` and every downstream default following the returned
+    context's paths instead of `config.repo_root()`."""
+    from olf import contracts as contracts_module
+    from olf.deployment.context import DeploymentContext
+
+    project_root = tmp_path / "project"
+    distribution_root = tmp_path / "distribution"
+    context = DeploymentContext.local(
+        repo_root=project_root,
+        distribution_root=distribution_root,
+        state_root=tmp_path / "state",
+        work_root=tmp_path / "work",
+        cache_root=tmp_path / "cache",
+    )
+
+    captured_context_call: dict = {}
+
+    def _fake_deployment_context(env_arg, *, profile, namespace, cluster_name, project_root):  # noqa: ANN001
+        captured_context_call.update(
+            env=env_arg, profile=profile, namespace=namespace, cluster_name=cluster_name, project_root=project_root
+        )
+        return context
+
+    contract_dirs_seen: list[str] = []
+
+    def _fake_load_contracts(terraform_dir, *, environ=None):  # noqa: ANN001, ARG001
+        contract_dirs_seen.append(terraform_dir)
+        return None
+
+    monkeypatch.setattr("olf.commands.e2e.deployment_context", _fake_deployment_context)
+    monkeypatch.setattr(contracts_module, "load_provider_contracts", _fake_load_contracts)
+
+    calls: list[dict] = []
+
+    def _fake_run(env, *, suite, namespace, kube_context, repo_root, distribution_root):  # noqa: ANN001
+        calls.append(
+            {
+                "repo_root": repo_root,
+                "distribution_root": distribution_root,
+                "kubeconfig": os.environ.get("KUBECONFIG"),
+            }
+        )
+
+    monkeypatch.setattr("olf.e2e.run", _fake_run)
+
+    result = runner.invoke(app, ["e2e", "run", "--env", "local", "--project-root", str(project_root)])
+
+    assert result.exit_code == 0, result.output
+    assert captured_context_call["project_root"] == str(project_root)
+    assert contract_dirs_seen == [str(context.paths.platform_terraform_dir)]
+    assert calls == [
+        {
+            "repo_root": context.paths.repo_root,
+            "distribution_root": context.paths.distribution_root,
+            "kubeconfig": str(context.paths.kubeconfig_path),
+        }
+    ]
 
 
 def test_e2e_run_maps_e2e_error_to_exit_1(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -140,7 +208,7 @@ def test_e2e_run_surfaces_a_toolchain_failure_from_contract_resolution_cleanly(
     from olf import contracts as contracts_module
     from olf.deployment.errors import ToolchainError
 
-    def _raise(terraform_dir):  # noqa: ANN001, ANN202
+    def _raise(terraform_dir, *, environ=None):  # noqa: ANN001, ANN202
         raise ToolchainError("terraform", reason="digest mismatch")
 
     monkeypatch.setattr(contracts_module, "load_provider_contracts", _raise)

@@ -25,6 +25,7 @@ def generate_manifests(
     namespace: str = typer.Option("", "--namespace", help="Kubernetes namespace override."),
     cluster_name: str = typer.Option("", "--cluster-name", help="Local kind cluster name override."),
     kubeconfig_path: str = typer.Option("", "--kubeconfig-path", help="Kubeconfig file path override."),
+    project_root: str = typer.Option("", "--project-root", help="Writable project root; defaults to the bundled demo."),
 ) -> None:
     """Generate Floe manifests using resolved provider contracts, never shell exports."""
     from olf.commands.deployment import _build_context, _build_engine
@@ -42,18 +43,26 @@ def generate_manifests(
             namespace=namespace,
             cluster_name=cluster_name,
             kubeconfig_path=kubeconfig_path,
+            project_root=project_root,
         )
         engine = _build_engine(context, var_file="")
         deployment_provider = engine.provider
         if isinstance(deployment_provider, LocalProvider):
+            # environ=deployment_provider.env: an installed distribution's
+            # state/data roots live under OLF_HOME, not next to the
+            # contract Terraform dir - without this, the contract read
+            # silently falls back to bare os.environ and always resolves
+            # to "no contracts yet", even after a real platform apply.
             with applied_contract_environment(
                 deployment_provider.config,
                 contract_terraform_dir=_contract_terraform_dir(context.paths.platform_terraform_dir),
+                environ=deployment_provider.env,
             ) as contract_environ:
                 generate_local_manifests(
                     deployment_provider.config.floe,
                     deployment_provider.tools,
                     repo_root=context.paths.repo_root,
+                    distribution_root=context.paths.distribution_root,
                     namespace=context.namespace,
                     governance_enabled=context.features.governance_enabled,
                     environ=contract_environ,
@@ -68,11 +77,13 @@ def generate_manifests(
                 kube_context=facts.kube_context,
                 kubeconfig_path=context.paths.kubeconfig_path,
                 port_forward_log_prefix=context.paths.port_forward_log_prefix,
+                environ=deployment_provider.env,
             ) as contract_environ:
                 deployment_provider.backend.generate_floe_manifests(
                     deployment_provider.config,
                     deployment_provider.tools,
                     repo_root=context.paths.repo_root,
+                    distribution_root=context.paths.distribution_root,
                     namespace=context.namespace,
                     governance_enabled=context.features.governance_enabled,
                     environ=contract_environ,

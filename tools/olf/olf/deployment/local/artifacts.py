@@ -45,7 +45,10 @@ __all__ = [
 
 @contextmanager
 def applied_contract_environment(
-    config: LocalDeploymentConfig, *, contract_terraform_dir: Path | None = None
+    config: LocalDeploymentConfig,
+    *,
+    contract_terraform_dir: Path | None = None,
+    environ: Mapping[str, str] | None = None,
 ) -> Iterator[dict[str, str]]:
     """Apply the resolved provider-contract environment onto `os.environ`.
 
@@ -56,7 +59,7 @@ def applied_contract_environment(
     library modules (`olf.k8s`, `olf.config`, `olf.s3`, `olf.layers`).
     """
     resolved_contract_terraform_dir = contract_terraform_dir or Path(
-        os.environ.get("OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR", config.paths.platform_terraform_dir)
+        (environ or os.environ).get("OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR", config.paths.platform_terraform_dir)
     ).resolve()
     with contract_env.applied_contract_environment(
         contract_terraform_dir=resolved_contract_terraform_dir,
@@ -65,12 +68,14 @@ def applied_contract_environment(
         kube_context=config.kube_context,
         kubeconfig_path=config.paths.kubeconfig_path,
         port_forward_log_prefix=config.paths.port_forward_log_prefix,
+        environ=environ,
     ) as env:
         yield env
 
 
 def artifacts_deploy(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[str, str]) -> None:
-    with applied_contract_environment(config) as contract_environ:
+    contract_kwargs = {"environ": env} if env else {}
+    with applied_contract_environment(config, **contract_kwargs) as contract_environ:
         log.step("Reconciling Polaris namespaces from the domain descriptors...")
         sync_catalog_namespaces()
 
@@ -79,6 +84,7 @@ def artifacts_deploy(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapp
             config.floe,
             tools,
             repo_root=config.paths.repo_root,
+            distribution_root=config.paths.distribution_root,
             namespace=config.namespace,
             governance_enabled=config.features.governance_enabled,
             environ=contract_environ,

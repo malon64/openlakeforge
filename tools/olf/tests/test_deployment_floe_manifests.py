@@ -75,6 +75,7 @@ def test_generate_local_manifests_uses_checked_in_profile_when_governance_enable
         settings,
         tools,
         repo_root=repo_root,
+        distribution_root=repo_root,
         namespace="lakehouse",
         governance_enabled=True,
         environ={},
@@ -98,6 +99,7 @@ def test_generate_local_manifests_renders_profile_when_governance_disabled(tmp_p
         settings,
         tools,
         repo_root=repo_root,
+        distribution_root=repo_root,
         namespace="lakehouse",
         governance_enabled=False,
         environ={"OPENLAKEFORGE_GOVERNANCE_ENABLED": "false"},
@@ -116,7 +118,14 @@ def test_generate_local_manifests_runs_validate_then_generate_via_docker(tmp_pat
     tools = _toolkit(runner)
 
     floe_manifests.generate_local_manifests(
-        settings, tools, repo_root=repo_root, namespace="lakehouse", governance_enabled=True, environ={}, env={}
+        settings,
+        tools,
+        repo_root=repo_root,
+        distribution_root=repo_root,
+        namespace="lakehouse",
+        governance_enabled=True,
+        environ={},
+        env={},
     )
 
     subcommands = [call.argv[call.argv.index(settings.image) + 1] for call in runner.calls]
@@ -140,12 +149,111 @@ def test_generate_local_manifests_makes_manifest_dir_writable_by_the_container_u
     tools = _toolkit(RecordingRunner(CommandResult(argv=(), returncode=0, stdout="", stderr="", duration_seconds=0.0)))
 
     floe_manifests.generate_local_manifests(
-        settings, tools, repo_root=repo_root, namespace="lakehouse", governance_enabled=True, environ={}, env={}
+        settings,
+        tools,
+        repo_root=repo_root,
+        distribution_root=repo_root,
+        namespace="lakehouse",
+        governance_enabled=True,
+        environ={},
+        env={},
     )
 
     manifest_dir = settings.runtime_artifact_dir / "manifests/orders"
     mode = stat.S_IMODE(manifest_dir.stat().st_mode)
     assert mode == 0o777
+
+
+def test_generate_local_manifests_mounts_runtime_root_outside_repo_root(tmp_path: Path) -> None:
+    """An installed distribution's `runtime_artifact_dir` lives under
+    `OLF_HOME/work`, outside the read-only payload `repo_root` resolves to -
+    generated config/manifest paths must route through a `/runtime` mount
+    rather than an absolute host path the Floe container never sees."""
+    repo_root = _make_repo(tmp_path)
+    runtime_root = tmp_path / "olf-home" / "work" / "floe-runtime" / "local"
+    settings = FloeManifestSettings(
+        version="0.6.11",
+        image="ghcr.io/malon64/floe:0.6.11",
+        runtime="image",
+        runtime_artifact_dir=runtime_root,
+        platform=None,
+    )
+    runner = RecordingRunner(CommandResult(argv=(), returncode=0, stdout="", stderr="", duration_seconds=0.0))
+    tools = _toolkit(runner)
+
+    manifests = floe_manifests.generate_local_manifests(
+        settings,
+        tools,
+        repo_root=repo_root,
+        distribution_root=repo_root,
+        namespace="lakehouse",
+        governance_enabled=True,
+        environ={},
+        env={},
+    )
+
+    assert manifests == [runtime_root / "manifests/orders/orders.manifest.json"]
+    validate_call = runner.calls[0]
+    assert f"{repo_root}:/work" in validate_call.argv
+    assert f"{runtime_root}:/runtime" in validate_call.argv
+    config_flag_index = validate_call.argv.index("-c") + 1
+    assert validate_call.argv[config_flag_index] == "/runtime/configs/orders/orders.yml"
+    # RenderedProfileStrategy always copies the (checked-in or rendered)
+    # profile into runtime_root/profiles/<domain>/, so even the governance
+    # case resolves through /runtime, not /work.
+    profile_flag_index = validate_call.argv.index("-p") + 1
+    assert validate_call.argv[profile_flag_index] == "/runtime/profiles/orders/local-k8s.yml"
+
+    generate_call = runner.calls[1]
+    output_flag_index = generate_call.argv.index("--output") + 1
+    assert generate_call.argv[output_flag_index] == "/runtime/manifests/orders/orders.manifest.json"
+
+
+def test_generate_local_manifests_mounts_rendered_profile_under_runtime_root(tmp_path: Path) -> None:
+    """A rendered (non-governance, non-default-namespace) profile also lives
+    under `runtime_artifact_dir` and must resolve through `/runtime`, not
+    `/work`, once the runtime root is outside `repo_root`."""
+    repo_root = _make_repo(tmp_path)
+    runtime_root = tmp_path / "olf-home" / "work" / "floe-runtime" / "local"
+    settings = FloeManifestSettings(
+        version="0.6.11",
+        image="ghcr.io/malon64/floe:0.6.11",
+        runtime="image",
+        runtime_artifact_dir=runtime_root,
+        platform=None,
+    )
+    runner = RecordingRunner(CommandResult(argv=(), returncode=0, stdout="", stderr="", duration_seconds=0.0))
+    tools = _toolkit(runner)
+
+    floe_manifests.generate_local_manifests(
+        settings,
+        tools,
+        repo_root=repo_root,
+        distribution_root=repo_root,
+        namespace="lakehouse",
+        governance_enabled=False,
+        environ={"OPENLAKEFORGE_GOVERNANCE_ENABLED": "false"},
+        env={},
+    )
+
+    validate_call = runner.calls[0]
+    profile_flag_index = validate_call.argv.index("-p") + 1
+    assert validate_call.argv[profile_flag_index] == "/runtime/profiles/orders/local-k8s.yml"
+
+
+def test_mounted_container_path_prefers_runtime_root_then_falls_back_to_work(tmp_path: Path) -> None:
+    from olf.deployment.floe_manifests import _mounted_container_path
+
+    repo_root = tmp_path / "repo"
+    runtime_root = tmp_path / "olf-home" / "work" / "floe-runtime" / "local"
+
+    def _mount(path: Path) -> str:
+        return _mounted_container_path(path, repo_root=repo_root, runtime_root=runtime_root)
+
+    assert _mount(runtime_root) == "/runtime"
+    assert _mount(runtime_root / "manifests/orders/orders.json") == "/runtime/manifests/orders/orders.json"
+    assert _mount(repo_root / "libs/floe/profiles/local-k8s.yml") == "/work/libs/floe/profiles/local-k8s.yml"
+    assert _mount(repo_root) == "/work"
 
 
 def test_generate_local_manifests_raises_when_no_configs_found(tmp_path: Path) -> None:
@@ -158,7 +266,14 @@ def test_generate_local_manifests_raises_when_no_configs_found(tmp_path: Path) -
 
     with pytest.raises(DeploymentPreconditionError):
         floe_manifests.generate_local_manifests(
-            settings, tools, repo_root=repo_root, namespace="lakehouse", governance_enabled=True, environ={}, env={}
+            settings,
+        tools,
+        repo_root=repo_root,
+        distribution_root=repo_root,
+        namespace="lakehouse",
+        governance_enabled=True,
+        environ={},
+        env={},
         )
 
 
@@ -170,7 +285,14 @@ def test_generate_local_manifests_rejects_multiple_configs_for_one_domain(tmp_pa
 
     with pytest.raises(DeploymentPreconditionError, match="duplicate configs found for: orders"):
         floe_manifests.generate_local_manifests(
-            settings, tools, repo_root=repo_root, namespace="lakehouse", governance_enabled=True, environ={}, env={}
+            settings,
+        tools,
+        repo_root=repo_root,
+        distribution_root=repo_root,
+        namespace="lakehouse",
+        governance_enabled=True,
+        environ={},
+        env={},
         )
 
 

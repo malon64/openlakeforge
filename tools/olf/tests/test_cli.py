@@ -1,4 +1,4 @@
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -56,6 +56,20 @@ def test_superset_deploy_reports_hydrates_selected_provider_contracts(monkeypatc
     assert result.exit_code == 0
     assert options["provider"] == "aws"
     assert calls == ["reports"]
+
+
+def test_superset_deploy_reports_threads_a_custom_project_root(monkeypatch: pytest.MonkeyPatch) -> None:
+    options: dict[str, str] = {}
+    monkeypatch.setattr(
+        "olf.commands.runtime.provider_contract_environment",
+        lambda **kwargs: options.update(kwargs) or nullcontext(),
+    )
+    monkeypatch.setattr("olf.commands.superset.deploy_superset_reports", lambda: None)
+
+    result = runner.invoke(app, ["superset", "deploy-reports", "--project-root", "/srv/my-project"])
+
+    assert result.exit_code == 0
+    assert options["project_root"] == "/srv/my-project"
 
 
 def test_openmetadata_deploy_hydrates_selected_provider_contracts(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -149,8 +163,93 @@ def test_dbt_parse_hydrates_selected_provider_contracts(monkeypatch: pytest.Monk
         "namespace": "custom-lakehouse",
         "cluster_name": "",
         "kubeconfig_path": "",
+        "project_root": "",
     }
     assert commands[-1][-2:] == ["--target", "aws_runtime"]
+
+
+def test_dbt_parse_discovers_projects_under_the_contract_environments_repo_root(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Project discovery must read config.repo_root() *after* entering the
+    contract environment, since that's what applies --project-root's
+    OPENLAKEFORGE_REPO_ROOT - reading it beforehand always resolved the
+    ambient/default root instead of a custom --project-root selection.
+    """
+    project_root = tmp_path / "custom-project"
+    project = project_root / "lakehouse_code/gold/demo/dbt"
+    project.mkdir(parents=True)
+    (project / "dbt_project.yml").write_text("name: demo\nprofile: demo\n")
+    commands: list[list[str]] = []
+
+    class Runner:
+        def run(self, argv, **kwargs):  # noqa: ANN001, ANN003
+            commands.append(argv)
+
+    class Resolver:
+        def resolve(self, name: str) -> Path:
+            assert name == "dbt"
+            return Path("dbt")
+
+    tools = SimpleNamespace(runner=Runner(), resolver=Resolver())
+
+    @contextmanager
+    def fake_provider_contract_environment(**kwargs):  # noqa: ANN003, ANN202
+        monkeypatch.setenv("OPENLAKEFORGE_REPO_ROOT", kwargs["project_root"])
+        yield
+
+    monkeypatch.setattr("olf.commands.runtime.provider_contract_environment", fake_provider_contract_environment)
+    monkeypatch.setattr("olf.commands.dbt.Toolkit.default", lambda: tools)
+
+    result = runner.invoke(app, ["dbt", "parse", "--project-root", str(project_root)])
+
+    assert result.exit_code == 0
+    assert commands[-1][-2:] == ["--target", "local_runtime"]
+    assert str(project) in commands[-1]
+
+
+def test_dbt_parse_imports_libs_from_the_distribution_root_not_the_project_root(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """`libs` is distribution-owned, not project-owned.
+
+    A --project-root selection built per the image-build contract (only
+    lakehouse_code, libs supplied by the distribution) must still resolve
+    `from libs.dbt.render_profiles import ...` - only inserting the
+    project root on sys.path leaves that import unresolvable.
+    """
+    distribution_root = Path(__file__).resolve().parents[3]
+    project_root = tmp_path / "custom-project"
+    project = project_root / "lakehouse_code/gold/demo/dbt"
+    project.mkdir(parents=True)
+    (project / "dbt_project.yml").write_text("name: demo\nprofile: demo\n")
+    commands: list[list[str]] = []
+
+    class Runner:
+        def run(self, argv, **kwargs):  # noqa: ANN001, ANN003
+            commands.append(argv)
+
+    class Resolver:
+        def resolve(self, name: str) -> Path:
+            assert name == "dbt"
+            return Path("dbt")
+
+    tools = SimpleNamespace(runner=Runner(), resolver=Resolver())
+
+    @contextmanager
+    def fake_provider_contract_environment(**kwargs):  # noqa: ANN003, ANN202
+        monkeypatch.setenv("OPENLAKEFORGE_REPO_ROOT", kwargs["project_root"])
+        monkeypatch.setenv("OLF_DISTRIBUTION_ROOT", str(distribution_root))
+        yield
+
+    monkeypatch.setattr("olf.commands.runtime.provider_contract_environment", fake_provider_contract_environment)
+    monkeypatch.setattr("olf.commands.dbt.Toolkit.default", lambda: tools)
+
+    result = runner.invoke(app, ["dbt", "parse", "--project-root", str(project_root)])
+
+    assert result.exit_code == 0
+    assert (project / "profiles.yml").is_file()
+    assert commands[-1][-2:] == ["--target", "local_runtime"]
 
 
 def test_dbt_parse_selects_outputs_declared_by_provider_profiles() -> None:
@@ -173,7 +272,9 @@ def test_floe_generation_passes_the_selected_namespace_to_the_local_profile(
         env = {}
 
     context = SimpleNamespace(
-        paths=SimpleNamespace(repo_root=tmp_path, platform_terraform_dir=tmp_path / "contracts"),
+        paths=SimpleNamespace(
+            repo_root=tmp_path, distribution_root=tmp_path, platform_terraform_dir=tmp_path / "contracts"
+        ),
         namespace="custom-lakehouse",
         features=SimpleNamespace(governance_enabled=True),
     )
@@ -200,6 +301,7 @@ def test_floe_generation_passes_the_selected_namespace_to_the_local_profile(
     assert generated == [
         {
             "repo_root": tmp_path,
+            "distribution_root": tmp_path,
             "namespace": "custom-lakehouse",
             "governance_enabled": True,
             "environ": {},
@@ -228,6 +330,7 @@ def test_floe_generation_honors_custom_contract_root_for_cloud(
     context = SimpleNamespace(
         paths=SimpleNamespace(
             repo_root=tmp_path,
+            distribution_root=tmp_path,
             platform_terraform_dir=tmp_path / "default-contracts",
             kubeconfig_path=tmp_path / "kubeconfig.yaml",
             port_forward_log_prefix=tmp_path / "port-forward",
@@ -252,6 +355,7 @@ def test_floe_generation_honors_custom_contract_root_for_cloud(
     assert captured["contract_terraform_dir"] == contract_root
     assert captured["generation"] == {
         "repo_root": tmp_path,
+        "distribution_root": tmp_path,
         "namespace": "custom-lakehouse",
         "governance_enabled": True,
         "environ": {},
@@ -380,6 +484,7 @@ def test_catalog_sync_namespaces_dispatches_to_glue_for_aws_glue_provider(
     monkeypatch.setattr(
         catalog, "_sync_polaris_namespaces", lambda **kwargs: calls.append({"backend": "polaris"})
     )
+    monkeypatch.setattr("olf.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
 
     result = runner.invoke(app, ["catalog", "sync-namespaces", "--dry-run"])
 
@@ -402,6 +507,7 @@ def test_catalog_sync_namespaces_dispatches_to_polaris_by_default(monkeypatch: p
     monkeypatch.setattr(
         catalog, "_sync_glue_namespaces", lambda **kwargs: calls.append({"backend": "glue"})
     )
+    monkeypatch.setattr("olf.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
 
     result = runner.invoke(app, ["catalog", "sync-namespaces", "--prune"])
 
@@ -421,6 +527,7 @@ def test_catalog_sync_namespaces_treats_false_prune_environment_as_disabled(
         "_sync_polaris_namespaces",
         lambda *, desired, dry_run, prune: calls.append({"dry_run": dry_run, "prune": prune}),
     )
+    monkeypatch.setattr("olf.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
 
     result = runner.invoke(app, ["catalog", "sync-namespaces"])
 
@@ -435,9 +542,34 @@ def test_catalog_sync_namespaces_rejects_an_unknown_provider(monkeypatch: pytest
     monkeypatch.setenv("OPENLAKEFORGE_CATALOG_PROVIDER", "snowflake")
     monkeypatch.setattr(catalog, "_sync_polaris_namespaces", lambda **kwargs: calls.append("polaris"))
     monkeypatch.setattr(catalog, "_sync_glue_namespaces", lambda **kwargs: calls.append("glue"))
+    monkeypatch.setattr("olf.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
 
     result = runner.invoke(app, ["catalog", "sync-namespaces"])
 
     assert result.exit_code == 1
     assert calls == []
     assert "snowflake" in result.output
+
+
+def test_catalog_sync_namespaces_hydrates_selected_provider_contracts(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`olf catalog sync-namespaces` is a standalone Phase 2 command, same as
+    `olf superset deploy-reports` etc. - it must hydrate the selected
+    provider/project's contract environment before reading domain
+    descriptors, not just the installed default.
+    """
+    from olf.commands import catalog
+
+    options: dict[str, str] = {}
+    monkeypatch.setattr(
+        "olf.commands.runtime.provider_contract_environment",
+        lambda **kwargs: options.update(kwargs) or nullcontext(),
+    )
+    monkeypatch.setattr(catalog, "_sync_polaris_namespaces", lambda **kwargs: None)
+
+    result = runner.invoke(
+        app, ["catalog", "sync-namespaces", "--provider", "aws", "--project-root", "/srv/my-project"]
+    )
+
+    assert result.exit_code == 0
+    assert options["provider"] == "aws"
+    assert options["project_root"] == "/srv/my-project"

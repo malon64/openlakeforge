@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import typer
 
+from olf.commands._project import writable_project_root
 from olf.commands._shared import fail
 from olf.scaffold._commit import commit_plan
 from olf.scaffold._shared import ScaffoldError, parse_source_resource
@@ -28,15 +27,15 @@ def product_new(
     ),
     gold_table: list[str] = typer.Option(..., "--gold-table", help="A Gold mart this product produces. Repeatable."),
     with_report: bool = typer.Option(False, "--with-report", help="Also scaffold a Superset report skeleton."),
-    repo_root: str = typer.Option(".", "--repo-root", help="Repository root."),
+    repo_root: str = typer.Option("", "--repo-root", help="Writable project root."),
 ) -> None:
     """Generate a new Product: a dbt Gold project and a Dagster product
     module, referencing existing domain Silver tables (--silver-input)
     and/or newly-declared ones (--input). Never generates a second dlt
     Bronze loader for a source resource that already exists. Creates the
     domain inline (via --input) when DOMAIN is not declared yet."""
-    root = Path(repo_root).resolve()
     try:
+        root = writable_project_root(repo_root)
         inputs = tuple(parse_source_resource(value) for value in input_)
         plan = plan_product_new(
             root,
@@ -48,7 +47,7 @@ def product_new(
             with_report=with_report,
         )
         commit_plan(root, plan)
-    except ScaffoldError as exc:
+    except (RuntimeError, ScaffoldError) as exc:
         raise typer.Exit(code=fail(str(exc))) from exc
     for line in plan.summary:
         typer.echo(line)

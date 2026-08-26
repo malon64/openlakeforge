@@ -74,3 +74,28 @@ def test_restores_environment_even_when_the_block_raises(monkeypatch: pytest.Mon
             raise RuntimeError("boom")
 
     assert "OPENLAKEFORGE_CATALOG_NAME" not in os.environ
+
+
+def test_uses_the_scoped_environment_for_contract_terraform(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    observed: dict[str, str] = {}
+
+    def _load(terraform_dir: str, *, environ: dict[str, str]) -> None:
+        observed.update(environ)
+        assert terraform_dir == str(tmp_path / "infra/terraform/environments/aws-poc")
+        return None
+
+    monkeypatch.setattr(contracts_module, "load_provider_contracts", _load)
+    monkeypatch.setattr(contracts_module, "build_contract_env", lambda *args, **kwargs: ({}, []))
+
+    with contract_env.applied_contract_environment(
+        **_kwargs(tmp_path),
+        environ={
+            "OLF_DISTRIBUTION_ROOT": str(tmp_path / "payload"),
+            "OPENLAKEFORGE_TERRAFORM_STATE_ROOT": str(tmp_path / "state/aws"),
+            "OPENLAKEFORGE_TERRAFORM_DATA_ROOT": str(tmp_path / "work/aws/terraform-data"),
+        },
+    ) as env:
+        assert env["OLF_DISTRIBUTION_ROOT"] == str(tmp_path / "payload")
+
+    assert observed["OLF_DISTRIBUTION_ROOT"] == str(tmp_path / "payload")
+    assert observed["OPENLAKEFORGE_TERRAFORM_STATE_ROOT"] == str(tmp_path / "state/aws")

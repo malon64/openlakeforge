@@ -77,19 +77,17 @@ Make sure Docker is available from your shell:
 docker ps
 ```
 
-Then clone OpenLakeForge and check the toolchain before deploying:
+Install the release and check the toolchain before deploying:
 
 ```bash
-git clone https://github.com/malon64/openlakeforge.git
-cd openlakeforge
-
-uv run --project tools/olf --locked olf doctor --provider local --profile slim
+uv tool install "openlakeforge==0.1.0a1" --python 3.12
+olf doctor --provider local --profile slim
 ```
 
 Start the **Slim** profile:
 
 ```bash
-uv run --project tools/olf --locked olf deploy --provider local --profile slim
+olf deploy --provider local --profile slim
 ```
 
 Slim contains the complete data path while leaving out the optional governance and dashboarding services.
@@ -97,13 +95,13 @@ Slim contains the complete data path while leaving out the optional governance a
 Run the included data products end-to-end:
 
 ```bash
-uv run --project tools/olf --locked olf e2e run --env local --suite full
+olf e2e run --env local --suite full
 ```
 
 Start local port forwarding:
 
 ```bash
-uv run --project tools/olf --locked olf forward --provider local --profile slim
+olf forward --provider local --profile slim
 ```
 
 Dagster is then available at:
@@ -119,9 +117,9 @@ From there you can inspect the asset graph and launch the example pipelines.
 To include **OpenMetadata** and **Superset**, use the Full profile:
 
 ```bash
-uv run --project tools/olf --locked olf deploy --provider local --profile full
-uv run --project tools/olf --locked olf e2e run --env local --suite full
-uv run --project tools/olf --locked olf forward --provider local --profile full
+olf deploy --provider local --profile full
+olf e2e run --env local --suite full
+olf forward --provider local --profile full
 ```
 
 ### Slim or Full?

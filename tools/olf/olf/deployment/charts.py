@@ -10,10 +10,16 @@ did.
 
 from __future__ import annotations
 
+import contextlib
+import hashlib
+import os
+import tarfile
 import tempfile
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
+
+import yaml
 
 from olf import log
 from olf.deployment.context import DeploymentPaths
@@ -29,6 +35,80 @@ class ChartRequest:
     chart_ref: str
     version: str
     package_path: Path
+    sha256: str | None = None
+
+
+@dataclass(frozen=True)
+class CatalogChart:
+    """An immutable third-party chart declaration from the component catalog."""
+
+    name: str
+    repository: str
+    reference: str
+    version: str
+    sha256: str
+
+    @classmethod
+    def load(cls, catalog_path: Path, name: str) -> CatalogChart:
+        try:
+            catalog = yaml.safe_load(catalog_path.read_text(encoding="utf-8"))
+            value = catalog["components"]["helm"]["charts"][name]
+        except (KeyError, OSError, TypeError, yaml.YAMLError) as exc:
+            raise ValueError(f"chart {name!r} is not declared in {catalog_path}") from exc
+        if not isinstance(value, dict):
+            raise ValueError(f"chart {name!r} in {catalog_path} must be a mapping")
+        fields = {field: value.get(field) for field in ("repository", "reference", "version", "sha256")}
+        if not all(isinstance(item, str) and item for item in fields.values()):
+            raise ValueError(f"chart {name!r} in {catalog_path} has incomplete immutable metadata")
+        digest = fields["sha256"]
+        if len(digest) != 64 or any(char not in "0123456789abcdef" for char in digest):
+            raise ValueError(f"chart {name!r} in {catalog_path} has an invalid SHA-256")
+        return cls(name=name, **fields)  # type: ignore[arg-type]
+
+    def request(self, *, cache_root: Path, variant: str | None = None) -> ChartRequest:
+        """`variant` disambiguates a chart's cached package name when the
+        cache holds more than one derivative of the same upstream archive -
+        Dagster's schema-stripped repack lives beside (never overwrites) a
+        cache keyed only by the pristine upstream digest.
+        """
+        filename = f"{self.sha256}-{variant}.tgz" if variant else f"{self.sha256}.tgz"
+        return ChartRequest(
+            display_name=self.name,
+            repo_name=self.reference.split("/", 1)[0],
+            repo_url=self.repository,
+            chart_ref=self.reference,
+            version=self.version,
+            package_path=cache_root / "helm" / filename,
+            sha256=self.sha256,
+        )
+
+
+def _digest(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+@contextlib.contextmanager
+def _chart_cache_lock(request: ChartRequest) -> Iterator[None]:
+    """Serialize one chart's shared-cache lifecycle across providers.
+
+    Installed local, AWS, and Azure deployments deliberately share
+    ``OLF_HOME/cache/helm``. Helm writes its downloaded archive with a
+    chart/version filename before OpenLakeForge verifies and activates the
+    content-addressed package, so locking only the final rename would still
+    leave concurrent pulls and repacks racing. The per-package lock covers
+    cache validation, download, verification, and publication while allowing
+    unrelated charts to prepare concurrently.
+    """
+    import fcntl
+
+    request.package_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = request.package_path.with_name(f".{request.package_path.name}.lock")
+    with lock_path.open("a+") as handle:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle, fcntl.LOCK_UN)
 
 
 def prepare_cached_chart(
@@ -39,12 +119,31 @@ def prepare_cached_chart(
     env: Mapping[str, str],
     retry_policy: RetryPolicy,
 ) -> Path:
+    with _chart_cache_lock(request):
+        return _prepare_cached_chart(request, helm=helm, paths=paths, env=env, retry_policy=retry_policy)
+
+
+def _prepare_cached_chart(
+    request: ChartRequest,
+    *,
+    helm: Helm,
+    paths: DeploymentPaths,
+    env: Mapping[str, str],
+    retry_policy: RetryPolicy,
+) -> Path:
     repository_config = paths.helm_repository_config
     repository_cache = paths.helm_repository_cache
 
-    if request.package_path.is_file() and helm.show_chart(
-        request.package_path, repository_config=repository_config, repository_cache=repository_cache, env=env
-    ).ok:
+    cache_has_expected_digest = request.package_path.is_file() and (
+        request.sha256 is None or _digest(request.package_path) == request.sha256
+    )
+    cache_has_valid_chart = cache_has_expected_digest and helm.show_chart(
+        request.package_path,
+        repository_config=repository_config,
+        repository_cache=repository_cache,
+        env=env,
+    ).ok
+    if cache_has_valid_chart:
         log.step(f"Using cached {request.display_name} Helm chart: {request.package_path}")
         return request.package_path
 
@@ -75,10 +174,57 @@ def prepare_cached_chart(
         env=env,
         retry_policy=retry_policy,
     )
+    if request.sha256 is None:
+        return request.package_path
+
+    chart_name = request.chart_ref.rsplit("/", 1)[-1]
+    downloaded = paths.helm_cache_dir / f"{chart_name}-{request.version}.tgz"
+    if not downloaded.is_file() or _digest(downloaded) != request.sha256:
+        downloaded.unlink(missing_ok=True)
+        raise ValueError(f"{request.display_name} chart digest does not match the component catalog")
+    request.package_path.parent.mkdir(parents=True, exist_ok=True)
+    staged = request.package_path.with_name(f".{request.sha256}.{os.getpid()}.tgz")
+    downloaded.replace(staged)
+    os.replace(staged, request.package_path)
     return request.package_path
 
 
+def _derivative_digest_sidecar(package_path: Path) -> Path:
+    return package_path.with_name(package_path.name + ".sha256")
+
+
+def _cached_derivative_is_trustworthy(package_path: Path) -> bool:
+    """A repacked derivative's own digest can never match the catalog pin
+    (its content changed by stripping the schema), so cache-hit integrity
+    is checked against a digest sidecar this function itself wrote when it
+    created the file - not the catalog pin. Without this, a corrupted or
+    replaced-but-still-Helm-parseable cached file in the writable shared
+    cache would be reused indefinitely, since `helm show chart` only checks
+    structural validity, not content.
+    """
+    sidecar = _derivative_digest_sidecar(package_path)
+    try:
+        expected = sidecar.read_text().strip()
+    except OSError:
+        return False
+    return bool(expected) and _digest(package_path) == expected
+
+
 def prepare_cached_dagster_chart_no_schema(
+    request: ChartRequest,
+    *,
+    helm: Helm,
+    paths: DeploymentPaths,
+    env: Mapping[str, str],
+    retry_policy: RetryPolicy,
+) -> Path:
+    with _chart_cache_lock(request):
+        return _prepare_cached_dagster_chart_no_schema(
+            request, helm=helm, paths=paths, env=env, retry_policy=retry_policy
+        )
+
+
+def _prepare_cached_dagster_chart_no_schema(
     request: ChartRequest,
     *,
     helm: Helm,
@@ -94,17 +240,33 @@ def prepare_cached_dagster_chart_no_schema(
     `values.schema.json` deleted, and is re-packaged under `request.
     package_path` (distinct from the plain `helm pull` output name, since
     that name collides with `prepare_cached_chart`'s Dagster-less callers).
+
+    When `request.sha256` is set (an installed distribution's catalog-pinned
+    chart), the downloaded archive is verified against it *before* being
+    unpacked and re-packaged - the repacked artifact's own digest can never
+    match the catalog pin (its content changed), so this is the only point
+    where the upstream chart's integrity can be checked at all. The
+    transformed package itself is then re-verified on every future cache hit
+    against a digest sidecar recorded when it was created (see
+    `_cached_derivative_is_trustworthy`).
     """
     repository_config = paths.helm_repository_config
     repository_cache = paths.helm_repository_cache
+    digest_sidecar = _derivative_digest_sidecar(request.package_path)
 
-    if request.package_path.is_file() and helm.show_chart(
-        request.package_path, repository_config=repository_config, repository_cache=repository_cache, env=env
-    ).ok:
+    cache_is_trustworthy = (
+        request.package_path.is_file()
+        and (request.sha256 is None or _cached_derivative_is_trustworthy(request.package_path))
+        and helm.show_chart(
+            request.package_path, repository_config=repository_config, repository_cache=repository_cache, env=env
+        ).ok
+    )
+    if cache_is_trustworthy:
         log.step(f"Using cached Dagster Helm chart: {request.package_path}")
         return request.package_path
 
     request.package_path.unlink(missing_ok=True)
+    digest_sidecar.unlink(missing_ok=True)
 
     chart_name = request.chart_ref.rsplit("/", 1)[-1]
     paths.work_root.mkdir(parents=True, exist_ok=True)
@@ -130,15 +292,20 @@ def prepare_cached_dagster_chart_no_schema(
         helm.pull(
             request.chart_ref,
             version=request.version,
-            untar=True,
-            untar_dir=work_dir,
+            destination=work_dir,
             repository_config=repository_config,
             repository_cache=repository_cache,
             env=env,
             retry_policy=retry_policy,
         )
 
+        downloaded = work_dir / f"{chart_name}-{request.version}.tgz"
+        if request.sha256 is not None and (not downloaded.is_file() or _digest(downloaded) != request.sha256):
+            raise ValueError(f"{request.display_name} chart digest does not match the component catalog")
+
         chart_dir = work_dir / chart_name
+        with tarfile.open(downloaded, "r:gz") as bundle:
+            bundle.extractall(work_dir, filter="data")
         for schema_file in chart_dir.rglob("values.schema.json"):
             schema_file.unlink()
 
@@ -147,5 +314,7 @@ def prepare_cached_dagster_chart_no_schema(
         packaged_path = paths.helm_cache_dir / f"{chart_name}-{request.version}.tgz"
         request.package_path.parent.mkdir(parents=True, exist_ok=True)
         packaged_path.rename(request.package_path)
+        if request.sha256 is not None:
+            digest_sidecar.write_text(_digest(request.package_path) + "\n")
 
     return request.package_path

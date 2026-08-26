@@ -16,6 +16,7 @@ from olf import log
 from olf.deployment.engine import Toolkit
 from olf.deployment.errors import DeploymentPreconditionError
 from olf.deployment.local.config import LocalDeploymentConfig
+from olf.deployment.project_code import project_code_build_context
 
 
 def build_superset_image(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[str, str]) -> str:
@@ -25,9 +26,9 @@ def build_superset_image(config: LocalDeploymentConfig, tools: Toolkit, *, env: 
 
     log.step(f"Building Superset image: {images.superset_image}")
     tools.docker.build(
-        config.paths.repo_root / "images/superset",
+        config.paths.distribution_root / "images/superset",
         tag=images.superset_image,
-        file=config.paths.repo_root / "images/superset/Dockerfile",
+        file=config.paths.distribution_root / "images/superset/Dockerfile",
         build_args={"SUPERSET_BASE_IMAGE": images.superset_base_image},
         env=env,
         retry_policy=images.build_retry,
@@ -47,18 +48,19 @@ def build_project_code_image(
     tools.docker.pull(images.project_code_python_base_image, env=env, retry_policy=images.pull_retry)
 
     log.step(f"Building project-code image: {images.project_code_image}")
-    tools.docker.build(
-        config.paths.repo_root,
-        tag=images.project_code_image,
-        file=config.paths.repo_root / "images/project-code/Dockerfile",
-        build_args={
-            "PYTHON_BASE_IMAGE": images.project_code_python_base_image,
-            "DBT_PROFILE_ENV": images.project_code_dbt_profile_env,
-            "FLOE_MANIFEST_REVISION": revision,
-        },
-        env=env,
-        retry_policy=images.build_retry,
-    )
+    with project_code_build_context(config.paths) as build_context:
+        tools.docker.build(
+            build_context,
+            tag=images.project_code_image,
+            file=build_context / "images/project-code/Dockerfile",
+            build_args={
+                "PYTHON_BASE_IMAGE": images.project_code_python_base_image,
+                "DBT_PROFILE_ENV": images.project_code_dbt_profile_env,
+                "FLOE_MANIFEST_REVISION": revision,
+            },
+            env=env,
+            retry_policy=images.build_retry,
+        )
     return images.project_code_image
 
 
