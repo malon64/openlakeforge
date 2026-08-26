@@ -175,16 +175,16 @@ See the [AWS setup guide](/docs/setup/cloud-poc-setup.md#aws-eks) for the requir
 ### 3. Deploy
 
 ```bash
-make aws-up
+olf deploy --provider aws --var-file sandbox.tfvars
 ```
 
 Then:
 
 ```bash
-make aws-forward
+olf forward --provider aws
 
 # Open a new terminal then
-make aws-e2e
+olf e2e run --env aws
 ```
 
 The deployment follows the same foundation → platform → artifacts lifecycle as the local environment.
@@ -214,16 +214,16 @@ See the [Azure setup guide](/docs/setup/cloud-poc-setup.md#azure-aks) for the fu
 ### 3. Deploy
 
 ```bash
-make azure-up
+olf deploy --provider azure --var-file sandbox.tfvars
 ```
 
 Then:
 
 ```bash
-make azure-forward
+olf forward --provider azure
 
 # Open a new terminal then
-make azure-e2e
+olf e2e run --env azure
 ```
 
 ## Documentation
