@@ -38,12 +38,19 @@ def parse(
             project_root=project_root,
         ):
             # Resolved *inside* the contract environment: it's what sets
-            # OPENLAKEFORGE_REPO_ROOT from --project-root in the first
-            # place, so reading config.repo_root() before entering it
-            # always resolved the ambient/default root instead.
+            # OPENLAKEFORGE_REPO_ROOT/OLF_DISTRIBUTION_ROOT from
+            # --project-root in the first place, so reading these before
+            # entering it always resolved the ambient/default roots
+            # instead. `libs` is distribution-owned, not project-owned -
+            # a --project-root selection containing only lakehouse_code
+            # (per the image-build contract) has no `libs` of its own, so
+            # the distribution root must be on sys.path too, not just the
+            # project root.
             root = config.repo_root()
-            if str(root) not in sys.path:
-                sys.path.insert(0, str(root))
+            distribution_root = config.distribution_root()
+            for path in (str(root), str(distribution_root)):
+                if path not in sys.path:
+                    sys.path.insert(0, path)
             from libs.dbt.render_profiles import discover_project_dirs, write_profile
 
             projects = (
