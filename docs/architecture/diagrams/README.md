@@ -230,11 +230,11 @@ artifact phase only — CI never runs Terraform for domain changes
 
 | Boundary | Target | Deploys |
 | --- | --- | --- |
-| Foundation (outside the deploy boundary) | `make local-foundation-up` | Terraform: the Kubernetes cluster + container registry — kind locally, EKS + ECR on AWS, AKS + ACR on Azure |
-| Phase 1 — Platform | `make local-platform-up` | Terraform-managed platform resources: Helm releases for SeaweedFS, Polaris, Trino, OpenMetadata, Superset, Dagster — plus PostgreSQL, which Terraform creates directly as a StatefulSet + Service + bootstrap Job (no Helm release) |
-| Phase 2 — Artifacts | `make local-artifacts-deploy` | **the CD phase** — dynamic artifacts: the project-code image (dbt code), Floe contracts + manifests, Superset dashboards, OpenMetadata data products |
+| Foundation (outside the deploy boundary) | `olf deploy --provider local --phase foundation` | Terraform: the Kubernetes cluster + container registry — kind locally, EKS + ECR on AWS, AKS + ACR on Azure |
+| Phase 1 — Platform | `olf deploy --provider local --phase platform` | Terraform-managed platform resources: Helm releases for SeaweedFS, Polaris, Trino, OpenMetadata, Superset, Dagster — plus PostgreSQL, which Terraform creates directly as a StatefulSet + Service + bootstrap Job (no Helm release) |
+| Phase 2 — Artifacts | `olf deploy --provider local --phase artifacts` | **the CD phase** — dynamic artifacts: the project-code image (dbt code), Floe contracts + manifests, Superset dashboards, OpenMetadata data products |
 
-`make local-up` chains foundation → Phase 1 → Phase 2; foundation and Phase 1 are
+`olf deploy --provider local` chains foundation → Phase 1 → Phase 2; foundation and Phase 1 are
 idempotent no-ops when nothing changed. Phase 2, in order: load contract env → compile
 Floe manifests → build + load
 `project-code` → `olf artifacts upload-manifests` → `olf superset deploy-reports` →

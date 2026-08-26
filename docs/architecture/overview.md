@@ -23,7 +23,7 @@ The first local infrastructure target is kind. The current seed POC contains
 `supply_chain/inventory_reliability`. Each product has side-by-side assets under
 domain capability folders: raw CSV examples, dlt Bronze loader, Floe contract
 and manifest, dbt Gold models, Dagster job, Superset report bundle, and
-OpenMetadata metadata nested in `domain.yaml`. OpenLineage integration is
+OpenMetadata metadata nested in `lakehouse.yaml`. OpenLineage integration is
 enabled for Floe and dbt-trino through OpenMetadata's native endpoint; see
 ADR 0023. The OpenMetadata Dagster connector remains deferred.
 

@@ -11,7 +11,7 @@ OpenLakeForge creates an isolated [`kind`](https://kind.sigs.k8s.io/) cluster ba
 The local environment is available in two profiles:
 
 | Profile  | Includes                                                                    | Recommended for                       |
-| -------- | --------------------------------------------------------------------------- | ------------------------------------- |
+| -------- | ---------------------------------------------------------------------------- | ------------------------------------- |
 | **Slim** | Ingestion, Floe validation, Apache Iceberg, Polaris, Trino, dbt and Dagster | First evaluation and data engineering |
 | **Full** | Slim + OpenMetadata + Superset                                              | Governance, lineage and dashboards    |
 
@@ -43,23 +43,37 @@ Dagster orchestrates the complete pipeline.
 
 ## Requirements
 
-For the supported consumer path, you need a Docker-compatible engine and
-Python 3.12 or later. Git, uv, Make, Terraform, Helm, kubectl, and kind are
-not host prerequisites.
+You need a Docker-compatible engine and Python 3.12 or later. Git, uv, Make,
+Terraform, Helm, kubectl, and kind are not host prerequisites.
+
+Make sure Docker is available from your shell:
+
+```bash
+docker ps
+```
+
+If this command fails, fix your Docker installation before continuing.
+
+---
+
+## Install and deploy
+
+Create a project directory, install the release, and initialize its writable user code:
 
 ```bash
 mkdir my-lakehouse
 cd my-lakehouse
+
 pip install openlakeforge
 olf init
-olf deploy --provider local --profile slim
-olf e2e run --env local --suite smoke
 ```
 
 `olf init` verifies the packaged platform payload, installs or reuses the
-release-pinned Terraform, Helm, kubectl, and kind toolchain, checks Docker,
-and creates a writable `lakehouse_code/` directory. It never installs Docker,
-uses Git, or overwrites an existing `lakehouse_code/` directory.
+release-pinned Terraform, Helm, kubectl, and kind toolchain under
+`~/.openlakeforge`, checks Docker, and creates a writable `lakehouse_code/`
+directory copied from the demo. Set `OLF_TOOLCHAIN_MODE=host` to use your own
+host-installed Terraform, Helm, kubectl, and kind instead of the managed
+toolchain.
 
 `olf init --empty` creates a transitional project with no source, domain, or
 product. Scaffold its first source and product before deploying:
@@ -72,67 +86,6 @@ olf product new sales/accounts_report --input crm/accounts --gold-table mart_acc
 The empty descriptor deliberately does not pass strict descriptor validation
 until that first product exists.
 
-## Contributor checkout
-
-Contributors work from a source checkout and its Make delegates instead. That
-workflow needs the following tools on your `PATH`:
-
-| Tool           | Purpose                              |
-| -------------- | ------------------------------------- |
-| Git            | Clone OpenLakeForge                   |
-| Docker engine  | Container runtime used by kind        |
-| Python >= 3.12 | OpenLakeForge tooling                 |
-| uv             | Python dependency and CLI execution   |
-| Make           | OpenLakeForge workflow entry points   |
-
-`olf` ([#127](https://github.com/malon64/openlakeforge/issues/127))
-provisions its own versioned Terraform, Helm, kubectl, and kind under
-`~/.openlakeforge` at the exact versions
-[`release/component-catalog.yaml`](../../release/component-catalog.yaml)
-pins — you do not need to install them yourself. Set
-`OLF_TOOLCHAIN_MODE=host` to use your own host-installed copies instead.
-
-You do **not** need Docker Desktop specifically.
-
-Any Docker-compatible engine that works with `kind` can be used.
-
-### Verify your tools
-
-Check that each command is available:
-
-```bash
-git --version
-docker --version
-python3 --version
-uv --version
-make --version
-```
-
-Verify that your Docker engine is running:
-
-```bash
-docker ps
-```
-
-If this command fails, fix your Docker installation before continuing.
-
----
-
-### Clone OpenLakeForge
-
-```bash
-git clone https://github.com/malon64/openlakeforge.git
-cd openlakeforge
-```
-
-OpenLakeForge contributor commands should be executed from the repository root.
-
-Then check the managed toolchain is provisioned:
-
-```bash
-uv run --project tools/olf --locked olf doctor --provider local --profile slim
-```
-
 ---
 
 # Deploy the Slim profile
@@ -144,12 +97,10 @@ It keeps the complete data-engineering path while leaving OpenMetadata and Super
 Run:
 
 ```bash
-make local-slim-up
+olf deploy --provider local --profile slim
 ```
 
-This command performs the complete local deployment.
-
-It will:
+This command performs the complete local deployment. It will:
 
 1. Create the local kind Kubernetes cluster.
 2. Pre-fetch the large runtime images used by the platform.
@@ -168,7 +119,7 @@ The initial installation can take several minutes because Kubernetes and applica
 Once installation finishes, inspect the platform:
 
 ```bash
-make local-status
+olf status --provider local
 ```
 
 This shows:
@@ -204,7 +155,7 @@ OpenLakeForge includes example data products that can be executed end to end.
 For the Slim profile, run:
 
 ```bash
-make local-slim-e2e
+olf e2e run --env local --suite smoke
 ```
 
 The validation executes the data pipelines and verifies the core path:
@@ -232,7 +183,7 @@ OpenLakeForge services are not exposed outside Kubernetes by default.
 Start local port forwarding with:
 
 ```bash
-make local-forward
+olf forward --provider local
 ```
 
 Keep this command running in its terminal.
@@ -297,25 +248,25 @@ The Full profile adds:
 If you currently have a Slim deployment, tear it down first:
 
 ```bash
-make local-slim-down
+olf destroy --provider local
 ```
 
 Then deploy Full:
 
 ```bash
-make local-up
+olf deploy --provider local --profile full
 ```
 
 Validate it:
 
 ```bash
-make local-e2e
+olf e2e run --env local --suite full
 ```
 
 And start the port forwards:
 
 ```bash
-make local-forward
+olf forward --provider local --profile full
 ```
 
 The additional services are then available at:
@@ -329,7 +280,7 @@ These credentials are intended for the local development environment only.
 
 ---
 
-# What `local-up` actually does
+# What `olf deploy` actually does
 
 The local deployment is divided into three logical phases.
 
@@ -344,22 +295,16 @@ Artifacts
 The top-level command:
 
 ```bash
-make local-up
+olf deploy --provider local
 ```
 
-is equivalent to running:
+is equivalent to running each phase in order with `--phase`:
 
 ```bash
-make local-foundation-up
-make local-prefetch
-make local-platform-up
-make local-artifacts-deploy
-```
-
-For Slim, the equivalent wrapper is:
-
-```bash
-make local-slim-up
+olf deploy --provider local --phase foundation
+olf deploy --provider local --phase prefetch
+olf deploy --provider local --phase platform
+olf deploy --provider local --phase artifacts
 ```
 
 Understanding these phases is useful when developing or troubleshooting OpenLakeForge.
@@ -369,7 +314,7 @@ Understanding these phases is useful when developing or troubleshooting OpenLake
 ## 1. Foundation
 
 ```bash
-make local-foundation-up
+olf deploy --provider local --phase foundation
 ```
 
 The foundation creates the local Kubernetes environment.
@@ -393,16 +338,14 @@ Running the command again is safe: Terraform reconciles the existing foundation 
 
 ## 2. Platform
 
-Full:
-
 ```bash
-make local-platform-up
+olf deploy --provider local --profile full --phase platform
 ```
 
-Slim:
+or, for Slim:
 
 ```bash
-make local-slim-platform-up
+olf deploy --provider local --profile slim --phase platform
 ```
 
 This phase uses Terraform and Helm to deploy the long-lived OpenLakeForge platform services.
@@ -425,16 +368,8 @@ The platform phase only manages the relatively static infrastructure and platfor
 
 ## 3. Artifacts
 
-Full:
-
 ```bash
-make local-artifacts-deploy
-```
-
-Slim:
-
-```bash
-make local-slim-artifacts-deploy
+olf deploy --provider local --phase artifacts
 ```
 
 The artifact phase deploys the parts of OpenLakeForge that change with data-product code.
@@ -462,7 +397,7 @@ See [Architecture](../architecture/README.md) for the deeper deployment model.
 ## Check platform status
 
 ```bash
-make local-status
+olf status --provider local
 ```
 
 ## Refresh data-product artifacts
@@ -470,52 +405,44 @@ make local-status
 If you changed domain code, contracts, pipelines or dbt models without changing the infrastructure:
 
 ```bash
-make local-artifacts-deploy
-```
-
-For Slim:
-
-```bash
-make local-slim-artifacts-deploy
+olf deploy --provider local --phase artifacts
 ```
 
 ## Reapply platform infrastructure
 
 ```bash
-make local-platform-up
+olf deploy --provider local --phase platform
 ```
 
 This is useful after changing Terraform or Helm configuration.
 
 ## Run the complete validation suite
 
-Full:
-
 ```bash
-make local-e2e
+olf e2e run --env local --suite full
 ```
 
-Slim:
+For Slim:
 
 ```bash
-make local-slim-e2e
+olf e2e run --env local --suite smoke
 ```
 
 ## Run the Slim smoke test
 
 ```bash
-make local-slim-smoke
+uv run --project tools/olf --locked olf smoke run
 ```
 
 The smoke test creates the Slim environment and validates one discovered data product through to a queryable Gold table.
 
-It is intended as a bounded deployment validation rather than a replacement for the full end-to-end suite.
+It is intended as a bounded deployment validation rather than a replacement for the full end-to-end suite. It is currently a contributor-checkout command (see below).
 
 ---
 
 # Local configuration
 
-The most commonly configurable values are exposed through Make variables.
+The most commonly configurable values are exposed as `olf` options.
 
 Default local configuration:
 
@@ -529,19 +456,19 @@ Kubeconfig:   .tmp/kubeconfigs/local.yaml
 For example, to use another cluster name:
 
 ```bash
-make local-up CLUSTER_NAME=my-openlakeforge
+olf deploy --provider local --cluster-name my-openlakeforge
 ```
 
 Or another namespace:
 
 ```bash
-make local-up NAMESPACE=my-lakehouse
+olf deploy --provider local --namespace my-lakehouse
 ```
 
 The local kubeconfig path can also be overridden:
 
 ```bash
-make local-up LOCAL_KUBECONFIG_PATH=/path/to/openlakeforge-kubeconfig.yaml
+olf deploy --provider local --kubeconfig-path /path/to/openlakeforge-kubeconfig.yaml
 ```
 
 For normal evaluation, the defaults are recommended.
@@ -560,15 +487,12 @@ docker ps
 
 If this fails, OpenLakeForge cannot create the kind cluster or build local images.
 
-Make sure your Docker-compatible engine is running and accessible from the same shell in which you run `make`.
-
----
+Make sure your Docker-compatible engine is running and accessible from the same shell in which you run `olf`.
 
 ## A required command is missing
 
 `olf` provisions its own managed Terraform, Helm, kubectl, and kind, so this
-usually means Git, Docker, Python, uv, or Make (the actual host
-prerequisites) is missing:
+usually means Docker or Python (the actual host prerequisites) is missing:
 
 ```text
 ERROR: 'docker' not found on PATH
@@ -576,17 +500,15 @@ ERROR: 'docker' not found on PATH
 
 Install the missing tool and run the command again.
 
-If `olf` itself reports it cannot provision a managed tool, run
-`olf doctor` for the actionable reason:
+If `olf` itself reports it cannot provision a managed tool, run `olf doctor`
+for the actionable reason:
 
 ```bash
-uv run --project tools/olf --locked olf doctor --provider local --profile slim
+olf doctor --provider local --profile slim
 ```
 
 If you set `OLF_TOOLCHAIN_MODE=host` to use your own host-installed
 Terraform, Helm, kubectl, or kind, make sure that tool is on `PATH`.
-
----
 
 ## Kubernetes cluster is unreachable
 
@@ -600,30 +522,28 @@ kubectl --context kind-openlakeforge-local cluster-info
 If the cluster does not exist, recreate the foundation:
 
 ```bash
-make local-foundation-up
+olf deploy --provider local --phase foundation
 ```
 
 Then continue with:
 
 ```bash
-make local-platform-up
-make local-artifacts-deploy
+olf deploy --provider local --phase platform
+olf deploy --provider local --phase artifacts
 ```
 
 Or simply rerun:
 
 ```bash
-make local-up
+olf deploy --provider local
 ```
-
----
 
 ## A pod is not starting
 
 First inspect the platform:
 
 ```bash
-make local-status
+olf status --provider local
 ```
 
 Then inspect the failing pod:
@@ -650,23 +570,19 @@ kubectl --context kind-openlakeforge-local \
 logs <pod-name> -c <container-name> -n lakehouse
 ```
 
----
-
 ## Image pulls are slow or timing out
 
 OpenLakeForge provides a local prefetch step:
 
 ```bash
-make local-prefetch
+olf deploy --provider local --phase prefetch
 ```
 
 This downloads larger runtime images ahead of Helm deployment and loads them into the kind nodes.
 
-`make local-up` and `make local-slim-up` already execute this automatically.
+`olf deploy --provider local` already executes this automatically.
 
 It can still be useful to rerun it independently after a failed image pull.
-
----
 
 ## Corporate proxy or custom TLS certificates
 
@@ -681,17 +597,15 @@ This is a container-runtime trust issue rather than an OpenLakeForge issue.
 Configure your Docker engine to trust your organization's CA certificate, verify that images can be pulled normally, then retry:
 
 ```bash
-make local-prefetch
-make local-up
+olf deploy --provider local --phase prefetch
+olf deploy --provider local
 ```
 
 The exact certificate configuration depends on the Docker engine used on your machine.
 
----
-
 ## A local port is already in use
 
-`make local-forward` uses the following local ports:
+`olf forward` uses the following local ports:
 
 | Port | Service          |
 | ---: | ---------------- |
@@ -706,8 +620,6 @@ The exact certificate configuration depends on the Docker engine used on your ma
 
 Check which process currently owns a port and stop it before running the forwarding command again.
 
----
-
 ## Terraform or Kubernetes state has become inconsistent
 
 The local deployment includes recovery logic for some common state-drift situations.
@@ -715,7 +627,7 @@ The local deployment includes recovery logic for some common state-drift situati
 First try rerunning:
 
 ```bash
-make local-up
+olf deploy --provider local
 ```
 
 Terraform will reconcile resources where possible.
@@ -723,9 +635,9 @@ Terraform will reconcile resources where possible.
 If you want to recreate only the platform while keeping the kind cluster:
 
 ```bash
-make local-platform-down
-make local-platform-up
-make local-artifacts-deploy
+olf destroy --provider local --phase platform
+olf deploy --provider local --phase platform
+olf deploy --provider local --phase artifacts
 ```
 
 For a completely clean environment, use the full teardown described below.
@@ -734,19 +646,13 @@ For a completely clean environment, use the full teardown described below.
 
 # Tear down OpenLakeForge
 
-## Remove Slim
+## Remove the platform
 
 ```bash
-make local-slim-down
+olf destroy --provider local
 ```
 
-## Remove Full
-
-```bash
-make local-down
-```
-
-The full teardown removes:
+The default teardown removes:
 
 1. OpenLakeForge platform services.
 2. The local kind foundation.
@@ -754,15 +660,45 @@ The full teardown removes:
 If you only want to remove platform services while keeping the Kubernetes cluster:
 
 ```bash
-make local-platform-down
+olf destroy --provider local --phase platform
 ```
 
 You can later reinstall them with:
 
 ```bash
-make local-platform-up
-make local-artifacts-deploy
+olf deploy --provider local --phase platform
+olf deploy --provider local --phase artifacts
 ```
+
+---
+
+# Contributor checkout
+
+Contributors working from a source checkout of the repository use the same
+`olf` commands above, run through `uv`:
+
+```bash
+uv run --project tools/olf --locked olf deploy --provider local --profile slim
+```
+
+That workflow additionally needs Git, uv, and Make on `PATH`:
+
+| Tool           | Purpose                              |
+| -------------- | ------------------------------------- |
+| Git            | Clone OpenLakeForge                   |
+| uv             | Python dependency and CLI execution   |
+| Make           | Deprecated one-line delegates to `olf`|
+
+Clone the repository and run commands from its root:
+
+```bash
+git clone https://github.com/malon64/openlakeforge.git
+cd openlakeforge
+```
+
+`Make` targets such as `make local-slim-up` remain as thin, deprecated
+delegates to the exact `olf` commands documented above — see
+[AGENTS.md](../../AGENTS.md) for the full contributor workflow and gates.
 
 ---
 

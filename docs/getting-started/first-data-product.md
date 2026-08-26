@@ -727,7 +727,7 @@ Those platform concerns are derived from the lakehouse inventory and provider co
 Run:
 
 ```bash
-make check-contracts
+olf check contracts
 ```
 
 Among other platform contract checks, this validates `lakehouse_code/lakehouse.yaml` and
@@ -753,7 +753,7 @@ so prefer `campaign_performance` rather than `campaign-performance`.
 Run:
 
 ```bash
-make check-dbt
+olf check dbt
 ```
 
 This discovers every product dbt project under `lakehouse_code/gold/*/dbt` and validates
@@ -781,7 +781,7 @@ Floe manifests are generated from each domain contract.
 Run:
 
 ```bash
-make floe-manifest
+olf floe generate-manifests
 ```
 
 OpenLakeForge discovers:
@@ -809,7 +809,7 @@ reinstall the platform.
 For Slim:
 
 ```bash
-make local-slim-artifacts-deploy
+olf deploy --provider local --profile slim --phase artifacts
 ```
 
 This performs the product-aware deployment phase:
@@ -849,7 +849,7 @@ No Terraform product registration is required.
 Start port forwarding if it is not already running:
 
 ```bash
-make local-forward
+olf forward --provider local
 ```
 
 Open:
@@ -929,7 +929,7 @@ FROM iceberg.campaign_performance_gold;
 Finally:
 
 ```bash
-make local-slim-e2e
+olf e2e run --env local --suite smoke
 ```
 
 The E2E suite discovers products from the lakehouse inventory. Your new product

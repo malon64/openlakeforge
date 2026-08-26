@@ -16,20 +16,29 @@ See [ADR 0029](../../docs/adr/0029-olf-owns-a-managed-toolchain.md).
 
 | Command | Purpose |
 | --- | --- |
+| `olf init [--empty]` | Create a writable `lakehouse_code/` project in the current directory from the packaged demo, or an empty transitional project. |
 | `olf doctor --provider P [--phase PHASE]` / `olf plan --provider P [--phase PHASE]` | Read-only preflight and Terraform planning with typed provider/profile/phase options; provisions the managed toolchain as a side effect. |
 | `olf deploy\|destroy\|status\|forward --provider P` | Orchestrate a provider lifecycle without shell wrappers. |
+| `olf auth login\|status\|logout --provider aws\|azure` | Authenticate through AWS IAM Identity Center or Microsoft Entra SDKs; no cloud CLI required (ADR 0030). |
 | `olf toolchain list\|install\|path\|clean` | Inspect, provision, or remove the managed Terraform/Helm/kubectl/kind toolchain under `OLF_HOME`. |
 | `olf check structure\|components\|contracts\|infra\|project-code\|dbt\|lockfiles\|all` | Repository validation gates. |
+| `olf contracts env\|check` | Print the resolved provider contract environment, or validate it against the active provider/profile. |
+| `olf dbt parse [--project-dir D]` | Render dbt profiles and run `dbt deps`/`dbt parse` for one or every product Gold project. |
+| `olf source new NAME --resource R` / `olf domain new NAME --input SRC/RESOURCE` / `olf product new DOMAIN/PRODUCT --input ... --gold-table T` | Golden-path scaffolding for a Bronze source, Silver domain, or Gold product. |
+| `olf layers enabled --profile P` | List which medallion/governance/analytics layers a profile enables. |
 | `olf images build\|load project-code\|superset` | Local Docker build and Kind load operations. |
 | `olf diagnostics collect OUTPUT_DIR` | Collect bounded host, Docker, Kubernetes, event, and pod-log evidence. |
-| `olf catalog sync-namespaces [--dry-run] [--prune]` | Reconcile catalog namespaces (Polaris) or databases (Glue) with domain descriptors (ADR 0022). Runs first in `artifacts-deploy`, before any table is written. It creates, adopts matching legacy namespaces, and relocates OpenLakeForge-managed namespaces. `--prune` removes only OpenLakeForge-managed catalog metadata and retains object-store files; foreign namespaces are never changed. Unsupported providers fail explicitly. |
-| `olf floe render-profile` | Render the Floe EnvironmentProfile YAML for the active contract env. |
+| `olf catalog sync-namespaces [--dry-run] [--prune]` | Reconcile catalog namespaces (Polaris) or databases (Glue) with domain descriptors (ADR 0022). Runs first in the artifacts phase, before any table is written. It creates, adopts matching legacy namespaces, and relocates OpenLakeForge-managed namespaces. `--prune` removes only OpenLakeForge-managed catalog metadata and retains object-store files; foreign namespaces are never changed. Unsupported providers fail explicitly. |
+| `olf floe render-profile\|generate-manifests` | Render the Floe EnvironmentProfile YAML for the active contract env, or generate domain Floe manifests. |
 | `olf artifacts upload-manifests --via port-forward\|direct` | Publish domain Floe manifests to the ops bucket (in-cluster S3 or cloud S3). |
 | `olf revision compute\|publish\|verify --runtime-root D` | Compute, publish, or verify an immutable Floe runtime-artifact revision. Publication writes `floe/revisions/sha256/<digest>/...` and does not activate that revision. |
 | `olf superset deploy-reports` / `export-reports` | Build/import or export Superset report bundles. |
 | `olf openmetadata deploy-metadata` | Seed OpenMetadata domains, data products, and medallion containers over REST. |
 | `olf k8s set-project-code-image --image X` | Point every Dagster surface at a pushed project-code image, trigger one coordinated restart, and wait for its rollout. |
+| `olf smoke run` | Deploy a bounded Slim environment and validate one product pipeline through to a queryable Gold table. |
 | `olf e2e run --env local\|azure\|aws [--suite full\|smoke]` | Run shared end-to-end validation. All environments default to `full`; use `--suite smoke` for preflight-only checks. |
+| `olf release manifest\|checksums\|compatibility-matrix\|check\|build-bundle\|verify-install` | Build release metadata, run the release-readiness gate, assemble the release bundle, and verify a clean-checkout install. |
+| `olf distribution list\|path\|verify\|clean` | Inspect or verify the embedded platform payload shipped inside the `openlakeforge` wheel/sdist. |
 
 ## Development
 
