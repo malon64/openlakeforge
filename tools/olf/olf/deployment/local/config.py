@@ -8,12 +8,12 @@ corresponding shell script's `${VAR:-default}` fallback chain.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
-from olf.deployment.charts import CatalogChart
-from olf.deployment.context import DeploymentContext, Profile
+from olf.deployment.charts import ChartSetting, resolve_chart_settings
+from olf.deployment.context import DeploymentContext, DeploymentFeatures, Profile
 from olf.deployment.env_settings import env as _env
 from olf.deployment.env_settings import float_env as _float_env
 from olf.deployment.env_settings import int_env as _int_env
@@ -96,13 +96,43 @@ class ImageSettings:
         )
 
 
+_ALWAYS_CHARTS = ("trino", "dagster", "seaweedfs", "polaris")
+_GOVERNANCE_CHARTS = ("openmetadata", "openmetadata-dependencies")
+_ANALYTICS_CHARTS = ("superset",)
+
+
+def _local_chart_names(features: DeploymentFeatures) -> tuple[str, ...]:
+    """Every chart the local provider ever deploys, minus the ones a
+    disabled optional layer will never install - a slim-profile run must
+    not spend time downloading and verifying charts it cannot use.
+    """
+    names = list(_ALWAYS_CHARTS)
+    if features.governance_enabled:
+        names.extend(_GOVERNANCE_CHARTS)
+    if features.analytics_enabled:
+        names.extend(_ANALYTICS_CHARTS)
+    return tuple(names)
+
+
 @dataclass(frozen=True)
 class ChartSettings:
-    trino_repository_url: str
-    trino_chart_ref: str
-    trino_version: str
-    trino_package_path: Path
-    trino_sha256: str | None
+    """A resolved `ChartSetting` per chart the local provider deploys.
+
+    Generalizes what used to be five Trino-only fields on this class - see
+    `olf.deployment.charts.resolve_chart_settings`, which both this and
+    `cloud.config.CloudChartSettings` now share.
+    """
+
+    settings: Mapping[str, ChartSetting]
+
+    def __getitem__(self, name: str) -> ChartSetting:
+        return self.settings[name]
+
+    def get(self, name: str) -> ChartSetting | None:
+        return self.settings.get(name)
+
+    def values(self) -> Iterable[ChartSetting]:
+        return self.settings.values()
 
     @classmethod
     def from_environment(
@@ -113,24 +143,17 @@ class ChartSettings:
         cache_root: Path,
         catalog_path: Path,
         installed: bool,
+        features: DeploymentFeatures,
     ) -> ChartSettings:
-        catalog_chart = CatalogChart.load(catalog_path, "trino") if catalog_path.is_file() else None
-        version = _env(environ, "TRINO_CHART_VERSION", "1.42.2")
-        default_package_path = (
-            cache_root / "helm" / f"{catalog_chart.sha256}.tgz"
-            if installed and catalog_chart is not None
-            else helm_cache_dir / f"trino-{version}.tgz"
-        )
         return cls(
-            trino_repository_url=_env(
+            settings=resolve_chart_settings(
+                _local_chart_names(features),
                 environ,
-                "TRINO_CHART_REPOSITORY",
-                catalog_chart.repository if catalog_chart is not None else "https://trinodb.github.io/charts",
-            ),
-            trino_chart_ref="trino/trino",
-            trino_version=_env(environ, "TRINO_CHART_VERSION", catalog_chart.version if catalog_chart else "1.42.2"),
-            trino_package_path=Path(_env(environ, "TRINO_CHART_PACKAGE_PATH", str(default_package_path))),
-            trino_sha256=catalog_chart.sha256 if installed and catalog_chart is not None else None,
+                helm_cache_dir=helm_cache_dir,
+                cache_root=cache_root,
+                catalog_path=catalog_path,
+                installed=installed,
+            )
         )
 
 
@@ -238,6 +261,7 @@ class LocalDeploymentConfig:
                 cache_root=context.paths.cache_root,
                 catalog_path=context.paths.distribution_root / "release/component-catalog.yaml",
                 installed=context.paths.installed,
+                features=context.features,
             ),
             terraform=TerraformSettings.from_environment(
                 environ,

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import io
+import tarfile
 from pathlib import Path
 
 import pytest
@@ -52,6 +54,23 @@ def _fail() -> CommandResult:
     return CommandResult(argv=(), returncode=1, stdout="", stderr="", duration_seconds=0.0)
 
 
+def _fake_dagster_archive_bytes() -> bytes:
+    """A minimal real gzip tarball shaped like `helm pull`'s Dagster output -
+    see `test_deployment_charts.py`'s identical helper for why the schema-
+    stripping repack needs a real archive rather than a `RecordingRunner`
+    stub, even for a chart source mode never digest-verifies."""
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w:gz") as bundle:
+        for name, content in (
+            (b"dagster/Chart.yaml", b"name: dagster\n"),
+            (b"dagster/values.schema.json", b"{}"),
+        ):
+            info = tarfile.TarInfo(name.decode())
+            info.size = len(content)
+            bundle.addfile(info, io.BytesIO(content))
+    return buffer.getvalue()
+
+
 def test_platform_apply_variables_exact_order(tmp_path: Path) -> None:
     config = _config(tmp_path)
 
@@ -74,9 +93,29 @@ def test_platform_apply_variables_exact_order(tmp_path: Path) -> None:
         "superset_image_tag",
         "superset_image_pull_policy",
         "trino_chart_package_path",
+        "dagster_chart_package_path",
+        "seaweedfs_chart_package_path",
+        "polaris_chart_package_path",
+        "openmetadata_chart_package_path",
+        "openmetadata_deps_chart_package_path",
+        "superset_chart_package_path",
     ]
     assert variables["enable_governance"] == "true"
     assert variables["enable_analytics"] == "true"
+
+
+def test_platform_apply_variables_slim_profile_omits_disabled_layer_charts(tmp_path: Path) -> None:
+    config = _config(tmp_path, profile=Profile.SLIM)
+
+    variables = platform.platform_apply_variables(config)
+
+    assert "openmetadata_chart_package_path" not in variables
+    assert "openmetadata_deps_chart_package_path" not in variables
+    assert "superset_chart_package_path" not in variables
+    assert "trino_chart_package_path" in variables
+    assert "dagster_chart_package_path" in variables
+    assert "seaweedfs_chart_package_path" in variables
+    assert "polaris_chart_package_path" in variables
 
 
 def test_platform_destroy_variables_are_the_four_var_subset(tmp_path: Path) -> None:
@@ -143,6 +182,15 @@ class _PlatformScriptedRunner(RecordingRunner):
             return _ok()
         if argv[0] == "helm" and "show" in argv:
             return CommandResult(argv=(), returncode=1, stdout="", stderr="", duration_seconds=0.0)
+        if argv[0] == "helm" and "pull" in argv and "dagster/dagster" in argv:
+            destination = Path(argv[argv.index("--destination") + 1])
+            version = argv[argv.index("--version") + 1]
+            destination.mkdir(parents=True, exist_ok=True)
+            (destination / f"dagster-{version}.tgz").write_bytes(_fake_dagster_archive_bytes())
+        if argv[0] == "helm" and "package" in argv:
+            destination = Path(argv[argv.index("--destination") + 1])
+            destination.mkdir(parents=True, exist_ok=True)
+            (destination / "dagster-1.13.6.tgz").write_bytes(b"fake-repacked-chart")
         return _ok()
 
 

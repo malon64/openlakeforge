@@ -18,13 +18,13 @@ precedent ADR 0025 set for the local provider.
 from __future__ import annotations
 
 import subprocess
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from olf.deployment.charts import CatalogChart
-from olf.deployment.context import DeploymentContext
+from olf.deployment.charts import ChartSetting, resolve_chart_settings
+from olf.deployment.context import DeploymentContext, DeploymentFeatures
 from olf.deployment.env_settings import env as _env
 from olf.deployment.env_settings import retry_policy as _retry_policy
 from olf.deployment.env_settings import truthy as _truthy
@@ -176,18 +176,49 @@ class CloudImageSettings:
         )
 
 
+_CLOUD_ALWAYS_CHARTS = ("trino", "dagster")
+_CLOUD_IN_CLUSTER_STORAGE_CHARTS = ("seaweedfs", "polaris")
+_CLOUD_GOVERNANCE_CHARTS = ("openmetadata", "openmetadata-dependencies")
+_CLOUD_ANALYTICS_CHARTS = ("superset",)
+
+
+def _cloud_chart_names(scope: str, features: DeploymentFeatures) -> tuple[str, ...]:
+    """Every chart a given cloud scope deploys.
+
+    AWS replaces SeaweedFS/Polaris with S3/Glue, so it never installs those
+    two charts at all - unlike Azure, which (like local) runs both
+    in-cluster. Governance/analytics follow the same optional-layer gating
+    as the local provider.
+    """
+    names = list(_CLOUD_ALWAYS_CHARTS)
+    if scope != "aws":
+        names.extend(_CLOUD_IN_CLUSTER_STORAGE_CHARTS)
+    if features.governance_enabled:
+        names.extend(_CLOUD_GOVERNANCE_CHARTS)
+    if features.analytics_enabled:
+        names.extend(_CLOUD_ANALYTICS_CHARTS)
+    return tuple(names)
+
+
 @dataclass(frozen=True)
 class CloudChartSettings:
-    trino_repository_url: str
-    trino_chart_ref: str
-    trino_version: str
-    trino_package_path: Path
-    trino_sha256: str | None
-    dagster_repository_url: str
-    dagster_chart_ref: str
-    dagster_version: str
-    dagster_package_path: Path
-    dagster_sha256: str | None
+    """A resolved `ChartSetting` per chart a given cloud scope deploys.
+
+    Generalizes what used to be ten Trino/Dagster-only fields on this class -
+    see `olf.deployment.charts.resolve_chart_settings`, which both this and
+    `local.config.ChartSettings` now share.
+    """
+
+    settings: Mapping[str, ChartSetting]
+
+    def __getitem__(self, name: str) -> ChartSetting:
+        return self.settings[name]
+
+    def get(self, name: str) -> ChartSetting | None:
+        return self.settings.get(name)
+
+    def values(self) -> Iterable[ChartSetting]:
+        return self.settings.values()
 
     @classmethod
     def from_environment(
@@ -198,54 +229,25 @@ class CloudChartSettings:
         cache_root: Path,
         catalog_path: Path,
         installed: bool,
+        scope: str,
+        features: DeploymentFeatures,
     ) -> CloudChartSettings:
-        """Mirrors `olf.deployment.local.config.ChartSettings.from_environment`:
-        an installed distribution pins each chart's digest from the
-        component catalog, so a downloaded Trino/Dagster archive is verified
-        before use exactly as the local provider's Trino chart already is
+        """An installed distribution pins each chart's digest from the
+        component catalog, so a downloaded archive is verified before use
+        exactly as the local provider's charts already are
         (`prepare_cached_chart`/`prepare_cached_dagster_chart_no_schema`).
-        Source-mode runs (`installed=False`) keep resolving purely from
-        `TRINO_CHART_VERSION`/`DAGSTER_CHART_VERSION`, with `sha256=None`.
+        Source-mode runs (`installed=False`) keep resolving purely from each
+        chart's `<SLUG>_CHART_VERSION` override, with `sha256=None`.
         """
-        trino_catalog_chart = CatalogChart.load(catalog_path, "trino") if catalog_path.is_file() else None
-        dagster_catalog_chart = CatalogChart.load(catalog_path, "dagster") if catalog_path.is_file() else None
-        trino_version = _env(environ, "TRINO_CHART_VERSION", "1.42.2")
-        dagster_version = _env(environ, "DAGSTER_CHART_VERSION", "1.13.6")
-        default_trino_package_path = (
-            trino_catalog_chart.request(cache_root=cache_root).package_path
-            if installed and trino_catalog_chart is not None
-            else helm_cache_dir / f"trino-{trino_version}.tgz"
-        )
-        default_dagster_package_path = (
-            dagster_catalog_chart.request(cache_root=cache_root, variant="no-schema").package_path
-            if installed and dagster_catalog_chart is not None
-            else helm_cache_dir / f"dagster-{dagster_version}-no-schema.tgz"
-        )
         return cls(
-            trino_repository_url=_env(
+            settings=resolve_chart_settings(
+                _cloud_chart_names(scope, features),
                 environ,
-                "TRINO_CHART_REPOSITORY",
-                trino_catalog_chart.repository if trino_catalog_chart is not None else "https://trinodb.github.io/charts",
-            ),
-            trino_chart_ref="trino/trino",
-            trino_version=_env(
-                environ, "TRINO_CHART_VERSION", trino_catalog_chart.version if trino_catalog_chart else "1.42.2"
-            ),
-            trino_package_path=Path(_env(environ, "TRINO_CHART_PACKAGE_PATH", str(default_trino_package_path))),
-            trino_sha256=trino_catalog_chart.sha256 if installed and trino_catalog_chart is not None else None,
-            dagster_repository_url=_env(
-                environ,
-                "DAGSTER_CHART_REPOSITORY",
-                dagster_catalog_chart.repository if dagster_catalog_chart is not None else "https://dagster-io.github.io/helm",
-            ),
-            dagster_chart_ref="dagster/dagster",
-            dagster_version=_env(
-                environ, "DAGSTER_CHART_VERSION", dagster_catalog_chart.version if dagster_catalog_chart else "1.13.6"
-            ),
-            dagster_package_path=Path(
-                _env(environ, "DAGSTER_CHART_PACKAGE_PATH", str(default_dagster_package_path))
-            ),
-            dagster_sha256=dagster_catalog_chart.sha256 if installed and dagster_catalog_chart is not None else None,
+                helm_cache_dir=helm_cache_dir,
+                cache_root=cache_root,
+                catalog_path=catalog_path,
+                installed=installed,
+            )
         )
 
 
@@ -379,6 +381,8 @@ class CloudDeploymentConfig:
                 cache_root=context.paths.cache_root,
                 catalog_path=context.paths.distribution_root / "release/component-catalog.yaml",
                 installed=context.paths.installed,
+                scope=scope,
+                features=context.features,
             ),
             terraform=terraform,
             floe=FloeManifestSettings.from_environment(environ, work_root=context.paths.work_root, scope=scope),

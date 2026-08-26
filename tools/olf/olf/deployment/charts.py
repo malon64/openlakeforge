@@ -15,7 +15,7 @@ import hashlib
 import os
 import tarfile
 import tempfile
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -23,6 +23,7 @@ import yaml
 
 from olf import log
 from olf.deployment.context import DeploymentPaths
+from olf.deployment.env_settings import env as _env_lookup
 from olf.deployment.retry import RetryPolicy
 from olf.tooling.helm import Helm
 
@@ -318,3 +319,180 @@ def _prepare_cached_dagster_chart_no_schema(
             digest_sidecar.write_text(_digest(request.package_path) + "\n")
 
     return request.package_path
+@dataclass(frozen=True)
+class ChartDefault:
+    """A catalog chart's source-mode fallback (no catalog entry, or a
+    non-installed run) plus how it must be prepared.
+
+    `chart_ref` is the repo-relative reference Helm resolves once the repo
+    named `name.split("/", 1)[0]`-equivalent is added (`<repo>/<chart>`,
+    matching `CatalogChart.reference`); `repository`/`version` are the
+    literal defaults every provider config used to hardcode per chart before
+    this table existed.
+    """
+
+    chart_ref: str
+    repository: str
+    version: str
+    repack: bool = False
+    variant: str | None = None
+
+
+CHART_DEFAULTS: Mapping[str, ChartDefault] = {
+    "trino": ChartDefault(chart_ref="trino/trino", repository="https://trinodb.github.io/charts", version="1.42.2"),
+    "dagster": ChartDefault(
+        chart_ref="dagster/dagster",
+        repository="https://dagster-io.github.io/helm",
+        version="1.13.6",
+        repack=True,
+        variant="no-schema",
+    ),
+    "seaweedfs": ChartDefault(
+        chart_ref="seaweedfs/seaweedfs",
+        repository="https://seaweedfs.github.io/seaweedfs/helm",
+        version="4.23.0",
+    ),
+    "polaris": ChartDefault(
+        chart_ref="polaris/polaris",
+        repository="https://downloads.apache.org/polaris/helm-chart",
+        version="1.4.1",
+    ),
+    "openmetadata": ChartDefault(
+        chart_ref="open-metadata/openmetadata",
+        repository="https://helm.open-metadata.org",
+        version="1.12.10",
+    ),
+    "openmetadata-dependencies": ChartDefault(
+        chart_ref="open-metadata/openmetadata-dependencies",
+        repository="https://helm.open-metadata.org",
+        version="1.12.10",
+    ),
+    "superset": ChartDefault(
+        chart_ref="superset/superset",
+        repository="https://apache.github.io/superset/",
+        version="0.15.5",
+    ),
+}
+
+
+def _env_slug(name: str) -> str:
+    return name.upper().replace("-", "_")
+
+
+TERRAFORM_VARIABLE_KEY: Mapping[str, str] = {
+    "trino": "trino_chart_package_path",
+    "dagster": "dagster_chart_package_path",
+    "seaweedfs": "seaweedfs_chart_package_path",
+    "polaris": "polaris_chart_package_path",
+    "openmetadata": "openmetadata_chart_package_path",
+    "openmetadata-dependencies": "openmetadata_deps_chart_package_path",
+    "superset": "superset_chart_package_path",
+}
+"""Maps a catalog chart name to the Terraform variable each environment root
+declares for it. `openmetadata-dependencies` breaks the `<name>_chart_package_path`
+pattern because its Terraform module variable is `deps_chart_package_path`
+(paired with the module's existing `deps_chart_version`, see
+`modules/governance/openmetadata/variables.tf`), not a name derived from the
+catalog key.
+"""
+
+
+@dataclass(frozen=True)
+class ChartSetting:
+    """A resolved, provider-agnostic chart ready for `prepare_chart`."""
+
+    name: str
+    repository_url: str
+    chart_ref: str
+    version: str
+    package_path: Path
+    sha256: str | None
+    repack: bool
+    variant: str | None
+
+    def request(self) -> ChartRequest:
+        return ChartRequest(
+            display_name=self.name,
+            repo_name=self.chart_ref.split("/", 1)[0],
+            repo_url=self.repository_url,
+            chart_ref=self.chart_ref,
+            version=self.version,
+            package_path=self.package_path,
+            sha256=self.sha256,
+        )
+
+
+def resolve_chart_setting(
+    name: str,
+    environ: Mapping[str, str],
+    *,
+    helm_cache_dir: Path,
+    cache_root: Path,
+    catalog_path: Path,
+    installed: bool,
+) -> ChartSetting:
+    """Resolve one catalog chart's settings, mirroring the `${VAR:-default}`
+    fallback chain `local.config.ChartSettings`/`cloud.config.CloudChartSettings`
+    each duplicated per chart before this helper existed.
+    """
+    default = CHART_DEFAULTS[name]
+    slug = _env_slug(name)
+    catalog_chart = CatalogChart.load(catalog_path, name) if catalog_path.is_file() else None
+    version = _env_lookup(environ, f"{slug}_CHART_VERSION", catalog_chart.version if catalog_chart else default.version)
+    fallback_filename = f"{name}-{version}-{default.variant}.tgz" if default.variant else f"{name}-{version}.tgz"
+    default_package_path = (
+        catalog_chart.request(cache_root=cache_root, variant=default.variant).package_path
+        if installed and catalog_chart is not None
+        else helm_cache_dir / fallback_filename
+    )
+    fallback_repository = catalog_chart.repository if catalog_chart is not None else default.repository
+    return ChartSetting(
+        name=name,
+        repository_url=_env_lookup(environ, f"{slug}_CHART_REPOSITORY", fallback_repository),
+        chart_ref=default.chart_ref,
+        version=version,
+        package_path=Path(_env_lookup(environ, f"{slug}_CHART_PACKAGE_PATH", str(default_package_path))),
+        sha256=catalog_chart.sha256 if installed and catalog_chart is not None else None,
+        repack=default.repack,
+        variant=default.variant,
+    )
+
+
+def resolve_chart_settings(
+    names: Iterable[str],
+    environ: Mapping[str, str],
+    *,
+    helm_cache_dir: Path,
+    cache_root: Path,
+    catalog_path: Path,
+    installed: bool,
+) -> dict[str, ChartSetting]:
+    return {
+        name: resolve_chart_setting(
+            name,
+            environ,
+            helm_cache_dir=helm_cache_dir,
+            cache_root=cache_root,
+            catalog_path=catalog_path,
+            installed=installed,
+        )
+        for name in names
+    }
+
+
+def prepare_chart(
+    setting: ChartSetting,
+    *,
+    helm: Helm,
+    paths: DeploymentPaths,
+    env: Mapping[str, str],
+    retry_policy: RetryPolicy,
+) -> Path:
+    """Cache and verify one resolved chart, dispatching to the schema-stripping
+    repack only for charts that declare it (currently Dagster alone)."""
+    request = setting.request()
+    if setting.repack:
+        return prepare_cached_dagster_chart_no_schema(
+            request, helm=helm, paths=paths, env=env, retry_policy=retry_policy
+        )
+    return prepare_cached_chart(request, helm=helm, paths=paths, env=env, retry_policy=retry_policy)

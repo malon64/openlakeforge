@@ -330,32 +330,34 @@ def test_check_images_match_deployment_sources_requires_every_registered_image_i
     assert "trino: registered deployment image is missing from the component catalog" in result.detail
 
 
-def test_chart_versions_match_deployment_wrappers_flags_cached_chart_drift(tmp_path: Path) -> None:
-    trino_module = tmp_path / "infra/terraform/modules/query/trino"
-    dagster_module = tmp_path / "infra/terraform/modules/orchestration/dagster"
-    trino_module.mkdir(parents=True)
-    dagster_module.mkdir(parents=True)
-    (trino_module / "variables.tf").write_text(
-        'variable "chart_version" {\n  default = "1.42.2"\n}\n'
-    )
-    (dagster_module / "variables.tf").write_text(
-        'variable "chart_version" {\n  default = "1.13.6"\n}\n'
-    )
-    for path, contents in {
-        "tools/olf/olf/deployment/local/config.py": '_env(environ, "TRINO_CHART_VERSION", "9.9.9")\n',
-        "tools/olf/olf/deployment/cloud/config.py": (
-            '_env(environ, "TRINO_CHART_VERSION", "1.42.2")\n'
-            '_env(environ, "DAGSTER_CHART_VERSION", "1.13.6")\n'
-        ),
-    }.items():
-        wrapper_path = tmp_path / path
-        wrapper_path.parent.mkdir(parents=True, exist_ok=True)
-        wrapper_path.write_text(contents)
+def _write_chart_module(tmp_path: Path, module_path: str, *, version: str, deps_version: str | None = None) -> None:
+    module_dir = tmp_path / "infra/terraform/modules" / module_path
+    module_dir.mkdir(parents=True)
+    body = f'variable "chart_version" {{\n  default = "{version}"\n}}\n'
+    if deps_version is not None:
+        body += f'variable "deps_chart_version" {{\n  default = "{deps_version}"\n}}\n'
+    (module_dir / "variables.tf").write_text(body)
+
+
+def test_chart_versions_match_deployment_wrappers_flags_version_drift(tmp_path: Path) -> None:
+    _write_chart_module(tmp_path, "query/trino", version="9.9.9")
 
     result = _readiness._check_chart_versions_match_deployment_wrappers(tmp_path)
 
     assert not result.ok
-    assert "TRINO_CHART_VERSION='9.9.9'" in result.detail
+    assert "trino: CHART_DEFAULTS version=" in result.detail
+    assert "9.9.9" in result.detail
+
+
+def test_chart_versions_match_deployment_wrappers_flags_terraform_only_chart(tmp_path: Path) -> None:
+    _write_chart_module(tmp_path, "query/trino", version="1.42.2")
+    _write_chart_module(tmp_path, "storage/not-a-catalog-chart", version="1.0.0")
+
+    result = _readiness._check_chart_versions_match_deployment_wrappers(tmp_path)
+
+    assert not result.ok
+    assert "not-a-catalog-chart" in result.detail
+    assert "no CHART_DEFAULTS entry" in result.detail
 
 
 def test_chart_versions_match_deployment_wrappers_passes_on_real_repo() -> None:

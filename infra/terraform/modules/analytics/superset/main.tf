@@ -1,3 +1,9 @@
+locals {
+  chart      = var.chart_package_path != null ? var.chart_package_path : "superset"
+  repository = var.chart_package_path != null ? null : var.chart_repository
+  version    = var.chart_package_path != null ? null : var.chart_version
+}
+
 resource "random_password" "secret_key" {
   length  = 64
   special = false
@@ -5,9 +11,9 @@ resource "random_password" "secret_key" {
 
 resource "helm_release" "superset" {
   name       = var.release_name
-  repository = var.chart_repository
-  chart      = "superset"
-  version    = var.chart_version
+  repository = local.repository
+  chart      = local.chart
+  version    = local.version
   namespace  = var.namespace
 
   # Keep Terraform aligned with the web, worker, Redis, and init hook readiness

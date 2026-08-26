@@ -266,13 +266,15 @@ module "openmetadata" {
   source = "../../modules/governance/openmetadata"
   count  = var.enable_governance ? 1 : 0
 
-  namespace           = kubernetes_namespace_v1.lakehouse.metadata[0].name
-  base_values_file    = "${path.root}/../../../helm/values/local/openmetadata.yaml"
-  deps_values_file    = "${path.root}/../../../helm/values/local/openmetadata-deps.yaml"
-  catalog_contract    = local.catalog_contract
-  storage_contract    = local.storage_contract
-  postgresql_contract = local.metadata_database_contract
-  postgresql_ssl_mode = "require"
+  namespace               = kubernetes_namespace_v1.lakehouse.metadata[0].name
+  base_values_file        = "${path.root}/../../../helm/values/local/openmetadata.yaml"
+  deps_values_file        = "${path.root}/../../../helm/values/local/openmetadata-deps.yaml"
+  chart_package_path      = var.openmetadata_chart_package_path
+  deps_chart_package_path = var.openmetadata_deps_chart_package_path
+  catalog_contract        = local.catalog_contract
+  storage_contract        = local.storage_contract
+  postgresql_contract     = local.metadata_database_contract
+  postgresql_ssl_mode     = "require"
   # Empty by design: the database schemas mirror Glue databases, which now
   # come into existence in Phase 2. `olf openmetadata deploy-metadata` creates
   # each databaseSchema entity right before it seeds that schema's tables.
@@ -294,6 +296,7 @@ module "superset" {
 
   namespace           = kubernetes_namespace_v1.lakehouse.metadata[0].name
   base_values_file    = "${path.root}/../../../helm/values/local/superset.yaml"
+  chart_package_path  = var.superset_chart_package_path
   image_repository    = var.superset_image_repository
   image_tag           = var.superset_image_tag
   image_pull_policy   = var.superset_image_pull_policy

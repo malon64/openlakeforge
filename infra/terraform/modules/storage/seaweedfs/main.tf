@@ -5,6 +5,10 @@ locals {
     "openlakeforge.io/component"   = "storage"
   }
 
+  chart      = var.chart_package_path != null ? var.chart_package_path : "seaweedfs"
+  repository = var.chart_package_path != null ? null : var.chart_repository
+  version    = var.chart_package_path != null ? null : var.chart_version
+
   s3_service_name     = "${var.release_name}-s3"
   master_service_name = "${var.release_name}-master"
   filer_service_name  = "${var.release_name}-filer-client"
@@ -40,9 +44,9 @@ resource "kubernetes_secret_v1" "s3_credentials" {
 
 resource "helm_release" "seaweedfs" {
   name       = var.release_name
-  repository = var.chart_repository
-  chart      = "seaweedfs"
-  version    = var.chart_version
+  repository = local.repository
+  chart      = local.chart
+  version    = local.version
   namespace  = var.namespace
 
   wait    = true

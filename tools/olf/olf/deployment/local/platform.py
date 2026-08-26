@@ -11,7 +11,7 @@ from collections.abc import Mapping
 
 from olf import log
 from olf.deployment import kube_ops
-from olf.deployment.charts import ChartRequest, prepare_cached_chart
+from olf.deployment.charts import TERRAFORM_VARIABLE_KEY, prepare_chart
 from olf.deployment.engine import Toolkit
 from olf.deployment.errors import CommandExecutionError, DeploymentPreconditionError
 from olf.deployment.local.config import LocalDeploymentConfig
@@ -28,23 +28,16 @@ def platform_var_files(config: LocalDeploymentConfig) -> tuple[str, ...]:
 
 
 def prepare_charts(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[str, str]) -> None:
-    """Ensure Terraform's locally referenced Trino chart archive is available."""
+    """Ensure every Terraform-referenced chart archive is cached and digest-verified."""
     config.context.prepare_directories()
-    prepare_cached_chart(
-        ChartRequest(
-            display_name="Trino",
-            repo_name="trino",
-            repo_url=config.charts.trino_repository_url,
-            chart_ref=config.charts.trino_chart_ref,
-            version=config.charts.trino_version,
-            package_path=config.charts.trino_package_path,
-            sha256=config.charts.trino_sha256,
-        ),
-        helm=tools.helm,
-        paths=config.paths,
-        env=env,
-        retry_policy=config.terraform.apply_retry,
-    )
+    for setting in config.charts.values():
+        prepare_chart(
+            setting,
+            helm=tools.helm,
+            paths=config.paths,
+            env=env,
+            retry_policy=config.terraform.apply_retry,
+        )
 
 
 def platform_apply_variables(config: LocalDeploymentConfig) -> dict[str, str]:
@@ -70,8 +63,7 @@ def platform_apply_variables(config: LocalDeploymentConfig) -> dict[str, str]:
         "superset_image_repository": images.superset_repository,
         "superset_image_tag": images.superset_tag,
         "superset_image_pull_policy": images.superset_pull_policy,
-        "trino_chart_package_path": str(config.charts.trino_package_path),
-    }
+    } | {TERRAFORM_VARIABLE_KEY[setting.name]: str(setting.package_path) for setting in config.charts.values()}
 
 
 def platform_destroy_variables(config: LocalDeploymentConfig) -> dict[str, str]:

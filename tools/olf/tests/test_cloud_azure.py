@@ -343,6 +343,11 @@ def test_platform_apply_variables_have_no_aws_region(tmp_path: Path) -> None:
         "superset_image_pull_policy",
         "trino_chart_package_path",
         "dagster_chart_package_path",
+        "seaweedfs_chart_package_path",
+        "polaris_chart_package_path",
+        "openmetadata_chart_package_path",
+        "openmetadata_deps_chart_package_path",
+        "superset_chart_package_path",
     }
 
 

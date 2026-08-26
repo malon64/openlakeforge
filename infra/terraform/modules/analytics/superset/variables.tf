@@ -12,13 +12,19 @@ variable "release_name" {
 variable "chart_repository" {
   description = "Superset Helm chart repository."
   type        = string
-  default     = "http://apache.github.io/superset/"
+  default     = "https://apache.github.io/superset/"
 }
 
 variable "chart_version" {
   description = "Superset Helm chart version."
   type        = string
   default     = "0.15.5"
+}
+
+variable "chart_package_path" {
+  description = "Optional local Superset Helm chart package path. When set, Terraform installs this package instead of downloading from chart_repository."
+  type        = string
+  default     = null
 }
 
 variable "base_values_file" {
