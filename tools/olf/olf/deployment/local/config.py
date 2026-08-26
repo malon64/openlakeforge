@@ -229,7 +229,7 @@ class LocalDeploymentConfig:
                 helm_cache_dir=context.paths.helm_cache_dir,
                 cache_root=context.paths.cache_root,
                 catalog_path=context.paths.distribution_root / "release/component-catalog.yaml",
-                installed=context.paths.distribution_root != context.paths.repo_root,
+                installed=context.paths.installed,
             ),
             terraform=TerraformSettings.from_environment(
                 environ, repo_root=distribution_root, profile=context.profile, var_file=var_file

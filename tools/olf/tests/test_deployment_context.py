@@ -180,6 +180,51 @@ def test_installed_context_keeps_terraform_state_and_data_outside_distribution(t
     assert env["OPENLAKEFORGE_TERRAFORM_STATE_ROOT"] == str(state / "local")
     assert env["OPENLAKEFORGE_TERRAFORM_READONLY_LOCKFILE"] == "true"
 
+
+def test_installed_context_without_project_root_still_externalizes_terraform_state(tmp_path: Path) -> None:
+    """The documented quick start - `uv tool install openlakeforge` then
+    `olf deploy` with no `--project-root` - deploys the bundled demo, so
+    `project_root` and `distribution_root` are the *same* read-only payload.
+
+    Regression test: `command_env` used to gate the external state/data
+    roots on `distribution_root != repo_root`, which is False here, so
+    Terraform ran without `TF_DATA_DIR`/`-state=` and `terraform apply`
+    died with "open terraform.tfstate: permission denied" against the 0555
+    payload - the very first apply of the quick start.
+    """
+    payload = tmp_path / "payload"
+    state = tmp_path / "state"
+    work = tmp_path / "work"
+    ctx = DeploymentContext.local(
+        repo_root=payload,
+        distribution_root=payload,
+        state_root=state,
+        work_root=work,
+        cache_root=tmp_path / "cache",
+    )
+
+    env = ctx.command_env()
+
+    assert ctx.paths.installed is True
+    assert ctx.paths.repo_root == ctx.paths.distribution_root
+    assert env["OPENLAKEFORGE_TERRAFORM_DATA_ROOT"] == str(work / "local/terraform-data")
+    assert env["OPENLAKEFORGE_TERRAFORM_STATE_ROOT"] == str(state / "local")
+    assert env["OPENLAKEFORGE_TERRAFORM_READONLY_LOCKFILE"] == "true"
+
+
+def test_source_context_leaves_terraform_state_beside_the_checkout(tmp_path: Path) -> None:
+    """A source checkout keeps Terraform's own directory-relative defaults -
+    no `-state=`/`TF_DATA_DIR` overlay, and no read-only lockfile."""
+    ctx = DeploymentContext.local(repo_root=tmp_path)
+
+    env = ctx.command_env()
+
+    assert ctx.paths.installed is False
+    assert "OPENLAKEFORGE_TERRAFORM_DATA_ROOT" not in env
+    assert "OPENLAKEFORGE_TERRAFORM_STATE_ROOT" not in env
+    assert "OPENLAKEFORGE_TERRAFORM_READONLY_LOCKFILE" not in env
+
+
 def test_command_env_without_docker_host_omits_it(tmp_path: Path) -> None:
     ctx = DeploymentContext.local(repo_root=tmp_path)
 

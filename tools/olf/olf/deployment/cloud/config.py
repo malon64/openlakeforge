@@ -343,7 +343,7 @@ class CloudDeploymentConfig:
                 helm_cache_dir=context.paths.helm_cache_dir,
                 cache_root=context.paths.cache_root,
                 catalog_path=context.paths.distribution_root / "release/component-catalog.yaml",
-                installed=context.paths.distribution_root != context.paths.repo_root,
+                installed=context.paths.installed,
             ),
             terraform=terraform,
             floe=FloeManifestSettings.from_environment(environ, work_root=context.paths.work_root, scope=scope),

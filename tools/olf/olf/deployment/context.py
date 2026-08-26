@@ -65,6 +65,17 @@ class DeploymentPaths:
     helm_repository_cache: Path
     superset_report_work_dir: Path
     port_forward_log_prefix: Path
+    installed: bool = False
+    """True when these paths came from a packaged distribution (payload under
+    `OLF_HOME`) rather than a source checkout.
+
+    The authoritative installed-mode signal, and deliberately *not* derivable
+    from `distribution_root != repo_root`: an installed run without
+    `--project-root` deploys the bundled demo, so both roots are the same
+    immutable payload. Consumers that must know whether state, plugin data,
+    and chart caches live outside the (read-only) distribution - and whether
+    catalog chart digests are enforced - read this instead of comparing roots.
+    """
 
 
 @dataclass(frozen=True)
@@ -276,6 +287,7 @@ class DeploymentContext:
             helm_repository_cache=helm_root / "repository-cache",
             superset_report_work_dir=resolved_work_root / "superset-reports" / scope,
             port_forward_log_prefix=Path(f"/tmp/openlakeforge-{scope}"),
+            installed=state_root is not None,
         )
         return cls(
             provider=provider,
@@ -311,7 +323,13 @@ class DeploymentContext:
         # Fresh contract readers create their own managed-tool resolver. Keep
         # them anchored to the same verified distribution as the Toolkit.
         env["OLF_DISTRIBUTION_ROOT"] = str(self.paths.distribution_root)
-        if self.paths.distribution_root != self.paths.repo_root:
+        # Gate on `installed`, never on `distribution_root != repo_root`: the
+        # documented quick start (`uv tool install` then `olf deploy` with no
+        # --project-root) deploys the bundled demo, so both roots are the same
+        # read-only payload. Comparing them left Terraform without TF_DATA_DIR
+        # and `-state=`, so `terraform apply` tried to write `terraform.tfstate`
+        # into the 0555 payload and failed with "permission denied".
+        if self.paths.installed:
             env["OPENLAKEFORGE_TERRAFORM_DATA_ROOT"] = str(self.paths.terraform_data_root)
             env["OPENLAKEFORGE_TERRAFORM_STATE_ROOT"] = str(self.paths.state_root)
             env["OPENLAKEFORGE_TERRAFORM_READONLY_LOCKFILE"] = "true"
