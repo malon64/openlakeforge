@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import io
 import tarfile
@@ -7,7 +8,12 @@ from pathlib import Path
 
 from _tooling_support import RecordedCall, RecordingRunner
 
-from olf.deployment.charts import ChartRequest, prepare_cached_chart, prepare_cached_dagster_chart_no_schema
+from olf.deployment.charts import (
+    ChartRequest,
+    _chart_cache_lock,
+    prepare_cached_chart,
+    prepare_cached_dagster_chart_no_schema,
+)
 from olf.deployment.context import DeploymentContext
 from olf.deployment.retry import RetryPolicy
 from olf.tooling.helm import Helm
@@ -53,6 +59,21 @@ def _dagster_request(tmp_path: Path) -> ChartRequest:
         version="1.13.6",
         package_path=tmp_path / "helm" / "charts" / "dagster-1.13.6-no-schema.tgz",
     )
+
+
+def test_chart_cache_lock_blocks_another_handle_for_the_same_package(tmp_path: Path) -> None:
+    """The shared installed cache must serialize chart preparation across processes."""
+    request = _request(tmp_path)
+    lock_path = request.package_path.with_name(f".{request.package_path.name}.lock")
+
+    with _chart_cache_lock(request):
+        with lock_path.open("a+") as competing_handle:
+            try:
+                fcntl.flock(competing_handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                pass
+            else:
+                raise AssertionError("chart cache lock did not block a competing handle")
 
 
 def test_reuses_valid_cached_chart(tmp_path: Path) -> None:

@@ -10,11 +10,12 @@ did.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import os
 import tarfile
 import tempfile
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -86,7 +87,43 @@ def _digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+@contextlib.contextmanager
+def _chart_cache_lock(request: ChartRequest) -> Iterator[None]:
+    """Serialize one chart's shared-cache lifecycle across providers.
+
+    Installed local, AWS, and Azure deployments deliberately share
+    ``OLF_HOME/cache/helm``. Helm writes its downloaded archive with a
+    chart/version filename before OpenLakeForge verifies and activates the
+    content-addressed package, so locking only the final rename would still
+    leave concurrent pulls and repacks racing. The per-package lock covers
+    cache validation, download, verification, and publication while allowing
+    unrelated charts to prepare concurrently.
+    """
+    import fcntl
+
+    request.package_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = request.package_path.with_name(f".{request.package_path.name}.lock")
+    with lock_path.open("a+") as handle:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle, fcntl.LOCK_UN)
+
+
 def prepare_cached_chart(
+    request: ChartRequest,
+    *,
+    helm: Helm,
+    paths: DeploymentPaths,
+    env: Mapping[str, str],
+    retry_policy: RetryPolicy,
+) -> Path:
+    with _chart_cache_lock(request):
+        return _prepare_cached_chart(request, helm=helm, paths=paths, env=env, retry_policy=retry_policy)
+
+
+def _prepare_cached_chart(
     request: ChartRequest,
     *,
     helm: Helm,
@@ -174,6 +211,20 @@ def _cached_derivative_is_trustworthy(package_path: Path) -> bool:
 
 
 def prepare_cached_dagster_chart_no_schema(
+    request: ChartRequest,
+    *,
+    helm: Helm,
+    paths: DeploymentPaths,
+    env: Mapping[str, str],
+    retry_policy: RetryPolicy,
+) -> Path:
+    with _chart_cache_lock(request):
+        return _prepare_cached_dagster_chart_no_schema(
+            request, helm=helm, paths=paths, env=env, retry_policy=retry_policy
+        )
+
+
+def _prepare_cached_dagster_chart_no_schema(
     request: ChartRequest,
     *,
     helm: Helm,
