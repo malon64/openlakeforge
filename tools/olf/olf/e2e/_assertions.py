@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from openlakeforge_domain import DomainInventory
+from openlakeforge_domain import LakehouseInventory
 
 from olf import k8s, log, superset
 from olf.clients.base import ServiceClientError
@@ -50,14 +50,9 @@ def discovered_dashboards(cfg: E2EConfig) -> dict[str, str]:
     imported. Reading it here (rather than inventing slug/title from
     id/displayName) is what lets a product export a differently named or
     multiple dashboards without failing this check.
+
+    Validates the descriptor registry and every bundle deployment imports.
     """
-    if hasattr(cfg.inventory, "dashboards"):
-        return _discovered_dashboards_canonical(cfg)
-    return _discovered_dashboards_legacy(cfg)
-
-
-def _discovered_dashboards_canonical(cfg: E2EConfig) -> dict[str, str]:
-    """Validate the descriptor registry and every bundle deployment imports."""
     dashboards_by_dir = {dashboard.report_source_dir: dashboard for dashboard in cfg.inventory.dashboards}
     discovered_dirs = set(superset.discover_report_dirs(cfg.repo_root))
     declared_dirs = set(dashboards_by_dir)
@@ -74,19 +69,6 @@ def _discovered_dashboards_canonical(cfg: E2EConfig) -> dict[str, str]:
         dashboard_files = superset.discover_dashboard_files(report_dir)
         if not dashboard_files:
             raise E2EError(f"{report_dir / 'dashboards'}: dashboard {dashboard.name!r} exports no Superset dashboards")
-        for dashboard_file in dashboard_files:
-            expected.update(_read_dashboard_slug_title(dashboard_file))
-    return expected
-
-
-def _discovered_dashboards_legacy(cfg: E2EConfig) -> dict[str, str]:
-    """Legacy v1alpha2 inventory: predates the Dashboard/lakehouse_code concept entirely."""
-    expected: dict[str, str] = {}
-    for product in cfg.inventory.products:
-        report_dir = cfg.repo_root / product.report_source_dir
-        dashboard_files = superset.discover_dashboard_files(report_dir)
-        if not dashboard_files:
-            raise E2EError(f"{report_dir / 'dashboards'}: product {product.id!r} exports no Superset dashboards")
         for dashboard_file in dashboard_files:
             expected.update(_read_dashboard_slug_title(dashboard_file))
     return expected
@@ -129,7 +111,7 @@ def check_openmetadata_assets(cfg: E2EConfig) -> None:
         assert_openmetadata_assets(OpenMetadataClient(base_url), cfg.inventory)
 
 
-def assert_openmetadata_assets(client: OpenMetadataClient, inventory: DomainInventory) -> None:
+def assert_openmetadata_assets(client: OpenMetadataClient, inventory: LakehouseInventory) -> None:
     _openmetadata_e2e_login(client)
     for domain in inventory.domain_names:
         client.request("GET", f"/api/v1/domains/name/{domain}")

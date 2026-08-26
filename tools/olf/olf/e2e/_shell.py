@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-from openlakeforge_domain import DomainInventory
+from openlakeforge_domain import LakehouseInventory
 
 from olf import contracts, log
 from olf.tooling.resolver import build_resolver
@@ -51,7 +51,7 @@ class E2EConfig:
     distribution_root: Path
     foundation_terraform_dir: Path | None
     contract_terraform_dir: Path
-    inventory: DomainInventory
+    inventory: LakehouseInventory
     aws_region: str | None = None
     dagster_local_port: int | None = None
     superset_local_port: int | None = None

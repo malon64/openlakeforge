@@ -39,11 +39,12 @@ apiVersion: openlakeforge.io/v1alpha3
 kind: Source
 ```
 
-`v1alpha3` is required by the canonical OpenLakeForge lakehouse inventory. Descriptors
-using the legacy `v1alpha1`/`v1alpha2` `Domain` format can still be parsed for migration
-diagnostics only — they are no longer discovered by any default runtime path. See
-[v1alpha1 → v1alpha2 migration](../migrations/domain-v1alpha1-to-v1alpha2.md) for that
-earlier, now-historical migration.
+`v1alpha3` is required by the canonical OpenLakeForge lakehouse inventory. The
+earlier legacy `v1alpha1`/`v1alpha2` `Domain` format and its parsers were
+removed once `lakehouse_code/lakehouse.yaml` fully replaced `domains/*/domain.yaml`
+(ADR 0026); see [ADR 0021](../adr/0021-domain-descriptor-v1alpha2-inventory.md)
+and [ADR 0026](../adr/0026-medallion-ownership-and-catalog-namespace-contract.md)
+for that now-historical migration.
 
 `olf init --empty` intentionally writes a transitional `lakehouse.yaml` with
 empty `sources` and `domains` lists. It is accepted only by the source/domain/
@@ -638,7 +639,6 @@ Changes to `displayName`, `description`, and `status` are generally metadata-onl
 * [ADR 0026 — medallion ownership and catalog namespace contract](../adr/0026-medallion-ownership-and-catalog-namespace-contract.md)
 * [Lakehouse JSON Schema](../schema/lakehouse.schema.json)
 * [Source JSON Schema](../schema/source.schema.json)
-* [v1alpha1 → v1alpha2 migration (historical)](../migrations/domain-v1alpha1-to-v1alpha2.md)
 * [Provider contracts](../architecture/provider-contracts.md)
 * [Architecture overview](../architecture/overview.md)
 * [`olf` CLI documentation](../../tools/olf/README.md)

@@ -303,7 +303,6 @@ docs/
 │   └── diagrams/
 │
 ├── adr/
-├── migrations/
 ├── release/
 ├── schema/
 └── testing/
