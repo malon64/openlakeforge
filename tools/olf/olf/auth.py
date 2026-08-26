@@ -49,8 +49,64 @@ def _uses_aws_automation(environ: Mapping[str, str]) -> bool:
     return any(environ.get(name) for name in _AWS_AUTOMATION_VARIABLES)
 
 
+_ARM_CLIENT_SECRET_VARS = ("ARM_CLIENT_ID", "ARM_TENANT_ID", "ARM_CLIENT_SECRET")
+_ARM_CERTIFICATE_VARS = ("ARM_CLIENT_ID", "ARM_TENANT_ID", "ARM_CLIENT_CERTIFICATE_PATH")
+_ARM_OIDC_TOKEN_VARS = ("ARM_CLIENT_ID", "ARM_TENANT_ID", "ARM_OIDC_TOKEN")
+_ARM_OIDC_TOKEN_FILE_VARS = ("ARM_CLIENT_ID", "ARM_TENANT_ID", "ARM_OIDC_TOKEN_FILE_PATH")
+
+
 def _uses_azure_automation(environ: Mapping[str, str]) -> bool:
-    return any(environ.get(name) for name in _AZURE_AUTOMATION_VARIABLES)
+    if any(environ.get(name) for name in _AZURE_AUTOMATION_VARIABLES):
+        return True
+    # AzureRM's provider reads these directly - it never goes through
+    # azure-identity - so Terraform authenticates correctly with only ARM_*
+    # set while `DefaultAzureCredential`/`EnvironmentCredential`, which only
+    # recognize the differently-named AZURE_* forms, see no automation
+    # source at all.
+    return any(
+        all(environ.get(name) for name in var_group)
+        for var_group in (
+            _ARM_CLIENT_SECRET_VARS,
+            _ARM_CERTIFICATE_VARS,
+            _ARM_OIDC_TOKEN_VARS,
+            _ARM_OIDC_TOKEN_FILE_VARS,
+        )
+    )
+
+
+def _azure_automation_credential(environ: Mapping[str, str]) -> Any | None:
+    """Translate AzureRM's native ARM_* automation variables into a credential.
+
+    Returns `None` when none of the ARM_* forms are present, so the caller
+    falls back to `DefaultAzureCredential` for the AZURE_*/managed-identity
+    forms `_uses_azure_automation` also recognizes.
+    """
+    client_id = environ.get("ARM_CLIENT_ID")
+    tenant_id = environ.get("ARM_TENANT_ID")
+    if not client_id or not tenant_id:
+        return None
+    client_secret = environ.get("ARM_CLIENT_SECRET")
+    if client_secret:
+        from azure.identity import ClientSecretCredential
+
+        return ClientSecretCredential(tenant_id=tenant_id, client_id=client_id, client_secret=client_secret)
+    certificate_path = environ.get("ARM_CLIENT_CERTIFICATE_PATH")
+    if certificate_path:
+        from azure.identity import CertificateCredential
+
+        return CertificateCredential(tenant_id=tenant_id, client_id=client_id, certificate_path=certificate_path)
+    oidc_token = environ.get("ARM_OIDC_TOKEN")
+    oidc_token_file = environ.get("ARM_OIDC_TOKEN_FILE_PATH")
+    if oidc_token or oidc_token_file:
+        from azure.identity import ClientAssertionCredential
+
+        def _assertion() -> str:
+            if oidc_token:
+                return oidc_token
+            return Path(str(oidc_token_file)).read_text(encoding="utf-8").strip()
+
+        return ClientAssertionCredential(tenant_id=tenant_id, client_id=client_id, func=_assertion)
+    return None
 
 
 def _aws_instance_profile_available() -> bool:
@@ -447,12 +503,11 @@ def login_azure(
         credential = InteractiveBrowserCredential(tenant_id=tenant_id, cache_persistence_options=options)
     record = credential.authenticate(scopes=[_ARM_SCOPE])
     subscriptions = list(SubscriptionClient(credential).subscriptions.list())
-    selected = subscription_id or _choose_subscription(subscriptions, choose)
-    selected_item = next(item for item in subscriptions if item.subscription_id == selected)
+    selected_item = _resolve_subscription(subscription_id, subscriptions, choose)
     state = {
         "source": "olf-browser",
         "tenant_id": selected_item.tenant_id or tenant_id or "",
-        "subscription_id": selected,
+        "subscription_id": str(selected_item.subscription_id),
         "principal": getattr(record, "username", ""),
         "authentication_record": record.serialize(),
     }
@@ -483,6 +538,25 @@ def _choose_subscription(subscriptions: list[Any], choose: Any | None) -> str:
     return str(choose(values, "Azure subscription"))
 
 
+def _resolve_subscription(explicit: str | None, subscriptions: list[Any], choose: Any | None) -> Any:
+    """Return the caller's explicit subscription, or prompt for one.
+
+    An explicit `--subscription-id` is validated against what the identity
+    actually has access to. Persisting an unlisted value would report
+    "authentication ready" and then raise an unhandled `StopIteration`
+    (`next()` over the now-empty match) the CLI's `except AuthenticationError`
+    handler cannot catch, instead of an actionable message.
+    """
+    if not explicit:
+        selected = _choose_subscription(subscriptions, choose)
+        return next(item for item in subscriptions if str(item.subscription_id) == selected)
+    match = next((item for item in subscriptions if str(item.subscription_id) == explicit), None)
+    if match is None:
+        available = ", ".join(sorted(str(item.subscription_id) for item in subscriptions)) or "(none)"
+        raise AuthenticationError(f"Azure subscription {explicit!r} is not available; offered: {available}.")
+    return match
+
+
 def azure_credential(environ: Mapping[str, str]) -> Any:
     """Resolve the selected Azure credential without opening a browser."""
     from azure.identity import (
@@ -493,6 +567,9 @@ def azure_credential(environ: Mapping[str, str]) -> Any:
     )
 
     if _uses_azure_automation(environ):
+        arm_credential = _azure_automation_credential(environ)
+        if arm_credential is not None:
+            return arm_credential
         return DefaultAzureCredential(
             exclude_azure_cli_credential=True,
             exclude_interactive_browser_credential=True,
@@ -601,8 +678,11 @@ def adopt_azure_cli(
 
     credential = AzureCliCredential(tenant_id=tenant_id)
     subscriptions = list(SubscriptionClient(credential).subscriptions.list())
-    selected = subscription_id or _choose_subscription(subscriptions, choose)
-    item = next(subscription for subscription in subscriptions if subscription.subscription_id == selected)
-    state = {"source": "azure-cli", "tenant_id": item.tenant_id or tenant_id or "", "subscription_id": selected}
+    item = _resolve_subscription(subscription_id, subscriptions, choose)
+    state = {
+        "source": "azure-cli",
+        "tenant_id": item.tenant_id or tenant_id or "",
+        "subscription_id": str(item.subscription_id),
+    }
     save_state("azure", state, environ)
     return state

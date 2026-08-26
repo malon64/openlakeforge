@@ -629,3 +629,116 @@ def test_sso_client_survives_a_config_file_set_after_an_earlier_bare_boto3_call(
     client = auth._sso_client("sso", region="eu-west-1")  # noqa: SLF001 - regression coverage for the fix itself.
 
     assert client is not None
+
+
+def test_azure_arm_client_secret_automation_is_detected_and_translated() -> None:
+    """AzureRM's provider reads ARM_CLIENT_ID/ARM_CLIENT_SECRET/ARM_TENANT_ID
+    directly and never goes through azure-identity, so Terraform authenticates
+    correctly with only those set while `DefaultAzureCredential` - which only
+    recognizes the differently-named AZURE_* forms - sees no automation
+    source at all and would fall through to a saved browser session.
+    """
+    env = {"ARM_CLIENT_ID": "client-id", "ARM_TENANT_ID": "tenant-id", "ARM_CLIENT_SECRET": "secret"}
+
+    assert auth._uses_azure_automation(env)  # noqa: SLF001
+    credential = auth.azure_credential(env)
+
+    assert type(credential).__name__ == "ClientSecretCredential"
+
+
+def test_azure_arm_certificate_automation_is_detected_and_translated(tmp_path: Path) -> None:
+    """`CertificateCredential` reads its certificate file eagerly at
+    construction time, so this needs a real (throwaway) PEM, not just a path.
+    """
+    import subprocess
+
+    cert_path = tmp_path / "cert.pem"
+    subprocess.run(
+        [
+            "openssl", "req", "-x509", "-newkey", "rsa:2048", "-keyout", str(cert_path), "-out", str(cert_path),
+            "-days", "1", "-nodes", "-subj", "/CN=olf-test",
+        ],
+        check=True,
+        capture_output=True,
+    )
+    env = {"ARM_CLIENT_ID": "client-id", "ARM_TENANT_ID": "tenant-id", "ARM_CLIENT_CERTIFICATE_PATH": str(cert_path)}
+
+    credential = auth.azure_credential(env)
+
+    assert type(credential).__name__ == "CertificateCredential"
+
+
+def test_azure_arm_oidc_token_automation_is_detected_and_translated() -> None:
+    env = {"ARM_CLIENT_ID": "client-id", "ARM_TENANT_ID": "tenant-id", "ARM_OIDC_TOKEN": "jwt-token"}
+
+    credential = auth.azure_credential(env)
+
+    assert type(credential).__name__ == "ClientAssertionCredential"
+
+
+def test_azure_arm_oidc_token_file_automation_reads_the_file(tmp_path: Path) -> None:
+    token_file = tmp_path / "token"
+    token_file.write_text("jwt-from-file\n")
+    env = {"ARM_CLIENT_ID": "client-id", "ARM_TENANT_ID": "tenant-id", "ARM_OIDC_TOKEN_FILE_PATH": str(token_file)}
+
+    credential = auth.azure_credential(env)
+
+    assert credential._func() == "jwt-from-file"  # noqa: SLF001 - exercising the assertion callable directly.
+
+
+def test_azure_arm_automation_requires_both_client_id_and_tenant_id() -> None:
+    assert not auth._uses_azure_automation({"ARM_CLIENT_SECRET": "secret"})  # noqa: SLF001
+    assert not auth._uses_azure_automation({"ARM_CLIENT_ID": "client-id"})  # noqa: SLF001
+
+
+def test_azure_browser_login_rejects_an_inaccessible_subscription_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An explicit `--subscription-id` typo must raise `AuthenticationError`
+    (which the CLI catches) rather than an unhandled `StopIteration` from
+    `next()` over an empty match.
+    """
+    import azure.identity
+    import azure.mgmt.resource.subscriptions
+
+    record = type("Record", (), {"serialize": lambda *_args: "record", "username": "user@example.com"})()
+    credential = type("Credential", (), {"authenticate": lambda *_args, **_kwargs: record})()
+    subscription = type(
+        "Subscription", (), {"subscription_id": "sub-id", "display_name": "Sandbox", "tenant_id": "tenant-id"}
+    )()
+    monkeypatch.setattr(azure.identity, "InteractiveBrowserCredential", lambda **_kwargs: credential)
+    monkeypatch.setattr(
+        azure.mgmt.resource.subscriptions,
+        "SubscriptionClient",
+        lambda *_args: type(
+            "Client", (), {"subscriptions": type("Subscriptions", (), {"list": lambda *_args: [subscription]})()}
+        )(),
+    )
+
+    with pytest.raises(auth.AuthenticationError, match="not available"):
+        auth.login_azure(subscription_id="typo-sub-id")
+
+
+def test_azure_browser_login_accepts_an_offered_subscription_without_prompting(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    import azure.identity
+    import azure.mgmt.resource.subscriptions
+
+    monkeypatch.setenv("OLF_HOME", str(tmp_path))
+    record = type("Record", (), {"serialize": lambda *_args: "record", "username": "user@example.com"})()
+    credential = type("Credential", (), {"authenticate": lambda *_args, **_kwargs: record})()
+    one = type("Subscription", (), {"subscription_id": "sub-id", "display_name": "One", "tenant_id": "tenant-id"})()
+    two = type(
+        "Subscription", (), {"subscription_id": "other-id", "display_name": "Two", "tenant_id": "tenant-id"}
+    )()
+    monkeypatch.setattr(azure.identity, "InteractiveBrowserCredential", lambda **_kwargs: credential)
+    monkeypatch.setattr(
+        azure.mgmt.resource.subscriptions,
+        "SubscriptionClient",
+        lambda *_args: type(
+            "Client", (), {"subscriptions": type("Subscriptions", (), {"list": lambda *_args: [one, two]})()}
+        )(),
+    )
+
+    state = auth.login_azure(subscription_id="other-id")
+
+    assert state["subscription_id"] == "other-id"
