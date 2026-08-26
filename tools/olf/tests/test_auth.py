@@ -1,10 +1,16 @@
 from __future__ import annotations
 
 import json
+import os
 import stat
+import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 
+import boto3
 import pytest
+from botocore import UNSIGNED
+from botocore.config import Config
 from typer.testing import CliRunner
 
 from olf import auth
@@ -68,7 +74,13 @@ def test_aws_login_opens_only_the_aws_provided_url_and_saves_private_state(
 ) -> None:
     opened: list[str] = []
     monkeypatch.setenv("OLF_HOME", str(tmp_path))
-    monkeypatch.setattr(auth.boto3, "client", lambda service, **_kwargs: _Oidc() if service == "sso-oidc" else _Sso())
+    monkeypatch.setattr(
+        auth.boto3,
+        "Session",
+        lambda *_a, **_k: SimpleNamespace(
+            client=lambda service, **_kwargs: _Oidc() if service == "sso-oidc" else _Sso()
+        ),
+    )
     monkeypatch.setattr(auth.webbrowser, "open", lambda url: opened.append(url) or True)
 
     state = auth.login_aws(start_url="https://portal.awsapps.com/start", sso_region="eu-west-1")
@@ -84,7 +96,13 @@ def test_aws_login_without_browser_prints_only_aws_device_details(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys
 ) -> None:
     monkeypatch.setenv("OLF_HOME", str(tmp_path))
-    monkeypatch.setattr(auth.boto3, "client", lambda service, **_kwargs: _Oidc() if service == "sso-oidc" else _Sso())
+    monkeypatch.setattr(
+        auth.boto3,
+        "Session",
+        lambda *_a, **_k: SimpleNamespace(
+            client=lambda service, **_kwargs: _Oidc() if service == "sso-oidc" else _Sso()
+        ),
+    )
 
     auth.login_aws(start_url="https://portal.awsapps.com/start", sso_region="eu-west-1", open_browser=False)
 
@@ -103,7 +121,13 @@ def test_aws_device_polling_retries_pending_and_slowdown(monkeypatch: pytest.Mon
         ]
     )
     pauses: list[int] = []
-    monkeypatch.setattr(auth.boto3, "client", lambda service, **_kwargs: oidc if service == "sso-oidc" else _Sso())
+    monkeypatch.setattr(
+        auth.boto3,
+        "Session",
+        lambda *_a, **_k: SimpleNamespace(
+            client=lambda service, **_kwargs: oidc if service == "sso-oidc" else _Sso()
+        ),
+    )
     monkeypatch.setattr(auth.time, "sleep", pauses.append)
 
     auth.login_aws(start_url="https://portal.awsapps.com/start", sso_region="eu-west-1", open_browser=False)
@@ -114,7 +138,13 @@ def test_aws_device_polling_retries_pending_and_slowdown(monkeypatch: pytest.Mon
 def test_aws_device_polling_reports_denial(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("OLF_HOME", str(tmp_path))
     oidc = _PollingOidc([_Oidc.exceptions.AccessDeniedException()])
-    monkeypatch.setattr(auth.boto3, "client", lambda service, **_kwargs: oidc if service == "sso-oidc" else _Sso())
+    monkeypatch.setattr(
+        auth.boto3,
+        "Session",
+        lambda *_a, **_k: SimpleNamespace(
+            client=lambda service, **_kwargs: oidc if service == "sso-oidc" else _Sso()
+        ),
+    )
 
     with pytest.raises(auth.AuthenticationError, match="denied"):
         auth.login_aws(start_url="https://portal.awsapps.com/start", sso_region="eu-west-1", open_browser=False)
@@ -322,7 +352,9 @@ def test_aws_process_credentials_carries_the_real_sso_expiration(
             }
         },
     )()
-    monkeypatch.setattr(auth.boto3, "client", lambda _service, **_kwargs: sso)
+    monkeypatch.setattr(
+        auth.boto3, "Session", lambda *_a, **_k: SimpleNamespace(client=lambda _service, **_kwargs: sso)
+    )
 
     credentials = auth.aws_process_credentials(env)
 
@@ -433,7 +465,13 @@ def test_aws_login_rejects_a_role_the_session_does_not_offer(
     `get_role_credentials` where the cause is unrecognisable.
     """
     monkeypatch.setenv("OLF_HOME", str(tmp_path))
-    monkeypatch.setattr(auth.boto3, "client", lambda service, **_kwargs: _Oidc() if service == "sso-oidc" else _Sso())
+    monkeypatch.setattr(
+        auth.boto3,
+        "Session",
+        lambda *_a, **_k: SimpleNamespace(
+            client=lambda service, **_kwargs: _Oidc() if service == "sso-oidc" else _Sso()
+        ),
+    )
 
     with pytest.raises(auth.AuthenticationError, match="not available for this session"):
         auth.login_aws(
@@ -450,7 +488,13 @@ def test_aws_login_accepts_an_offered_role_without_prompting(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.setenv("OLF_HOME", str(tmp_path))
-    monkeypatch.setattr(auth.boto3, "client", lambda service, **_kwargs: _Oidc() if service == "sso-oidc" else _Sso())
+    monkeypatch.setattr(
+        auth.boto3,
+        "Session",
+        lambda *_a, **_k: SimpleNamespace(
+            client=lambda service, **_kwargs: _Oidc() if service == "sso-oidc" else _Sso()
+        ),
+    )
 
     state = auth.login_aws(
         start_url="https://portal.awsapps.com/start",
@@ -548,3 +592,40 @@ def test_aws_instance_profile_probe_is_bounded_and_offline_safe() -> None:
 
     assert available is False
     assert elapsed < 3.0
+
+
+def test_sso_client_survives_a_config_file_set_after_an_earlier_bare_boto3_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`boto3.client()` (the bare module function) shares one process-global
+    default session, and `botocore.session.Session` permanently caches the
+    config file it parses on first use. `olf.deployment.cloud.artifacts`
+    resolves foundation facts (an earlier `aws_session` call, which can reach
+    `_sso_client`) before its `_applied_authentication_environment` overlay
+    sets `AWS_CONFIG_FILE`/`AWS_PROFILE` for the artifacts phase - reproduced
+    directly against a real Terraform-style config file: an earlier bare
+    `boto3.client()` call makes a later one raise `ProfileNotFound` for a
+    profile the *current* config file genuinely defines, while a fresh
+    `boto3.Session()` per call (what `_sso_client` now does) is unaffected.
+    """
+    # Isolate from whatever the real process-global default session already
+    # is (from an earlier test, or nothing) so this reproduces the bug from a
+    # known-clean baseline rather than depending on test execution order.
+    monkeypatch.setattr(boto3, "DEFAULT_SESSION", None)
+    config_dir = tempfile.mkdtemp()
+    config_path = os.path.join(config_dir, "aws-terraform-config")
+    with open(config_path, "w", encoding="utf-8") as handle:
+        handle.write("[profile openlakeforge]\nregion = eu-west-1\n")
+
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "FAKE")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "FAKE")
+    boto3.client("sts", region_name="eu-west-1", config=Config(signature_version=UNSIGNED))
+    monkeypatch.delenv("AWS_ACCESS_KEY_ID")
+    monkeypatch.delenv("AWS_SECRET_ACCESS_KEY")
+
+    monkeypatch.setenv("AWS_PROFILE", "openlakeforge")
+    monkeypatch.setenv("AWS_CONFIG_FILE", config_path)
+
+    client = auth._sso_client("sso", region="eu-west-1")  # noqa: SLF001 - regression coverage for the fix itself.
+
+    assert client is not None

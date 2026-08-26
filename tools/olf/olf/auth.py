@@ -112,8 +112,22 @@ def _sso_client(service: str, *, region: str) -> Any:
     Both SSO APIs use the bearer token supplied in their request, not SigV4.
     Marking them unsigned also prevents a Terraform credential_process from
     recursively invoking itself when AWS_PROFILE points at that process.
+
+    Built from a fresh `boto3.Session()`, never the bare `boto3.client()`
+    module function: that function shares one process-global default
+    session, and `botocore.session.Session` permanently caches the config
+    file it parses on its first use for the rest of the process's life. If
+    anything earlier in the process makes a bare `boto3.client()`/
+    `boto3.Session()` call before `AWS_CONFIG_FILE`/`AWS_PROFILE` are set -
+    exactly what happens between resolving foundation facts and the
+    artifacts phase's `_applied_authentication_environment` overlay - every
+    later bare call keeps resolving profiles against the stale config file,
+    raising `ProfileNotFound` for a profile the *current* `AWS_CONFIG_FILE`
+    genuinely defines. Reproduced directly: a prior bare `boto3.client()`
+    call followed by setting `AWS_CONFIG_FILE`/`AWS_PROFILE` breaks a
+    subsequent bare call but not a fresh `boto3.Session()`.
     """
-    return boto3.client(service, region_name=region, config=Config(signature_version=UNSIGNED))
+    return boto3.Session().client(service, region_name=region, config=Config(signature_version=UNSIGNED))
 
 
 def auth_home(environ: Mapping[str, str] | None = None) -> Path:
