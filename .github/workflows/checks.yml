@@ -17,7 +17,7 @@ jobs:
       - name: Setup uv
         uses: astral-sh/setup-uv@e58605a9b6da7c637471fab8847a5e5a6b8df081
 
-      - name: Check Iteration 0 structure
+      - name: Check repository structure
         run: uv run --project tools/olf --locked olf check structure
 
   infrastructure:
