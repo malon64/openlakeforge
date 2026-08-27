@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 import typer
 
@@ -51,9 +52,12 @@ def contracts_check(
     from olf import contracts_check as contracts_check_module
     from olf.distribution import runtime_layout
 
-    report = contracts_check_module.run_contracts_check(
-        repo_root, distribution_root=runtime_layout().distribution_root
-    )
+    root = Path(repo_root).resolve()
+    # An explicit --repo-root selecting a complete, separate checkout (its
+    # own infra/terraform) must validate that checkout's own payload, not
+    # the executing olf's — mirrors `olf check contracts`'s identical fix.
+    distribution_root = root if (root / "infra" / "terraform").is_dir() else runtime_layout().distribution_root
+    report = contracts_check_module.run_contracts_check(root, distribution_root=distribution_root)
     typer.echo(report.render())
     if not report.ok:
         raise typer.Exit(code=1)

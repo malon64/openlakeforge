@@ -113,6 +113,22 @@ def test_missing_required_paths_reports_removed_skeleton_entries(tmp_path: Path)
     assert set(checks._missing_required_paths(tmp_path)) == removed
 
 
+def test_distribution_root_for_prefers_a_complete_separate_checkout(tmp_path: Path) -> None:
+    other_checkout = tmp_path / "other-checkout"
+    (other_checkout / "infra" / "terraform").mkdir(parents=True)
+
+    assert checks._distribution_root_for(other_checkout) == other_checkout
+
+
+def test_distribution_root_for_falls_back_to_the_runtime_payload_for_a_project_only_root(
+    tmp_path: Path,
+) -> None:
+    project_root = tmp_path / "installed-project"
+    (project_root / "lakehouse_code").mkdir(parents=True)
+
+    assert checks._distribution_root_for(project_root) != project_root
+
+
 def test_release_publication_guard_requires_the_olf_workflow_command(tmp_path: Path) -> None:
     workflow = tmp_path / ".github/workflows/release.yml"
     workflow.parent.mkdir(parents=True)

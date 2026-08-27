@@ -236,6 +236,22 @@ def _missing_required_paths(root: Path) -> list[str]:
     return [path for path in REQUIRED_PATHS if not (root / path).exists()]
 
 
+def _distribution_root_for(root: Path) -> Path:
+    """Resolve the distribution root to validate/import alongside `root`.
+
+    An explicit `--repo-root` can point at a complete, separate checkout —
+    one with its own `infra/terraform` — and that checkout's own Terraform,
+    Helm, schema, and `libs/` must be what gets checked, not the executing
+    `olf`'s. Only an installed-project-shaped root (`lakehouse_code/` only,
+    no `infra/terraform` of its own) falls back to the runtime payload.
+    """
+    from olf.distribution import runtime_layout
+
+    if (root / "infra" / "terraform").is_dir():
+        return root
+    return runtime_layout().distribution_root
+
+
 @app.command("structure")
 def structure(repo_root: str = typer.Option("", "--repo-root", help="Checkout root to validate.")) -> None:
     """Validate the essential repository skeleton and prohibit shell scripts."""
@@ -325,10 +341,9 @@ def _option_value(argv: list[str], option: str) -> str | None:
 def contracts(repo_root: str = typer.Option("", "--repo-root", help="Checkout or project root to validate.")) -> None:
     """Run the existing parsed provider-contract validation."""
     from olf import contracts_check
-    from olf.distribution import runtime_layout
 
     root = _root(repo_root)
-    report = contracts_check.run_contracts_check(root, distribution_root=runtime_layout().distribution_root)
+    report = contracts_check.run_contracts_check(root, distribution_root=_distribution_root_for(root))
     typer.echo(report.render())
     if not report.ok:
         raise typer.Exit(code=1)
@@ -564,14 +579,14 @@ def _source_tree_digest(directory: Path) -> str:
 @app.command("dbt")
 def dbt(repo_root: str = typer.Option("", "--repo-root", help="Checkout or project root to validate.")) -> None:
     """Render, resolve, parse, and compile every discovered dbt product."""
-    from olf.distribution import runtime_layout
-
     root = _root(repo_root)
     # `libs` is distribution-owned, not project-owned (ADR 0009): an
     # installed project's root has only `lakehouse_code/`, so the
     # distribution root must be on sys.path too, not just the project root.
-    # Mirrors `olf dbt parse`'s identical fix.
-    distribution_root = runtime_layout().distribution_root
+    # Mirrors `olf dbt parse`'s identical fix. `_distribution_root_for`
+    # prefers `root` itself when `--repo-root` selects a complete, separate
+    # checkout, so that checkout's own `libs/dbt/render_profiles` wins.
+    distribution_root = _distribution_root_for(root)
     for path in (str(root), str(distribution_root)):
         if path not in sys.path:
             sys.path.insert(0, path)
