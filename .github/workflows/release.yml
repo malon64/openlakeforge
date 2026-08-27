@@ -249,8 +249,18 @@ jobs:
           path: dist/python/openlakeforge
           if-no-files-found: error
 
-  publish-pypi:
-    name: Publish Python distributions to PyPI
+  # Two separate jobs, not two steps in one job: PyPI keys a Trusted
+  # Publisher (pending or not) by (owner, repo, workflow, environment).
+  # Neither publish step used to declare a `environment:`, so both
+  # projects resolved to the identical tuple and PyPI refused to register
+  # the second pending publisher ("already been registered for a
+  # different project name"). Giving each job its own `environment:`
+  # makes the two tuples distinct, which is the only thing that changes
+  # here - the two publishes have no ordering dependency on each other
+  # (PyPI publish doesn't resolve dependencies), so running them as
+  # parallel jobs is also strictly faster than the old sequential steps.
+  publish-pypi-domain-model:
+    name: Publish openlakeforge-domain-model to PyPI
     # Every fallible release step (image build/sign/attest) must finish
     # before either package reaches PyPI: PyPI publication is irreversible
     # (no re-upload of the same filenames), while an image or bundle
@@ -260,6 +270,7 @@ jobs:
     # `[prepare, python-packages]`.
     needs: [prepare, python-packages, build]
     runs-on: ubuntu-latest
+    environment: pypi-domain-model
     steps:
       - name: Download domain-model distribution
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
@@ -267,21 +278,16 @@ jobs:
           name: domain-model-distribution-${{ needs.prepare.outputs.version }}
           path: dist/domain-model
 
-      - name: Download openlakeforge distribution
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
-        with:
-          name: openlakeforge-distribution-${{ needs.prepare.outputs.version }}
-          path: dist/openlakeforge
-
-      # PyPI Trusted Publishing must be configured for this workflow and both
-      # projects before the first tagged release. The action uses this job's
-      # short-lived GitHub OIDC identity and creates PyPI attestations.
+      # PyPI Trusted Publishing must be configured for this workflow,
+      # environment, and project before the first tagged release. The
+      # action uses this job's short-lived GitHub OIDC identity and
+      # creates PyPI attestations.
       #
-      # skip-existing makes each publish step idempotent: if this job is
-      # re-run after the domain-model package already reached PyPI (e.g. the
-      # openlakeforge upload failed, or a later job in this workflow did),
-      # PyPI's rejection of the already-published filenames is treated as
-      # success instead of failing the rerun.
+      # skip-existing makes this step idempotent: if this job is re-run
+      # after the package already reached PyPI (e.g. this job succeeded
+      # but a later job in the workflow failed), PyPI's rejection of the
+      # already-published filenames is treated as success instead of
+      # failing the rerun.
       - name: Publish openlakeforge-domain-model to PyPI
         if: needs.prepare.outputs.dry_run == 'false'
         uses: pypa/gh-action-pypi-publish@ec4db0b4ddc65acdf4bff5fa45ac92d78b56bdf0
@@ -289,6 +295,18 @@ jobs:
           packages-dir: dist/domain-model
           attestations: true
           skip-existing: true
+
+  publish-pypi-openlakeforge:
+    name: Publish openlakeforge to PyPI
+    needs: [prepare, python-packages, build]
+    runs-on: ubuntu-latest
+    environment: pypi-openlakeforge
+    steps:
+      - name: Download openlakeforge distribution
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: openlakeforge-distribution-${{ needs.prepare.outputs.version }}
+          path: dist/openlakeforge
 
       - name: Publish openlakeforge to PyPI
         if: needs.prepare.outputs.dry_run == 'false'
@@ -430,7 +448,7 @@ jobs:
 
   bundle:
     name: Assemble and publish the release bundle
-    needs: [prepare, python-packages, publish-pypi, build]
+    needs: [prepare, python-packages, publish-pypi-domain-model, publish-pypi-openlakeforge, build]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
