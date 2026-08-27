@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import socket
 import tempfile
 from pathlib import Path
@@ -11,13 +12,29 @@ from olf.tooling.process import CommandResult
 from olf.tooling.resolver import PathExecutableResolver
 
 
-def _bind_unix_socket(path: Path) -> None:
-    """Bind a real AF_UNIX socket at `path`, under a short /tmp-rooted dir -
-    macOS/BSD sun_path is capped at ~104 bytes, which pytest's deeply nested
-    tmp_path can exceed once `.colima/<profile>/docker.sock` is appended."""
+def _listening_socket(path: Path) -> socket.socket:
+    """Bind and listen on a real AF_UNIX socket at `path`, under a short
+    /tmp-rooted dir - macOS/BSD sun_path is capped at ~104 bytes, which
+    pytest's deeply nested tmp_path can exceed once
+    `.colima/<profile>/docker.sock` is appended. The caller must keep the
+    returned socket alive (e.g. via `contextlib.closing`) for as long as it
+    should be connectable - connectivity, not just the inode type, is what
+    `resolve_current_engine_endpoint` now checks."""
     path.parent.mkdir(parents=True, exist_ok=True)
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     sock.bind(str(path))
+    sock.listen(1)
+    return sock
+
+
+def _dead_socket_file(path: Path) -> None:
+    """Leave a socket-type inode at `path` with nothing listening - models a
+    daemon (e.g. a quit Docker Desktop) that exited without unlinking its
+    socket file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    sock.bind(str(path))
+    sock.close()
 
 
 def _docker(result: CommandResult | None = None) -> tuple[Docker, RecordingRunner]:
@@ -130,19 +147,24 @@ def test_resolve_current_engine_endpoint_falls_back_to_default_colima_socket_whe
 
     with tempfile.TemporaryDirectory(dir="/tmp") as home:
         default_socket = Path(home) / ".colima" / "default" / "docker.sock"
-        _bind_unix_socket(default_socket)
-        docker = Docker(FailingRunner(), PathExecutableResolver(overrides={"docker": Path("docker")}))
+        with contextlib.closing(_listening_socket(default_socket)):
+            docker = Docker(FailingRunner(), PathExecutableResolver(overrides={"docker": Path("docker")}))
 
-        endpoint = docker.resolve_current_engine_endpoint(env={"HOME": home})
+            endpoint = docker.resolve_current_engine_endpoint(env={"HOME": home})
 
-        assert endpoint == f"unix://{default_socket}"
+            assert endpoint == f"unix://{default_socket}"
 
 
-def test_resolve_current_engine_endpoint_falls_back_when_resolved_socket_is_stale() -> None:
+def test_resolve_current_engine_endpoint_falls_back_when_resolved_socket_is_dead() -> None:
+    """A daemon can exit without unlinking its socket file, so the endpoint
+    `docker context inspect` reports can still look like a valid socket on
+    disk while nothing actually accepts a connection - #156's exact failure
+    mode with a stale Docker Desktop socket. `is_socket()` alone would miss
+    this; connecting to it must not."""
     with tempfile.TemporaryDirectory(dir="/tmp") as home:
-        stale_socket = Path(home) / "stale" / "docker.sock"  # never bound - not a socket
+        stale_socket = Path(home) / "stale" / "docker.sock"
+        _dead_socket_file(stale_socket)
         default_socket = Path(home) / ".colima" / "default" / "docker.sock"
-        _bind_unix_socket(default_socket)
 
         class ScriptedRunner(RecordingRunner):
             def run(self, command, **kwargs):  # type: ignore[override]
@@ -151,18 +173,21 @@ def test_resolve_current_engine_endpoint_falls_back_when_resolved_socket_is_stal
                 stdout = "default\n" if argv[-2:] == ["context", "show"] else f"unix://{stale_socket}\n"
                 return CommandResult(argv=tuple(argv), returncode=0, stdout=stdout, stderr="", duration_seconds=0.0)
 
-        docker = Docker(ScriptedRunner(), PathExecutableResolver(overrides={"docker": Path("docker")}))
+        with contextlib.closing(_listening_socket(default_socket)):
+            docker = Docker(ScriptedRunner(), PathExecutableResolver(overrides={"docker": Path("docker")}))
 
-        endpoint = docker.resolve_current_engine_endpoint(env={"HOME": home})
+            endpoint = docker.resolve_current_engine_endpoint(env={"HOME": home})
 
-        assert endpoint == f"unix://{default_socket}"
+            assert endpoint == f"unix://{default_socket}"
 
 
-def test_resolve_current_engine_endpoint_does_not_guess_between_ambiguous_colima_profiles() -> None:
+def test_resolve_current_engine_endpoint_ignores_a_dead_colima_candidate() -> None:
+    """A dead socket file under `~/.colima` must not be treated as a usable
+    fallback candidate - only a live, connectable one counts."""
     with tempfile.TemporaryDirectory(dir="/tmp") as home:
-        stale_socket = Path(home) / "stale" / "docker.sock"  # never bound - not a socket
-        _bind_unix_socket(Path(home) / ".colima" / "profileA" / "docker.sock")
-        _bind_unix_socket(Path(home) / ".colima" / "profileB" / "docker.sock")
+        stale_socket = Path(home) / "stale" / "docker.sock"
+        _dead_socket_file(stale_socket)
+        _dead_socket_file(Path(home) / ".colima" / "default" / "docker.sock")
 
         class ScriptedRunner(RecordingRunner):
             def run(self, command, **kwargs):  # type: ignore[override]
@@ -178,11 +203,32 @@ def test_resolve_current_engine_endpoint_does_not_guess_between_ambiguous_colima
         assert endpoint == f"unix://{stale_socket}"
 
 
+def test_resolve_current_engine_endpoint_does_not_guess_between_ambiguous_colima_profiles() -> None:
+    with tempfile.TemporaryDirectory(dir="/tmp") as home:
+        stale_socket = Path(home) / "stale" / "docker.sock"
+        _dead_socket_file(stale_socket)
+
+        class ScriptedRunner(RecordingRunner):
+            def run(self, command, **kwargs):  # type: ignore[override]
+                argv = list(command.argv) if hasattr(command, "argv") else [str(p) for p in command]
+                self.calls.append(RecordedCall(argv=argv, kwargs=kwargs))
+                stdout = "default\n" if argv[-2:] == ["context", "show"] else f"unix://{stale_socket}\n"
+                return CommandResult(argv=tuple(argv), returncode=0, stdout=stdout, stderr="", duration_seconds=0.0)
+
+        profile_a = _listening_socket(Path(home) / ".colima" / "profileA" / "docker.sock")
+        profile_b = _listening_socket(Path(home) / ".colima" / "profileB" / "docker.sock")
+        with contextlib.closing(profile_a), contextlib.closing(profile_b):
+            docker = Docker(ScriptedRunner(), PathExecutableResolver(overrides={"docker": Path("docker")}))
+
+            endpoint = docker.resolve_current_engine_endpoint(env={"HOME": home})
+
+            assert endpoint == f"unix://{stale_socket}"
+
+
 def test_resolve_current_engine_endpoint_skips_colima_probe_when_resolved_socket_is_reachable() -> None:
     with tempfile.TemporaryDirectory(dir="/tmp") as home:
         reachable_socket = Path(home) / "reachable" / "docker.sock"
-        _bind_unix_socket(reachable_socket)
-        _bind_unix_socket(Path(home) / ".colima" / "default" / "docker.sock")
+        _dead_socket_file(Path(home) / ".colima" / "default" / "docker.sock")
 
         class ScriptedRunner(RecordingRunner):
             def run(self, command, **kwargs):  # type: ignore[override]
@@ -191,11 +237,12 @@ def test_resolve_current_engine_endpoint_skips_colima_probe_when_resolved_socket
                 stdout = "default\n" if argv[-2:] == ["context", "show"] else f"unix://{reachable_socket}\n"
                 return CommandResult(argv=tuple(argv), returncode=0, stdout=stdout, stderr="", duration_seconds=0.0)
 
-        docker = Docker(ScriptedRunner(), PathExecutableResolver(overrides={"docker": Path("docker")}))
+        with contextlib.closing(_listening_socket(reachable_socket)):
+            docker = Docker(ScriptedRunner(), PathExecutableResolver(overrides={"docker": Path("docker")}))
 
-        endpoint = docker.resolve_current_engine_endpoint(env={"HOME": home})
+            endpoint = docker.resolve_current_engine_endpoint(env={"HOME": home})
 
-        assert endpoint == f"unix://{reachable_socket}"
+            assert endpoint == f"unix://{reachable_socket}"
 
 
 def test_resolve_current_engine_endpoint_trusts_non_unix_schemes_without_validation() -> None:

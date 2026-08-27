@@ -11,6 +11,7 @@ back to probing Colima's own on-disk socket convention.
 
 from __future__ import annotations
 
+import socket
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
@@ -19,18 +20,37 @@ from olf.deployment.retry import RetryPolicy, RetryPredicate
 from olf.tooling.process import CommandResult, ProcessRunner
 from olf.tooling.resolver import ExecutableResolver
 
+_SOCKET_CONNECT_TIMEOUT_SECONDS = 0.5
+
+
+def _unix_socket_connectable(path: Path) -> bool:
+    """Whether a unix socket at `path` actually accepts a connection.
+
+    A daemon that exited without unlinking its socket can leave the inode
+    behind - `Path.is_socket()` stays true even though connecting fails with
+    ECONNREFUSED - so connectivity must be tested directly rather than
+    inferred from the file type alone.
+    """
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+        sock.settimeout(_SOCKET_CONNECT_TIMEOUT_SECONDS)
+        try:
+            sock.connect(str(path))
+        except OSError:
+            return False
+    return True
+
 
 def _is_reachable_unix_endpoint(endpoint: str) -> bool:
-    """Whether a `unix://` endpoint's socket file actually exists and is a socket.
+    """Whether a `unix://` endpoint's socket actually accepts a connection.
 
     Non-unix schemes (tcp://, npipe://, ssh://) are trusted without validation -
     remote/Windows engines are out of scope here. Catches the #156 failure
-    mode: a stale Docker Desktop symlink at the default socket path that
+    mode: a stale Docker Desktop socket at the default endpoint that
     `docker context inspect` still reports, even though nothing listens on it.
     """
     if not endpoint.startswith("unix://"):
         return True
-    return Path(endpoint.removeprefix("unix://")).is_socket()
+    return _unix_socket_connectable(Path(endpoint.removeprefix("unix://")))
 
 
 def _probe_colima_socket(*, env: Mapping[str, str] | None) -> str | None:
@@ -49,7 +69,7 @@ def _probe_colima_socket(*, env: Mapping[str, str] | None) -> str | None:
     colima_dir = Path(home) / ".colima"
     if not colima_dir.is_dir():
         return None
-    candidates = sorted(p for p in colima_dir.glob("*/docker.sock") if p.is_socket())
+    candidates = sorted(p for p in colima_dir.glob("*/docker.sock") if _unix_socket_connectable(p))
     if not candidates:
         return None
     default_socket = colima_dir / "default" / "docker.sock"
