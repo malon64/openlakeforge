@@ -163,7 +163,7 @@ never to raw paths. Rejected rows are quarantined as CSV; exit code 0 covers
 
 ![Medallion and Catalog Data Path](chart4-medallion-catalog.svg)
 
-<sub>environments/local/main.tf · catalog/polaris/main.tf · lakehouse_code/lakehouse.yaml · ADR 0003, 0013, 0026</sub>
+<sub>environments/local/main.tf · catalog/polaris/main.tf · lakehouse_code/lakehouse.yaml · ADR 0003, 0004</sub>
 
 ## Chart 5 — Provider Contracts
 
@@ -190,7 +190,7 @@ different set: exactly three platform modules (`storage/aws-s3`, `catalog/aws-gl
 
 ![Provider Contracts](chart5-provider-contracts.svg)
 
-<sub>`infra/terraform/environments/{local,aws-poc,azure-poc}/contracts.tf` · [provider-contracts.md](../provider-contracts.md) · ADR 0003, 0011, 0015, 0016</sub>
+<sub>`infra/terraform/environments/{local,aws-poc,azure-poc}/contracts.tf` · [provider-contracts.md](../provider-contracts.md) · ADR 0003, 0010</sub>
 
 ---
 

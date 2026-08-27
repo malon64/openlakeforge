@@ -99,11 +99,11 @@ does not require editing business metadata.
 
 ### Compatibility and migration
 
-The `v1alpha1` and `v1alpha2` domain descriptors are legacy: their loaders are
-retained in the domain-model package for migration diagnostics only. The
-current shape is the v1alpha3 Lakehouse/Source descriptor pair. A future
-incompatible shape must publish a new API/version and migration guide;
-deployments fail closed when either version is unknown.
+The v1alpha3 Lakehouse/Source descriptor pair is the only shape the platform
+parses. The `v1alpha1`/`v1alpha2` `Domain` descriptors and their loaders were
+removed; a project on the old shape must be rewritten by hand (ADR 0005). A
+future incompatible shape must publish a new API version and migration guide;
+deployments fail closed when a version is unknown.
 
 ## Catalog Contract
 

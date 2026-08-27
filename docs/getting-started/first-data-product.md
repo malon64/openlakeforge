@@ -849,7 +849,7 @@ No Terraform product registration is required.
 Start port forwarding if it is not already running:
 
 ```bash
-olf forward --provider local
+olf forward --provider local --profile slim
 ```
 
 Open:
