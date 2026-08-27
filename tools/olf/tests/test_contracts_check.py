@@ -18,6 +18,9 @@ def _repo_with_schemas(tmp_path: Path) -> Path:
     schema_dir.mkdir(parents=True)
     shutil.copy(ROOT / "docs/schema/lakehouse.schema.json", schema_dir / "lakehouse.schema.json")
     shutil.copy(ROOT / "docs/schema/source.schema.json", schema_dir / "source.schema.json")
+    shutil.copy(
+        ROOT / "docs/schema/deployment-profile.schema.json", schema_dir / "deployment-profile.schema.json"
+    )
     return tmp_path
 
 
@@ -360,17 +363,18 @@ def test_run_contracts_check_passes_against_real_repo() -> None:
 
 
 def test_run_contracts_check_passes_for_an_installed_project_layout(tmp_path: Path) -> None:
-    """An installed project's root has only `lakehouse_code/` (ADR 0009) --
-    `docs/schema`, `infra/`, `libs/`, and the Makefile all live in the
-    separate, immutable distribution root instead. Copying the real repo's
-    `lakehouse_code/` (which carries real Floe contracts under
-    `silver/*/contracts/floe/`) into an otherwise-bare project dir, and
-    pointing `distribution_root` at the real repo, reproduces exactly what
-    `olf init` leaves behind."""
+    """An installed project's root carries only `openlakeforge.yaml` and
+    `lakehouse_code/` (ADR 0009) -- `docs/schema`, `infra/`, `libs/`, and the
+    Makefile all live in the separate, immutable distribution root instead.
+    Copying the real repo's `lakehouse_code/` (which carries real Floe
+    contracts under `silver/*/contracts/floe/`) and `openlakeforge.yaml` into
+    an otherwise-bare project dir, and pointing `distribution_root` at the
+    real repo, reproduces exactly what `olf init` leaves behind."""
     project_root = tmp_path / "my-lakehouse"
     shutil.copytree(
         ROOT / "lakehouse_code", project_root / "lakehouse_code", ignore=shutil.ignore_patterns("__pycache__")
     )
+    shutil.copy(ROOT / "openlakeforge.yaml", project_root / "openlakeforge.yaml")
 
     report = contracts_check.run_contracts_check(project_root, distribution_root=ROOT)
 
@@ -500,3 +504,44 @@ def test_schema_root_resolves_schemas_outside_the_project(tmp_path: Path) -> Non
     assert contracts_check.descriptor_schema_errors(
         project, schema_root=distribution / "docs" / "schema"
     ) == []
+
+
+def _write_profile(repo_root: Path, fixture_name: str) -> None:
+    (repo_root / "openlakeforge.yaml").write_text(
+        (FIXTURES / "profiles" / fixture_name).read_text(), encoding="utf-8"
+    )
+
+
+def test_deployment_profile_schema_conformance_passes_for_a_valid_profile(tmp_path: Path) -> None:
+    repo_root = _repo_with_schemas(tmp_path)
+    _write_profile(repo_root, "valid_slim_local.yaml")
+
+    assert contracts_check.profile_schema_errors(repo_root) == []
+
+
+def test_deployment_profile_schema_conformance_reports_canonical_model_rejection(tmp_path: Path) -> None:
+    repo_root = _repo_with_schemas(tmp_path)
+    _write_profile(repo_root, "invalid_no_stage_enabled.yaml")
+
+    errors = contracts_check.profile_schema_errors(repo_root)
+
+    assert any("canonical model rejected profile" in error for error in errors)
+
+
+def test_deployment_profile_schema_conformance_reports_missing_profile(tmp_path: Path) -> None:
+    repo_root = _repo_with_schemas(tmp_path)
+
+    errors = contracts_check.profile_schema_errors(repo_root)
+
+    assert any("no openlakeforge.yaml found" in error for error in errors)
+
+
+def test_deployment_profile_schema_root_resolves_schemas_outside_the_project(tmp_path: Path) -> None:
+    distribution = _repo_with_schemas(tmp_path / "distribution")
+    project = tmp_path / "project"
+    project.mkdir()
+    _write_profile(project, "valid_slim_local.yaml")
+
+    assert (
+        contracts_check.profile_schema_errors(project, schema_root=distribution / "docs" / "schema") == []
+    )

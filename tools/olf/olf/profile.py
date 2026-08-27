@@ -1,0 +1,330 @@
+"""Typed Deployment Profile v1 and the resolver into one effective topology.
+
+The project-root ``openlakeforge.yaml`` describes product intent -- provider,
+lifecycle stage, and preset -- never Terraform, Helm, or Kubernetes
+implementation details (ADR 0011). ``DeploymentProfile`` models what the user
+wrote; ``DeploymentTopology`` is the separately typed, deterministically
+resolved effective shape. Neither type derives concrete endpoints,
+namespaces, or Helm/Terraform inputs -- that mapping is the provider-contract
+resolver (#153) and the stage-aware platform root (#133).
+"""
+
+from __future__ import annotations
+
+import json
+import re
+from collections.abc import Mapping
+from dataclasses import dataclass
+from enum import StrEnum
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+from olf.deployment.context import Provider
+
+PROFILE_API_VERSION = "openlakeforge.io/v1alpha1"
+PROFILE_KIND = "DeploymentProfile"
+_IDENTIFIER_PATTERN = re.compile(r"^[a-z][a-z0-9-]*$")
+
+_ENVELOPE_FIELDS = {"apiVersion", "kind", "metadata", "spec"}
+_METADATA_FIELDS = {"name"}
+_SPEC_FIELDS = {"provider", "preset", "stages"}
+_PROVIDER_FIELDS = {"type", "region"}
+_STAGE_FIELDS = {"enabled", "capabilities"}
+_CAPABILITIES_FIELDS = {"analytics", "governance"}
+
+_SHARED_SERVICES = ("catalog", "governance", "metadata_database", "query")
+_STAGE_SERVICES = ("orchestration", "reporting")
+
+
+class DeploymentProfileError(ValueError):
+    """Raised when a v1alpha1 Deployment Profile is invalid."""
+
+
+class StageName(StrEnum):
+    DEV = "dev"
+    UAT = "uat"
+    PROD = "prod"
+
+
+class Preset(StrEnum):
+    SLIM = "slim"
+    FULL = "full"
+
+
+@dataclass(frozen=True)
+class ProviderSpec:
+    type: Provider
+    region: str | None = None
+
+
+@dataclass(frozen=True)
+class StageCapabilities:
+    analytics: bool = False
+    governance: bool = False
+
+
+@dataclass(frozen=True)
+class StageSpec:
+    """One stage as the user wrote it. ``capabilities is None`` means the
+    user said nothing -- distinct from writing ``false`` -- so preset
+    defaults apply only to the former in `resolve_topology`."""
+
+    name: StageName
+    enabled: bool = True
+    capabilities: StageCapabilities | None = None
+
+
+@dataclass(frozen=True)
+class DeploymentProfile:
+    name: str
+    provider: ProviderSpec
+    preset: Preset
+    stages: tuple[StageSpec, ...]
+
+    def stage(self, name: StageName) -> StageSpec | None:
+        return next((stage for stage in self.stages if stage.name == name), None)
+
+
+@dataclass(frozen=True)
+class ResolvedStage:
+    name: StageName
+    enabled: bool
+    capabilities: StageCapabilities
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "name": self.name.value,
+            "enabled": self.enabled,
+            "capabilities": {
+                "analytics": self.capabilities.analytics,
+                "governance": self.capabilities.governance,
+            },
+        }
+
+
+@dataclass(frozen=True)
+class DeploymentTopology:
+    """One effective, fully resolved topology. Always a separate object from
+    the `DeploymentProfile` it was resolved from -- never mutated in place."""
+
+    profile_name: str
+    provider: Provider
+    region: str | None
+    preset: Preset
+    stages: tuple[ResolvedStage, ...]
+    shared_services: tuple[str, ...] = _SHARED_SERVICES
+    stage_services: tuple[str, ...] = _STAGE_SERVICES
+
+    def stage(self, name: StageName) -> ResolvedStage | None:
+        return next((stage for stage in self.stages if stage.name == name), None)
+
+    def render_json(self) -> str:
+        return json.dumps(
+            {
+                "schema_version": 1,
+                "profile_name": self.profile_name,
+                "provider": self.provider.value,
+                "region": self.region,
+                "preset": self.preset.value,
+                "stages": [stage.as_dict() for stage in self.stages],
+                "shared_services": list(self.shared_services),
+                "stage_services": list(self.stage_services),
+            },
+            sort_keys=True,
+        )
+
+
+def _identifier(value: object, *, field: str, source: str) -> str:
+    if not isinstance(value, str) or not _IDENTIFIER_PATTERN.fullmatch(value):
+        raise DeploymentProfileError(f"{source}: {field} must match '^[a-z][a-z0-9-]*$'")
+    return value
+
+
+def _bool(value: object, *, field: str, source: str) -> bool:
+    if not isinstance(value, bool):
+        raise DeploymentProfileError(f"{source}: {field} must be a boolean")
+    return value
+
+
+def _forbid_unexpected(document: Mapping[str, Any], allowed: set[str], *, where: str) -> None:
+    unexpected = set(document) - allowed
+    if unexpected:
+        raise DeploymentProfileError(f"{where}: must not contain {sorted(unexpected)!r}")
+
+
+def _validate_capabilities(document: object, *, field: str, source: str) -> StageCapabilities:
+    if not isinstance(document, Mapping):
+        raise DeploymentProfileError(f"{source}: {field} must be an object")
+    _forbid_unexpected(document, _CAPABILITIES_FIELDS, where=f"{source}: {field}")
+    analytics = _bool(document.get("analytics", False), field=f"{field}.analytics", source=source)
+    governance = _bool(document.get("governance", False), field=f"{field}.governance", source=source)
+    return StageCapabilities(analytics=analytics, governance=governance)
+
+
+def _validate_stage(name: str, document: object, *, source: str) -> StageSpec:
+    try:
+        stage_name = StageName(name)
+    except ValueError as exc:
+        raise DeploymentProfileError(
+            f"{source}: spec.stages: unknown stage {name!r} "
+            f"(expected one of {[member.value for member in StageName]!r})"
+        ) from exc
+    if not isinstance(document, Mapping):
+        raise DeploymentProfileError(f"{source}: spec.stages.{name} must be an object")
+    _forbid_unexpected(document, _STAGE_FIELDS, where=f"{source}: spec.stages.{name}")
+    enabled = _bool(document.get("enabled", True), field=f"spec.stages.{name}.enabled", source=source)
+    capabilities = None
+    if "capabilities" in document:
+        capabilities = _validate_capabilities(
+            document["capabilities"], field=f"spec.stages.{name}.capabilities", source=source
+        )
+    return StageSpec(name=stage_name, enabled=enabled, capabilities=capabilities)
+
+
+def _validate_provider(document: object, *, source: str) -> ProviderSpec:
+    if not isinstance(document, Mapping):
+        raise DeploymentProfileError(f"{source}: spec.provider must be an object")
+    _forbid_unexpected(document, _PROVIDER_FIELDS, where=f"{source}: spec.provider")
+    if "type" not in document:
+        raise DeploymentProfileError(f"{source}: spec.provider: missing required field 'type'")
+    try:
+        provider = Provider(document["type"])
+    except ValueError as exc:
+        raise DeploymentProfileError(
+            f"{source}: spec.provider.type must be one of {[member.value for member in Provider]!r}"
+        ) from exc
+    region = document.get("region")
+    if region is not None and not isinstance(region, str):
+        raise DeploymentProfileError(f"{source}: spec.provider.region must be a string")
+    if provider == Provider.LOCAL and region is not None:
+        raise DeploymentProfileError(
+            f"{source}: spec.provider.region must not be set when spec.provider.type is 'local'"
+        )
+    return ProviderSpec(type=provider, region=region)
+
+
+def validate_deployment_profile(
+    document: Mapping[str, Any], *, source: str = "openlakeforge.yaml"
+) -> DeploymentProfile:
+    """Validate a v1alpha1 Deployment Profile envelope and build its typed
+    model. Every rejection is fail-closed: unknown fields at any level,
+    unknown stage names, an unsupported apiVersion/kind/preset/provider type,
+    no stage enabled at all, and a UAT/PROD stage enabled while DEV is
+    disabled (every promotion in the v0.3 model sources from DEV)."""
+    if not isinstance(document, Mapping):
+        raise DeploymentProfileError(f"{source}: profile must contain a YAML object")
+    _forbid_unexpected(document, _ENVELOPE_FIELDS, where=source)
+    if document.get("apiVersion") != PROFILE_API_VERSION:
+        raise DeploymentProfileError(
+            f"{source}: unsupported apiVersion {document.get('apiVersion')!r}; expected {PROFILE_API_VERSION!r}"
+        )
+    if document.get("kind") != PROFILE_KIND:
+        raise DeploymentProfileError(f"{source}: kind must be {PROFILE_KIND!r}")
+    for field in ("metadata", "spec"):
+        if field not in document:
+            raise DeploymentProfileError(f"{source}: missing required field {field!r}")
+
+    metadata = document["metadata"]
+    if not isinstance(metadata, Mapping):
+        raise DeploymentProfileError(f"{source}: metadata must be an object")
+    _forbid_unexpected(metadata, _METADATA_FIELDS, where=f"{source}: metadata")
+    if "name" not in metadata:
+        raise DeploymentProfileError(f"{source}: metadata: missing required field 'name'")
+    name = _identifier(metadata["name"], field="metadata.name", source=source)
+
+    spec = document["spec"]
+    if not isinstance(spec, Mapping):
+        raise DeploymentProfileError(f"{source}: spec must be an object")
+    _forbid_unexpected(spec, _SPEC_FIELDS, where=f"{source}: spec")
+    for field in ("provider", "preset", "stages"):
+        if field not in spec:
+            raise DeploymentProfileError(f"{source}: spec: missing required field {field!r}")
+
+    provider = _validate_provider(spec["provider"], source=source)
+
+    try:
+        preset = Preset(spec["preset"])
+    except ValueError as exc:
+        raise DeploymentProfileError(
+            f"{source}: spec.preset must be one of {[member.value for member in Preset]!r}"
+        ) from exc
+
+    stages_document = spec["stages"]
+    if not isinstance(stages_document, Mapping) or not stages_document:
+        raise DeploymentProfileError(f"{source}: spec.stages must be a non-empty object")
+    stages = tuple(
+        _validate_stage(stage_name, stage_document, source=source)
+        for stage_name, stage_document in stages_document.items()
+    )
+
+    if not any(stage.enabled for stage in stages):
+        raise DeploymentProfileError(f"{source}: spec.stages: at least one stage must be enabled")
+    dev = next((stage for stage in stages if stage.name == StageName.DEV), None)
+    dev_enabled = dev is not None and dev.enabled
+    for stage in stages:
+        if stage.enabled and stage.name != StageName.DEV and not dev_enabled:
+            raise DeploymentProfileError(
+                f"{source}: spec.stages.{stage.name.value} cannot be enabled while 'dev' is disabled "
+                "(every promotion sources from DEV)"
+            )
+
+    return DeploymentProfile(name=name, provider=provider, preset=preset, stages=stages)
+
+
+def load_deployment_profile(path: str | Path) -> DeploymentProfile:
+    """Load and validate the v1alpha1 Deployment Profile at ``path``."""
+    source = str(path)
+    with Path(path).open(encoding="utf-8") as handle:
+        document = yaml.safe_load(handle)
+    if not isinstance(document, Mapping):
+        raise DeploymentProfileError(f"{source}: profile must contain a YAML object")
+    return validate_deployment_profile(document, source=source)
+
+
+def _preset_defaults(preset: Preset) -> StageCapabilities:
+    enabled = preset == Preset.FULL
+    return StageCapabilities(analytics=enabled, governance=enabled)
+
+
+def resolve_topology(profile: DeploymentProfile) -> DeploymentTopology:
+    """Resolve a `DeploymentProfile` into one effective `DeploymentTopology`.
+
+    A missing stage is disabled -- PROD is never created implicitly. An
+    enabled stage without explicit `capabilities` takes the preset default;
+    an explicit value always wins over the preset. A disabled stage always
+    resolves both capabilities to `False`, regardless of what was written."""
+    defaults = _preset_defaults(profile.preset)
+    resolved: list[ResolvedStage] = []
+    for stage_name in StageName:
+        stage = profile.stage(stage_name)
+        if stage is None or not stage.enabled:
+            resolved.append(ResolvedStage(name=stage_name, enabled=False, capabilities=StageCapabilities()))
+            continue
+        capabilities = stage.capabilities if stage.capabilities is not None else defaults
+        resolved.append(ResolvedStage(name=stage_name, enabled=True, capabilities=capabilities))
+
+    return DeploymentTopology(
+        profile_name=profile.name,
+        provider=profile.provider.type,
+        region=profile.provider.region,
+        preset=profile.preset,
+        stages=tuple(resolved),
+    )
+
+
+def legacy_single_stage_topology(*, provider: Provider, preset: Preset) -> DeploymentTopology:
+    """The v0.2 compatibility path: `olf deploy --provider <provider>
+    --profile <preset>` resolves to one enabled DEV stage using the preset's
+    capability defaults, matching `DeploymentFeatures.for_profile`
+    (`olf.deployment.context`). `#133` wires this into `DeploymentContext`;
+    here it proves and documents the deprecated shorthand's resolver entry
+    point."""
+    profile = DeploymentProfile(
+        name="legacy",
+        provider=ProviderSpec(type=provider),
+        preset=preset,
+        stages=(StageSpec(name=StageName.DEV),),
+    )
+    return resolve_topology(profile)

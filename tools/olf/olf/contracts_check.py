@@ -229,6 +229,54 @@ def _check_descriptor_schema_conformance(repo_root: Path, *, schema_root: Path |
     return CheckResult(name, ok=True, detail=f"{descriptor_count} descriptor(s) validated")
 
 
+def profile_schema_errors(repo_root: Path, *, schema_root: Path | None = None) -> list[str]:
+    """Validate the project-root `openlakeforge.yaml` Deployment Profile
+    against the canonical model and its versioned JSON Schema. Mirrors
+    `descriptor_schema_errors`: the two validators run independently: neither
+    substitutes for the other. `schema_root` points at the distribution
+    payload's `docs/schema/` for an installed project (ADR 0009)."""
+    from olf.profile import DeploymentProfileError, load_deployment_profile
+
+    profile_path = repo_root / "openlakeforge.yaml"
+    if not profile_path.is_file():
+        return [f"no openlakeforge.yaml found under {repo_root}"]
+
+    try:
+        document = yaml.safe_load(profile_path.read_text(encoding="utf-8"))
+    except yaml.YAMLError as exc:
+        return [f"openlakeforge.yaml: {exc}"]
+
+    errors: list[str] = []
+    try:
+        load_deployment_profile(profile_path)
+    except DeploymentProfileError as exc:
+        errors.append(f"openlakeforge.yaml: canonical model rejected profile: {exc}")
+
+    schema_path = (
+        schema_root / "deployment-profile.schema.json"
+        if schema_root is not None
+        else repo_root / "docs/schema/deployment-profile.schema.json"
+    )
+    schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    validator = jsonschema.Draft202012Validator(schema)
+    schema_errors = sorted(validator.iter_errors(document), key=lambda e: list(e.absolute_path))
+    for error in schema_errors:
+        location = "/".join(str(part) for part in error.absolute_path) or "<root>"
+        errors.append(f"openlakeforge.yaml: schema violation at {location}: {error.message}")
+
+    return errors
+
+
+def _check_deployment_profile_schema_conformance(repo_root: Path, *, schema_root: Path | None = None) -> CheckResult:
+    """The project-root `openlakeforge.yaml` must load via the canonical
+    `olf.profile` model and conform to its versioned JSON Schema."""
+    name = "deployment_profile_schema_conformance"
+    errors = profile_schema_errors(repo_root, schema_root=schema_root)
+    if errors:
+        return CheckResult(name, ok=False, detail="; ".join(errors))
+    return CheckResult(name, ok=True, detail="deployment profile validated")
+
+
 def _check_hcl_structured_contracts(repo_root: Path) -> CheckResult:
     """Tier 1+2: parse each environment's `contracts.tf` and assert on the
     parsed tree -- required locals exist, required `check` blocks are
@@ -617,6 +665,9 @@ def run_contracts_check(
     report = ContractsCheckReport()
     report.results.append(
         _check_descriptor_schema_conformance(root, schema_root=dist_root / "docs" / "schema")
+    )
+    report.results.append(
+        _check_deployment_profile_schema_conformance(root, schema_root=dist_root / "docs" / "schema")
     )
     report.results.append(_check_hcl_structured_contracts(dist_root))
     report.results.append(_check_hcl_phase_two_invariants(dist_root))

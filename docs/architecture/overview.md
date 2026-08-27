@@ -62,6 +62,14 @@ in the immutable OpenLakeForge distribution. Builds combine those platform
 assets with the selected project's `lakehouse_code/`; they do not copy platform
 files into the project.
 
+### Deployment Profile
+
+`openlakeforge.yaml` is the project's Deployment Profile: provider, lifecycle
+stage, and preset as three separate typed concepts, never Terraform, Helm, or
+Kubernetes detail (ADR 0011). `olf profile validate --project .` parses it;
+`olf profile resolve --project . --json` resolves it into one effective,
+machine-readable `DeploymentTopology` before anything is deployed.
+
 ## Execution Model
 
 OpenLakeForge v1 uses one custom runtime image:

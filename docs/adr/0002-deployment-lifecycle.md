@@ -83,10 +83,14 @@ Dagster definition, or a descriptor.
 Phases are idempotent. Re-running `foundation` or `platform` reconciles existing
 state rather than requiring a teardown.
 
-`--profile` is not a phase. It selects which services `platform` deploys and
-which layers `artifacts` targets, so it must be passed consistently: running
-`--phase artifacts` with the default `full` profile against a Slim platform
-regenerates governance-enabled manifests for services that are not deployed.
+`--profile` is not a phase, and it is not an environment or a stage either — it
+names the *preset* axis of the Deployment Profile (ADR 0011): which optional
+services `platform` deploys and which layers `artifacts` targets. It must be
+passed consistently: running `--phase artifacts` with the default `full`
+profile against a Slim platform regenerates governance-enabled manifests for
+services that are not deployed. `--provider local --profile slim|full` is the
+deprecated single-DEV-stage shorthand for the general profile/stage model; ADR
+0011 defines the typed resolver it is a special case of.
 
 ## History
 

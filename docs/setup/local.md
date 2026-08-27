@@ -8,7 +8,12 @@ OpenLakeForge creates an isolated [`kind`](https://kind.sigs.k8s.io/) cluster ba
 
 ## What gets deployed?
 
-The local environment is available in two profiles:
+`--profile slim|full` below is a deprecated shorthand for the single-DEV-stage
+case of the typed Deployment Profile at `openlakeforge.yaml` — see
+[ADR 0011](../adr/0011-deployment-profile-and-stages.md) and
+`olf profile validate`/`resolve`. It keeps working exactly as documented here.
+
+The local environment is available in two presets:
 
 | Profile  | Includes                                                                    | Recommended for                       |
 | -------- | ---------------------------------------------------------------------------- | ------------------------------------- |

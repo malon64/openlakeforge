@@ -1,0 +1,15 @@
+apiVersion: openlakeforge.io/v1alpha1
+kind: DeploymentProfile
+
+metadata:
+  name: fixture
+
+runtime: trino
+
+spec:
+  provider:
+    type: local
+  preset: slim
+  stages:
+    dev:
+      enabled: true
