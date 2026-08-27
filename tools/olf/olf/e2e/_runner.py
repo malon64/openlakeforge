@@ -38,6 +38,7 @@ from olf.e2e._trino import (
     check_trino_product_tables_and_marts,
     check_trino_tables_and_marts,
 )
+from olf.project import ProjectSpec
 
 
 @dataclass(frozen=True)
@@ -98,8 +99,15 @@ def prepare_config(
     extracted under `OLF_HOME` - they only coincide in source-mode
     checkouts, where `distribution_root` defaults to `repo_root`.
     """
-    root = (repo_root or Path(os.environ.get("OPENLAKEFORGE_REPO_ROOT", "."))).resolve()
-    dist_root = (distribution_root or root).resolve()
+    legacy_project_root = os.environ.get("OPENLAKEFORGE_REPO_ROOT", ".")
+    default_project_root = Path(os.environ.get("OPENLAKEFORGE_PROJECT_ROOT", legacy_project_root))
+    default_distribution_root = Path(os.environ.get("OLF_DISTRIBUTION_ROOT", default_project_root))
+    project = ProjectSpec(
+        root=repo_root or default_project_root,
+        distribution_root=distribution_root or repo_root or default_distribution_root,
+    )
+    root = project.root
+    dist_root = project.distribution_root
     actual_suite = suite or default_suite(env)
     inventory = inventory_for(root)
     if env == "local":

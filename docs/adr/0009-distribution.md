@@ -47,13 +47,20 @@ checked, not that the bytes ship in the wheel.
 | Root | Holds | Mutability |
 | --- | --- | --- |
 | `distribution_root` | Terraform, Helm values, schemas, Dockerfiles, `libs/`, release catalog | Immutable, shared between projects |
-| `project_root` | `lakehouse_code/` — descriptors, Floe contracts, dashboards, pipelines | The user's, writable |
+| `project_root` | `openlakeforge.yaml` and `lakehouse_code/` — descriptors, Floe contracts, dashboards, pipelines | The user's, writable |
 | state / work / cache roots | Terraform state and data, generated artifacts, Docker staging, Helm downloads | Derived |
 
 An installed `olf` resolves `project_root` to the **current working directory**.
 `OPENLAKEFORGE_PROJECT_ROOT` and `--project-root`/`--repo-root` override it. A
 source checkout keeps the checkout as the contributor default; the two modes stay
 distinct rather than one emulating the other.
+
+`ProjectSpec` is the typed project/distribution boundary for project
+consumers. It supplies canonical paths for the profile, descriptors, Bronze,
+Silver, Gold, dashboard, and Dagster directories. `olf project validate
+--project PATH` emits a JSON report for the structural layout, descriptors,
+inventory, and declared assets. The profile is structurally required but its
+contents are not parsed or resolved yet.
 
 The consequence worth naming: scaffolding validates user descriptors against
 schemas that live outside the project, because the schema is platform material
@@ -62,15 +69,17 @@ and the descriptor is not.
 ### `olf init` makes a directory into a project
 
 It verifies the payload, provisions or reuses the pinned toolchain, checks
-Docker, and copies the packaged demo `lakehouse_code/` into the current
-directory — or writes a transitional skeleton under `--empty` (ADR 0005).
+Docker, and copies the packaged demo `lakehouse_code/` and
+`openlakeforge.yaml` into the current directory — or writes a transitional
+skeleton with the same profile under `--empty` (ADR 0005).
 
 It stages into a sibling directory and renames atomically, and refuses to
-overwrite an existing `lakehouse_code/`. It never installs Docker or uses Git.
-Within the project directory it touches only `lakehouse_code/`; the toolchain
-and payload verification steps write outside it, to the shared, immutable
-`OLF_HOME` (ADR 0008) — never to the project itself, and never requiring the
-user to know that boundary exists to run `olf init` successfully.
+overwrite either existing project path. It never installs Docker or uses Git.
+Within the project directory it touches only `openlakeforge.yaml` and
+`lakehouse_code/`; the toolchain and payload verification steps write outside
+it, to the shared, immutable `OLF_HOME` (ADR 0008) — never to the project
+itself, and never requiring the user to know that boundary exists to run
+`olf init` successfully.
 
 ## Consequences
 
@@ -93,3 +102,6 @@ alpha. Upgrading is documented per release, not automated.
 Merges the decisions previously recorded as ADR 0031 (the PyPI embedded platform
 payload) and 0032 (the installed project root). ADR 0032's transitional-project
 rule is recorded in ADR 0005 alongside the descriptor model it waives.
+Updated for the v0.3 external project contract: `ProjectSpec` makes the
+project/distribution split explicit, and `openlakeforge.yaml` is the required
+project-root profile marker pending its semantic resolver.

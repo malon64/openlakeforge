@@ -36,10 +36,10 @@ def product_new(
     domain inline (via --input) when DOMAIN is not declared yet."""
     try:
         layout = writable_project_layout(repo_root)
-        root = layout.project_root
+        project = layout.project
         inputs = tuple(parse_source_resource(value) for value in input_)
         plan = plan_product_new(
-            root,
+            project.root,
             target=target,
             display_name=display_name,
             silver_inputs=tuple(silver_input),
@@ -47,7 +47,7 @@ def product_new(
             gold_tables=tuple(gold_table),
             with_report=with_report,
         )
-        commit_plan(root, plan, schema_root=layout.distribution_root / "docs" / "schema")
+        commit_plan(project.root, plan, schema_root=project.schema_root)
     except (RuntimeError, ScaffoldError) as exc:
         raise typer.Exit(code=fail(str(exc))) from exc
     for line in plan.summary:

@@ -5,6 +5,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from olf.project import ProjectSpec
+
 
 def namespace() -> str:
     return os.environ.get("NAMESPACE") or os.environ.get("OPENLAKEFORGE_KUBE_NAMESPACE") or "lakehouse"
@@ -27,6 +29,11 @@ def distribution_root() -> Path:
 def project_root() -> Path:
     """Return the user-project root, defaulting to the active source root."""
     return Path(os.environ.get("OPENLAKEFORGE_PROJECT_ROOT", repo_root())).resolve()
+
+
+def project_spec() -> ProjectSpec:
+    """Resolve the selected writable project and its platform payload."""
+    return ProjectSpec(root=project_root(), distribution_root=distribution_root())
 
 
 def truthy(value: str) -> bool:

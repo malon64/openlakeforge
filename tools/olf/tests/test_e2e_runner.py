@@ -53,6 +53,26 @@ def test_prepare_config_distribution_root_defaults_to_repo_root(monkeypatch: pyt
     assert cfg.foundation_terraform_dir == E2E_REPO_ROOT / "infra/terraform/foundations/local-kind"
 
 
+def test_prepare_config_uses_external_project_assets_and_distribution_terraform(
+    external_project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR", raising=False)
+
+    cfg = _runner.prepare_config(
+        "local",
+        suite=None,
+        namespace="lakehouse",
+        kube_context="",
+        repo_root=external_project,
+        distribution_root=E2E_REPO_ROOT,
+    )
+
+    assert cfg.repo_root == external_project
+    assert cfg.distribution_root == E2E_REPO_ROOT
+    assert cfg.inventory.products[0].id == "order_revenue"
+    assert cfg.contract_terraform_dir == E2E_REPO_ROOT / "infra/terraform/environments/local"
+
+
 def test_aws_default_suite_includes_smoke_and_full_checks(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     calls: list[str] = []
 

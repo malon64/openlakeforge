@@ -52,6 +52,16 @@ Bronze is an immutable landing zone owned by ingestion. Silver is owned by Floe 
 
 dbt does not own a Silver staging layer in v1. Floe writes Silver Iceberg tables directly through the Polaris REST catalog. dbt consumes those Silver tables and builds Gold models.
 
+## Project Boundary
+
+A writable data project contains `openlakeforge.yaml` and `lakehouse_code/`.
+The latter holds the provider-neutral descriptors, Bronze sources, Silver
+contracts, Gold dbt projects, Superset bundles, and Dagster pipeline modules.
+Terraform, Helm values, image definitions, schemas, and shared libraries stay
+in the immutable OpenLakeForge distribution. Builds combine those platform
+assets with the selected project's `lakehouse_code/`; they do not copy platform
+files into the project.
+
 ## Execution Model
 
 OpenLakeForge v1 uses one custom runtime image:

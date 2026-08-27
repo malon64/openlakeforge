@@ -42,13 +42,14 @@ def deploy_superset_reports() -> None:
     """Build and import source-controlled Superset report bundles."""
     from olf import superset
 
-    inventory = inventory_for(config.repo_root())
+    project = config.project_spec()
+    inventory = inventory_for(project.root)
     declared_report_dirs = tuple(dashboard.report_source_dir for dashboard in inventory.dashboards)
     override = os.environ.get("SUPERSET_REPORT_SOURCE_DIR") or None
     if override is not None and override not in declared_report_dirs:
         raise typer.BadParameter(f"SUPERSET_REPORT_SOURCE_DIR {override!r} is not declared in lakehouse.yaml")
     superset.deploy_reports(
-        config.repo_root(),
+        project.root,
         config.namespace(),
         config.env("OPENLAKEFORGE_QUERY_SQLALCHEMY_URI"),
         report_source_dir=override,
@@ -90,8 +91,8 @@ def export_superset_reports() -> None:
 
     from olf import superset
 
-    repo_root = config.repo_root()
-    inventory = inventory_for(repo_root)
+    project = config.project_spec()
+    inventory = inventory_for(project.root)
     if not inventory.dashboards:
         raise typer.BadParameter("lakehouse.yaml declares no dashboard to export")
     default_dashboard = inventory.dashboards[0]
@@ -104,7 +105,7 @@ def export_superset_reports() -> None:
         # e2e.discovered_dashboards) — prefer the checked-in bundle's own
         # title so a re-export finds the same dashboard it last exported.
         # Falls back to displayName only when no bundle exists yet to read.
-        for dashboard_file in superset.discover_dashboard_files(repo_root / report_source_dir):
+        for dashboard_file in superset.discover_dashboard_files(project.root / report_source_dir):
             document = yaml.safe_load(dashboard_file.read_text())
             title = document.get("dashboard_title") if isinstance(document, dict) else None
             if title:
@@ -112,7 +113,7 @@ def export_superset_reports() -> None:
         return default_product.display_name
 
     superset.export_report(
-        repo_root,
+        project.root,
         config.namespace(),
         report_source_dir=report_source_dir,
         bundle_name=config.env(

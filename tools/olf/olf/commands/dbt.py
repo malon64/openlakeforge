@@ -48,15 +48,14 @@ def parse(
             # (per the image-build contract) has no `libs` of its own, so
             # the distribution root must be on sys.path too, not just the
             # project root.
-            root = config.repo_root()
-            distribution_root = config.distribution_root()
-            for path in (str(root), str(distribution_root)):
+            project_spec = config.project_spec()
+            for path in (str(project_spec.root), str(project_spec.distribution_root)):
                 if path not in sys.path:
                     sys.path.insert(0, path)
             from libs.dbt.render_profiles import discover_project_dirs, write_profile
 
             projects = (
-                [Path(project_dir).resolve()] if project_dir else discover_project_dirs(root / "lakehouse_code/gold")
+                [Path(project_dir).resolve()] if project_dir else discover_project_dirs(project_spec.gold_root)
             )
             if not projects:
                 raise typer.Exit(code=fail("no product dbt projects found"))
@@ -68,7 +67,7 @@ def parse(
                     args = [dbt, command, "--project-dir", str(project)]
                     if command == "parse":
                         args += ["--profiles-dir", str(project), "--target", _target_for_provider(provider)]
-                    tools.runner.run(args, cwd=root, stream_output=True)
+                    tools.runner.run(args, cwd=project_spec.root, stream_output=True)
     except DeploymentError as exc:
         raise typer.Exit(code=fail(str(exc))) from exc
 

@@ -15,6 +15,8 @@ from dataclasses import dataclass, replace
 from enum import StrEnum
 from pathlib import Path
 
+from olf.project import ProjectSpec
+
 DEFAULT_NAMESPACE = "lakehouse"
 DEFAULT_LOCAL_CLUSTER_NAME = "openlakeforge-local"
 
@@ -50,6 +52,7 @@ class Profile(StrEnum):
 class DeploymentPaths:
     repo_root: Path
     distribution_root: Path
+    project: ProjectSpec
     state_root: Path
     work_root: Path
     cache_root: Path
@@ -264,6 +267,7 @@ class DeploymentContext:
         paths = DeploymentPaths(
             repo_root=resolved_repo_root,
             distribution_root=resolved_distribution_root,
+            project=ProjectSpec(root=resolved_repo_root, distribution_root=resolved_distribution_root),
             state_root=resolved_state_root,
             work_root=resolved_work_root,
             cache_root=resolved_cache_root,
@@ -323,6 +327,9 @@ class DeploymentContext:
         # Fresh contract readers create their own managed-tool resolver. Keep
         # them anchored to the same verified distribution as the Toolkit.
         env["OLF_DISTRIBUTION_ROOT"] = str(self.paths.distribution_root)
+        env["OPENLAKEFORGE_PROJECT_ROOT"] = str(self.paths.project.root)
+        # The legacy name remains for contributor/release compatibility.
+        env["OPENLAKEFORGE_REPO_ROOT"] = str(self.paths.project.root)
         # Gate on `installed`, never on `distribution_root != repo_root`: the
         # documented quick start (`uv tool install` then `olf deploy` with no
         # --project-root) deploys the bundled demo, so both roots are the same

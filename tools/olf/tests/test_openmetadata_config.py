@@ -1,4 +1,8 @@
+from contextlib import contextmanager
 from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
 
 from olf import openmetadata as om
 from olf.openmetadata._config import OpenMetadataConfig
@@ -224,3 +228,35 @@ def test_config_from_environment_preserves_explicit_empty_schema_contract() -> N
 
     assert cfg.catalog_silver_schema_fqns == {}
     assert cfg.catalog_gold_schema_fqns == {}
+
+
+def test_openmetadata_command_anchors_its_default_metadata_root_to_the_project(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from olf import k8s, openmetadata
+    from olf.commands import openmetadata as command
+
+    project = tmp_path / "project"
+    distribution = tmp_path / "distribution"
+    captured: dict[str, str] = {}
+    monkeypatch.setenv("OPENLAKEFORGE_PROJECT_ROOT", str(project))
+    monkeypatch.setenv("OLF_DISTRIBUTION_ROOT", str(distribution))
+    monkeypatch.setattr(k8s, "wait_for_rollout", lambda *_args: None)
+
+    @contextmanager
+    def _port_forward(*_args, **_kwargs):  # noqa: ANN002, ANN003, ANN202
+        yield 18585
+
+    monkeypatch.setattr(k8s, "port_forward", _port_forward)
+
+    def _config(*_args, **kwargs):  # noqa: ANN002, ANN003, ANN202
+        captured["metadata_root"] = kwargs["metadata_root"]
+        return SimpleNamespace(base_url=kwargs["base_url"])
+
+    monkeypatch.setattr(openmetadata.OpenMetadataConfig, "from_environment", staticmethod(_config))
+    monkeypatch.setattr(openmetadata, "OpenMetadataClient", lambda _url: object())
+    monkeypatch.setattr(openmetadata, "OpenMetadataDeployer", lambda *_args: SimpleNamespace(deploy=lambda: None))
+
+    command.deploy_openmetadata_metadata()
+
+    assert captured["metadata_root"] == str(project / "lakehouse_code")

@@ -8,6 +8,7 @@ import typer
 
 from olf import config
 from olf.commands._shared import fail, log_step
+from olf.project import ProjectSpec
 
 app = typer.Typer(help="OpenMetadata governance metadata helpers.")
 
@@ -42,6 +43,7 @@ def deploy_openmetadata_metadata() -> None:
     from olf import k8s
     from olf import openmetadata as om
 
+    project = ProjectSpec(root=config.project_root(), distribution_root=config.distribution_root())
     namespace = config.namespace()
     service = config.env("OPENMETADATA_SERVICE", "openmetadata")
     remote_port = int(config.env("OPENMETADATA_SERVICE_PORT", "8585"))
@@ -57,7 +59,7 @@ def deploy_openmetadata_metadata() -> None:
             base_url=f"http://127.0.0.1:{local_port}",
             admin_email=config.env("OPENMETADATA_ADMIN_EMAIL", "admin@open-metadata.org"),
             admin_password=config.env("OPENMETADATA_ADMIN_PASSWORD", "admin"),
-            metadata_root=config.env("OPENMETADATA_METADATA_ROOT", "lakehouse_code"),
+            metadata_root=config.env("OPENMETADATA_METADATA_ROOT", str(project.code_root)),
             metadata_source_dir=os.environ.get("OPENMETADATA_METADATA_SOURCE_DIR", ""),
             allow_missing_assets=config.truthy(config.env("OPENMETADATA_ALLOW_MISSING_ASSETS", "false")),
             catalog_service=config.env("OPENMETADATA_CATALOG_SERVICE") or config.env("OPENLAKEFORGE_CATALOG_PROVIDER"),

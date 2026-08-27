@@ -47,6 +47,7 @@ def applied_contract_environment(
 
     extra = {
         "OPENLAKEFORGE_REPO_ROOT": str(repo_root),
+        "OPENLAKEFORGE_PROJECT_ROOT": str(repo_root),
         "NAMESPACE": namespace,
         "KUBE_CONTEXT": kube_context,
         "KUBECONFIG": str(kubeconfig_path),

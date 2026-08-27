@@ -7,6 +7,7 @@ live here once rather than duplicated per file.
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 import pytest
@@ -35,6 +36,16 @@ def _isolate_toolchain(monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest
 
 E2E_REPO_ROOT = Path(__file__).resolve().parents[3]
 E2E_INVENTORY = inventory_for(E2E_REPO_ROOT)
+
+
+@pytest.fixture
+def external_project(tmp_path: Path) -> Path:
+    """Copy only the versioned data-project payload into a separate root."""
+    root = tmp_path / "external-project"
+    root.mkdir()
+    shutil.copy2(E2E_REPO_ROOT / "openlakeforge.yaml", root / "openlakeforge.yaml")
+    shutil.copytree(E2E_REPO_ROOT / "lakehouse_code", root / "lakehouse_code")
+    return root
 
 
 def e2e_cfg(tmp_path: Path, env: Environment = "local", suite: Suite = "full") -> E2EConfig:
