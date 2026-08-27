@@ -109,7 +109,6 @@ Resources:
 * [Lakehouse descriptor JSON schema](schema/lakehouse.schema.json)
 * [Source descriptor JSON schema](schema/source.schema.json)
 * [Domain descriptor reference](reference/domain-descriptor.md)
-* [`v1alpha1` → `v1alpha2` migration guide (historical)](migrations/domain-v1alpha1-to-v1alpha2.md)
 * [Provider contracts](architecture/provider-contracts.md)
 
 ---
@@ -304,7 +303,6 @@ docs/
 │   └── diagrams/
 │
 ├── adr/
-├── migrations/
 ├── release/
 ├── schema/
 └── testing/

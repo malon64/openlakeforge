@@ -223,7 +223,7 @@ resource "aws_eks_addon" "kube_proxy" {
 # explicitly denies iam:CreateOpenIDConnectProvider and OIDC providers cannot take
 # the required "limited-" name prefix, so per-service roles are bound to Kubernetes
 # service accounts through Pod Identity associations instead. See
-# docs/adr/0016-aws-eks-pod-identity-over-irsa.md.
+# docs/adr/0010-cloud-provider-implementations.md.
 resource "aws_eks_addon" "pod_identity_agent" {
   cluster_name                = aws_eks_cluster.this.name
   addon_name                  = "eks-pod-identity-agent"

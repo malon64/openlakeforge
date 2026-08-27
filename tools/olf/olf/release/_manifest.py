@@ -1,7 +1,7 @@
 """Release component manifest and checksums.
 
 Shell/GitHub Actions remain the orchestrators for git, docker, cosign, and
-syft invocations (ADR 0017); this module owns turning
+syft invocations (ADR 0008); this module owns turning
 `release/component-catalog.yaml` plus resolved image digests into the
 component manifest and `checksums.txt` a consumer needs to verify a tagged
 release.

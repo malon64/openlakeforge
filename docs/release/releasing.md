@@ -48,7 +48,7 @@ Jobs:
 Release orchestration (bundle construction, checksums, compatibility-matrix
 rendering, and verification) lives behind `olf release`. Terraform and Helm
 remain their respective deployment engines; no release shell wrappers remain.
-See [ADR 0028](../adr/0028-python-owns-repository-orchestration.md).
+See [ADR 0008](../adr/0008-olf-owns-orchestration-and-toolchain.md).
 
 ## Cutting a release
 

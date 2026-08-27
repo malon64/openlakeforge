@@ -163,7 +163,7 @@ never to raw paths. Rejected rows are quarantined as CSV; exit code 0 covers
 
 ![Medallion and Catalog Data Path](chart4-medallion-catalog.svg)
 
-<sub>environments/local/main.tf · catalog/polaris/main.tf · lakehouse_code/lakehouse.yaml · ADR 0011, 0013, 0026</sub>
+<sub>environments/local/main.tf · catalog/polaris/main.tf · lakehouse_code/lakehouse.yaml · ADR 0003, 0013, 0026</sub>
 
 ## Chart 5 — Provider Contracts
 
@@ -190,7 +190,7 @@ different set: exactly three platform modules (`storage/aws-s3`, `catalog/aws-gl
 
 ![Provider Contracts](chart5-provider-contracts.svg)
 
-<sub>`infra/terraform/environments/{local,aws-poc,azure-poc}/contracts.tf` · [provider-contracts.md](../provider-contracts.md) · ADR 0010, 0011, 0015, 0016</sub>
+<sub>`infra/terraform/environments/{local,aws-poc,azure-poc}/contracts.tf` · [provider-contracts.md](../provider-contracts.md) · ADR 0003, 0011, 0015, 0016</sub>
 
 ---
 
@@ -217,7 +217,7 @@ Keycloak, Vault/External Secrets, Traefik + cert-manager, Athena, Lake Formation
 Terraform state. OpenLineage is live, not deferred — Floe and dbt-trino emit lineage
 events directly to OpenMetadata's native `openlineage` endpoint. The governance bootstrap
 creates the endpoint credentials; runners receive them only through Secret references.
-[ADR 0023](../../adr/0023-native-openlineage-emission-restored.md) supersedes ADR 0009's
+[ADR 0007](../../adr/0007-governance-and-lineage.md) supersedes ADR 0007's
 engine-lineage deferral while retaining its rejection of a proxy and custom REST push.
 
 ## Foundation plus two-phase deploy — the CD boundary
@@ -225,8 +225,8 @@ engine-lineage deferral while retaining its rejection of a proxy and custom REST
 Foundation work creates the cluster and registry. The deployment boundary itself has two
 phases: static platform resources, then dynamic artifacts. A domain commit triggers the
 artifact phase only — CI never runs Terraform for domain changes
-([ADR 0008](../../adr/0008-two-phase-deploy-infra-and-artifacts.md),
-[ADR 0017](../../adr/0017-shared-python-deploy-tooling.md)).
+([ADR 0002](../../adr/0002-deployment-lifecycle.md),
+[ADR 0002](../../adr/0002-deployment-lifecycle.md)).
 
 | Boundary | Target | Deploys |
 | --- | --- | --- |
@@ -260,7 +260,7 @@ administer the catalog. Delivery is Terraform → Kubernetes Secret →
 `envSecrets`/`envFrom` into long-lived pods *and* ephemeral Jobs; the Trino catalog file
 holds `${ENV:...}` placeholders, never literal secrets. The AWS POC replaces static
 storage keys entirely with EKS Pod Identity
-([ADR 0016](../../adr/0016-aws-eks-pod-identity-over-irsa.md)).
+([ADR 0010](../../adr/0010-cloud-provider-implementations.md)).
 
 ## Observability — object storage is the sink
 
@@ -321,7 +321,7 @@ silver, gold, dashboard, and pipeline slices, then runs the artifact phase.
 `olf catalog sync-namespaces` derives the Bronze, Silver, and Gold namespaces from
 `lakehouse.yaml` plus every `bronze/*/source.yaml` and reconciles them before Floe, dbt, or
 OpenMetadata use them. A new product, domain, or source therefore needs no environment
-Terraform edit or platform apply; see ADR 0022 and ADR 0026. `lakehouse_code/lakehouse.yaml`
+Terraform edit or platform apply; see ADR 0002 and ADR 0004. `lakehouse_code/lakehouse.yaml`
 is the canonical, human- and machine-readable descriptor of every domain and product.
 
 ---

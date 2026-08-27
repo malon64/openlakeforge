@@ -1,7 +1,7 @@
 """Provider-neutral deployment orchestration seam.
 
 `DeploymentEngine` sequences a `DeploymentProvider`'s lifecycle steps in the
-order ADR 0008 requires (foundation -> platform -> dynamic artifacts, never
+order ADR 0002 requires (foundation -> platform -> dynamic artifacts, never
 the other way around). `Toolkit` bundles the process-execution primitives
 every provider needs, including the SDK-backed AWS and Azure adapters used by
 the cloud provider (issue #125). `build_provider` is the single seam that
@@ -167,7 +167,7 @@ class DeploymentEngine:
         """Fail before a dynamic-artifact deploy mutates infrastructure.
 
         Static foundation/platform phases intentionally remain descriptor-free
-        under ADR 0008, so only ARTIFACTS (and the ALL sequence that contains
+        under ADR 0002, so only ARTIFACTS (and the ALL sequence that contains
         it) needs a runnable project. Reported here rather than deep inside an
         artifact step so an `olf init --empty` project is told what it is
         missing before anything is applied.

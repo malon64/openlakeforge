@@ -1,0 +1,96 @@
+# ADR 0002: Deployment lifecycle — foundation, platform, artifacts
+
+## Status
+
+Binding.
+
+## Context
+
+Deployment has to answer two different questions at once, and conflating them
+has been a recurring source of confusion:
+
+- **What runs, in what order?** Creating a cluster, applying Terraform services,
+  and deploying code are genuinely three different operations with different
+  inputs and different failure modes.
+- **What is safe to re-run in CI on a code commit?** Terraform-managed
+  infrastructure and code-derived artifacts have different lifetimes. A change
+  to a dbt model must not put a Terraform apply in the CI path.
+
+Earlier records answered these separately and left the count ambiguous — one ADR
+described a "two-phase deploy", later ones described foundation/platform/
+artifacts sequencing, and a reader had no way to tell whether that was two steps
+or three.
+
+It is three phases, in two lifecycle categories. Those are different axes.
+
+## Decision
+
+### Three ordered phases
+
+`olf deploy --provider P` runs these in order. Each is individually selectable
+with `--phase`.
+
+| Phase | Creates | Engine |
+| --- | --- | --- |
+| `foundation` | Kubernetes cluster and container registry — kind locally, EKS + ECR on AWS, AKS + ACR on Azure | Terraform |
+| `platform` | Long-lived platform services: SeaweedFS, PostgreSQL, Polaris, Trino, Dagster, and (Full profile) OpenMetadata and Superset | Terraform + Helm |
+| `artifacts` | Everything derived from `lakehouse_code/`: the project-code image, catalog namespaces, Floe manifests, Superset report bundles, OpenMetadata metadata, and the Dagster rollout that picks the new image up | `olf` |
+
+`DeploymentPhase` (`tools/olf/olf/deployment/engine.py`) also carries a
+`prefetch` value that runs between `foundation` and `platform`. It is a local
+kind image warm-up — it pulls the large runtime images and loads them into the
+kind nodes so the Helm releases do not each wait on a cold pull. On cloud
+providers it is a deliberate no-op (`deployment/cloud/provider.py`). It is an
+optimization inside the foundation→platform transition, not a fourth phase, and
+is named here only so a reader counting `DeploymentPhase` members is not misled.
+
+### Two lifecycle categories
+
+The three phases divide in two:
+
+```text
+foundation + platform   ->  static infrastructure   (Terraform owns state and drift)
+artifacts               ->  dynamic, code-derived   (rebuilt from lakehouse_code/)
+```
+
+**This split is the CD boundary.** A commit that changes only `lakehouse_code/`
+triggers the artifacts phase and nothing else; CI never invokes Terraform for a
+code change. Terraform runs are a deliberate platform action.
+
+This is what "two-phase deploy" has always meant. It is a statement about
+ownership and CD, not a different phase count.
+
+The corollary is a rule: **a platform apply must never wait on an artifact.**
+Anything requiring domain code to exist belongs in the artifacts phase. Catalog
+namespaces are the worked example — they are derived from descriptors, so
+`olf catalog sync-namespaces` runs first inside artifacts, before any table is
+written, rather than being templated into a Terraform-managed bootstrap job.
+That keeps `platform` from reading user code on either catalog provider.
+
+### Teardown is not symmetric
+
+`olf destroy` accepts `all`, `platform`, and `foundation` only. There is no
+artifacts teardown: artifacts have no independent lifetime to reclaim: they live
+inside the platform services and the object store, and are replaced wholesale on
+the next artifacts run. `all` tears down platform then foundation.
+
+## Consequences
+
+`olf deploy --provider local --phase artifacts` is the inner development loop.
+It is the only command needed after a change to a dbt model, a Floe contract, a
+Dagster definition, or a descriptor.
+
+Phases are idempotent. Re-running `foundation` or `platform` reconciles existing
+state rather than requiring a teardown.
+
+`--profile` is not a phase. It selects which services `platform` deploys and
+which layers `artifacts` targets, so it must be passed consistently: running
+`--phase artifacts` with the default `full` profile against a Slim platform
+regenerates governance-enabled manifests for services that are not deployed.
+
+## History
+
+Merges the decisions previously recorded as ADR 0008 (two-phase deploy), 0017
+(shell/Python split), 0022 (Phase 2 catalog namespace reconciliation), 0025
+(`olf` owns the local lifecycle), and 0027 (`olf` owns the cloud lifecycles).
+Ownership of the orchestration itself is ADR 0008 in the current numbering.

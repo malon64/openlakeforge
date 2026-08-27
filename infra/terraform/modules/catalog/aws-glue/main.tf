@@ -2,7 +2,7 @@ locals {
   rest_uri = "https://glue.${var.region}.amazonaws.com/iceberg"
 }
 
-# Database lifecycle moved to Phase 2 (ADR 0022): `olf catalog sync-namespaces`
+# Database lifecycle moved to Phase 2 (ADR 0002): `olf catalog sync-namespaces`
 # reconciles Glue databases from the lakehouse descriptors
 # (lakehouse_code/lakehouse.yaml + bronze source.yaml) during artifacts-deploy,
 # the same way it already reconciles Polaris namespaces. This root no longer

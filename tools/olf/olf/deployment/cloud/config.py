@@ -12,7 +12,7 @@ provider split.
 
 `Profile` (not the shell's ad hoc `ENABLE_GOVERNANCE`/`ENABLE_ANALYTICS`
 variables) drives Full/Slim behavior here too, consistent with the
-precedent ADR 0025 set for the local provider.
+precedent ADR 0008 set for the local provider.
 """
 
 from __future__ import annotations
@@ -259,7 +259,7 @@ class CloudTerraformSettings:
     genuine provider difference and stays in `cloud/aws.py`/`cloud/azure.py`
     - `var_file` only covers the platform apply, which AWS var-files and
     Azure does not (Azure's `stack/platform-up.sh` never references a
-    tfvars file at all; ADR 0027 makes this a binding requirement, not an
+    tfvars file at all; ADR 0008 makes this a binding requirement, not an
     incidental default).
 
     `foundation_var_file` is the separate channel an explicit `--var-file`
@@ -362,7 +362,7 @@ class CloudDeploymentConfig:
                 var_file = project_root / var_file
             # AWS reuses the same explicit override for both foundation and
             # platform (var_file); Azure's platform apply must NEVER see a
-            # tfvars file (ADR 0027), so the override travels through
+            # tfvars file (ADR 0008), so the override travels through
             # foundation_var_file only, leaving var_file untouched (None).
             if scope == "aws":
                 terraform = CloudTerraformSettings(

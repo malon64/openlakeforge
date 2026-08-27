@@ -154,7 +154,7 @@
   create_principal_secret "${om_principal_name}" "${om_credentials_secret_name}" "POLARIS_OM_CLIENT_ID" "POLARIS_OM_CLIENT_SECRET"
   grant_catalog_access "${om_principal_name}" "${om_principal_role}" "${om_catalog_role}" "CATALOG_MANAGE_CONTENT"
 
-  # Namespace lifecycle belongs to Phase 2 (ADR 0022). Phase 1 stops at
+  # Namespace lifecycle belongs to Phase 2 (ADR 0002). Phase 1 stops at
   # handing `olf catalog sync-namespaces` a principal that can create
   # and drop namespaces, so no platform apply ever needs to know which
   # products exist.

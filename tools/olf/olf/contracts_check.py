@@ -5,7 +5,7 @@ structured checks: parsed Terraform HCL, the canonical domain model plus
 JSON Schema, and parsed rendered Floe/Helm output. Shell orchestration
 (`deploy-artifacts.sh` call ordering) is covered separately by
 `tools/olf/tests/test_contracts_check_shell.py`, not by this module, per
-ADR 0017 (Python for behaviour, shell for structure).
+ADR 0008 (Python for behaviour, shell for structure).
 """
 
 from __future__ import annotations
@@ -85,7 +85,7 @@ _REQUIRED_CONTRACT_CHECKS_BY_ENV = {
     ),
 }
 
-# ADR 0022: catalog namespace/database lifecycle belongs to Phase 2
+# ADR 0002: catalog namespace/database lifecycle belongs to Phase 2
 # (`olf catalog sync-namespaces`), never to Terraform-owned locals or module
 # arguments in `main.tf`/`contracts.tf`.
 _FORBIDDEN_PHASE_TWO_FIELDS = (
@@ -262,7 +262,7 @@ def _check_hcl_structured_contracts(repo_root: Path) -> CheckResult:
                 if f'"{forbidden_field}"' in value or f"{forbidden_field} " in value:
                     errors.append(
                         f"{env}/contracts.tf: local {local_name!r} references Phase-2-owned field "
-                        f"{forbidden_field!r} (ADR 0022: namespaces/schemas are reconciled by "
+                        f"{forbidden_field!r} (ADR 0002: namespaces/schemas are reconciled by "
                         f"`olf catalog sync-namespaces`, not declared in Terraform)"
                     )
 
@@ -300,7 +300,7 @@ def _check_hcl_structured_contracts(repo_root: Path) -> CheckResult:
         if "aws_glue_catalog_database" in {rtype for rtype, _ in (r.split(".", 1) for r in glue_resources)}:
             errors.append(
                 "infra/terraform/modules/catalog/aws-glue/main.tf: must not create aws_glue_catalog_database "
-                "resources (ADR 0022: Phase 2 owns database lifecycle)"
+                "resources (ADR 0002: Phase 2 owns database lifecycle)"
             )
         removed_blocks = glue_document.get("removed", [])
         has_namespace_removal = any(
@@ -349,7 +349,7 @@ def _check_hcl_phase_two_invariants(repo_root: Path) -> CheckResult:
             if forbidden_field in catalog:
                 errors.append(
                     f"{env}: applied provider_contracts.catalog resolves Phase-2-owned field "
-                    f"{forbidden_field!r} (ADR 0022 violation)"
+                    f"{forbidden_field!r} (ADR 0002 violation)"
                 )
 
     if errors:
@@ -400,7 +400,7 @@ def _check_floe_contract_structure(repo_root: Path) -> CheckResult:
     """Every `lakehouse_code/silver/*/contracts/floe/*.yml` must parse as YAML
     and use provider-neutral storage aliases and a domain-scoped Silver
     namespace matching `<domain>_silver` (never a shared "silver"/"gold"
-    namespace, per ADR 0022)."""
+    namespace, per ADR 0002)."""
     name = "floe_contract_structure"
     errors: list[str] = []
     contract_paths = sorted(repo_root.glob("lakehouse_code/silver/*/contracts/floe/*.yml"))

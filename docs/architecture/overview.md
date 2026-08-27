@@ -25,7 +25,7 @@ domain capability folders: raw CSV examples, dlt Bronze loader, Floe contract
 and manifest, dbt Gold models, Dagster job, Superset report bundle, and
 OpenMetadata metadata nested in `lakehouse.yaml`. OpenLineage integration is
 enabled for Floe and dbt-trino through OpenMetadata's native endpoint; see
-ADR 0023. The OpenMetadata Dagster connector remains deferred.
+ADR 0007. The OpenMetadata Dagster connector remains deferred.
 
 ## Core Platform Decisions
 

@@ -16,7 +16,7 @@ operations cost and durability.
 | Query path | Superset -> Trino -> Glue/S3 |
 | Orchestration | Dagster Helm release with per-domain code locations |
 | Artifacts | Floe manifests, reports, logs, and run artifacts in the S3 ops bucket |
-| Identity | EKS Pod Identity associations for lakehouse workloads (see ADR 0016) |
+| Identity | EKS Pod Identity associations for lakehouse workloads (see ADR 0010) |
 | Access | `kubectl port-forward`, matching the other POCs |
 
 Trino remains the implemented query engine. Athena is deferred because it would
@@ -31,7 +31,7 @@ model from always-on compute to pay-per-data-scanned queries.
 - EKS control plane and managed node group.
 - EKS VPC CNI, CoreDNS, kube-proxy, EBS CSI, and Pod Identity agent add-ons.
 - ECR repositories for project-code and Superset.
-- An EKS Pod Identity role/association for the EBS CSI driver (see ADR 0016).
+- An EKS Pod Identity role/association for the EBS CSI driver (see ADR 0010).
 
 `infra/terraform/environments/aws-poc` consumes the foundation state and creates:
 

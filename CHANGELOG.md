@@ -23,18 +23,18 @@ the tooling.
 
 - PyPI distribution: `pip install openlakeforge` installs the `olf` console
   command with a verified, immutable Terraform/Helm/runtime payload embedded
-  in the wheel and sdist (#128, ADR 0031).
+  in the wheel and sdist (#128, ADR 0009).
 - `olf init` bootstraps a writable `lakehouse_code/` project from the
   packaged demo in the current directory; `olf init --empty` creates a
   transitional project with no source, domain, or product yet (#146,
-  ADR 0032).
+  ADR 0009).
 - A managed Terraform/Helm/kubectl/kind toolchain: `olf` downloads, verifies,
   and privately invokes its own versioned copies under `OLF_HOME`, so none of
   those tools need to be installed on the host. `OLF_TOOLCHAIN_MODE=host`
-  opts back into host-installed copies (#127, ADR 0029).
+  opts back into host-installed copies (#127, ADR 0008).
 - SDK-managed AWS and Azure authentication: `olf auth login --provider
   aws|azure` goes through boto3 / the Azure SDK directly; the `aws` and `az`
-  CLIs are no longer required (#142, ADR 0030).
+  CLIs are no longer required (#142, ADR 0008).
 - Golden-path scaffolding: `olf source new`, `olf domain new`, and
   `olf product new` generate a runnable Bronze source, Silver domain, or Gold
   product from documented inputs, with no shared-code edit (#40).
@@ -53,19 +53,23 @@ the tooling.
 
 - `olf` is now the only repository orchestration implementation; the
   shell-scripted deploy path is gone. `Makefile` targets are deprecated
-  one-line delegates to the equivalent `olf` command (#122-#126, ADR 0028).
+  one-line delegates to the equivalent `olf` command (#122-#126, ADR 0008).
 - Dagster collapses to one merged code location by default; a per-domain
   split is now an explicit configuration choice rather than the default
-  (#76, ADR 0019).
+  (#76, ADR 0006).
 - `lakehouse_code/` replaces `domains/` as the user-code root: Bronze is
   source-owned, Silver is domain-owned, and Gold stays product-owned (#109,
-  ADR 0026). The `openlakeforge.io/v1alpha3` `Lakehouse`/`Source` descriptor
-  pair replaces `v1alpha1`/`v1alpha2` `Domain` descriptors as the shape every
-  default runtime path discovers; the legacy loader, `docs/schema/domain*.json`,
-  and the `v1alpha1`->`v1alpha2` migration guide remain in place for migration
-  diagnostics only, per ADR 0026.
+  ADR 0004). The `openlakeforge.io/v1alpha3` `Lakehouse`/`Source` descriptor
+  pair replaces `v1alpha1`/`v1alpha2` `Domain` descriptors; their loader and
+  validator are removed along with `docs/schema/domain*.json` and the
+  `v1alpha1`->`v1alpha2` migration guide.
 - `scripts/release/verify-install.sh` is replaced by `olf release
   verify-install`.
+- The decision log is consolidated from 32 ADRs to 10, renumbered `0001`-`0010`
+  and rewritten to describe what binds today rather than stacking supersessions.
+  Each new ADR carries a History footer naming the records it absorbs. ADR
+  numbers referenced in earlier releases, commits, and closed pull requests
+  refer to the old numbering.
 
 ### Migration notes
 

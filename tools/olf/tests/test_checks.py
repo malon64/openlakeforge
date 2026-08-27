@@ -90,7 +90,7 @@ def test_structure_registry_preserves_the_full_non_script_skeleton() -> None:
         ".github/workflows/checks.yml",
         "docs/architecture/overview.md",
         "docs/architecture/provider-contracts.md",
-        "docs/adr/0028-python-owns-repository-orchestration.md",
+        "docs/adr/0008-olf-owns-orchestration-and-toolchain.md",
         "infra/terraform/foundations/aws-eks/outputs.tf",
         "lakehouse_code/silver/sales/contracts/floe/sales.yml",
         "tools/olf/uv.lock",

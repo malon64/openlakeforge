@@ -5,12 +5,12 @@ orchestration for local, AWS, and Azure: Terraform/Helm sequencing, provider
 contract hydration, artifacts, checks, diagnostics, and release helpers.
 Terraform remains the state/drift engine and Helm remains the chart/release
 engine; `olf` invokes both with structured argv, retries, and diagnostics. See
-[ADR 0028](../../docs/adr/0028-python-owns-repository-orchestration.md).
+[ADR 0008](../../docs/adr/0008-olf-owns-orchestration-and-toolchain.md).
 
 `olf` also owns its own versioned Terraform, Helm, kubectl, and kind under
 `OLF_HOME` (default `~/.openlakeforge`) - a host installation of those tools
 is not required. `OLF_TOOLCHAIN_MODE=host` resolves them from `PATH` instead.
-See [ADR 0029](../../docs/adr/0029-olf-owns-a-managed-toolchain.md).
+See [ADR 0008](../../docs/adr/0008-olf-owns-orchestration-and-toolchain.md).
 
 ## Commands
 
@@ -19,7 +19,7 @@ See [ADR 0029](../../docs/adr/0029-olf-owns-a-managed-toolchain.md).
 | `olf init [--empty]` | Create a writable `lakehouse_code/` project in the current directory from the packaged demo, or an empty transitional project. |
 | `olf doctor --provider P [--phase PHASE]` / `olf plan --provider P [--phase PHASE]` | Read-only preflight and Terraform planning with typed provider/profile/phase options; provisions the managed toolchain as a side effect. |
 | `olf deploy\|destroy\|status\|forward --provider P` | Orchestrate a provider lifecycle without shell wrappers. |
-| `olf auth login\|status\|logout --provider aws\|azure` | Authenticate through AWS IAM Identity Center or Microsoft Entra SDKs; no cloud CLI required (ADR 0030). |
+| `olf auth login\|status\|logout --provider aws\|azure` | Authenticate through AWS IAM Identity Center or Microsoft Entra SDKs; no cloud CLI required (ADR 0008). |
 | `olf toolchain list\|install\|path\|clean` | Inspect, provision, or remove the managed Terraform/Helm/kubectl/kind toolchain under `OLF_HOME`. |
 | `olf check structure\|components\|contracts\|infra\|project-code\|dbt\|lockfiles\|all` | Repository validation gates. |
 | `olf contracts env\|check` | Print the resolved provider contract environment, or validate it against the active provider/profile. |
@@ -28,7 +28,7 @@ See [ADR 0029](../../docs/adr/0029-olf-owns-a-managed-toolchain.md).
 | `olf layers enabled --profile P` | List which medallion/governance/analytics layers a profile enables. |
 | `olf images build\|load project-code\|superset` | Local Docker build and Kind load operations. |
 | `olf diagnostics collect OUTPUT_DIR` | Collect bounded host, Docker, Kubernetes, event, and pod-log evidence. |
-| `olf catalog sync-namespaces [--dry-run] [--prune]` | Reconcile catalog namespaces (Polaris) or databases (Glue) with domain descriptors (ADR 0022). Runs first in the artifacts phase, before any table is written. It creates, adopts matching legacy namespaces, and relocates OpenLakeForge-managed namespaces. `--prune` removes only OpenLakeForge-managed catalog metadata and retains object-store files; foreign namespaces are never changed. Unsupported providers fail explicitly. |
+| `olf catalog sync-namespaces [--dry-run] [--prune]` | Reconcile catalog namespaces (Polaris) or databases (Glue) with domain descriptors (ADR 0002). Runs first in the artifacts phase, before any table is written. It creates, adopts matching legacy namespaces, and relocates OpenLakeForge-managed namespaces. `--prune` removes only OpenLakeForge-managed catalog metadata and retains object-store files; foreign namespaces are never changed. Unsupported providers fail explicitly. |
 | `olf floe render-profile\|generate-manifests` | Render the Floe EnvironmentProfile YAML for the active contract env, or generate domain Floe manifests. |
 | `olf artifacts upload-manifests --via port-forward\|direct` | Publish domain Floe manifests to the ops bucket (in-cluster S3 or cloud S3). |
 | `olf revision compute\|publish\|verify --runtime-root D` | Compute, publish, or verify an immutable Floe runtime-artifact revision. Publication writes `floe/revisions/sha256/<digest>/...` and does not activate that revision. |

@@ -8,7 +8,7 @@ output "contract" {
     trino_catalog_name         = "iceberg"
     default_warehouse_location = "s3://${local.silver_bucket_name}"
     # No catalog_namespaces/catalog_namespace_names/catalog_schema_names here:
-    # namespaces are reconciled in Phase 2 (ADR 0022), so Phase 1 has nothing
+    # namespaces are reconciled in Phase 2 (ADR 0002), so Phase 1 has nothing
     # authoritative to report. Omitting the keys — rather than emitting empty
     # lists — is what lets olf/contracts.py fall back to the descriptor-derived
     # values instead of exporting an empty JSON array over them.
