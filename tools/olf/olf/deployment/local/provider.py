@@ -38,7 +38,11 @@ class LocalProvider:
         toolkit: Toolkit | None = None,
         environ: Mapping[str, str] | None = None,
     ) -> LocalProvider:
-        return cls(config=config, tools=toolkit or Toolkit.default(), _environ=environ or os.environ)
+        return cls(
+            config=config,
+            tools=toolkit or Toolkit.default(),
+            _environ=environ if environ is not None else os.environ,
+        )
 
     @property
     def context(self) -> DeploymentContext:

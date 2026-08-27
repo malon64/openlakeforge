@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import contextlib
+import socket
+import tempfile
 from pathlib import Path
 
 from _tooling_support import RecordedCall, RecordingRunner
@@ -100,6 +103,52 @@ def test_env_resolves_docker_host_from_ambient_context_when_unset(tmp_path: Path
     provider = LocalProvider.create(_config(tmp_path), toolkit=toolkit, environ={})
 
     assert provider.env["DOCKER_HOST"] == "unix:///colima/docker.sock"
+
+
+def test_env_falls_back_to_colima_socket_when_ambient_context_resolution_is_dead(tmp_path: Path) -> None:
+    """The endpoint `docker context show`/`inspect` returns can point at a
+    socket file left behind by a daemon that exited without unlinking it -
+    #156's stale Docker Desktop socket. `LocalProvider.env` must not accept
+    it just because the inode exists; it must fall back to a live Colima
+    socket."""
+    with tempfile.TemporaryDirectory(dir="/tmp") as home:
+        stale_socket = Path(home) / "stale" / "docker.sock"
+        stale_socket.parent.mkdir(parents=True, exist_ok=True)
+        dead = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        dead.bind(str(stale_socket))
+        dead.close()  # leaves the socket-type inode behind with nothing listening
+
+        default_socket = Path(home) / ".colima" / "default" / "docker.sock"
+        default_socket.parent.mkdir(parents=True, exist_ok=True)
+        live = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        live.bind(str(default_socket))
+        live.listen(1)
+
+        class _ScriptedRunner(RecordingRunner):
+            def run(self, command, **kwargs):  # type: ignore[override]
+                argv = list(command.argv) if hasattr(command, "argv") else [str(p) for p in command]
+                self.calls.append(RecordedCall(argv=argv, kwargs=kwargs))
+                stdout = "colima\n" if argv[-2:] == ["context", "show"] else f"unix://{stale_socket}\n"
+                return CommandResult(argv=tuple(argv), returncode=0, stdout=stdout, stderr="", duration_seconds=0.0)
+
+        with contextlib.closing(live):
+            runner = _ScriptedRunner()
+            resolver = PathExecutableResolver(overrides={tool: Path(tool) for tool in _TOOLS})
+            toolkit = Toolkit(
+                runner=runner,
+                resolver=resolver,
+                terraform=Terraform(runner, resolver),
+                helm=Helm(runner, resolver),
+                kubectl=Kubectl(runner, resolver),
+                docker=Docker(runner, resolver),
+                kind=Kind(runner, resolver),
+                aws=AwsCli(runner, resolver),
+                azure=AzureCli(runner, resolver),
+            )
+
+            provider = LocalProvider.create(_config(tmp_path), toolkit=toolkit, environ={"HOME": home})
+
+            assert provider.env["DOCKER_HOST"] == f"unix://{default_socket}"
 
 
 def test_foundation_doctor_does_not_require_helm(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001

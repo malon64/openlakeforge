@@ -3,11 +3,11 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from _tooling_support import RecordingRunner
+from _tooling_support import RecordedCall, RecordingRunner
 
 from olf.deployment.context import DeploymentContext
 from olf.deployment.engine import Toolkit
-from olf.deployment.errors import DeploymentPreconditionError
+from olf.deployment.errors import CommandExecutionError, DeploymentPreconditionError
 from olf.deployment.local import foundation
 from olf.deployment.local.config import LocalDeploymentConfig
 from olf.tooling.process import CommandResult
@@ -114,12 +114,33 @@ def test_foundation_up_applies_exports_kubeconfig_and_checks_reachability(tmp_pa
 
     foundation.foundation_up(config, tools, env={})
 
-    assert ["terraform", "-chdir=" + str(config.paths.foundation_terraform_dir), "init"] == runner.calls[0].argv
-    assert runner.calls[1].argv[2] == "apply"
+    assert runner.calls[0].argv[:2] == ["docker", "version"]
+    assert ["terraform", "-chdir=" + str(config.paths.foundation_terraform_dir), "init"] == runner.calls[1].argv
+    assert runner.calls[2].argv[2] == "apply"
     export_call = next(c for c in runner.calls if "export" in c.argv)
     assert export_call.argv[:3] == ["kind", "export", "kubeconfig"]
     assert any("get-contexts" in c.argv for c in runner.calls)
     assert any("cluster-info" in c.argv for c in runner.calls)
+
+
+def test_foundation_up_raises_actionable_error_when_docker_is_unreachable(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+
+    class _DockerUnreachableRunner(RecordingRunner):
+        def run(self, command, **kwargs):  # type: ignore[override]
+            argv = list(command.argv) if hasattr(command, "argv") else [str(p) for p in command]
+            self.calls.append(RecordedCall(argv=argv, kwargs=kwargs))
+            if argv[:2] == ["docker", "version"]:
+                raise CommandExecutionError(argv, 1, stderr="Cannot connect to the Docker daemon")
+            return _ok()
+
+    runner = _DockerUnreachableRunner()
+    tools = _toolkit_with_runner(runner)
+
+    with pytest.raises(DeploymentPreconditionError, match="Docker is not reachable"):
+        foundation.foundation_up(config, tools, env={})
+
+    assert not any(c.argv[0] == "terraform" for c in runner.calls)
 
 
 def test_foundation_down_is_idempotent_when_nothing_exists(tmp_path: Path) -> None:

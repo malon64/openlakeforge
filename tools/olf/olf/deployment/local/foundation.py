@@ -13,7 +13,7 @@ from collections.abc import Mapping
 
 from olf import log
 from olf.deployment.engine import Toolkit
-from olf.deployment.errors import DeploymentPreconditionError
+from olf.deployment.errors import CommandExecutionError, DeploymentPreconditionError, ExecutableNotFoundError
 from olf.deployment.local.config import LocalDeploymentConfig
 from olf.tooling.kubectl import KubeContextUnreachableError
 
@@ -50,6 +50,8 @@ def foundation_up(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping
     foundation_dir = config.paths.foundation_terraform_dir
     config.context.prepare_directories()
 
+    _require_docker_reachable(tools, env=env)
+
     log.step("Initializing Terraform local kind foundation...")
     tools.terraform.init(foundation_dir, env=env)
 
@@ -68,6 +70,24 @@ def foundation_up(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping
         ) from exc
 
     log.step(f"Local foundation is ready. Kubernetes context: {config.kube_context}")
+
+
+def _require_docker_reachable(tools: Toolkit, *, env: Mapping[str, str]) -> None:
+    """Fail with an actionable message before Terraform's local-exec
+    provisioner (`infra/terraform/foundations/local-kind/main.tf`) hits its
+    own generic "Docker daemon is not running or not accessible" check - the
+    actual cause in #156 was a stale Docker Desktop socket surviving under a
+    scoped, context-less DOCKER_CONFIG on a Colima-only host.
+    """
+    try:
+        tools.docker.version(env=env)
+    except (CommandExecutionError, ExecutableNotFoundError) as exc:
+        endpoint = env.get("DOCKER_HOST", "the default Docker context (no DOCKER_HOST was resolved)")
+        raise DeploymentPreconditionError(
+            f"Docker is not reachable at {endpoint}: {exc}\n"
+            "Compare this against 'docker context show' on this host, or set DOCKER_HOST "
+            "explicitly to override endpoint resolution."
+        ) from exc
 
 
 def foundation_down(
