@@ -168,9 +168,17 @@ profiles can be adopted with `olf auth login --provider aws --profile NAME`.
 
 ### 2. Configure the deployment
 
-AWS account-specific configuration such as tags is kept in local, gitignored `sandbox.tfvars` files.
+AWS account-specific configuration such as tags is kept in a local, gitignored
+`sandbox.tfvars` file. `olf distribution path` prints the read-only payload
+root in both installed and checkout mode, so this works either way:
 
-See the [AWS setup guide](/docs/setup/cloud-poc-setup.md#aws-eks) for the required configuration.
+```bash
+cp "$(olf distribution path)/infra/terraform/foundations/aws-eks/sandbox.tfvars.example" sandbox.tfvars
+# edit sandbox.tfvars: set Owner/Requester and any other account tags
+export AWS_TFVARS_FILE="$(pwd)/sandbox.tfvars"
+```
+
+See the [AWS setup guide](/docs/setup/cloud-poc-setup.md#aws-eks) for the full configuration.
 
 ### 3. Deploy
 
@@ -207,7 +215,14 @@ select a subscription. For a headless terminal, use `--device-code`.
 
 ### 2. Configure the deployment
 
-Create your local Azure `sandbox.tfvars` from the provided template and configure the target resource group, region and AKS settings.
+`olf distribution path` prints the read-only payload root in both installed
+and checkout mode, so this works either way:
+
+```bash
+cp "$(olf distribution path)/infra/terraform/foundations/azure-aks/sandbox.tfvars.example" sandbox.tfvars
+# edit sandbox.tfvars: set your resource group, region, and AKS settings
+export AZURE_TFVARS_FILE="$(pwd)/sandbox.tfvars"
+```
 
 See the [Azure setup guide](/docs/setup/cloud-poc-setup.md#azure-aks) for the full configuration.
 

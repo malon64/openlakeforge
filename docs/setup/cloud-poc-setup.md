@@ -49,17 +49,20 @@ carry only non-secret **tags** (and the foundation cluster name) — the values
 your account mandates. `sandbox.tfvars` is gitignored, so it stays on your
 machine.
 
-```bash
-cd infra/terraform/foundations/aws-eks
-cp sandbox.tfvars.example sandbox.tfvars      # set your Owner tag
+In a checkout, the templates are files on disk. Installed from PyPI, they are
+part of the read-only payload `olf distribution path` prints, so the same
+commands work either way:
 
-cd ../../environments/aws-poc
-cp sandbox.tfvars.example sandbox.tfvars      # set your Owner tag
+```bash
+DIST="$(olf distribution path)"
+cp "$DIST/infra/terraform/foundations/aws-eks/sandbox.tfvars.example" sandbox.tfvars   # set your Owner tag
+export AWS_TFVARS_FILE="$(pwd)/sandbox.tfvars"
 ```
 
-Set `Owner`/`Requester` to **your** email. If your account needs an IAM naming prefix such as
-`limited-`, set that via `AWS_CLUSTER_NAME`. To keep the tfvars elsewhere:
-`export AWS_TFVARS_FILE=/abs/path/to/your.tfvars`.
+`AWS_TFVARS_FILE` is reused for both the foundation and the platform apply, so
+one file covers both. Set `Owner`/`Requester` to **your** email. If your
+account needs an IAM naming prefix such as `limited-`, set that via
+`AWS_CLUSTER_NAME`.
 
 ### 3. Common overrides (optional)
 
@@ -126,13 +129,14 @@ group, plus an AKS VM size permitted by that subscription and region. Keep
 sandbox. When Terraform should create the group, set it to `true`; removing
 `resource_group_name` then uses the default `rg-openlakeforge-azure-poc`.
 
-```bash
-cd infra/terraform/foundations/azure-aks
-cp sandbox.tfvars.example sandbox.tfvars
-```
+In a checkout, the template is a file on disk. Installed from PyPI, it is
+part of the read-only payload `olf distribution path` prints, so the same
+commands work either way:
 
-The scripts load `sandbox.tfvars` automatically. To keep it elsewhere, set
-`AZURE_TFVARS_FILE=/abs/path/to/your.tfvars`.
+```bash
+cp "$(olf distribution path)/infra/terraform/foundations/azure-aks/sandbox.tfvars.example" sandbox.tfvars
+export AZURE_TFVARS_FILE="$(pwd)/sandbox.tfvars"
+```
 
 ### 3. Configure optional runtime overrides
 
