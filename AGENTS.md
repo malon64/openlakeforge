@@ -24,8 +24,8 @@ one. `v0.2-alpha` is scoped around exactly that; see the roadmap.
 2. `docs/industrialization-roadmap.md` — milestones, release gates, what is
    delivered and what is not
 3. `docs/architecture/overview.md` and `docs/architecture/provider-contracts.md`
-4. `docs/adr/` — ten records covering what binds today, all of them worth
-   reading; start with 0001 (stack), 0002 (deploy), 0004 (code layout)
+4. `docs/adr/README.md` — the decision log index; each ADR describes what
+   binds today, all worth reading
 5. `docs/technical-debt.md` — the live debt register with a fix path per item
 6. `docs/architecture/diagrams/README.md` — pod census and runtime topology
 
