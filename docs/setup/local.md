@@ -128,7 +128,14 @@ This shows:
 * services
 * persistent volume claims
 
-You can also inspect Kubernetes directly using OpenLakeForge's isolated kubeconfig:
+You can also inspect Kubernetes directly using OpenLakeForge's isolated kubeconfig. The
+path depends on how `olf` was run — a source checkout writes it under the
+checkout, an installed (pip) project writes it under `OLF_HOME`:
+
+| Layout | Kubeconfig path |
+| --- | --- |
+| Checkout (source) | `.tmp/kubeconfigs/local.yaml` |
+| Installed (pip) | `~/.openlakeforge/state/local/kubeconfig.yaml` |
 
 ```bash
 KUBECONFIG=.tmp/kubeconfigs/local.yaml \
@@ -141,7 +148,7 @@ The local deployment uses:
 Cluster:    openlakeforge-local
 Context:    kind-openlakeforge-local
 Namespace:  lakehouse
-Kubeconfig: .tmp/kubeconfigs/local.yaml
+Kubeconfig: .tmp/kubeconfigs/local.yaml (checkout) or ~/.openlakeforge/state/local/kubeconfig.yaml (installed)
 ```
 
 The generated kubeconfig is intentionally separate from your normal `~/.kube/config`.
@@ -326,11 +333,10 @@ The default kind topology contains:
 2 workers
 ```
 
-Terraform manages the cluster foundation and writes its kubeconfig to:
-
-```text
-.tmp/kubeconfigs/local.yaml
-```
+Terraform manages the cluster foundation and writes its kubeconfig to
+`.tmp/kubeconfigs/local.yaml` in a checkout, or
+`~/.openlakeforge/state/local/kubeconfig.yaml` when `olf` is installed from
+PyPI.
 
 Running the command again is safe: Terraform reconciles the existing foundation rather than requiring you to recreate it manually.
 
@@ -467,7 +473,7 @@ Default local configuration:
 Cluster name: openlakeforge-local
 Namespace:    lakehouse
 Kube context: kind-openlakeforge-local
-Kubeconfig:   .tmp/kubeconfigs/local.yaml
+Kubeconfig:   .tmp/kubeconfigs/local.yaml (checkout) or ~/.openlakeforge/state/local/kubeconfig.yaml (installed)
 ```
 
 For example, to use another cluster name:
@@ -529,7 +535,8 @@ Terraform, Helm, kubectl, or kind, make sure that tool is on `PATH`.
 
 ## Kubernetes cluster is unreachable
 
-Check the local kubeconfig:
+Check the local kubeconfig (`.tmp/kubeconfigs/local.yaml` in a checkout,
+`~/.openlakeforge/state/local/kubeconfig.yaml` installed):
 
 ```bash
 KUBECONFIG=.tmp/kubeconfigs/local.yaml \
@@ -563,7 +570,9 @@ First inspect the platform:
 olf status --provider local
 ```
 
-Then inspect the failing pod:
+Then inspect the failing pod. `KUBECONFIG` below is the checkout path; use
+`~/.openlakeforge/state/local/kubeconfig.yaml` instead when `olf` is
+installed from PyPI:
 
 ```bash
 KUBECONFIG=.tmp/kubeconfigs/local.yaml \
