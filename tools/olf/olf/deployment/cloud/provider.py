@@ -51,7 +51,10 @@ class CloudProvider:
         environ: Mapping[str, str] | None = None,
     ) -> CloudProvider:
         return cls(
-            config=config, backend=backend, tools=toolkit or Toolkit.default(), _environ=environ or os.environ
+            config=config,
+            backend=backend,
+            tools=toolkit or Toolkit.default(),
+            _environ=environ if environ is not None else os.environ,
         )
 
     @property

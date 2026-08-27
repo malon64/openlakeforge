@@ -4,6 +4,9 @@ Preserves the "resolve the selected engine endpoint before scoping
 DOCKER_CONFIG" behavior from `scripts/lib/common.sh::configure_deployment_scope`
 so an isolated DOCKER_CONFIG cannot silently fall back to
 `/var/run/docker.sock` on hosts using Colima or another non-default context.
+When that resolution itself misses (e.g. it returns a stale Docker Desktop
+socket on a Colima-only host - #156), `resolve_current_engine_endpoint` falls
+back to probing Colima's own on-disk socket convention.
 """
 
 from __future__ import annotations
@@ -15,6 +18,46 @@ from olf.deployment.errors import CommandExecutionError, ExecutableNotFoundError
 from olf.deployment.retry import RetryPolicy, RetryPredicate
 from olf.tooling.process import CommandResult, ProcessRunner
 from olf.tooling.resolver import ExecutableResolver
+
+
+def _is_reachable_unix_endpoint(endpoint: str) -> bool:
+    """Whether a `unix://` endpoint's socket file actually exists and is a socket.
+
+    Non-unix schemes (tcp://, npipe://, ssh://) are trusted without validation -
+    remote/Windows engines are out of scope here. Catches the #156 failure
+    mode: a stale Docker Desktop symlink at the default socket path that
+    `docker context inspect` still reports, even though nothing listens on it.
+    """
+    if not endpoint.startswith("unix://"):
+        return True
+    return Path(endpoint.removeprefix("unix://")).is_socket()
+
+
+def _probe_colima_socket(*, env: Mapping[str, str] | None) -> str | None:
+    """Look for a Colima-managed Docker socket under `$HOME/.colima`.
+
+    Only probes when `env` carries an explicit HOME - deliberately never
+    falls back to `Path.home()`, which would make this depend on whichever
+    machine runs the code, including tests that pass a HOME-less env to stay
+    isolated from ambient state. Prefers the `default` profile; an
+    unambiguous single non-default profile is used as-is; two or more
+    candidates are not guessed between.
+    """
+    home = env.get("HOME") if env else None
+    if not home:
+        return None
+    colima_dir = Path(home) / ".colima"
+    if not colima_dir.is_dir():
+        return None
+    candidates = sorted(p for p in colima_dir.glob("*/docker.sock") if p.is_socket())
+    if not candidates:
+        return None
+    default_socket = colima_dir / "default" / "docker.sock"
+    if default_socket in candidates:
+        return f"unix://{default_socket}"
+    if len(candidates) == 1:
+        return f"unix://{candidates[0]}"
+    return None
 
 
 class Docker:
@@ -147,13 +190,23 @@ class Docker:
         case. This must tolerate Docker being entirely absent (not just a
         failing command), since Docker-independent operations (status,
         platform/foundation teardown) also resolve a command environment.
+
+        When the resolved endpoint isn't actually reachable - #156's stale
+        Docker Desktop socket surviving under a scoped, context-less
+        DOCKER_CONFIG on a Colima-only host - probes Colima's on-disk socket
+        convention rather than handing the caller a dead endpoint. Falls back
+        to the original (possibly unreachable) result when the probe can't
+        disambiguate, so an already-correct non-Colima setup is never touched.
         """
         try:
             current = self.context_show(env=env)
-            endpoint = self.context_inspect(current, format_template="{{.Endpoints.docker.Host}}", env=env)
+            endpoint = self.context_inspect(current, format_template="{{.Endpoints.docker.Host}}", env=env) or None
         except (CommandExecutionError, ExecutableNotFoundError):
-            return None
-        return endpoint or None
+            endpoint = None
+
+        if endpoint is not None and _is_reachable_unix_endpoint(endpoint):
+            return endpoint
+        return _probe_colima_socket(env=env) or endpoint
 
     def build(
         self,

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import socket
+import tempfile
 from pathlib import Path
 
 from _tooling_support import RecordedCall, RecordingRunner
@@ -7,6 +9,15 @@ from _tooling_support import RecordedCall, RecordingRunner
 from olf.tooling.docker import Docker
 from olf.tooling.process import CommandResult
 from olf.tooling.resolver import PathExecutableResolver
+
+
+def _bind_unix_socket(path: Path) -> None:
+    """Bind a real AF_UNIX socket at `path`, under a short /tmp-rooted dir -
+    macOS/BSD sun_path is capped at ~104 bytes, which pytest's deeply nested
+    tmp_path can exceed once `.colima/<profile>/docker.sock` is appended."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    sock.bind(str(path))
 
 
 def _docker(result: CommandResult | None = None) -> tuple[Docker, RecordingRunner]:
@@ -108,6 +119,98 @@ def test_resolve_current_engine_endpoint_chains_show_and_inspect() -> None:
         "--format",
         "{{.Endpoints.docker.Host}}",
     ]
+
+
+def test_resolve_current_engine_endpoint_falls_back_to_default_colima_socket_when_resolution_fails() -> None:
+    from olf.deployment.errors import CommandExecutionError
+
+    class FailingRunner(RecordingRunner):
+        def run(self, command, **kwargs):  # type: ignore[override]
+            raise CommandExecutionError(["docker", "context", "show"], 1, stderr="no context")
+
+    with tempfile.TemporaryDirectory(dir="/tmp") as home:
+        default_socket = Path(home) / ".colima" / "default" / "docker.sock"
+        _bind_unix_socket(default_socket)
+        docker = Docker(FailingRunner(), PathExecutableResolver(overrides={"docker": Path("docker")}))
+
+        endpoint = docker.resolve_current_engine_endpoint(env={"HOME": home})
+
+        assert endpoint == f"unix://{default_socket}"
+
+
+def test_resolve_current_engine_endpoint_falls_back_when_resolved_socket_is_stale() -> None:
+    with tempfile.TemporaryDirectory(dir="/tmp") as home:
+        stale_socket = Path(home) / "stale" / "docker.sock"  # never bound - not a socket
+        default_socket = Path(home) / ".colima" / "default" / "docker.sock"
+        _bind_unix_socket(default_socket)
+
+        class ScriptedRunner(RecordingRunner):
+            def run(self, command, **kwargs):  # type: ignore[override]
+                argv = list(command.argv) if hasattr(command, "argv") else [str(p) for p in command]
+                self.calls.append(RecordedCall(argv=argv, kwargs=kwargs))
+                stdout = "default\n" if argv[-2:] == ["context", "show"] else f"unix://{stale_socket}\n"
+                return CommandResult(argv=tuple(argv), returncode=0, stdout=stdout, stderr="", duration_seconds=0.0)
+
+        docker = Docker(ScriptedRunner(), PathExecutableResolver(overrides={"docker": Path("docker")}))
+
+        endpoint = docker.resolve_current_engine_endpoint(env={"HOME": home})
+
+        assert endpoint == f"unix://{default_socket}"
+
+
+def test_resolve_current_engine_endpoint_does_not_guess_between_ambiguous_colima_profiles() -> None:
+    with tempfile.TemporaryDirectory(dir="/tmp") as home:
+        stale_socket = Path(home) / "stale" / "docker.sock"  # never bound - not a socket
+        _bind_unix_socket(Path(home) / ".colima" / "profileA" / "docker.sock")
+        _bind_unix_socket(Path(home) / ".colima" / "profileB" / "docker.sock")
+
+        class ScriptedRunner(RecordingRunner):
+            def run(self, command, **kwargs):  # type: ignore[override]
+                argv = list(command.argv) if hasattr(command, "argv") else [str(p) for p in command]
+                self.calls.append(RecordedCall(argv=argv, kwargs=kwargs))
+                stdout = "default\n" if argv[-2:] == ["context", "show"] else f"unix://{stale_socket}\n"
+                return CommandResult(argv=tuple(argv), returncode=0, stdout=stdout, stderr="", duration_seconds=0.0)
+
+        docker = Docker(ScriptedRunner(), PathExecutableResolver(overrides={"docker": Path("docker")}))
+
+        endpoint = docker.resolve_current_engine_endpoint(env={"HOME": home})
+
+        assert endpoint == f"unix://{stale_socket}"
+
+
+def test_resolve_current_engine_endpoint_skips_colima_probe_when_resolved_socket_is_reachable() -> None:
+    with tempfile.TemporaryDirectory(dir="/tmp") as home:
+        reachable_socket = Path(home) / "reachable" / "docker.sock"
+        _bind_unix_socket(reachable_socket)
+        _bind_unix_socket(Path(home) / ".colima" / "default" / "docker.sock")
+
+        class ScriptedRunner(RecordingRunner):
+            def run(self, command, **kwargs):  # type: ignore[override]
+                argv = list(command.argv) if hasattr(command, "argv") else [str(p) for p in command]
+                self.calls.append(RecordedCall(argv=argv, kwargs=kwargs))
+                stdout = "default\n" if argv[-2:] == ["context", "show"] else f"unix://{reachable_socket}\n"
+                return CommandResult(argv=tuple(argv), returncode=0, stdout=stdout, stderr="", duration_seconds=0.0)
+
+        docker = Docker(ScriptedRunner(), PathExecutableResolver(overrides={"docker": Path("docker")}))
+
+        endpoint = docker.resolve_current_engine_endpoint(env={"HOME": home})
+
+        assert endpoint == f"unix://{reachable_socket}"
+
+
+def test_resolve_current_engine_endpoint_trusts_non_unix_schemes_without_validation() -> None:
+    class ScriptedRunner(RecordingRunner):
+        def run(self, command, **kwargs):  # type: ignore[override]
+            argv = list(command.argv) if hasattr(command, "argv") else [str(p) for p in command]
+            self.calls.append(RecordedCall(argv=argv, kwargs=kwargs))
+            stdout = "remote\n" if argv[-2:] == ["context", "show"] else "tcp://host:2375\n"
+            return CommandResult(argv=tuple(argv), returncode=0, stdout=stdout, stderr="", duration_seconds=0.0)
+
+    docker = Docker(ScriptedRunner(), PathExecutableResolver(overrides={"docker": Path("docker")}))
+
+    endpoint = docker.resolve_current_engine_endpoint()
+
+    assert endpoint == "tcp://host:2375"
 
 
 def test_server_arch_returns_stripped_output() -> None:
