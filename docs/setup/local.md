@@ -423,10 +423,19 @@ olf deploy --provider local --profile slim --phase artifacts
 ## Reapply platform infrastructure
 
 ```bash
-olf deploy --provider local --phase platform
+olf deploy --provider local --profile full --phase platform
 ```
 
-This is useful after changing Terraform or Helm configuration.
+For Slim:
+
+```bash
+olf deploy --provider local --profile slim --phase platform
+```
+
+This is useful after changing Terraform or Helm configuration. Match the
+profile to what you actually deployed — the default is `full`, and applying
+it against a Slim platform adds OpenMetadata and Superset instead of
+reconciling the stack you have.
 
 ## Run the complete validation suite
 
@@ -533,11 +542,11 @@ If the cluster does not exist, recreate the foundation:
 olf deploy --provider local --phase foundation
 ```
 
-Then continue with:
+Then continue with (matching whichever profile you deployed):
 
 ```bash
-olf deploy --provider local --phase platform
-olf deploy --provider local --phase artifacts
+olf deploy --provider local --profile full --phase platform     # or --profile slim
+olf deploy --provider local --profile full --phase artifacts    # or --profile slim
 ```
 
 Or simply rerun:
@@ -640,12 +649,13 @@ olf deploy --provider local
 
 Terraform will reconcile resources where possible.
 
-If you want to recreate only the platform while keeping the kind cluster:
+If you want to recreate only the platform while keeping the kind cluster
+(matching whichever profile you deployed):
 
 ```bash
 olf destroy --provider local --phase platform
-olf deploy --provider local --phase platform
-olf deploy --provider local --phase artifacts
+olf deploy --provider local --profile full --phase platform     # or --profile slim
+olf deploy --provider local --profile full --phase artifacts    # or --profile slim
 ```
 
 For a completely clean environment, use the full teardown described below.
@@ -671,11 +681,11 @@ If you only want to remove platform services while keeping the Kubernetes cluste
 olf destroy --provider local --phase platform
 ```
 
-You can later reinstall them with:
+You can later reinstall them with (matching whichever profile you had):
 
 ```bash
-olf deploy --provider local --phase platform
-olf deploy --provider local --phase artifacts
+olf deploy --provider local --profile full --phase platform     # or --profile slim
+olf deploy --provider local --profile full --phase artifacts    # or --profile slim
 ```
 
 ---

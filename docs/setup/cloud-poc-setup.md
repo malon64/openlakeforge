@@ -78,7 +78,7 @@ All have sane defaults; override via environment variables:
 | `AWS_CLUSTER_NAME` | `limited-eks-openlakeforge-poc` | EKS cluster name (must match `cluster_name` in the foundation tfvars) |
 | `AWS_NODE_INSTANCE_TYPES` | `m7i.large` | Node group instance type(s) |
 | `AWS_TFVARS_FILE` | `<dir>/sandbox.tfvars` | Path to your tfvars |
-| `--kubeconfig-path` (CLI flag, default `.tmp/kubeconfigs/aws.yaml`) | — | Isolated EKS kubeconfig; not an environment variable |
+| `--kubeconfig-path` (CLI flag) | `.tmp/kubeconfigs/aws.yaml` in a checkout, `~/.openlakeforge/state/aws/kubeconfig.yaml` installed | Isolated EKS kubeconfig; not an environment variable |
 
 ### 4. Deploy
 
@@ -153,7 +153,7 @@ All have defaults; override via environment variables:
 | `AZURE_CLUSTER_NAME` | `aks-openlakeforge-poc` | AKS cluster name |
 | `AZURE_NODE_COUNT` | `3` | Node count |
 | `AZURE_ACR_NAME_PREFIX` | `openlakeforgepoc` | ACR name prefix (globally unique) |
-| `--kubeconfig-path` (CLI flag, default `.tmp/kubeconfigs/azure.yaml`) | — | Isolated AKS kubeconfig; not an environment variable |
+| `--kubeconfig-path` (CLI flag) | `.tmp/kubeconfigs/azure.yaml` in a checkout, `~/.openlakeforge/state/azure/kubeconfig.yaml` installed | Isolated AKS kubeconfig; not an environment variable |
 
 ### 4. Deploy / tear down
 
