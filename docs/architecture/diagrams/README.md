@@ -217,8 +217,11 @@ Keycloak, Vault/External Secrets, Traefik + cert-manager, Athena, Lake Formation
 Terraform state. OpenLineage is live, not deferred — Floe and dbt-trino emit lineage
 events directly to OpenMetadata's native `openlineage` endpoint. The governance bootstrap
 creates the endpoint credentials; runners receive them only through Secret references.
-[ADR 0007](../../adr/0007-governance-and-lineage.md) supersedes ADR 0007's
-engine-lineage deferral while retaining its rejection of a proxy and custom REST push.
+[ADR 0007](../../adr/0007-governance-and-lineage.md) covers the full history:
+a normalising proxy first hid upstream correctness problems, lineage was then
+deferred while those were fixed, and native emission was restored once Floe
+and dbt-trino could target OpenMetadata's endpoint directly. The proxy and a
+custom REST push both remain rejected.
 
 ## Foundation plus two-phase deploy — the CD boundary
 

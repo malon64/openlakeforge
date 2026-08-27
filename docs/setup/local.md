@@ -689,13 +689,16 @@ Contributors working from a source checkout of the repository use the same
 uv run --project tools/olf --locked olf deploy --provider local --profile slim
 ```
 
-That workflow additionally needs Git, uv, and Make on `PATH`:
+That workflow additionally needs Git and uv on `PATH`:
 
 | Tool           | Purpose                              |
 | -------------- | ------------------------------------- |
 | Git            | Clone OpenLakeForge                   |
 | uv             | Python dependency and CLI execution   |
-| Make           | Deprecated one-line delegates to `olf`|
+
+`Make` is optional, deprecated compatibility — its targets are one-line
+delegates to the same `uv run ... olf` commands and are never required to
+run them directly.
 
 Clone the repository and run commands from its root:
 

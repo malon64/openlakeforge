@@ -2,10 +2,10 @@
 
 Replaces `scripts/test/check-contracts.sh`'s source-text grepping with
 structured checks: parsed Terraform HCL, the canonical domain model plus
-JSON Schema, and parsed rendered Floe/Helm output. Shell orchestration
-(`deploy-artifacts.sh` call ordering) is covered separately by
-`tools/olf/tests/test_contracts_check_shell.py`, not by this module, per
-ADR 0008 (Python for behaviour, shell for structure).
+JSON Schema, and parsed rendered Floe/Helm output. There is no shell left to
+cover — `olf check structure` rejects tracked `.sh` files (ADR 0008). Deploy
+phase ordering is covered separately by
+`tools/olf/tests/test_deployment_engine.py`, not by this module.
 """
 
 from __future__ import annotations
