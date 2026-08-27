@@ -10,13 +10,17 @@ environment variables.
 
 ## Prerequisites
 
-Install and put on your `PATH`: `docker`, `python3`, `uv`, and `make`.
+Installed from PyPI (`pip install openlakeforge`), you need `docker` and
+`python3` on your `PATH`. From a source checkout, you additionally need `git`
+and `uv`; `make` is optional, deprecated compatibility whose targets delegate
+to the same `olf` commands this guide uses directly.
+
 `olf` provisions its own versioned `terraform`, `kubectl`, and `helm` under
 `OLF_HOME` (default `~/.openlakeforge`). Neither `aws` nor `az` is required.
 Set `OLF_TOOLCHAIN_MODE=host` to use host Terraform, kubectl, and Helm instead.
 
-Terraform state is stored **locally** (no remote backend), so run the `make`
-targets from the same machine/checkout each time for a given environment.
+Terraform state is stored **locally** (no remote backend), so run the `olf`
+commands from the same machine/project each time for a given environment.
 
 ---
 
@@ -74,27 +78,28 @@ All have sane defaults; override via environment variables:
 | `AWS_CLUSTER_NAME` | `limited-eks-openlakeforge-poc` | EKS cluster name (must match `cluster_name` in the foundation tfvars) |
 | `AWS_NODE_INSTANCE_TYPES` | `m7i.large` | Node group instance type(s) |
 | `AWS_TFVARS_FILE` | `<dir>/sandbox.tfvars` | Path to your tfvars |
-| `AWS_KUBECONFIG_PATH` | `.tmp/kubeconfigs/aws.yaml` | Isolated EKS kubeconfig used by every AWS target |
+| `--kubeconfig-path` (CLI flag, default `.tmp/kubeconfigs/aws.yaml`) | — | Isolated EKS kubeconfig; not an environment variable |
 
 ### 4. Deploy
 
 Three-step deploy (foundation, platform, then artifacts):
 
 ```bash
-make aws-foundation-up      # VPC, EKS, ECR, IAM; writes your kubeconfig context
-make aws-platform-up        # RDS, S3, Glue, Trino, Superset, Dagster, OpenMetadata
-make aws-artifacts-deploy   # build/push images, upload Floe manifests, load code
-make aws-forward            # port-forward Superset/Dagster/etc. to localhost
+olf deploy --provider aws --phase foundation   # VPC, EKS, ECR, IAM; writes your kubeconfig context
+olf deploy --provider aws --phase platform     # RDS, S3, Glue, Trino, Superset, Dagster, OpenMetadata
+olf deploy --provider aws --phase artifacts    # build/push images, upload Floe manifests, load code
+olf forward --provider aws                     # port-forward Superset/Dagster/etc. to localhost
 ```
 
-`make aws-up` runs foundation, platform, and artifacts in sequence.
+`olf deploy --provider aws` with no `--phase` runs foundation, platform, and
+artifacts in sequence.
 
 ### 5. Tear down
 
 ```bash
-make aws-platform-down      # platform environment (RDS, buckets, Helm releases)
-make aws-foundation-down    # EKS, ECR, networking
-make aws-down               # full teardown wrapper: platform, then foundation
+olf destroy --provider aws --phase platform     # platform environment (RDS, buckets, Helm releases)
+olf destroy --provider aws --phase foundation   # EKS, ECR, networking
+olf destroy --provider aws                      # full teardown: platform, then foundation
 ```
 
 ECR repositories use `force_delete`. Superset report ZIPs use ephemeral pod
@@ -148,18 +153,18 @@ All have defaults; override via environment variables:
 | `AZURE_CLUSTER_NAME` | `aks-openlakeforge-poc` | AKS cluster name |
 | `AZURE_NODE_COUNT` | `3` | Node count |
 | `AZURE_ACR_NAME_PREFIX` | `openlakeforgepoc` | ACR name prefix (globally unique) |
-| `AZURE_KUBECONFIG_PATH` | `.tmp/kubeconfigs/azure.yaml` | Isolated AKS kubeconfig used by every Azure target |
+| `--kubeconfig-path` (CLI flag, default `.tmp/kubeconfigs/azure.yaml`) | — | Isolated AKS kubeconfig; not an environment variable |
 
 ### 4. Deploy / tear down
 
 ```bash
-make azure-foundation-up
-make azure-up               # foundation + platform + artifacts
-make azure-forward
+olf deploy --provider azure --phase foundation
+olf deploy --provider azure               # foundation + platform + artifacts
+olf forward --provider azure
 # ...
-make azure-platform-down    # platform services only
-make azure-foundation-down  # AKS, ACR, and resource group resources
-make azure-down             # full teardown wrapper: platform, then foundation
+olf destroy --provider azure --phase platform     # platform services only
+olf destroy --provider azure --phase foundation   # AKS, ACR, and resource group resources
+olf destroy --provider azure                      # full teardown: platform, then foundation
 ```
 
 ## Concurrent deployments
@@ -169,17 +174,19 @@ uses its own kubeconfig, Helm cache, Docker credential directory, report work
 directory, and port-forward logs:
 
 ```bash
-make local-up &
-make azure-up &
-make aws-up &
+olf deploy --provider local &
+olf deploy --provider azure &
+olf deploy --provider aws &
 wait
 ```
 
-The default kubeconfig paths are `.tmp/kubeconfigs/local.yaml`,
-`.tmp/kubeconfigs/azure.yaml`, and `.tmp/kubeconfigs/aws.yaml`. Override them
-with `LOCAL_KUBECONFIG_PATH`, `AZURE_KUBECONFIG_PATH`, or
-`AWS_KUBECONFIG_PATH`. The workflows never switch the current context in your
-global kubeconfig.
+The default kubeconfig paths already differ per provider —
+`.tmp/kubeconfigs/local.yaml`, `.tmp/kubeconfigs/azure.yaml`, and
+`.tmp/kubeconfigs/aws.yaml` — so the three providers above never collide, with
+no extra flags needed. Running two deployments of the *same* provider
+concurrently needs an explicit `--kubeconfig-path` per invocation to keep them
+isolated. The workflows never switch the current context in your global
+kubeconfig.
 
 ---
 
