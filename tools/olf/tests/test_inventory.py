@@ -4,12 +4,50 @@ from pathlib import Path
 
 import pytest
 from openlakeforge_domain import (
+    DomainDescriptorError,
     LakehouseDescriptorError,
     inventory_for,
+    load_domain_inventory,
+    load_domain_inventory_from_descriptors,
     load_lakehouse_inventory,
 )
 
 ROOT = Path(__file__).parents[3]
+
+
+def _descriptor(domain: str, product_id: str = "orders", asset_prefix: str | None = None) -> str:
+    prefix = asset_prefix or f"{domain}_{product_id}"
+    return f"""\
+apiVersion: openlakeforge.io/v1alpha2
+kind: Domain
+name: {domain}
+displayName: {domain.title()}
+description: {domain} descriptor.
+status: planned
+data_products:
+  - id: {product_id}
+    name: {prefix}
+    displayName: {product_id.replace('_', ' ').title()}
+    description: {product_id} product.
+    status: planned
+    asset_prefix: {prefix}
+    bronze:
+      - name: source
+        path: s3://lakehouse-bronze/{domain}/{product_id}/source
+    silver_tables:
+      tables:
+        - name: source
+    gold_tables:
+      tables:
+        - name: mart_{product_id}
+"""
+
+
+def _write_descriptor(root: Path, domain: str, content: str) -> Path:
+    path = root / "domains" / domain / "domain.yaml"
+    path.parent.mkdir(parents=True)
+    path.write_text(content, encoding="utf-8")
+    return path
 
 
 def _lakehouse(product_id: str = "revenue", domain: str = "sales", source: str = "crm") -> str:
@@ -151,6 +189,38 @@ def test_inventory_for_caches_by_resolved_repo_root() -> None:
     assert inventory_for(ROOT) is inventory_for(str(ROOT))
 
 
+def test_load_domain_inventory_from_descriptors_matches_the_directory_loader(tmp_path: Path) -> None:
+    """An explicit-paths load must produce the same inventory a directory glob would."""
+    path = _write_descriptor(tmp_path, "sales", _descriptor("sales"))
+
+    by_directory = load_domain_inventory(tmp_path)
+    by_paths = load_domain_inventory_from_descriptors([path], source_label=path)
+
+    assert by_paths.products[0].asset_prefix == by_directory.products[0].asset_prefix
+    assert by_paths.products[0].job_name == by_directory.products[0].job_name
+
+
+def test_load_domain_inventory_from_descriptors_rejects_an_empty_set() -> None:
+    with pytest.raises(DomainDescriptorError, match="no domain descriptors found"):
+        load_domain_inventory_from_descriptors([], source_label="nowhere")
+
+
+def test_load_domain_inventory_from_descriptors_allows_a_mismatched_directory_when_not_required(
+    tmp_path: Path,
+) -> None:
+    """A standalone override's parent directory name is not the domain's identity."""
+    arbitrary_dir = tmp_path / "not-the-domain-name"
+    arbitrary_dir.mkdir()
+    path = arbitrary_dir / "domain.yaml"
+    path.write_text(_descriptor("sales"), encoding="utf-8")
+
+    with pytest.raises(DomainDescriptorError, match="must match descriptor directory"):
+        load_domain_inventory_from_descriptors([path], source_label=path)
+
+    inventory = load_domain_inventory_from_descriptors([path], source_label=path, require_directory_match=False)
+    assert inventory.domains[0].name == "sales"
+
+
 def test_inventory_resolves_provider_physical_names() -> None:
     inventory = load_lakehouse_inventory(ROOT)
     names = inventory.resolve_physical_names(
@@ -170,6 +240,67 @@ def test_inventory_resolves_provider_physical_names() -> None:
     assert names.domains[0].manifest_uri == "s3://openlakeforge-poc-ops/floe/manifests/sales/sales.manifest.json"
     assert names.bronze_namespaces["crm"] == "crm_bronze"
     assert names.bronze_schema_fqns["crm"] == "aws_glue.lakehouse_dev.crm_bronze"
+
+
+def test_inventory_reports_descriptor_product_and_missing_field(tmp_path: Path) -> None:
+    path = _write_descriptor(tmp_path, "sales", _descriptor("sales").replace("    asset_prefix: sales_orders\n", ""))
+
+    with pytest.raises(
+        DomainDescriptorError,
+        match=r"sales/domain.yaml: product 'orders': missing required field 'asset_prefix'",
+    ):
+        load_domain_inventory(tmp_path)
+
+    assert path.is_file()
+
+
+def test_inventory_rejects_duplicate_asset_prefixes(tmp_path: Path) -> None:
+    _write_descriptor(tmp_path, "sales", _descriptor("sales", asset_prefix="shared_product"))
+    duplicate = _descriptor("supply_chain", asset_prefix="shared_product")
+    duplicate = duplicate.replace("name: shared_product", "name: supply_chain_orders", 1)
+    _write_descriptor(tmp_path, "supply_chain", duplicate)
+
+    with pytest.raises(DomainDescriptorError, match=r"duplicate asset_prefix 'shared_product'"):
+        load_domain_inventory(tmp_path)
+
+
+def test_inventory_rejects_duplicate_product_ids_within_a_domain(tmp_path: Path) -> None:
+    duplicate = _descriptor("sales") + """\
+  - id: orders
+    name: sales_orders_copy
+    displayName: Orders copy
+    description: Orders copy product.
+    status: planned
+    asset_prefix: sales_orders_copy
+    bronze:
+      - name: source_copy
+        path: s3://lakehouse-bronze/sales/orders/source_copy
+    silver_tables:
+      tables:
+        - name: source_copy
+    gold_tables:
+      tables:
+        - name: mart_orders_copy
+"""
+    _write_descriptor(tmp_path, "sales", duplicate)
+
+    with pytest.raises(DomainDescriptorError, match=r"duplicate id within domain 'sales'"):
+        load_domain_inventory(tmp_path)
+
+
+def test_inventory_requires_descriptor_name_to_match_its_directory(tmp_path: Path) -> None:
+    _write_descriptor(tmp_path, "retail", _descriptor("sales"))
+
+    with pytest.raises(DomainDescriptorError, match=r"name 'sales' must match descriptor directory 'retail'"):
+        load_domain_inventory(tmp_path)
+
+
+def test_inventory_requires_v1alpha2_with_migration_guidance(tmp_path: Path) -> None:
+    legacy = _descriptor("sales").replace("openlakeforge.io/v1alpha2", "openlakeforge.io/v1alpha1")
+    _write_descriptor(tmp_path, "sales", legacy)
+
+    with pytest.raises(DomainDescriptorError, match=r"domain-v1alpha1-to-v1alpha2"):
+        load_domain_inventory(tmp_path)
 
 
 def test_renaming_descriptor_product_changes_discovered_work_without_shared_code(tmp_path: Path) -> None:

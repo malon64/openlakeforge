@@ -60,9 +60,10 @@ the tooling.
 - `lakehouse_code/` replaces `domains/` as the user-code root: Bronze is
   source-owned, Silver is domain-owned, and Gold stays product-owned (#109,
   ADR 0026). The `openlakeforge.io/v1alpha3` `Lakehouse`/`Source` descriptor
-  pair replaces `v1alpha1`/`v1alpha2` `Domain` descriptors; their loader and
-  validator are removed along with `docs/schema/domain*.json` and the
-  `v1alpha1`->`v1alpha2` migration guide.
+  pair replaces `v1alpha1`/`v1alpha2` `Domain` descriptors as the shape every
+  default runtime path discovers; the legacy loader, `docs/schema/domain*.json`,
+  and the `v1alpha1`->`v1alpha2` migration guide remain in place for migration
+  diagnostics only, per ADR 0026.
 - `scripts/release/verify-install.sh` is replaced by `olf release
   verify-install`.
 
