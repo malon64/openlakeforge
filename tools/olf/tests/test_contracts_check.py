@@ -217,6 +217,36 @@ def test_hcl_structured_contracts_passes_against_real_repo() -> None:
     assert result.ok, result.detail
 
 
+def test_installed_contract_environ_returns_none_for_a_source_checkout() -> None:
+    assert contracts_check._installed_contract_environ("local") is None
+
+
+def test_installed_contract_environ_sets_state_and_data_roots_for_an_installed_layout(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from olf.distribution import RuntimeLayout
+
+    resolved = tmp_path.resolve()
+    layout = RuntimeLayout(
+        mode="installed",
+        distribution_root=resolved / "dist",
+        project_root=resolved / "project",
+        state_root=resolved / "state",
+        work_root=resolved / "work",
+        cache_root=resolved / "cache",
+        catalog_path=resolved / "catalog.yaml",
+        distribution_version="0.2.0",
+        payload_sha256="0" * 64,
+    )
+    monkeypatch.setattr("olf.distribution.runtime_layout", lambda *a, **k: layout)
+
+    environ = contracts_check._installed_contract_environ("local")
+
+    assert environ is not None
+    assert environ["OPENLAKEFORGE_TERRAFORM_STATE_ROOT"] == str(resolved / "state" / "local")
+    assert environ["OPENLAKEFORGE_TERRAFORM_DATA_ROOT"] == str(resolved / "work" / "local" / "terraform-data")
+
+
 def test_hcl_phase_two_invariants_skips_when_no_applied_state(tmp_path: Path) -> None:
     result = contracts_check._check_hcl_phase_two_invariants(tmp_path)
 
@@ -225,7 +255,7 @@ def test_hcl_phase_two_invariants_skips_when_no_applied_state(tmp_path: Path) ->
 
 
 def test_hcl_phase_two_invariants_passes_when_applied_state_is_clean(tmp_path: Path, monkeypatch) -> None:
-    def fake_load(terraform_dir: str):
+    def fake_load(terraform_dir: str, *, environ=None):
         return {"schema_version": "2.0.0", "catalog": {"catalog_database_fqn": "polaris.lakehouse_dev"}}
 
     monkeypatch.setattr(contracts_check.contracts_module, "load_provider_contracts", fake_load)
@@ -237,7 +267,7 @@ def test_hcl_phase_two_invariants_passes_when_applied_state_is_clean(tmp_path: P
 
 
 def test_hcl_phase_two_invariants_rejects_forbidden_resolved_field(tmp_path: Path, monkeypatch) -> None:
-    def fake_load(terraform_dir: str):
+    def fake_load(terraform_dir: str, *, environ=None):
         return {"schema_version": "2.0.0", "catalog": {"catalog_namespaces": ["silver", "gold"]}}
 
     monkeypatch.setattr(contracts_check.contracts_module, "load_provider_contracts", fake_load)

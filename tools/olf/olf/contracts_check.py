@@ -326,6 +326,41 @@ def _check_hcl_structured_contracts(repo_root: Path) -> CheckResult:
     return CheckResult(name, ok=True, detail=f"{environments_checked} environment(s) validated")
 
 
+_ENV_TO_PROVIDER = {"local": "local", "azure-poc": "azure", "aws-poc": "aws"}
+
+
+def _installed_contract_environ(env: str) -> dict[str, str] | None:
+    """Overlay `OPENLAKEFORGE_TERRAFORM_{STATE,DATA}_ROOT` for an installed
+    distribution, matching `DeploymentContext.command_env()` exactly.
+
+    `load_provider_contracts()` defaults to `os.environ`, which never has
+    these vars outside an active `olf deploy` invocation. Without this, an
+    installed distribution's `terraform output` reads the read-only
+    payload's absent default state instead of what `olf deploy` wrote under
+    `OLF_HOME`, and every environment is silently reported as unapplied
+    (see `olf.tooling.terraform.external_state_options`). Returns `None`
+    for a source checkout, where Terraform's own directory-relative default
+    state is correct and `load_provider_contracts` already handles it.
+    """
+    import os
+
+    from olf.deployment.context import DeploymentContext
+    from olf.distribution import runtime_layout
+
+    layout = runtime_layout()
+    if layout.is_source:
+        return None
+    context = DeploymentContext.for_provider(
+        _ENV_TO_PROVIDER[env],
+        repo_root=layout.project_root,
+        distribution_root=layout.distribution_root,
+        state_root=layout.state_root,
+        work_root=layout.work_root,
+        cache_root=layout.cache_root,
+    )
+    return context.command_env(base=os.environ)
+
+
 def _check_hcl_phase_two_invariants(repo_root: Path) -> CheckResult:
     """Tier 3: assert Phase-2-forbidden fields are absent from the *resolved*
     `provider_contracts.catalog` value, reusing the already-existing
@@ -340,7 +375,9 @@ def _check_hcl_phase_two_invariants(repo_root: Path) -> CheckResult:
 
     for env in _ENVIRONMENT_ROOTS:
         terraform_dir = repo_root / "infra/terraform/environments" / env
-        contracts = contracts_module.load_provider_contracts(str(terraform_dir))
+        contracts = contracts_module.load_provider_contracts(
+            str(terraform_dir), environ=_installed_contract_environ(env)
+        )
         if contracts is None:
             skipped_environments.append(env)
             continue
