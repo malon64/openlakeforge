@@ -329,6 +329,43 @@ def test_run_contracts_check_passes_against_real_repo() -> None:
     assert report.ok, report.render()
 
 
+def test_run_contracts_check_passes_for_an_installed_project_layout(tmp_path: Path) -> None:
+    """An installed project's root has only `lakehouse_code/` (ADR 0009) --
+    `docs/schema`, `infra/`, `libs/`, and the Makefile all live in the
+    separate, immutable distribution root instead. Copying the real repo's
+    `lakehouse_code/` (which carries real Floe contracts under
+    `silver/*/contracts/floe/`) into an otherwise-bare project dir, and
+    pointing `distribution_root` at the real repo, reproduces exactly what
+    `olf init` leaves behind."""
+    project_root = tmp_path / "my-lakehouse"
+    shutil.copytree(
+        ROOT / "lakehouse_code", project_root / "lakehouse_code", ignore=shutil.ignore_patterns("__pycache__")
+    )
+
+    report = contracts_check.run_contracts_check(project_root, distribution_root=ROOT)
+
+    assert report.ok, report.render()
+
+
+def test_run_contracts_check_skips_makefile_check_when_makefile_is_absent(tmp_path: Path) -> None:
+    project_root = tmp_path / "my-lakehouse"
+    shutil.copytree(
+        ROOT / "lakehouse_code", project_root / "lakehouse_code", ignore=shutil.ignore_patterns("__pycache__")
+    )
+    # A distribution root without a Makefile either (the payload never
+    # includes one -- this simulates that directly rather than relying on
+    # ROOT happening to have one).
+    dist_root = tmp_path / "distribution"
+    for name in ("infra", "libs", "docs/schema"):
+        shutil.copytree(ROOT / name, dist_root / name, ignore=shutil.ignore_patterns("__pycache__", ".terraform"))
+
+    report = contracts_check.run_contracts_check(project_root, distribution_root=dist_root)
+
+    makefile_result = next(r for r in report.results if r.name == "makefile_target_wiring")
+    assert makefile_result.ok
+    assert "skipped" in makefile_result.detail
+
+
 def test_lakehouse_schema_rejects_a_lakehouse_with_no_products_anywhere() -> None:
     """The versioned JSON Schema alone -- independent of the canonical
     model, for editors and external tooling that only validate against it

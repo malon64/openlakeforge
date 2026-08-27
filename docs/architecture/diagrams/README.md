@@ -58,7 +58,7 @@ so ingestion scales to zero between runs — Gold is the exception, running as S
 the long-lived Trino coordinator above rather than in a Job. **Bootstrap**: five grouped
 categories — Polaris, SeaweedFS (one Job per bucket, four buckets), PostgreSQL,
 OpenMetadata, and Superset's Helm hook — eight one-shot Jobs in total, firing once per
-platform apply (Phase 1). **Scheduled**: the two CronJobs on the cluster clock
+the platform apply (phase 2). **Scheduled**: the two CronJobs on the cluster clock
 (log archive every 15 minutes, OpenMetadata catalog refresh hourly).
 
 ![Cluster Pod Census](chart1-cluster-pod-census.svg)
@@ -223,22 +223,25 @@ deferred while those were fixed, and native emission was restored once Floe
 and dbt-trino could target OpenMetadata's endpoint directly. The proxy and a
 custom REST push both remain rejected.
 
-## Foundation plus two-phase deploy — the CD boundary
+## Three phases, one CD boundary
 
-Foundation work creates the cluster and registry. The deployment boundary itself has two
-phases: static platform resources, then dynamic artifacts. A domain commit triggers the
-artifact phase only — CI never runs Terraform for domain changes
-([ADR 0002](../../adr/0002-deployment-lifecycle.md),
-[ADR 0002](../../adr/0002-deployment-lifecycle.md)).
+`olf deploy` runs three ordered phases: **foundation** (the cluster and
+registry), **platform** (Terraform-managed services), then **artifacts**
+(everything derived from `lakehouse_code/`). The CD boundary is not "foundation
+is outside, the rest is the deploy" — it is the static/dynamic split between
+platform and artifacts. A domain commit triggers the artifacts phase only; CI
+never runs Terraform for a domain change ([ADR 0002](../../adr/0002-deployment-lifecycle.md)).
 
-| Boundary | Target | Deploys |
+| Phase | Target | Deploys |
 | --- | --- | --- |
-| Foundation (outside the deploy boundary) | `olf deploy --provider local --phase foundation` | Terraform: the Kubernetes cluster + container registry — kind locally, EKS + ECR on AWS, AKS + ACR on Azure |
-| Phase 1 — Platform | `olf deploy --provider local --phase platform` | Terraform-managed platform resources: Helm releases for SeaweedFS, Polaris, Trino, OpenMetadata, Superset, Dagster — plus PostgreSQL, which Terraform creates directly as a StatefulSet + Service + bootstrap Job (no Helm release) |
-| Phase 2 — Artifacts | `olf deploy --provider local --phase artifacts` | **the CD phase** — dynamic artifacts: the project-code image (dbt code), Floe contracts + manifests, Superset dashboards, OpenMetadata data products |
+| 1 — Foundation | `olf deploy --provider local --phase foundation` | Terraform: the Kubernetes cluster + container registry — kind locally, EKS + ECR on AWS, AKS + ACR on Azure |
+| 2 — Platform | `olf deploy --provider local --phase platform` | Terraform-managed platform resources: Helm releases for SeaweedFS, Polaris, Trino, OpenMetadata, Superset, Dagster — plus PostgreSQL, which Terraform creates directly as a StatefulSet + Service + bootstrap Job (no Helm release) |
+| 3 — Artifacts | `olf deploy --provider local --phase artifacts` | **the CD phase** — dynamic artifacts: the project-code image (dbt code), Floe contracts + manifests, Superset dashboards, OpenMetadata data products |
 
-`olf deploy --provider local` chains foundation → Phase 1 → Phase 2; foundation and Phase 1 are
-idempotent no-ops when nothing changed. Phase 2, in order: load contract env → compile
+Phases 1 and 2 are static infrastructure that Terraform owns; phase 3 is
+dynamic and code-derived. `olf deploy --provider local` with no `--phase` chains
+1 → 2 → 3; phases 1 and 2 are idempotent no-ops when nothing changed. Phase 3,
+in order: load contract env → compile
 Floe manifests → build + load
 `project-code` → `olf artifacts upload-manifests` → `olf superset deploy-reports` →
 `olf openmetadata deploy-metadata` → `olf k8s set-project-code-image`, which patches

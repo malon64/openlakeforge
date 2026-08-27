@@ -209,17 +209,21 @@ def descriptor_schema_errors(
     return errors
 
 
-def _check_descriptor_schema_conformance(repo_root: Path) -> CheckResult:
+def _check_descriptor_schema_conformance(repo_root: Path, *, schema_root: Path | None = None) -> CheckResult:
     """The `lakehouse_code/lakehouse.yaml` descriptor and every
     `lakehouse_code/bronze/*/source.yaml` must load via the canonical model
     and conform to its versioned JSON Schema. The two validators run
-    independently; neither one substitutes for the other."""
+    independently; neither one substitutes for the other.
+
+    `schema_root` points at the distribution payload's `docs/schema/` for an
+    installed project, whose `lakehouse_code/` has no `docs/schema/` of its
+    own (ADR 0009)."""
     name = "descriptor_schema_conformance"
     lakehouse_path = repo_root / "lakehouse_code" / "lakehouse.yaml"
     source_paths = sorted((repo_root / "lakehouse_code" / "bronze").glob("*/source.yaml"))
     descriptor_count = 1 + len(source_paths) if lakehouse_path.is_file() else 0
 
-    errors = descriptor_schema_errors(repo_root)
+    errors = descriptor_schema_errors(repo_root, schema_root=schema_root)
     if errors:
         return CheckResult(name, ok=False, detail="; ".join(errors))
     return CheckResult(name, ok=True, detail=f"{descriptor_count} descriptor(s) validated")
@@ -510,8 +514,14 @@ _KUBE_CONTEXT_ARGUMENT_PATTERN = re.compile(r"--(?:kube-context|cluster-name)\s+
 
 
 def _check_makefile_target_wiring(repo_root: Path) -> CheckResult:
-    """Validate each Kubernetes-touching Make delegate's expanded runtime inputs."""
+    """Validate each Kubernetes-touching Make delegate's expanded runtime inputs.
+
+    The `Makefile` is deliberately excluded from the distribution payload as
+    deprecated checkout compatibility (ADR 0008), so its absence here is
+    expected for an installed project and is not a failure."""
     name = "makefile_target_wiring"
+    if not (repo_root / "Makefile").is_file():
+        return CheckResult(name, ok=True, detail=f"skipped: no Makefile under {repo_root}")
     errors: list[str] = []
     checked = 0
 
@@ -546,18 +556,36 @@ def _check_makefile_target_wiring(repo_root: Path) -> CheckResult:
     return CheckResult(name, ok=True, detail=f"{checked} target(s) dry-run and validated")
 
 
-def run_contracts_check(repo_root: str | Path = ".") -> ContractsCheckReport:
-    """Run every behavioral contract check against `repo_root`."""
+def run_contracts_check(
+    repo_root: str | Path = ".", *, distribution_root: str | Path | None = None
+) -> ContractsCheckReport:
+    """Run every behavioral contract check against `repo_root`.
+
+    `distribution_root` is where the immutable platform payload lives —
+    `infra/terraform`, `infra/helm`, `libs/floe/profiles`, `docs/schema` — and
+    defaults to `repo_root` for a source checkout, where the two coincide. An
+    installed project's `repo_root` has only `lakehouse_code/` (ADR 0009), so
+    every payload-owned check below runs against `distribution_root` instead;
+    `lakehouse_code/silver/*/contracts/floe/*.yml` remains project-owned and
+    always reads from `repo_root`. `_check_makefile_target_wiring` skips
+    rather than fails when there is no `Makefile` to invoke -- the Makefile is
+    deliberately excluded from the distribution payload as deprecated
+    checkout compatibility (ADR 0008).
+    """
     root = Path(repo_root).resolve()
     if not root.is_dir():
         raise ValueError(f"repo root does not exist: {root}")
+    dist_root = Path(distribution_root).resolve() if distribution_root is not None else root
+
     report = ContractsCheckReport()
-    report.results.append(_check_descriptor_schema_conformance(root))
-    report.results.append(_check_hcl_structured_contracts(root))
-    report.results.append(_check_hcl_phase_two_invariants(root))
+    report.results.append(
+        _check_descriptor_schema_conformance(root, schema_root=dist_root / "docs" / "schema")
+    )
+    report.results.append(_check_hcl_structured_contracts(dist_root))
+    report.results.append(_check_hcl_phase_two_invariants(dist_root))
     report.results.append(_check_floe_rendered_profile())
     report.results.append(_check_floe_contract_structure(root))
-    report.results.append(_check_floe_profile_templates(root))
-    report.results.append(_check_helm_values_as_data(root))
-    report.results.append(_check_makefile_target_wiring(root))
+    report.results.append(_check_floe_profile_templates(dist_root))
+    report.results.append(_check_helm_values_as_data(dist_root))
+    report.results.append(_check_makefile_target_wiring(dist_root))
     return report

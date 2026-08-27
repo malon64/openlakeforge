@@ -322,11 +322,13 @@ def _option_value(argv: list[str], option: str) -> str | None:
 
 
 @app.command("contracts")
-def contracts(repo_root: str = typer.Option("", "--repo-root", help="Checkout root to validate.")) -> None:
+def contracts(repo_root: str = typer.Option("", "--repo-root", help="Checkout or project root to validate.")) -> None:
     """Run the existing parsed provider-contract validation."""
     from olf import contracts_check
+    from olf.distribution import runtime_layout
 
-    report = contracts_check.run_contracts_check(_root(repo_root))
+    root = _root(repo_root)
+    report = contracts_check.run_contracts_check(root, distribution_root=runtime_layout().distribution_root)
     typer.echo(report.render())
     if not report.ok:
         raise typer.Exit(code=1)
@@ -560,11 +562,19 @@ def _source_tree_digest(directory: Path) -> str:
 
 
 @app.command("dbt")
-def dbt(repo_root: str = typer.Option("", "--repo-root", help="Checkout root to validate.")) -> None:
+def dbt(repo_root: str = typer.Option("", "--repo-root", help="Checkout or project root to validate.")) -> None:
     """Render, resolve, parse, and compile every discovered dbt product."""
+    from olf.distribution import runtime_layout
+
     root = _root(repo_root)
-    if str(root) not in sys.path:
-        sys.path.insert(0, str(root))
+    # `libs` is distribution-owned, not project-owned (ADR 0009): an
+    # installed project's root has only `lakehouse_code/`, so the
+    # distribution root must be on sys.path too, not just the project root.
+    # Mirrors `olf dbt parse`'s identical fix.
+    distribution_root = runtime_layout().distribution_root
+    for path in (str(root), str(distribution_root)):
+        if path not in sys.path:
+            sys.path.insert(0, path)
     from libs.dbt.render_profiles import discover_project_dirs, write_profile
 
     projects = discover_project_dirs(root / "lakehouse_code/gold")
