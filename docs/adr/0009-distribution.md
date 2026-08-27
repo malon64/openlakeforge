@@ -66,8 +66,11 @@ Docker, and copies the packaged demo `lakehouse_code/` into the current
 directory — or writes a transitional skeleton under `--empty` (ADR 0005).
 
 It stages into a sibling directory and renames atomically, and refuses to
-overwrite an existing `lakehouse_code/`. It never installs Docker, uses Git, or
-touches anything outside the project directory.
+overwrite an existing `lakehouse_code/`. It never installs Docker or uses Git.
+Within the project directory it touches only `lakehouse_code/`; the toolchain
+and payload verification steps write outside it, to the shared, immutable
+`OLF_HOME` (ADR 0008) — never to the project itself, and never requiring the
+user to know that boundary exists to run `olf init` successfully.
 
 ## Consequences
 

@@ -100,9 +100,10 @@ observability adapter, not a replacement for this baseline.
 
 ## Consequences
 
-Adding a product that reuses an existing source touches only
-`lakehouse_code/gold/<product>/` and `lakehouse.yaml`; no Bronze or Silver work
-is duplicated.
+Adding a product that reuses an existing source touches
+`lakehouse_code/gold/<product>/`, `lakehouse.yaml`, and one Dagster module at
+`lakehouse_code/pipelines/dagster/<product>.py`; no Bronze or Silver work is
+duplicated.
 
 Catalog namespaces are derived from descriptors, so they are reconciled in the
 artifacts phase by `olf catalog sync-namespaces` (ADR 0002), never templated into

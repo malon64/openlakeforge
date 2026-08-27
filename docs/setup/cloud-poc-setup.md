@@ -180,13 +180,15 @@ olf deploy --provider aws &
 wait
 ```
 
-The default kubeconfig paths already differ per provider —
-`.tmp/kubeconfigs/local.yaml`, `.tmp/kubeconfigs/azure.yaml`, and
-`.tmp/kubeconfigs/aws.yaml` — so the three providers above never collide, with
-no extra flags needed. Running two deployments of the *same* provider
-concurrently needs an explicit `--kubeconfig-path` per invocation to keep them
-isolated. The workflows never switch the current context in your global
-kubeconfig.
+The default kubeconfig, Terraform state, and work/cache paths are all
+scoped by *provider*, so the three different providers above never collide
+with no extra flags needed. That scoping is per-provider, not per-invocation:
+**two concurrent deployments of the same provider are not supported.** They
+would resolve the same default kubeconfig, the same Terraform state file, and
+the same work/cache directories regardless of `--kubeconfig-path` — that flag
+only relocates the kubeconfig, not the Terraform state or work root the two
+runs would still contend for. The workflows never switch the current context
+in your global kubeconfig.
 
 ---
 
