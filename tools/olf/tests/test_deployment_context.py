@@ -143,7 +143,10 @@ def test_distribution_root_defaults_to_repo_root(tmp_path: Path) -> None:
     assert ctx.paths.distribution_root == ctx.paths.repo_root
 
 
-def test_command_env_sets_expected_keys_without_mutating_parent(tmp_path: Path) -> None:
+def test_command_env_sets_expected_keys_without_mutating_parent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("KUBECONFIG", raising=False)
     ctx = DeploymentContext.local(repo_root=tmp_path)
     assert "KUBECONFIG" not in os.environ
 
@@ -156,6 +159,9 @@ def test_command_env_sets_expected_keys_without_mutating_parent(tmp_path: Path) 
     assert env["BUILDKIT_PROGRESS"] == "plain"
     assert env["HELM_REPOSITORY_CONFIG"] == str(ctx.paths.helm_repository_config)
     assert env["HELM_REPOSITORY_CACHE"] == str(ctx.paths.helm_repository_cache)
+    assert env["OPENLAKEFORGE_PROJECT_ROOT"] == str(ctx.paths.project.root)
+    assert env["OPENLAKEFORGE_REPO_ROOT"] == str(ctx.paths.project.root)
+    assert env["OLF_DISTRIBUTION_ROOT"] == str(ctx.paths.project.distribution_root)
     assert "KUBECONFIG" not in os.environ
 
 

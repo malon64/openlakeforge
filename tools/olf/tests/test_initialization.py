@@ -22,6 +22,11 @@ runner = CliRunner()
 
 def _layout(tmp_path: Path) -> RuntimeLayout:
     distribution = tmp_path / "distribution"
+    (distribution / "openlakeforge.yaml").parent.mkdir(parents=True)
+    (distribution / "openlakeforge.yaml").write_text(
+        "apiVersion: openlakeforge.io/v1alpha1\nkind: DeploymentProfile\n",
+        encoding="utf-8",
+    )
     definitions = distribution / "lakehouse_code" / "definitions.py"
     definitions.parent.mkdir(parents=True)
     definitions.write_text("defs = object()\n", encoding="utf-8")
@@ -80,6 +85,7 @@ def test_default_init_copies_a_writable_demo_and_keeps_unowned_paths(tmp_path: P
     result = _initializer(layout, manager).initialize(environ={"OLF_TOOLCHAIN_MODE": "managed"})
 
     assert result.lakehouse_root == layout.project_root / "lakehouse_code"
+    assert (layout.project_root / "openlakeforge.yaml").is_file()
     assert result.next_command == "olf deploy --provider local --profile slim"
     assert (result.lakehouse_root / "demo.txt").read_text(encoding="utf-8") == "demo\n"
     assert os.access(result.lakehouse_root / "demo.txt", os.W_OK)
@@ -131,6 +137,27 @@ def test_init_refuses_an_existing_lakehouse_before_provisioning_tools(tmp_path: 
         _initializer(layout, manager).initialize()
 
     assert manager.calls == 0
+
+
+def test_init_refuses_an_existing_profile_before_provisioning_tools(tmp_path: Path) -> None:
+    layout = _layout(tmp_path)
+    (layout.project_root / "openlakeforge.yaml").write_text("existing\n", encoding="utf-8")
+    manager = _Manager()
+
+    with pytest.raises(InitializationError, match="refusing to overwrite"):
+        _initializer(layout, manager).initialize()
+
+    assert manager.calls == 0
+
+
+def test_init_cleans_staged_code_when_the_distribution_profile_is_missing(tmp_path: Path) -> None:
+    layout = _layout(tmp_path)
+    (layout.distribution_root / "openlakeforge.yaml").unlink()
+
+    with pytest.raises(InitializationError, match="missing project profile template"):
+        _initializer(layout).initialize()
+
+    assert list(layout.project_root.iterdir()) == []
 
 
 def test_init_leaves_no_project_when_docker_is_unreachable(tmp_path: Path) -> None:
@@ -282,6 +309,8 @@ def test_empty_init_writes_only_the_canonical_package_skeleton(tmp_path: Path) -
     layout = _layout(tmp_path)
 
     result = _initializer(layout).initialize(empty=True)
+
+    assert (result.project_root / "openlakeforge.yaml").is_file()
 
     tree = sorted(str(p.relative_to(result.lakehouse_root)) for p in result.lakehouse_root.rglob("*"))
     assert tree == [

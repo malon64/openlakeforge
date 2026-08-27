@@ -76,7 +76,7 @@ def upload_manifests(
     """Publish domain Floe runtime artifacts to the operational artifact bucket."""
     from olf import s3
 
-    repo_root = config.repo_root()
+    project = config.project_spec()
     namespace = config.namespace()
     bucket = config.env("OPENLAKEFORGE_OPS_BUCKET_NAME") or config.env("OPENLAKEFORGE_ARTIFACT_BUCKET_NAME")
     if not bucket:
@@ -86,17 +86,17 @@ def upload_manifests(
         if runtime_root:
             uploads = s3.discover_runtime_artifacts(Path(runtime_root))
         else:
-            root = Path(manifest_root) if manifest_root else repo_root / ".tmp/floe-runtime/aws/manifests"
+            root = Path(manifest_root) if manifest_root else project.root / ".tmp/floe-runtime/aws/manifests"
             uploads = s3.discover_runtime_manifests(root)
         if not uploads:
-            root = runtime_root or manifest_root or str(repo_root / ".tmp/floe-runtime/aws/manifests")
+            root = runtime_root or manifest_root or str(project.root / ".tmp/floe-runtime/aws/manifests")
             raise typer.Exit(code=fail(f"no rendered Floe artifacts found under {root}."))
         s3.upload_direct(bucket, uploads, region=config.env("OPENLAKEFORGE_STORAGE_REGION"))
     elif via == "port-forward":
         if runtime_root:
             uploads = s3.discover_runtime_artifacts(Path(runtime_root))
         else:
-            uploads = s3.discover_tracked_manifests(repo_root)
+            uploads = s3.discover_tracked_manifests(project.root)
         if not uploads:
             raise typer.Exit(
                 code=fail("no generated domain Floe artifacts found. Run 'olf floe generate-manifests' first.")

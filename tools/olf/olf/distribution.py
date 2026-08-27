@@ -22,6 +22,10 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from importlib import resources
 from pathlib import Path, PurePosixPath
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from olf.project import ProjectSpec
 
 _PAYLOAD_ROOTS = (
     "infra/terraform",
@@ -33,7 +37,7 @@ _PAYLOAD_ROOTS = (
     "docs/schema",
     "lakehouse_code",
 )
-_PAYLOAD_FILES = ("release/component-catalog.yaml",)
+_PAYLOAD_FILES = ("openlakeforge.yaml", "release/component-catalog.yaml")
 _EXCLUDED_PARTS = frozenset({".terraform", ".tmp", "__pycache__", ".pytest_cache", ".venv", "dist", "build"})
 _CATALOG_VERSION = re.compile(r"^distribution:\s*$.*?^\s+version:\s*['\"]?([^'\"\s#]+)", re.MULTILINE | re.DOTALL)
 _ALPHA_VERSION = re.compile(r"^(\d+\.\d+\.\d+)-alpha\.(\d+)$")
@@ -159,6 +163,13 @@ class RuntimeLayout:
     @property
     def is_source(self) -> bool:
         return self.mode == "source"
+
+    @property
+    def project(self) -> ProjectSpec:
+        """Resolve this layout's selected data project on demand."""
+        from olf.project import ProjectSpec
+
+        return ProjectSpec.from_layout(self)
 
 
 @dataclass

@@ -76,6 +76,8 @@ def test_payload_archive_is_deterministic_for_the_same_checkout(tmp_path: Path) 
 
     assert one["sha256"] == two["sha256"]
     assert one["manifest_sha256"] == two["manifest_sha256"]
+    with tarfile.open(tmp_path / "one.tar.gz", "r:gz") as archive:
+        assert "openlakeforge.yaml" in archive.getnames()
 
 
 def test_payload_install_verify_and_clean_are_scoped_to_olf_home(tmp_path: Path) -> None:
@@ -173,3 +175,5 @@ def test_installed_layout_keeps_platform_assets_in_the_payload_when_a_project_is
     assert layout.project_root == project.resolve()
     assert layout.distribution_root == payload
     assert layout.catalog_path == payload / "release" / "component-catalog.yaml"
+    assert layout.project.root == project.resolve()
+    assert layout.project.distribution_root == payload

@@ -26,6 +26,7 @@ REQUIRED_PATHS: tuple[str, ...] = (
     "README.md",
     "AGENTS.md",
     "CLAUDE.md",
+    "openlakeforge.yaml",
     "Makefile",
     ".gitignore",
     ".github/workflows/checks.yml",
@@ -147,6 +148,8 @@ REQUIRED_PATHS: tuple[str, ...] = (
     "tools/olf/pyproject.toml",
     "tools/olf/uv.lock",
     "tools/olf/olf/cli.py",
+    "tools/olf/olf/project.py",
+    "tools/olf/olf/commands/project.py",
     "tools/olf/olf/initialization.py",
     "tools/olf/olf/contracts.py",
     "tools/olf/olf/contracts_check.py",
@@ -252,6 +255,16 @@ def _distribution_root_for(root: Path) -> Path:
     return runtime_layout().distribution_root
 
 
+def _check_cache_root(project_root: Path, distribution_root: Path) -> Path:
+    """Keep check caches outside a selected external data project."""
+    if project_root == distribution_root:
+        return project_root / ".cache"
+    from olf.distribution import runtime_layout
+
+    project_key = hashlib.sha256(str(project_root).encode()).hexdigest()[:12]
+    return runtime_layout().cache_root / "checks" / project_key
+
+
 @app.command("structure")
 def structure(repo_root: str = typer.Option("", "--repo-root", help="Checkout root to validate.")) -> None:
     """Validate the essential repository skeleton and prohibit shell scripts."""
@@ -341,9 +354,11 @@ def _option_value(argv: list[str], option: str) -> str | None:
 def contracts(repo_root: str = typer.Option("", "--repo-root", help="Checkout or project root to validate.")) -> None:
     """Run the existing parsed provider-contract validation."""
     from olf import contracts_check
+    from olf.project import ProjectSpec
 
     root = _root(repo_root)
-    report = contracts_check.run_contracts_check(root, distribution_root=_distribution_root_for(root))
+    project = ProjectSpec(root=root, distribution_root=_distribution_root_for(root))
+    report = contracts_check.run_contracts_check(project.root, distribution_root=project.distribution_root)
     typer.echo(report.render())
     if not report.ok:
         raise typer.Exit(code=1)
@@ -534,7 +549,10 @@ def _check_compiled_lock(path: Path, *, uv: str, root: Path) -> None:
 @app.command("project-code")
 def project_code(repo_root: str = typer.Option("", "--repo-root", help="Checkout root to validate.")) -> None:
     """Load the merged Dagster definitions in the project-code dependency set."""
+    from olf.project import ProjectSpec
+
     root = _root(repo_root)
+    project = ProjectSpec(root=root, distribution_root=_distribution_root_for(root))
     if sys.version_info[:2] != (3, 12):
         raise typer.Exit(
             code=fail(
@@ -542,19 +560,25 @@ def project_code(repo_root: str = typer.Option("", "--repo-root", help="Checkout
                 f"found {sys.version_info[0]}.{sys.version_info[1]}"
             )
         )
-    cache = root / ".cache/project-code-check"
-    project_digest = hashlib.sha256((root / "images/project-code/pyproject.toml").read_bytes()).hexdigest()[:16]
-    domain_digest = _source_tree_digest(root / "packages/domain-model")
+    cache = _check_cache_root(project.root, project.distribution_root) / "project-code"
+    project_digest = hashlib.sha256(
+        (project.distribution_root / "images/project-code/pyproject.toml").read_bytes()
+    ).hexdigest()[:16]
+    domain_digest = _source_tree_digest(project.distribution_root / "packages/domain-model")
     site = cache / f"py{sys.version_info.major}{sys.version_info.minor}-{project_digest}-{domain_digest}" / "site"
     if not (site / ".complete").is_file():
         site.mkdir(parents=True, exist_ok=True)
-        pyproject = tomllib.loads((root / "images/project-code/pyproject.toml").read_text())
-        _uv_pip_install(target=site, requirements=pyproject["project"]["dependencies"], cwd=root)
-        _uv_pip_install(target=site, requirements=[str(root / "packages/domain-model")], cwd=root)
+        pyproject = tomllib.loads((project.distribution_root / "images/project-code/pyproject.toml").read_text())
+        _uv_pip_install(target=site, requirements=pyproject["project"]["dependencies"], cwd=project.root)
+        _uv_pip_install(
+            target=site,
+            requirements=[str(project.distribution_root / "packages/domain-model")],
+            cwd=project.root,
+        )
         (site / ".complete").touch()
     env = {
         "PATH": f"{site / 'bin'}{os.pathsep}{os.environ.get('PATH', '')}",
-        "PYTHONPATH": f"{site}{os.pathsep}{root}",
+        "PYTHONPATH": f"{site}{os.pathsep}{project.root}{os.pathsep}{project.distribution_root}",
         "OPENLAKEFORGE_FLOE_MANIFEST_ACCESS_MODE": "remote",
         "OPENLAKEFORGE_OPS_BUCKET_NAME": "openlakeforge-ops",
         "OPENLAKEFORGE_ARTIFACT_BUCKET_NAME": "openlakeforge-ops",
@@ -564,7 +588,7 @@ def project_code(repo_root: str = typer.Option("", "--repo-root", help="Checkout
         "OPENLAKEFORGE_LOG_BASE_URI": "s3://openlakeforge-ops/logs",
         "OPENLAKEFORGE_RUN_ARTIFACT_BASE_URI": "s3://openlakeforge-ops/runs",
     }
-    _run([sys.executable, "-m", "olf.project_code_check", str(root)], cwd=root, env=env)
+    _run([sys.executable, "-m", "olf.project_code_check", str(project.root)], cwd=project.root, env=env)
 
 
 def _source_tree_digest(directory: Path) -> str:
@@ -579,6 +603,8 @@ def _source_tree_digest(directory: Path) -> str:
 @app.command("dbt")
 def dbt(repo_root: str = typer.Option("", "--repo-root", help="Checkout or project root to validate.")) -> None:
     """Render, resolve, parse, and compile every discovered dbt product."""
+    from olf.project import ProjectSpec
+
     root = _root(repo_root)
     # `libs` is distribution-owned, not project-owned (ADR 0009): an
     # installed project's root has only `lakehouse_code/`, so the
@@ -586,16 +612,16 @@ def dbt(repo_root: str = typer.Option("", "--repo-root", help="Checkout or proje
     # Mirrors `olf dbt parse`'s identical fix. `_distribution_root_for`
     # prefers `root` itself when `--repo-root` selects a complete, separate
     # checkout, so that checkout's own `libs/dbt/render_profiles` wins.
-    distribution_root = _distribution_root_for(root)
-    for path in (str(root), str(distribution_root)):
+    project_spec = ProjectSpec(root=root, distribution_root=_distribution_root_for(root))
+    for path in (str(project_spec.root), str(project_spec.distribution_root)):
         if path not in sys.path:
             sys.path.insert(0, path)
     from libs.dbt.render_profiles import discover_project_dirs, write_profile
 
-    projects = discover_project_dirs(root / "lakehouse_code/gold")
+    projects = discover_project_dirs(project_spec.gold_root)
     if not projects:
         raise typer.Exit(code=fail("no product dbt projects found"))
-    cache = root / ".cache/dbt-check"
+    cache = _check_cache_root(project_spec.root, project_spec.distribution_root) / "dbt"
     dependency_key = hashlib.sha256(b"dbt-trino==1.10.2\nopenlineage-dbt==1.45.0").hexdigest()[:16]
     site = cache / f"py{sys.version_info.major}{sys.version_info.minor}-{dependency_key}" / "site"
     if not (site / ".complete").is_file():
@@ -603,7 +629,7 @@ def dbt(repo_root: str = typer.Option("", "--repo-root", help="Checkout or proje
         _uv_pip_install(
             target=site,
             requirements=["dbt-trino==1.10.2", "openlineage-dbt==1.45.0"],
-            cwd=root,
+            cwd=project_spec.root,
         )
         (site / ".complete").touch()
     dbt_bin = str(site / "bin/dbt")
@@ -622,10 +648,10 @@ def dbt(repo_root: str = typer.Option("", "--repo-root", help="Checkout or proje
     }
     for project in projects:
         write_profile(project, environment="local")
-        _run([dbt_bin, "deps", "--project-dir", str(project)], cwd=root, env=env)
+        _run([dbt_bin, "deps", "--project-dir", str(project)], cwd=project_spec.root, env=env)
         _run(
             [dbt_bin, "parse", "--project-dir", str(project), "--profiles-dir", str(project), "--target", "local"],
-            cwd=root,
+            cwd=project_spec.root,
             env=env,
         )
         _run(
@@ -641,10 +667,10 @@ def dbt(repo_root: str = typer.Option("", "--repo-root", help="Checkout or proje
                 "--no-introspect",
                 "--no-populate-cache",
             ],
-            cwd=root,
+            cwd=project_spec.root,
             env=env,
         )
-        _validate_dbt_relation_contract(project, root=root, catalog=env["OPENLAKEFORGE_CATALOG_NAME"])
+        _validate_dbt_relation_contract(project, root=project_spec.root, catalog=env["OPENLAKEFORGE_CATALOG_NAME"])
     typer.echo("dbt projects compiled and relation contracts are valid.")
 
 

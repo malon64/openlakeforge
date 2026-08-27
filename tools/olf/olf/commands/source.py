@@ -24,10 +24,10 @@ def source_new(
     example CSV per --resource. Adds SOURCE to lakehouse.yaml's `sources:`."""
     try:
         layout = writable_project_layout(repo_root)
-        root = layout.project_root
-        plan = plan_source_new(root, source=source, display_name=display_name, resources=tuple(resource))
+        project = layout.project
+        plan = plan_source_new(project.root, source=source, display_name=display_name, resources=tuple(resource))
         commit_plan(
-            root, plan, schema_root=layout.distribution_root / "docs" / "schema", allow_transitional=True
+            project.root, plan, schema_root=project.schema_root, allow_transitional=True
         )
     except (RuntimeError, ScaffoldError) as exc:
         raise typer.Exit(code=fail(str(exc))) from exc

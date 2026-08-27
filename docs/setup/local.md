@@ -70,10 +70,11 @@ olf init
 
 `olf init` verifies the packaged platform payload, installs or reuses the
 release-pinned Terraform, Helm, kubectl, and kind toolchain under
-`~/.openlakeforge`, checks Docker, and creates a writable `lakehouse_code/`
-directory copied from the demo. Set `OLF_TOOLCHAIN_MODE=host` to use your own
-host-installed Terraform, Helm, kubectl, and kind instead of the managed
-toolchain.
+`~/.openlakeforge`, checks Docker, and creates the writable project files
+`openlakeforge.yaml` and `lakehouse_code/` from the demo. Validate the
+resulting project boundary with `olf project validate --project .`. Set
+`OLF_TOOLCHAIN_MODE=host` to use your own host-installed Terraform, Helm,
+kubectl, and kind instead of the managed toolchain.
 
 `olf init --empty` creates a transitional project with no source, domain, or
 product. Scaffold its first source and product before deploying:

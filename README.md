@@ -92,11 +92,13 @@ olf init
 is not a prerequisite.
 
 `olf init` verifies the packaged platform payload, provisions or reuses the
-pinned toolchain, checks that Docker is reachable, and copies the demo
-`lakehouse_code/` into the current directory as your own writable code. Use
-`olf init --empty` to start from a bare project instead — it has no source or
-product yet, so scaffold both with `olf source new` and `olf product new`
-before deploying.
+pinned toolchain, checks that Docker is reachable, and creates the writable
+project files `openlakeforge.yaml` and `lakehouse_code/`. The profile is
+included now as a structural project marker; profile interpretation follows in
+the next milestone slice. Validate the project boundary with
+`olf project validate --project .`. Use `olf init --empty` to start from a
+bare project instead — it has no source or product yet, so scaffold both with
+`olf source new` and `olf product new` before deploying.
 
 Start the **Slim** profile:
 

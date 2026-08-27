@@ -28,11 +28,11 @@ def domain_new(
     validated before any product consumes its Silver tables."""
     try:
         layout = writable_project_layout(repo_root)
-        root = layout.project_root
+        project = layout.project
         inputs = tuple(parse_source_resource(value) for value in input_)
-        plan = plan_domain_new(root, domain=domain, display_name=display_name, inputs=inputs)
+        plan = plan_domain_new(project.root, domain=domain, display_name=display_name, inputs=inputs)
         commit_plan(
-            root, plan, schema_root=layout.distribution_root / "docs" / "schema", allow_transitional=True
+            project.root, plan, schema_root=project.schema_root, allow_transitional=True
         )
     except (RuntimeError, ScaffoldError) as exc:
         raise typer.Exit(code=fail(str(exc))) from exc

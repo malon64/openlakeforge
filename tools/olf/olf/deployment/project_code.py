@@ -20,7 +20,7 @@ def project_code_build_context(paths: DeploymentPaths) -> Iterator[Path]:
     code, so its ``lakehouse_code`` must replace the bundled demo before the
     image is built.  Source mode has one tree already and needs no staging.
     """
-    if paths.repo_root == paths.distribution_root:
+    if paths.project.root == paths.project.distribution_root:
         yield paths.distribution_root
         return
 
@@ -29,5 +29,5 @@ def project_code_build_context(paths: DeploymentPaths) -> Iterator[Path]:
         root = Path(temporary)
         for relative in ("images/project-code", "packages/domain-model", "libs"):
             shutil.copytree(paths.distribution_root / relative, root / relative)
-        shutil.copytree(paths.repo_root / "lakehouse_code", root / "lakehouse_code")
+        shutil.copytree(paths.project.code_root, root / "lakehouse_code")
         yield root

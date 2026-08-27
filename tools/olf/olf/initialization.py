@@ -76,14 +76,16 @@ class ProjectInitializer:
             raise InitializationError(str(exc)) from exc
 
         target = layout.project_root / "lakehouse_code"
-        if target.exists():
-            raise InitializationError(f"refusing to overwrite existing project path: {target}")
+        profile_target = layout.project_root / "openlakeforge.yaml"
+        for path in (profile_target, target):
+            if path.exists():
+                raise InitializationError(f"refusing to overwrite existing project path: {path}")
         if not layout.project_root.is_dir():
             raise InitializationError(f"project root is not a directory: {layout.project_root}")
 
         tools = self._prepare_toolchain(layout, env)
         self._verify_docker(tools, env)
-        self._create_project(layout, target, empty=empty)
+        self._create_project(layout, target, profile_target, empty=empty)
         return InitializationResult(project_root=layout.project_root, lakehouse_root=target, empty=empty)
 
     def _prepare_toolchain(self, layout: RuntimeLayout, env: Mapping[str, str]) -> Toolkit:
@@ -114,9 +116,10 @@ class ProjectInitializer:
         if not health.ok:
             raise InitializationError(f"Docker engine is not reachable: {health.detail}")
 
-    def _create_project(self, layout: RuntimeLayout, target: Path, *, empty: bool) -> None:
+    def _create_project(self, layout: RuntimeLayout, target: Path, profile_target: Path, *, empty: bool) -> None:
         staging_parent = Path(tempfile.mkdtemp(prefix=".olf-init-", dir=layout.project_root))
         staging = staging_parent / "lakehouse_code"
+        profile_staging = staging_parent / "openlakeforge.yaml"
         try:
             if empty:
                 self._write_empty_project(layout.distribution_root, staging)
@@ -125,10 +128,19 @@ class ProjectInitializer:
                 if not template.is_dir():
                     raise InitializationError(f"distribution is missing demo template: {template}")
                 shutil.copytree(template, staging, ignore=shutil.ignore_patterns("__pycache__"))
-            self._make_user_writable(staging)
-            if target.exists():
-                raise InitializationError(f"refusing to overwrite existing project path: {target}")
-            os.replace(staging, target)
+            profile_template = layout.distribution_root / "openlakeforge.yaml"
+            if not profile_template.is_file():
+                raise InitializationError(f"distribution is missing project profile template: {profile_template}")
+            shutil.copy2(profile_template, profile_staging)
+            self._make_user_writable(staging_parent)
+            if target.exists() or profile_target.exists():
+                raise InitializationError(f"refusing to overwrite an existing project path under {layout.project_root}")
+            os.replace(profile_staging, profile_target)
+            try:
+                os.replace(staging, target)
+            except OSError:
+                profile_target.unlink(missing_ok=True)
+                raise
         except OSError as exc:
             raise InitializationError(f"could not create project at {target}: {exc}") from exc
         finally:
