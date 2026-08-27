@@ -3,7 +3,7 @@ from typing import Any
 
 import pytest
 from conftest import write_dashboard_fixture, write_two_product_fixture
-from openlakeforge_domain import load_domain_inventory
+from openlakeforge_domain import load_lakehouse_inventory
 
 from olf.clients.openmetadata import OpenMetadataClient, OpenMetadataError
 from olf.e2e import _assertions, _health
@@ -33,8 +33,15 @@ def test_openmetadata_data_product_candidates_try_short_and_domain_names() -> No
 
 def test_two_product_fixture_repo_drives_exactly_its_own_jobs_dashboards_and_marts(tmp_path: Path) -> None:
     """A descriptor change alone must move e2e's discovered work, per issue #39."""
-    write_two_product_fixture(tmp_path)
-    inventory = load_domain_inventory(tmp_path)
+    write_two_product_fixture(
+        tmp_path,
+        dashboards=(
+            ("widgets_alpha_overview", "widgets_alpha"),
+            ("widgets_beta_main", "widgets_beta"),
+            ("widgets_beta_detail", "widgets_beta"),
+        ),
+    )
+    inventory = load_lakehouse_inventory(tmp_path)
     fixture_cfg = E2EConfig(
         env="local",
         suite="full",
@@ -53,22 +60,24 @@ def test_two_product_fixture_repo_drives_exactly_its_own_jobs_dashboards_and_mar
         "widgets_beta_gold.mart_beta_summary",
     )
 
-    # Dashboard identity comes from the exported Superset YAML, not an
-    # asset_prefix/displayName convention — a title/slug that doesn't match
-    # that convention, and a product with two dashboards, must both work.
+    # Dashboard identity comes from the exported Superset YAML, not the
+    # descriptor's name — a title/slug that doesn't match that convention,
+    # and a product with two dashboards, must both work.
+    overview = next(dashboard for dashboard in inventory.dashboards if dashboard.name == "widgets_alpha_overview")
+    beta_main = next(dashboard for dashboard in inventory.dashboards if dashboard.name == "widgets_beta_main")
+    beta_detail = next(dashboard for dashboard in inventory.dashboards if dashboard.name == "widgets_beta_detail")
     write_dashboard_fixture(
         tmp_path,
-        inventory.default_product.report_source_dir,
+        overview.report_source_dir,
         "Overview_1.yaml",
         slug="widgets-alpha-overview",
         title="Widgets Alpha Overview Board",
     )
-    beta_product = next(product for product in inventory.products if product.id == "beta")
     write_dashboard_fixture(
-        tmp_path, beta_product.report_source_dir, "Beta_Main_1.yaml", slug="widgets-beta-main", title="Widgets Beta"
+        tmp_path, beta_main.report_source_dir, "Beta_Main_1.yaml", slug="widgets-beta-main", title="Widgets Beta"
     )
     write_dashboard_fixture(
-        tmp_path, beta_product.report_source_dir, "Beta_Detail_1.yaml", slug="widgets-beta-detail", title="Beta Detail"
+        tmp_path, beta_detail.report_source_dir, "Beta_Detail_1.yaml", slug="widgets-beta-detail", title="Beta Detail"
     )
 
     expected = _assertions.discovered_dashboards(fixture_cfg)
@@ -106,8 +115,14 @@ def test_two_product_fixture_repo_drives_exactly_its_own_jobs_dashboards_and_mar
 
 def test_discovered_dashboards_rejects_a_product_with_no_dashboard_export(tmp_path: Path) -> None:
     """A missing dashboard export must fail loudly, not pass by contributing nothing."""
-    write_two_product_fixture(tmp_path)
-    inventory = load_domain_inventory(tmp_path)
+    write_two_product_fixture(
+        tmp_path,
+        dashboards=(
+            ("widgets_alpha_overview", "widgets_alpha"),
+            ("widgets_beta_overview", "widgets_beta"),
+        ),
+    )
+    inventory = load_lakehouse_inventory(tmp_path)
     fixture_cfg = E2EConfig(
         env="local",
         suite="full",
@@ -119,14 +134,18 @@ def test_discovered_dashboards_rejects_a_product_with_no_dashboard_export(tmp_pa
         contract_terraform_dir=tmp_path / "contract",
         inventory=inventory,
     )
-    # Only the default (first) product exports a dashboard; the second has none.
+    # Only the alpha dashboard exports; the beta dashboard is declared but has none.
+    overview = next(dashboard for dashboard in inventory.dashboards if dashboard.name == "widgets_alpha_overview")
     write_dashboard_fixture(
         tmp_path,
-        inventory.default_product.report_source_dir,
+        overview.report_source_dir,
         "Overview_1.yaml",
         slug="widgets-alpha-overview",
         title="Widgets Alpha Overview Board",
     )
+    beta_overview = next(dashboard for dashboard in inventory.dashboards if dashboard.name == "widgets_beta_overview")
+    (tmp_path / beta_overview.report_source_dir).mkdir(parents=True)
+    (tmp_path / beta_overview.report_source_dir / "metadata.yaml").write_text("type: assets\n", encoding="utf-8")
 
     with pytest.raises(E2EError, match="exports no Superset dashboards"):
         _assertions.discovered_dashboards(fixture_cfg)
@@ -134,8 +153,14 @@ def test_discovered_dashboards_rejects_a_product_with_no_dashboard_export(tmp_pa
 
 def test_discovered_dashboards_accepts_yml_suffixed_exports(tmp_path: Path) -> None:
     """superset.build_report_bundle packages both .yaml and .yml — discovery must match."""
-    write_two_product_fixture(tmp_path)
-    inventory = load_domain_inventory(tmp_path)
+    write_two_product_fixture(
+        tmp_path,
+        dashboards=(
+            ("widgets_alpha_overview", "widgets_alpha"),
+            ("widgets_beta_main", "widgets_beta"),
+        ),
+    )
+    inventory = load_lakehouse_inventory(tmp_path)
     fixture_cfg = E2EConfig(
         env="local",
         suite="full",
@@ -147,16 +172,17 @@ def test_discovered_dashboards_accepts_yml_suffixed_exports(tmp_path: Path) -> N
         contract_terraform_dir=tmp_path / "contract",
         inventory=inventory,
     )
-    beta_product = next(product for product in inventory.products if product.id == "beta")
+    overview = next(dashboard for dashboard in inventory.dashboards if dashboard.name == "widgets_alpha_overview")
+    beta_main = next(dashboard for dashboard in inventory.dashboards if dashboard.name == "widgets_beta_main")
     write_dashboard_fixture(
         tmp_path,
-        inventory.default_product.report_source_dir,
+        overview.report_source_dir,
         "Overview_1.yaml",
         slug="widgets-alpha-overview",
         title="Widgets Alpha Overview Board",
     )
     write_dashboard_fixture(
-        tmp_path, beta_product.report_source_dir, "Beta_Main_1.yml", slug="widgets-beta-main", title="Widgets Beta"
+        tmp_path, beta_main.report_source_dir, "Beta_Main_1.yml", slug="widgets-beta-main", title="Widgets Beta"
     )
 
     assert _assertions.discovered_dashboards(fixture_cfg) == {
@@ -167,8 +193,6 @@ def test_discovered_dashboards_accepts_yml_suffixed_exports(tmp_path: Path) -> N
 
 def test_discovered_dashboards_checks_every_dashboard_declared_for_a_product(tmp_path: Path) -> None:
     """Two dashboards on one product must both be checked, not just the first found."""
-    from openlakeforge_domain import load_lakehouse_inventory
-
     lakehouse_dir = tmp_path / "lakehouse_code"
     source_dir = lakehouse_dir / "bronze" / "crm"
     source_dir.mkdir(parents=True)
@@ -255,8 +279,6 @@ dashboards:
 
 def test_discovered_dashboards_skips_a_canonical_product_with_no_declared_dashboard(tmp_path: Path) -> None:
     """A product with zero dashboards in lakehouse.yaml is valid and must not be checked."""
-    from openlakeforge_domain import load_lakehouse_inventory
-
     lakehouse_dir = tmp_path / "lakehouse_code"
     source_dir = lakehouse_dir / "bronze" / "crm"
     source_dir.mkdir(parents=True)
@@ -338,8 +360,6 @@ dashboards:
 def test_discovered_dashboards_rejects_a_bundle_on_disk_with_no_declared_dashboard(tmp_path: Path) -> None:
     """superset.deploy_reports() discovers bundles from the filesystem, independent of
     lakehouse.yaml -- a directory that would still deploy must not be silently ignored."""
-    from openlakeforge_domain import load_lakehouse_inventory
-
     lakehouse_dir = tmp_path / "lakehouse_code"
     source_dir = lakehouse_dir / "bronze" / "crm"
     source_dir.mkdir(parents=True)

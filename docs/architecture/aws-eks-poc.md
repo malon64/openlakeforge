@@ -16,7 +16,7 @@ operations cost and durability.
 | Query path | Superset -> Trino -> Glue/S3 |
 | Orchestration | Dagster Helm release with per-domain code locations |
 | Artifacts | Floe manifests, reports, logs, and run artifacts in the S3 ops bucket |
-| Identity | EKS Pod Identity associations for lakehouse workloads (see ADR 0016) |
+| Identity | EKS Pod Identity associations for lakehouse workloads (see ADR 0010) |
 | Access | `kubectl port-forward`, matching the other POCs |
 
 Trino remains the implemented query engine. Athena is deferred because it would
@@ -31,7 +31,7 @@ model from always-on compute to pay-per-data-scanned queries.
 - EKS control plane and managed node group.
 - EKS VPC CNI, CoreDNS, kube-proxy, EBS CSI, and Pod Identity agent add-ons.
 - ECR repositories for project-code and Superset.
-- An EKS Pod Identity role/association for the EBS CSI driver (see ADR 0016).
+- An EKS Pod Identity role/association for the EBS CSI driver (see ADR 0010).
 
 `infra/terraform/environments/aws-poc` consumes the foundation state and creates:
 
@@ -75,30 +75,31 @@ The Glue catalog contract uses `catalog_type = "glue"` and
 Static checks:
 
 ```sh
-make check-structure
-make check-contracts
-make check-infra
+olf check structure
+olf check contracts
+olf check infra
 ```
 
 AWS POC lifecycle:
 
 ```sh
-make aws-foundation-up
-make aws-up
-make aws-forward
-make aws-e2e
-make aws-down
+olf deploy --provider aws --phase foundation
+olf deploy --provider aws
+olf forward --provider aws
+olf e2e run --env aws
+olf destroy --provider aws
 ```
 
-`make aws-up` runs `aws-foundation-up`, `aws-platform-up`, and
-`aws-artifacts-deploy`. The artifact phase generates Floe manifests, builds and
-pushes project-code to ECR, uploads Floe manifests directly to the S3 ops
-bucket, imports Superset report assets, deploys OpenMetadata metadata, patches
-Dagster runtime images, and restarts Dagster workloads.
+`olf deploy --provider aws` runs the foundation, platform, and artifacts phases
+in order. The artifact phase generates Floe manifests, builds and pushes
+project-code to ECR, uploads Floe manifests directly to the S3 ops bucket,
+imports Superset report assets, deploys OpenMetadata metadata, patches Dagster
+runtime images, and restarts Dagster workloads.
 
-Use `make aws-platform-down` followed by `make aws-foundation-down` only when
-you want to tear down the two Terraform roots manually; `make aws-down` wraps
-both in that order.
+Use `olf destroy --provider aws --phase platform` followed by
+`olf destroy --provider aws --phase foundation` only when you want to tear down
+the two Terraform roots manually; `olf destroy --provider aws` wraps both in
+that order.
 
 ## Compatibility Gate
 
@@ -109,11 +110,10 @@ The AWS full-suite compatibility gate proves:
 - Trino can query both layers through Glue;
 - OpenMetadata can seed and crawl Glue-backed namespaces.
 
-`make aws-e2e` runs `olf e2e run --env aws`, which first checks cluster health,
-provider contracts, S3, Glue, Trino, and core workloads, then launches all
-Dagster product jobs and validates tables, marts, dashboards, metadata, and
-runtime artifacts. Use `olf e2e run --env aws --suite smoke` to run only the
-preflight checks.
+`olf e2e run --env aws` first checks cluster health, provider contracts, S3,
+Glue, Trino, and core workloads, then launches all Dagster product jobs and
+validates tables, marts, dashboards, metadata, and runtime artifacts. Use
+`olf e2e run --env aws --suite smoke` to run only the preflight checks.
 
 ## POC Limits
 

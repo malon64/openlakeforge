@@ -38,19 +38,16 @@ REQUIRED_PATHS: tuple[str, ...] = (
     "docs/technical-debt.md",
     "docs/testing/floe-openlineage-capture-test-plan.md",
     "docs/adr/README.md",
-    "docs/adr/0001-v1-platform-baseline.md",
-    "docs/adr/0002-local-object-storage-seaweedfs.md",
-    "docs/adr/0003-local-dagster-project-code-runtime.md",
-    "docs/adr/0010-provider-contract-first-cloud-readiness.md",
-    "docs/adr/0011-iceberg-catalog-contract-allows-glue.md",
-    "docs/adr/0012-contract-driven-provider-first-hardening.md",
-    "docs/adr/0014-ops-artifact-bucket-and-domain-dagster-locations.md",
-    "docs/adr/0019-merged-dagster-code-location-default.md",
-    "docs/adr/0022-phase-two-catalog-namespace-reconciliation.md",
-    "docs/adr/0023-native-openlineage-emission-restored.md",
-    "docs/adr/0024-canonical-domain-model-package.md",
-    "docs/adr/0026-medallion-ownership-and-catalog-namespace-contract.md",
-    "docs/adr/0015-aws-eks-managed-services-poc.md",
+    "docs/adr/0001-platform-baseline-and-component-stack.md",
+    "docs/adr/0002-deployment-lifecycle.md",
+    "docs/adr/0003-provider-contracts.md",
+    "docs/adr/0004-medallion-layout-and-catalog-namespaces.md",
+    "docs/adr/0005-descriptor-model.md",
+    "docs/adr/0006-dagster-runtime-and-code-locations.md",
+    "docs/adr/0007-governance-and-lineage.md",
+    "docs/adr/0008-olf-owns-orchestration-and-toolchain.md",
+    "docs/adr/0009-distribution.md",
+    "docs/adr/0010-cloud-provider-implementations.md",
     "infra/README.md",
     "infra/terraform/README.md",
     "infra/terraform/environments/local/contracts.tf",
@@ -200,8 +197,7 @@ REQUIRED_PATHS: tuple[str, ...] = (
     "tools/olf/olf/tooling/aws.py",
     "tools/olf/olf/tooling/azure.py",
     ".github/workflows/release.yml",
-    "docs/adr/0027-olf-owns-cloud-deployment-orchestration.md",
-    "docs/adr/0028-python-owns-repository-orchestration.md",
+    "docs/adr/0008-olf-owns-orchestration-and-toolchain.md",
 )
 
 
@@ -238,6 +234,22 @@ def _uv_pip_install(*, target: Path, requirements: list[str], cwd: Path) -> None
 def _missing_required_paths(root: Path) -> list[str]:
     """Return required skeleton entries absent from a checkout."""
     return [path for path in REQUIRED_PATHS if not (root / path).exists()]
+
+
+def _distribution_root_for(root: Path) -> Path:
+    """Resolve the distribution root to validate/import alongside `root`.
+
+    An explicit `--repo-root` can point at a complete, separate checkout —
+    one with its own `infra/terraform` — and that checkout's own Terraform,
+    Helm, schema, and `libs/` must be what gets checked, not the executing
+    `olf`'s. Only an installed-project-shaped root (`lakehouse_code/` only,
+    no `infra/terraform` of its own) falls back to the runtime payload.
+    """
+    from olf.distribution import runtime_layout
+
+    if (root / "infra" / "terraform").is_dir():
+        return root
+    return runtime_layout().distribution_root
 
 
 @app.command("structure")
@@ -326,11 +338,12 @@ def _option_value(argv: list[str], option: str) -> str | None:
 
 
 @app.command("contracts")
-def contracts(repo_root: str = typer.Option("", "--repo-root", help="Checkout root to validate.")) -> None:
+def contracts(repo_root: str = typer.Option("", "--repo-root", help="Checkout or project root to validate.")) -> None:
     """Run the existing parsed provider-contract validation."""
     from olf import contracts_check
 
-    report = contracts_check.run_contracts_check(_root(repo_root))
+    root = _root(repo_root)
+    report = contracts_check.run_contracts_check(root, distribution_root=_distribution_root_for(root))
     typer.echo(report.render())
     if not report.ok:
         raise typer.Exit(code=1)
@@ -564,11 +577,19 @@ def _source_tree_digest(directory: Path) -> str:
 
 
 @app.command("dbt")
-def dbt(repo_root: str = typer.Option("", "--repo-root", help="Checkout root to validate.")) -> None:
+def dbt(repo_root: str = typer.Option("", "--repo-root", help="Checkout or project root to validate.")) -> None:
     """Render, resolve, parse, and compile every discovered dbt product."""
     root = _root(repo_root)
-    if str(root) not in sys.path:
-        sys.path.insert(0, str(root))
+    # `libs` is distribution-owned, not project-owned (ADR 0009): an
+    # installed project's root has only `lakehouse_code/`, so the
+    # distribution root must be on sys.path too, not just the project root.
+    # Mirrors `olf dbt parse`'s identical fix. `_distribution_root_for`
+    # prefers `root` itself when `--repo-root` selects a complete, separate
+    # checkout, so that checkout's own `libs/dbt/render_profiles` wins.
+    distribution_root = _distribution_root_for(root)
+    for path in (str(root), str(distribution_root)):
+        if path not in sys.path:
+            sys.path.insert(0, path)
     from libs.dbt.render_profiles import discover_project_dirs, write_profile
 
     projects = discover_project_dirs(root / "lakehouse_code/gold")

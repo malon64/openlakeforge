@@ -19,7 +19,7 @@ output "contract" {
     glue_warehouse_prefix  = "warehouse/iceberg"
     # No glue_database_names/glue_schema_names/catalog_schema_names/
     # catalog_namespaces here: database lifecycle is reconciled in Phase 2
-    # (ADR 0022), so Phase 1 has nothing authoritative to report. Omitting the
+    # (ADR 0002), so Phase 1 has nothing authoritative to report. Omitting the
     # keys -- rather than emitting empty lists -- is what lets
     # olf/contracts.py fall back to the descriptor-derived values instead of
     # exporting an empty JSON array over them.

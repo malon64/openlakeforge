@@ -14,7 +14,7 @@ If you are discovering OpenLakeForge for the first time, start with the [root RE
 | ☁️ Deploy to AWS                      | [AWS deployment](setup/cloud-poc-setup.md#aws-eks)               |
 | ☁️ Deploy to Azure                    | [Azure deployment](setup/cloud-poc-setup.md#azure-aks)           |
 | 🧱 Build my first data product        | [Your first data product](getting-started/first-data-product.md) |
-| 📄 Understand `domain.yaml`           | [Domain descriptor reference](reference/domain-descriptor.md)    |
+| 📄 Understand `lakehouse.yaml`        | [Domain descriptor reference](reference/domain-descriptor.md)    |
 | 🛠️ Use the `olf` CLI                 | [`olf` CLI reference](../tools/olf/README.md)                    |
 | 🏗️ Understand the architecture       | [Architecture documentation](architecture/README.md)             |
 | 🔌 Understand cloud portability       | [Provider contracts](architecture/provider-contracts.md)         |
@@ -98,14 +98,17 @@ The recommended way to understand the data-product model is to build one end to 
 
 ### Domain descriptors
 
-Each domain has a `domain.yaml` descriptor defining its data products and their Bronze, Silver, and Gold assets.
+Each project has a `lakehouse.yaml` descriptor defining its domains, data
+products, and their Bronze, Silver, and Gold assets, plus a `source.yaml`
+descriptor per Bronze source.
 
 Descriptors are provider-neutral: business metadata describes the logical data product while OpenLakeForge resolves infrastructure-specific catalog, storage, and namespace details through provider contracts.
 
 Resources:
 
-* [Domain descriptor JSON schema](schema/domain.schema.json)
-* [`v1alpha1` → `v1alpha2` migration guide](migrations/domain-v1alpha1-to-v1alpha2.md)
+* [Lakehouse descriptor JSON schema](schema/lakehouse.schema.json)
+* [Source descriptor JSON schema](schema/source.schema.json)
+* [Domain descriptor reference](reference/domain-descriptor.md)
 * [Provider contracts](architecture/provider-contracts.md)
 
 ---
@@ -130,7 +133,7 @@ It provides shared cross-environment functionality used by local, AWS, and Azure
 * a managed Terraform/Helm/kubectl/kind toolchain, so those tools do not
   need to be installed on the host
 
-The current CLI is primarily used by OpenLakeForge's deployment workflows and Make targets, but its commands can also be invoked directly for advanced workflows and debugging.
+The current CLI is the supported OpenLakeForge interface for deployment, checks, and release workflows; a checkout's `Makefile` provides deprecated one-line delegates to the same `olf` commands.
 
 ➡️ [`olf` CLI documentation](../tools/olf/README.md)
 
@@ -300,7 +303,6 @@ docs/
 │   └── diagrams/
 │
 ├── adr/
-├── migrations/
 ├── release/
 ├── schema/
 └── testing/

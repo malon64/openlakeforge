@@ -25,7 +25,7 @@ def test_aws_provider_contract_smoke_check(monkeypatch: pytest.MonkeyPatch, tmp_
 def test_aws_storage_and_glue_smoke_check_uses_bucket_and_databases(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """The contract no longer publishes a namespace/database list (ADR 0022) --
+    """The contract no longer publishes a namespace/database list (ADR 0002) --
     every expected database name comes straight from the inventory, and the
     check asserts against AWS directly rather than against the contract."""
     provider_contracts = {"artifact_bucket": {"bucket_name": "openlakeforge-ops"}}

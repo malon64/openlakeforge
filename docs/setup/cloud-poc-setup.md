@@ -10,13 +10,17 @@ environment variables.
 
 ## Prerequisites
 
-Install and put on your `PATH`: `docker`, `python3`, `uv`, and `make`.
+Installed from PyPI (`pip install openlakeforge`), you need `docker` and
+`python3` on your `PATH`. From a source checkout, you additionally need `git`
+and `uv`; `make` is optional, deprecated compatibility whose targets delegate
+to the same `olf` commands this guide uses directly.
+
 `olf` provisions its own versioned `terraform`, `kubectl`, and `helm` under
 `OLF_HOME` (default `~/.openlakeforge`). Neither `aws` nor `az` is required.
 Set `OLF_TOOLCHAIN_MODE=host` to use host Terraform, kubectl, and Helm instead.
 
-Terraform state is stored **locally** (no remote backend), so run the `make`
-targets from the same machine/checkout each time for a given environment.
+Terraform state is stored **locally** (no remote backend), so run the `olf`
+commands from the same machine/project each time for a given environment.
 
 ---
 
@@ -49,17 +53,20 @@ carry only non-secret **tags** (and the foundation cluster name) — the values
 your account mandates. `sandbox.tfvars` is gitignored, so it stays on your
 machine.
 
-```bash
-cd infra/terraform/foundations/aws-eks
-cp sandbox.tfvars.example sandbox.tfvars      # set your Owner tag
+In a checkout, the templates are files on disk. Installed from PyPI, they are
+part of the read-only payload `olf distribution path` prints, so the same
+commands work either way:
 
-cd ../../environments/aws-poc
-cp sandbox.tfvars.example sandbox.tfvars      # set your Owner tag
+```bash
+DIST="$(olf distribution path)"
+cp "$DIST/infra/terraform/foundations/aws-eks/sandbox.tfvars.example" sandbox.tfvars   # set your Owner tag
+export AWS_TFVARS_FILE="$(pwd)/sandbox.tfvars"
 ```
 
-Set `Owner`/`Requester` to **your** email. If your account needs an IAM naming prefix such as
-`limited-`, set that via `AWS_CLUSTER_NAME`. To keep the tfvars elsewhere:
-`export AWS_TFVARS_FILE=/abs/path/to/your.tfvars`.
+`AWS_TFVARS_FILE` is reused for both the foundation and the platform apply, so
+one file covers both. Set `Owner`/`Requester` to **your** email. If your
+account needs an IAM naming prefix such as `limited-`, set that via
+`AWS_CLUSTER_NAME`.
 
 ### 3. Common overrides (optional)
 
@@ -71,27 +78,28 @@ All have sane defaults; override via environment variables:
 | `AWS_CLUSTER_NAME` | `limited-eks-openlakeforge-poc` | EKS cluster name (must match `cluster_name` in the foundation tfvars) |
 | `AWS_NODE_INSTANCE_TYPES` | `m7i.large` | Node group instance type(s) |
 | `AWS_TFVARS_FILE` | `<dir>/sandbox.tfvars` | Path to your tfvars |
-| `AWS_KUBECONFIG_PATH` | `.tmp/kubeconfigs/aws.yaml` | Isolated EKS kubeconfig used by every AWS target |
+| `--kubeconfig-path` (CLI flag) | `.tmp/kubeconfigs/aws.yaml` in a checkout, `~/.openlakeforge/state/aws/kubeconfig.yaml` installed | Isolated EKS kubeconfig; not an environment variable |
 
 ### 4. Deploy
 
 Three-step deploy (foundation, platform, then artifacts):
 
 ```bash
-make aws-foundation-up      # VPC, EKS, ECR, IAM; writes your kubeconfig context
-make aws-platform-up        # RDS, S3, Glue, Trino, Superset, Dagster, OpenMetadata
-make aws-artifacts-deploy   # build/push images, upload Floe manifests, load code
-make aws-forward            # port-forward Superset/Dagster/etc. to localhost
+olf deploy --provider aws --phase foundation   # VPC, EKS, ECR, IAM; writes your kubeconfig context
+olf deploy --provider aws --phase platform     # RDS, S3, Glue, Trino, Superset, Dagster, OpenMetadata
+olf deploy --provider aws --phase artifacts    # build/push images, upload Floe manifests, load code
+olf forward --provider aws                     # port-forward Superset/Dagster/etc. to localhost
 ```
 
-`make aws-up` runs foundation, platform, and artifacts in sequence.
+`olf deploy --provider aws` with no `--phase` runs foundation, platform, and
+artifacts in sequence.
 
 ### 5. Tear down
 
 ```bash
-make aws-platform-down      # platform environment (RDS, buckets, Helm releases)
-make aws-foundation-down    # EKS, ECR, networking
-make aws-down               # full teardown wrapper: platform, then foundation
+olf destroy --provider aws --phase platform     # platform environment (RDS, buckets, Helm releases)
+olf destroy --provider aws --phase foundation   # EKS, ECR, networking
+olf destroy --provider aws                      # full teardown: platform, then foundation
 ```
 
 ECR repositories use `force_delete`. Superset report ZIPs use ephemeral pod
@@ -126,13 +134,14 @@ group, plus an AKS VM size permitted by that subscription and region. Keep
 sandbox. When Terraform should create the group, set it to `true`; removing
 `resource_group_name` then uses the default `rg-openlakeforge-azure-poc`.
 
-```bash
-cd infra/terraform/foundations/azure-aks
-cp sandbox.tfvars.example sandbox.tfvars
-```
+In a checkout, the template is a file on disk. Installed from PyPI, it is
+part of the read-only payload `olf distribution path` prints, so the same
+commands work either way:
 
-The scripts load `sandbox.tfvars` automatically. To keep it elsewhere, set
-`AZURE_TFVARS_FILE=/abs/path/to/your.tfvars`.
+```bash
+cp "$(olf distribution path)/infra/terraform/foundations/azure-aks/sandbox.tfvars.example" sandbox.tfvars
+export AZURE_TFVARS_FILE="$(pwd)/sandbox.tfvars"
+```
 
 ### 3. Configure optional runtime overrides
 
@@ -144,18 +153,18 @@ All have defaults; override via environment variables:
 | `AZURE_CLUSTER_NAME` | `aks-openlakeforge-poc` | AKS cluster name |
 | `AZURE_NODE_COUNT` | `3` | Node count |
 | `AZURE_ACR_NAME_PREFIX` | `openlakeforgepoc` | ACR name prefix (globally unique) |
-| `AZURE_KUBECONFIG_PATH` | `.tmp/kubeconfigs/azure.yaml` | Isolated AKS kubeconfig used by every Azure target |
+| `--kubeconfig-path` (CLI flag) | `.tmp/kubeconfigs/azure.yaml` in a checkout, `~/.openlakeforge/state/azure/kubeconfig.yaml` installed | Isolated AKS kubeconfig; not an environment variable |
 
 ### 4. Deploy / tear down
 
 ```bash
-make azure-foundation-up
-make azure-up               # foundation + platform + artifacts
-make azure-forward
+olf deploy --provider azure --phase foundation
+olf deploy --provider azure               # foundation + platform + artifacts
+olf forward --provider azure
 # ...
-make azure-platform-down    # platform services only
-make azure-foundation-down  # AKS, ACR, and resource group resources
-make azure-down             # full teardown wrapper: platform, then foundation
+olf destroy --provider azure --phase platform     # platform services only
+olf destroy --provider azure --phase foundation   # AKS, ACR, and resource group resources
+olf destroy --provider azure                      # full teardown: platform, then foundation
 ```
 
 ## Concurrent deployments
@@ -165,17 +174,21 @@ uses its own kubeconfig, Helm cache, Docker credential directory, report work
 directory, and port-forward logs:
 
 ```bash
-make local-up &
-make azure-up &
-make aws-up &
+olf deploy --provider local &
+olf deploy --provider azure &
+olf deploy --provider aws &
 wait
 ```
 
-The default kubeconfig paths are `.tmp/kubeconfigs/local.yaml`,
-`.tmp/kubeconfigs/azure.yaml`, and `.tmp/kubeconfigs/aws.yaml`. Override them
-with `LOCAL_KUBECONFIG_PATH`, `AZURE_KUBECONFIG_PATH`, or
-`AWS_KUBECONFIG_PATH`. The workflows never switch the current context in your
-global kubeconfig.
+The default kubeconfig, Terraform state, and work/cache paths are all
+scoped by *provider*, so the three different providers above never collide
+with no extra flags needed. That scoping is per-provider, not per-invocation:
+**two concurrent deployments of the same provider are not supported.** They
+would resolve the same default kubeconfig, the same Terraform state file, and
+the same work/cache directories regardless of `--kubeconfig-path` — that flag
+only relocates the kubeconfig, not the Terraform state or work root the two
+runs would still contend for. The workflows never switch the current context
+in your global kubeconfig.
 
 ---
 

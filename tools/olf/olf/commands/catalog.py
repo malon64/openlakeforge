@@ -98,7 +98,7 @@ def _sync_glue_namespaces(*, desired: tuple, dry_run: bool, prune: bool) -> None
 def sync_namespaces(*, dry_run: bool, prune: bool | None) -> None:
     """Reconcile catalog namespaces (Polaris) or databases (Glue) with the domain descriptors.
 
-    Phase 2 owns namespace lifecycle (ADR 0022), so this runs before any table
+    Phase 2 owns namespace lifecycle (ADR 0002), so this runs before any table
     is written. Plain function (not the typer command) so the full deploy
     flow - already inside a hydrated contract environment - can call it
     directly without re-resolving one.

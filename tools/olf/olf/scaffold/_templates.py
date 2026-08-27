@@ -124,7 +124,7 @@ This domain owns the `{domain}_silver` Iceberg namespace and its Floe
 Bronze-to-Silver contract at `contracts/floe/{domain}.yml`. Every product
 built on `{domain}` shares this one Silver namespace and this one Floe
 contract -- see
-[ADR 0026](../../../docs/adr/0026-medallion-ownership-and-catalog-namespace-contract.md).
+[ADR 0004](../../../docs/adr/0004-medallion-layout-and-catalog-namespaces.md).
 """
 
 

@@ -12,6 +12,91 @@ immutable-semver` in `release/component-catalog.yaml`) and are never
 force-updated. See [docs/release/releasing.md](docs/release/releasing.md)
 for how a release is cut and verified.
 
+## [0.2.0-alpha.1] - 2026-08-26
+
+The small-team adoption release (Milestone 2): OpenLakeForge installs from
+PyPI without a checkout, scaffolds a data product without touching shared
+platform code, and runs a slim profile with no product allowlist baked into
+the tooling.
+
+### Added
+
+- PyPI distribution: `pip install openlakeforge` installs the `olf` console
+  command with a verified, immutable Terraform/Helm/runtime payload embedded
+  in the wheel and sdist (#128, ADR 0009).
+- `olf init` bootstraps a writable `lakehouse_code/` project from the
+  packaged demo in the current directory; `olf init --empty` creates a
+  transitional project with no source, domain, or product yet (#146,
+  ADR 0009).
+- A managed Terraform/Helm/kubectl/kind toolchain: `olf` downloads, verifies,
+  and privately invokes its own versioned copies under `OLF_HOME`, so none of
+  those tools need to be installed on the host. `OLF_TOOLCHAIN_MODE=host`
+  opts back into host-installed copies (#127, ADR 0008).
+- SDK-managed AWS and Azure authentication: `olf auth login --provider
+  aws|azure` goes through boto3 / the Azure SDK directly; the `aws` and `az`
+  CLIs are no longer required (#142, ADR 0008).
+- Golden-path scaffolding: `olf source new`, `olf domain new`, and
+  `olf product new` generate a runnable Bronze source, Silver domain, or Gold
+  product from documented inputs, with no shared-code edit (#40).
+- A typed domain inventory built from validated descriptors; every seed-
+  product allowlist is gone from shared platform code, so an added product
+  is discovered automatically (#39).
+- Persistent Polaris catalog state: a Polaris pod restart no longer loses
+  table identity or requires a full platform re-apply (#79).
+- A slim local profile that omits OpenMetadata and Superset, with e2e
+  assertions skipped rather than failed when a layer is absent (#78).
+- A kind smoke gate (`olf smoke run`) on every pull request: one product
+  pipeline through to a queryable Gold table, within a 45-minute budget
+  (#81).
+
+### Changed
+
+- `olf` is now the only repository orchestration implementation; the
+  shell-scripted deploy path is gone. `Makefile` targets are deprecated
+  one-line delegates to the equivalent `olf` command (#122-#126, ADR 0008).
+- Dagster collapses to one merged code location by default; a per-domain
+  split is now an explicit configuration choice rather than the default
+  (#76, ADR 0006).
+- `lakehouse_code/` replaces `domains/` as the user-code root: Bronze is
+  source-owned, Silver is domain-owned, and Gold stays product-owned (#109,
+  ADR 0004). The `openlakeforge.io/v1alpha3` `Lakehouse`/`Source` descriptor
+  pair replaces `v1alpha1`/`v1alpha2` `Domain` descriptors; their loader and
+  validator are removed along with `docs/schema/domain*.json` and the
+  `v1alpha1`->`v1alpha2` migration guide.
+- `scripts/release/verify-install.sh` is replaced by `olf release
+  verify-install`.
+- The decision log is consolidated from 32 ADRs to 10, renumbered `0001`-`0010`
+  and rewritten to describe what binds today rather than stacking supersessions.
+  Each new ADR carries a History footer naming the records it absorbs. ADR
+  numbers referenced in earlier releases, commits, and closed pull requests
+  refer to the old numbering.
+
+### Migration notes
+
+Consumers upgrading from `v0.1.0-alpha.1` should:
+
+1. Stop cloning the repository to install: `pip install openlakeforge` (or
+   `uv tool install openlakeforge --python 3.12`), then `olf init` in an
+   empty project directory. See the [README](README.md#quick-start) and
+   [local installation guide](docs/setup/local.md).
+2. Migrate any `domains/<domain>/domain.yaml` descriptor to
+   `lakehouse_code/lakehouse.yaml` plus one `lakehouse_code/bronze/<source>/
+   source.yaml` per Bronze source (`openlakeforge.io/v1alpha3`). See
+   [docs/reference/domain-descriptor.md](docs/reference/domain-descriptor.md).
+3. Replace direct `scripts/*.sh` or checkout `make <env>-*` invocations with
+   the equivalent `olf` command; every `Makefile` target still works as a
+   delegate, but is no longer the primary interface.
+4. Expect further breaking changes in the next alpha; this stage carries no
+   forward compatibility guarantee.
+
+### Known limitations
+
+- No stable support window is published before `v1.0`; only the latest
+  alpha tag is maintained.
+- The Azure POC and AWS POC deployment targets remain proof-of-concept
+  scope; see `docs/architecture/aws-eks-poc.md` for the current AWS
+  compatibility gate.
+
 ## [0.1.0-alpha.1] - 2026-08-10
 
 The first publishable OpenLakeForge alpha: a signed, SBOM'd, provenance-

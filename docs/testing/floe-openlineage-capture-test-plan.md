@@ -20,7 +20,7 @@ OpenLakeForge runtime:
 - OpenMetadata can later match the same event stream without the removed proxy.
 
 This test does not validate dbt Silver-to-Gold lineage. dbt-trino is tested
-separately in ADR 0018. Floe endpoint and authentication support are active;
+separately in ADR 0001. Floe endpoint and authentication support are active;
 Bronze-to-Silver dataset lineage remains blocked by the manifest-replay observer
 being constructed without entity metadata.
 
@@ -99,7 +99,7 @@ resolved only when all of these are true:
 
 ## References
 
-- [ADR 0009: OpenMetadata Lineage Integration Deferred](../adr/0009-openmetadata-lineage-direct-rest-push.md)
+- [ADR 0007: OpenMetadata Lineage Integration Deferred](../adr/0007-governance-and-lineage.md)
 - [Technical Debt: Resolved Upstream, Pending Verification](../technical-debt.md#resolved-upstream-pending-verification)
 - [Floe issue #382](https://github.com/malon64/floe/issues/382)
 - [Floe releases](https://github.com/malon64/floe/releases)

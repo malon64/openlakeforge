@@ -22,7 +22,7 @@ Infrastructure-specific values such as Kubernetes resources, catalog implementat
 storage endpoints, and physical credentials do **not** belong in either descriptor. Those
 are resolved separately through OpenLakeForge provider contracts.
 
-See [ADR 0026](../adr/0026-medallion-ownership-and-catalog-namespace-contract.md) for the
+See [ADR 0004](../adr/0004-medallion-layout-and-catalog-namespaces.md) for the
 architectural reasoning behind this ownership split.
 
 ---
@@ -39,11 +39,12 @@ apiVersion: openlakeforge.io/v1alpha3
 kind: Source
 ```
 
-`v1alpha3` is required by the canonical OpenLakeForge lakehouse inventory. Descriptors
-using the legacy `v1alpha1`/`v1alpha2` `Domain` format can still be parsed for migration
-diagnostics only — they are no longer discovered by any default runtime path. See
-[v1alpha1 → v1alpha2 migration](../migrations/domain-v1alpha1-to-v1alpha2.md) for that
-earlier, now-historical migration.
+`v1alpha3` is required by the canonical OpenLakeForge lakehouse inventory. The
+earlier legacy `v1alpha1`/`v1alpha2` `Domain` format and its parsers were
+removed once `lakehouse_code/lakehouse.yaml` fully replaced `domains/*/domain.yaml`
+(ADR 0004); see [ADR 0005](../adr/0005-descriptor-model.md)
+and [ADR 0004](../adr/0004-medallion-layout-and-catalog-namespaces.md)
+for that now-historical migration.
 
 `olf init --empty` intentionally writes a transitional `lakehouse.yaml` with
 empty `sources` and `domains` lists. It is accepted only by the source/domain/
@@ -635,10 +636,9 @@ Changes to `displayName`, `description`, and `status` are generally metadata-onl
 # Related documentation
 
 * [Build your first data product](../getting-started/first-data-product.md)
-* [ADR 0026 — medallion ownership and catalog namespace contract](../adr/0026-medallion-ownership-and-catalog-namespace-contract.md)
+* [ADR 0004 — medallion ownership and catalog namespace contract](../adr/0004-medallion-layout-and-catalog-namespaces.md)
 * [Lakehouse JSON Schema](../schema/lakehouse.schema.json)
 * [Source JSON Schema](../schema/source.schema.json)
-* [v1alpha1 → v1alpha2 migration (historical)](../migrations/domain-v1alpha1-to-v1alpha2.md)
 * [Provider contracts](../architecture/provider-contracts.md)
 * [Architecture overview](../architecture/overview.md)
 * [`olf` CLI documentation](../../tools/olf/README.md)

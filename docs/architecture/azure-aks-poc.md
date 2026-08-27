@@ -43,7 +43,7 @@ cd infra/terraform/foundations/azure-aks
 cp sandbox.tfvars.example sandbox.tfvars
 # Edit resource_group_name, create_resource_group, location, and node_vm_size.
 cd ../../../..
-make azure-up
+olf deploy --provider azure --var-file infra/terraform/foundations/azure-aks/sandbox.tfvars
 ```
 
 Some corporate sandboxes only allow resource creation inside a pre-created
@@ -52,8 +52,8 @@ foundation state and set `create_resource_group = false` in `sandbox.tfvars`.
 Terraform will read the existing resource group and still create the POC-owned
 resources inside it: AKS, ACR, and the AKS-to-ACR pull role assignment.
 
-The same tfvars file is used by `azure-up`, `azure-down`, and
-`azure-foundation-down`. With `create_resource_group = false`, foundation
+The same tfvars file is used by `olf deploy`, `olf destroy`, and
+`olf destroy --phase foundation`. With `create_resource_group = false`, foundation
 destroy removes the AKS and ACR resources owned by this stack but leaves the
 external resource group in place.
 
@@ -62,23 +62,23 @@ external resource group in place.
 Create AKS and ACR:
 
 ```bash
-make azure-foundation-up
+olf deploy --provider azure --phase foundation
 ```
 
 Deploy the platform:
 
 ```bash
-make azure-up
+olf deploy --provider azure
 ```
 
-`make azure-up` runs three steps:
+`olf deploy --provider azure` runs three phases:
 
-1. `make azure-foundation-up` creates or refreshes the AKS and ACR foundation.
-2. `make azure-platform-up` builds and pushes the Superset image to ACR, then runs
+1. `--phase foundation` creates or refreshes the AKS and ACR foundation.
+2. `--phase platform` builds and pushes the Superset image to ACR, then runs
    Terraform in `infra/terraform/environments/azure-poc`. Superset is pushed
    before Terraform because the Helm release waits for Superset pods.
-3. `make azure-artifacts-deploy` generates Floe manifests, builds and pushes
-   the project-code image to ACR, uploads Floe manifests through the SeaweedFS
+3. `--phase artifacts` generates Floe manifests, builds and pushes the
+   project-code image to ACR, uploads Floe manifests through the SeaweedFS
    S3-compatible API via port-forward, imports Superset report bundles, deploys
    OpenMetadata metadata, and restarts Dagster deployments.
 
@@ -95,7 +95,7 @@ repository is unavailable.
 Forward service UIs to localhost:
 
 ```bash
-make azure-forward
+olf forward --provider azure
 ```
 
 Ports match the local stack:
@@ -112,19 +112,18 @@ Ports match the local stack:
 Static checks include the Azure roots and contracts:
 
 ```bash
-make check-structure
-make check-contracts
-make check-infra
+olf check structure
+olf check contracts
+olf check infra
 ```
 
-After `make azure-up`, run:
+After `olf deploy --provider azure`, run:
 
 ```bash
-make azure-e2e
+olf e2e run --env azure
 ```
 
-`make azure-e2e` is a thin wrapper around `olf e2e run --env azure`, which
-defaults to the full suite. The e2e check:
+`olf e2e run --env azure` defaults to the full suite. The e2e check:
 
 - Confirms pods are `Running` or completed bootstrap pods are `Succeeded`.
 - Launches and polls these Dagster jobs to `SUCCESS`:
@@ -144,20 +143,20 @@ defaults to the full suite. The e2e check:
 Destroy only the platform:
 
 ```bash
-make azure-platform-down
+olf destroy --provider azure --phase platform
 ```
 
 Then destroy AKS, ACR, and the resource group resources:
 
 ```bash
-make azure-foundation-down
+olf destroy --provider azure --phase foundation
 ```
 
-For a full teardown wrapper, run:
+For a full teardown, run:
 
 ```bash
-make azure-down
+olf destroy --provider azure
 ```
 
-The foundation destroy target refuses to run while the `lakehouse` namespace
-exists unless `AZURE_FOUNDATION_FORCE_DOWN=true` is set.
+The foundation destroy phase refuses to run while the `lakehouse` namespace
+exists unless `--force` is passed.

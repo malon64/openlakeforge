@@ -164,7 +164,7 @@ def test_aws_contracts_blank_local_only_fields_and_derive_glue_fqns() -> None:
 
 
 def test_aws_glue_contract_without_schema_fqns_falls_back_to_the_descriptors() -> None:
-    """Glue database lifecycle also moved to Phase 2 (ADR 0022): when a Glue
+    """Glue database lifecycle also moved to Phase 2 (ADR 0002): when a Glue
     contract carries no schema-FQN map at all -- not the partial single-product
     map the fixture normally carries -- the same descriptor-driven fallback
     that serves Polaris must serve Glue, using the aws_glue.<catalog> prefix."""

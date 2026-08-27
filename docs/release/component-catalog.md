@@ -26,7 +26,7 @@ in `components.python` and fails if one is out of sync with its sibling
 `pyproject.toml`, checked with `uv` directly rather than a duplicate
 implementation here).
 
-`components.toolchain` is what `olf toolchain` (ADR 0029) provisions into
+`components.toolchain` is what `olf toolchain` (ADR 0008) provisions into
 `OLF_HOME` instead of requiring a host installation of Terraform, Helm,
 kubectl, or kind: a version plus a `sha256` digest per supported platform
 (`darwin-amd64`, `darwin-arm64`, `linux-amd64`, `linux-arm64`), verified

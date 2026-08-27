@@ -90,7 +90,7 @@ def test_readme_links_from_generated_bronze_and_silver_dirs_resolve(tmp_path: Pa
     assert (bronze_readme.parent / bronze_link).resolve() == (repo_root / "docs/getting-started/first-data-product.md")
     assert (domain_readme.parent / domain_link).resolve().is_relative_to(repo_root.resolve())
     assert (domain_readme.parent / domain_link).resolve() == (
-        repo_root / "docs/adr/0026-medallion-ownership-and-catalog-namespace-contract.md"
+        repo_root / "docs/adr/0004-medallion-layout-and-catalog-namespaces.md"
     )
 
 

@@ -58,7 +58,7 @@ so ingestion scales to zero between runs — Gold is the exception, running as S
 the long-lived Trino coordinator above rather than in a Job. **Bootstrap**: five grouped
 categories — Polaris, SeaweedFS (one Job per bucket, four buckets), PostgreSQL,
 OpenMetadata, and Superset's Helm hook — eight one-shot Jobs in total, firing once per
-platform apply (Phase 1). **Scheduled**: the two CronJobs on the cluster clock
+the platform apply (phase 2). **Scheduled**: the two CronJobs on the cluster clock
 (log archive every 15 minutes, OpenMetadata catalog refresh hourly).
 
 ![Cluster Pod Census](chart1-cluster-pod-census.svg)
@@ -163,7 +163,7 @@ never to raw paths. Rejected rows are quarantined as CSV; exit code 0 covers
 
 ![Medallion and Catalog Data Path](chart4-medallion-catalog.svg)
 
-<sub>environments/local/main.tf · catalog/polaris/main.tf · lakehouse_code/lakehouse.yaml · ADR 0011, 0013, 0026</sub>
+<sub>environments/local/main.tf · catalog/polaris/main.tf · lakehouse_code/lakehouse.yaml · ADR 0003, 0004</sub>
 
 ## Chart 5 — Provider Contracts
 
@@ -190,7 +190,7 @@ different set: exactly three platform modules (`storage/aws-s3`, `catalog/aws-gl
 
 ![Provider Contracts](chart5-provider-contracts.svg)
 
-<sub>`infra/terraform/environments/{local,aws-poc,azure-poc}/contracts.tf` · [provider-contracts.md](../provider-contracts.md) · ADR 0010, 0011, 0015, 0016</sub>
+<sub>`infra/terraform/environments/{local,aws-poc,azure-poc}/contracts.tf` · [provider-contracts.md](../provider-contracts.md) · ADR 0003, 0010</sub>
 
 ---
 
@@ -217,25 +217,31 @@ Keycloak, Vault/External Secrets, Traefik + cert-manager, Athena, Lake Formation
 Terraform state. OpenLineage is live, not deferred — Floe and dbt-trino emit lineage
 events directly to OpenMetadata's native `openlineage` endpoint. The governance bootstrap
 creates the endpoint credentials; runners receive them only through Secret references.
-[ADR 0023](../../adr/0023-native-openlineage-emission-restored.md) supersedes ADR 0009's
-engine-lineage deferral while retaining its rejection of a proxy and custom REST push.
+[ADR 0007](../../adr/0007-governance-and-lineage.md) covers the full history:
+a normalising proxy first hid upstream correctness problems, lineage was then
+deferred while those were fixed, and native emission was restored once Floe
+and dbt-trino could target OpenMetadata's endpoint directly. The proxy and a
+custom REST push both remain rejected.
 
-## Foundation plus two-phase deploy — the CD boundary
+## Three phases, one CD boundary
 
-Foundation work creates the cluster and registry. The deployment boundary itself has two
-phases: static platform resources, then dynamic artifacts. A domain commit triggers the
-artifact phase only — CI never runs Terraform for domain changes
-([ADR 0008](../../adr/0008-two-phase-deploy-infra-and-artifacts.md),
-[ADR 0017](../../adr/0017-shared-python-deploy-tooling.md)).
+`olf deploy` runs three ordered phases: **foundation** (the cluster and
+registry), **platform** (Terraform-managed services), then **artifacts**
+(everything derived from `lakehouse_code/`). The CD boundary is not "foundation
+is outside, the rest is the deploy" — it is the static/dynamic split between
+platform and artifacts. A domain commit triggers the artifacts phase only; CI
+never runs Terraform for a domain change ([ADR 0002](../../adr/0002-deployment-lifecycle.md)).
 
-| Boundary | Target | Deploys |
+| Phase | Target | Deploys |
 | --- | --- | --- |
-| Foundation (outside the deploy boundary) | `make local-foundation-up` | Terraform: the Kubernetes cluster + container registry — kind locally, EKS + ECR on AWS, AKS + ACR on Azure |
-| Phase 1 — Platform | `make local-platform-up` | Terraform-managed platform resources: Helm releases for SeaweedFS, Polaris, Trino, OpenMetadata, Superset, Dagster — plus PostgreSQL, which Terraform creates directly as a StatefulSet + Service + bootstrap Job (no Helm release) |
-| Phase 2 — Artifacts | `make local-artifacts-deploy` | **the CD phase** — dynamic artifacts: the project-code image (dbt code), Floe contracts + manifests, Superset dashboards, OpenMetadata data products |
+| 1 — Foundation | `olf deploy --provider local --phase foundation` | Terraform: the Kubernetes cluster + container registry — kind locally, EKS + ECR on AWS, AKS + ACR on Azure |
+| 2 — Platform | `olf deploy --provider local --phase platform` | Terraform-managed platform resources: Helm releases for SeaweedFS, Polaris, Trino, OpenMetadata, Superset, Dagster — plus PostgreSQL, which Terraform creates directly as a StatefulSet + Service + bootstrap Job (no Helm release) |
+| 3 — Artifacts | `olf deploy --provider local --phase artifacts` | **the CD phase** — dynamic artifacts: the project-code image (dbt code), Floe contracts + manifests, Superset dashboards, OpenMetadata data products |
 
-`make local-up` chains foundation → Phase 1 → Phase 2; foundation and Phase 1 are
-idempotent no-ops when nothing changed. Phase 2, in order: load contract env → compile
+Phases 1 and 2 are static infrastructure that Terraform owns; phase 3 is
+dynamic and code-derived. `olf deploy --provider local` with no `--phase` chains
+1 → 2 → 3; phases 1 and 2 are idempotent no-ops when nothing changed. Phase 3,
+in order: load contract env → compile
 Floe manifests → build + load
 `project-code` → `olf artifacts upload-manifests` → `olf superset deploy-reports` →
 `olf openmetadata deploy-metadata` → `olf k8s set-project-code-image`, which patches
@@ -260,7 +266,7 @@ administer the catalog. Delivery is Terraform → Kubernetes Secret →
 `envSecrets`/`envFrom` into long-lived pods *and* ephemeral Jobs; the Trino catalog file
 holds `${ENV:...}` placeholders, never literal secrets. The AWS POC replaces static
 storage keys entirely with EKS Pod Identity
-([ADR 0016](../../adr/0016-aws-eks-pod-identity-over-irsa.md)).
+([ADR 0010](../../adr/0010-cloud-provider-implementations.md)).
 
 ## Observability — object storage is the sink
 
@@ -321,7 +327,7 @@ silver, gold, dashboard, and pipeline slices, then runs the artifact phase.
 `olf catalog sync-namespaces` derives the Bronze, Silver, and Gold namespaces from
 `lakehouse.yaml` plus every `bronze/*/source.yaml` and reconciles them before Floe, dbt, or
 OpenMetadata use them. A new product, domain, or source therefore needs no environment
-Terraform edit or platform apply; see ADR 0022 and ADR 0026. `lakehouse_code/lakehouse.yaml`
+Terraform edit or platform apply; see ADR 0002 and ADR 0004. `lakehouse_code/lakehouse.yaml`
 is the canonical, human- and machine-readable descriptor of every domain and product.
 
 ---

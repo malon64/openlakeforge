@@ -24,8 +24,8 @@ the tables below -- regenerate with:
 (or `uv run --project tools/olf olf release compatibility-matrix --output ...`
 from the repo root). The same command produces the copy embedded in every
 release bundle by .github/workflows/release.yml, so this file always matches
-what a tagged release publishes as of the last catalog update. `make
-release-check` fails if this checked-in file drifts from a fresh render;
+what a tagged release publishes as of the last catalog update.
+`olf check all` fails if this checked-in file drifts from a fresh render;
 regenerate it whenever release/component-catalog.yaml changes.
 -->
 

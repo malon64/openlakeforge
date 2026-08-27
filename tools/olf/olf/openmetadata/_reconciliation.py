@@ -156,7 +156,7 @@ class OpenMetadataReconciler:
         """Create the databaseSchema a table stub is about to reference.
 
         Phase 1 used to pre-create these alongside the Polaris namespaces it
-        owned. Now that namespaces are reconciled in Phase 2 (ADR 0022), the
+        owned. Now that namespaces are reconciled in Phase 2 (ADR 0002), the
         schema entity has to be created here instead -- OpenMetadata rejects a
         table whose `databaseSchema` does not resolve, and the Polaris crawler
         that would otherwise discover it has not run yet at seeding time.

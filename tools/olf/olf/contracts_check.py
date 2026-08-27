@@ -2,10 +2,10 @@
 
 Replaces `scripts/test/check-contracts.sh`'s source-text grepping with
 structured checks: parsed Terraform HCL, the canonical domain model plus
-JSON Schema, and parsed rendered Floe/Helm output. Shell orchestration
-(`deploy-artifacts.sh` call ordering) is covered separately by
-`tools/olf/tests/test_contracts_check_shell.py`, not by this module, per
-ADR 0017 (Python for behaviour, shell for structure).
+JSON Schema, and parsed rendered Floe/Helm output. There is no shell left to
+cover — `olf check structure` rejects tracked `.sh` files (ADR 0008). Deploy
+phase ordering is covered separately by
+`tools/olf/tests/test_deployment_engine.py`, not by this module.
 """
 
 from __future__ import annotations
@@ -85,7 +85,7 @@ _REQUIRED_CONTRACT_CHECKS_BY_ENV = {
     ),
 }
 
-# ADR 0022: catalog namespace/database lifecycle belongs to Phase 2
+# ADR 0002: catalog namespace/database lifecycle belongs to Phase 2
 # (`olf catalog sync-namespaces`), never to Terraform-owned locals or module
 # arguments in `main.tf`/`contracts.tf`.
 _FORBIDDEN_PHASE_TWO_FIELDS = (
@@ -209,17 +209,21 @@ def descriptor_schema_errors(
     return errors
 
 
-def _check_descriptor_schema_conformance(repo_root: Path) -> CheckResult:
+def _check_descriptor_schema_conformance(repo_root: Path, *, schema_root: Path | None = None) -> CheckResult:
     """The `lakehouse_code/lakehouse.yaml` descriptor and every
     `lakehouse_code/bronze/*/source.yaml` must load via the canonical model
     and conform to its versioned JSON Schema. The two validators run
-    independently; neither one substitutes for the other."""
+    independently; neither one substitutes for the other.
+
+    `schema_root` points at the distribution payload's `docs/schema/` for an
+    installed project, whose `lakehouse_code/` has no `docs/schema/` of its
+    own (ADR 0009)."""
     name = "descriptor_schema_conformance"
     lakehouse_path = repo_root / "lakehouse_code" / "lakehouse.yaml"
     source_paths = sorted((repo_root / "lakehouse_code" / "bronze").glob("*/source.yaml"))
     descriptor_count = 1 + len(source_paths) if lakehouse_path.is_file() else 0
 
-    errors = descriptor_schema_errors(repo_root)
+    errors = descriptor_schema_errors(repo_root, schema_root=schema_root)
     if errors:
         return CheckResult(name, ok=False, detail="; ".join(errors))
     return CheckResult(name, ok=True, detail=f"{descriptor_count} descriptor(s) validated")
@@ -262,7 +266,7 @@ def _check_hcl_structured_contracts(repo_root: Path) -> CheckResult:
                 if f'"{forbidden_field}"' in value or f"{forbidden_field} " in value:
                     errors.append(
                         f"{env}/contracts.tf: local {local_name!r} references Phase-2-owned field "
-                        f"{forbidden_field!r} (ADR 0022: namespaces/schemas are reconciled by "
+                        f"{forbidden_field!r} (ADR 0002: namespaces/schemas are reconciled by "
                         f"`olf catalog sync-namespaces`, not declared in Terraform)"
                     )
 
@@ -300,7 +304,7 @@ def _check_hcl_structured_contracts(repo_root: Path) -> CheckResult:
         if "aws_glue_catalog_database" in {rtype for rtype, _ in (r.split(".", 1) for r in glue_resources)}:
             errors.append(
                 "infra/terraform/modules/catalog/aws-glue/main.tf: must not create aws_glue_catalog_database "
-                "resources (ADR 0022: Phase 2 owns database lifecycle)"
+                "resources (ADR 0002: Phase 2 owns database lifecycle)"
             )
         removed_blocks = glue_document.get("removed", [])
         has_namespace_removal = any(
@@ -322,6 +326,41 @@ def _check_hcl_structured_contracts(repo_root: Path) -> CheckResult:
     return CheckResult(name, ok=True, detail=f"{environments_checked} environment(s) validated")
 
 
+_ENV_TO_PROVIDER = {"local": "local", "azure-poc": "azure", "aws-poc": "aws"}
+
+
+def _installed_contract_environ(env: str) -> dict[str, str] | None:
+    """Overlay `OPENLAKEFORGE_TERRAFORM_{STATE,DATA}_ROOT` for an installed
+    distribution, matching `DeploymentContext.command_env()` exactly.
+
+    `load_provider_contracts()` defaults to `os.environ`, which never has
+    these vars outside an active `olf deploy` invocation. Without this, an
+    installed distribution's `terraform output` reads the read-only
+    payload's absent default state instead of what `olf deploy` wrote under
+    `OLF_HOME`, and every environment is silently reported as unapplied
+    (see `olf.tooling.terraform.external_state_options`). Returns `None`
+    for a source checkout, where Terraform's own directory-relative default
+    state is correct and `load_provider_contracts` already handles it.
+    """
+    import os
+
+    from olf.deployment.context import DeploymentContext
+    from olf.distribution import runtime_layout
+
+    layout = runtime_layout()
+    if layout.is_source:
+        return None
+    context = DeploymentContext.for_provider(
+        _ENV_TO_PROVIDER[env],
+        repo_root=layout.project_root,
+        distribution_root=layout.distribution_root,
+        state_root=layout.state_root,
+        work_root=layout.work_root,
+        cache_root=layout.cache_root,
+    )
+    return context.command_env(base=os.environ)
+
+
 def _check_hcl_phase_two_invariants(repo_root: Path) -> CheckResult:
     """Tier 3: assert Phase-2-forbidden fields are absent from the *resolved*
     `provider_contracts.catalog` value, reusing the already-existing
@@ -336,7 +375,9 @@ def _check_hcl_phase_two_invariants(repo_root: Path) -> CheckResult:
 
     for env in _ENVIRONMENT_ROOTS:
         terraform_dir = repo_root / "infra/terraform/environments" / env
-        contracts = contracts_module.load_provider_contracts(str(terraform_dir))
+        contracts = contracts_module.load_provider_contracts(
+            str(terraform_dir), environ=_installed_contract_environ(env)
+        )
         if contracts is None:
             skipped_environments.append(env)
             continue
@@ -349,7 +390,7 @@ def _check_hcl_phase_two_invariants(repo_root: Path) -> CheckResult:
             if forbidden_field in catalog:
                 errors.append(
                     f"{env}: applied provider_contracts.catalog resolves Phase-2-owned field "
-                    f"{forbidden_field!r} (ADR 0022 violation)"
+                    f"{forbidden_field!r} (ADR 0002 violation)"
                 )
 
     if errors:
@@ -400,7 +441,7 @@ def _check_floe_contract_structure(repo_root: Path) -> CheckResult:
     """Every `lakehouse_code/silver/*/contracts/floe/*.yml` must parse as YAML
     and use provider-neutral storage aliases and a domain-scoped Silver
     namespace matching `<domain>_silver` (never a shared "silver"/"gold"
-    namespace, per ADR 0022)."""
+    namespace, per ADR 0002)."""
     name = "floe_contract_structure"
     errors: list[str] = []
     contract_paths = sorted(repo_root.glob("lakehouse_code/silver/*/contracts/floe/*.yml"))
@@ -510,8 +551,14 @@ _KUBE_CONTEXT_ARGUMENT_PATTERN = re.compile(r"--(?:kube-context|cluster-name)\s+
 
 
 def _check_makefile_target_wiring(repo_root: Path) -> CheckResult:
-    """Validate each Kubernetes-touching Make delegate's expanded runtime inputs."""
+    """Validate each Kubernetes-touching Make delegate's expanded runtime inputs.
+
+    The `Makefile` is deliberately excluded from the distribution payload as
+    deprecated checkout compatibility (ADR 0008), so its absence here is
+    expected for an installed project and is not a failure."""
     name = "makefile_target_wiring"
+    if not (repo_root / "Makefile").is_file():
+        return CheckResult(name, ok=True, detail=f"skipped: no Makefile under {repo_root}")
     errors: list[str] = []
     checked = 0
 
@@ -546,18 +593,36 @@ def _check_makefile_target_wiring(repo_root: Path) -> CheckResult:
     return CheckResult(name, ok=True, detail=f"{checked} target(s) dry-run and validated")
 
 
-def run_contracts_check(repo_root: str | Path = ".") -> ContractsCheckReport:
-    """Run every behavioral contract check against `repo_root`."""
+def run_contracts_check(
+    repo_root: str | Path = ".", *, distribution_root: str | Path | None = None
+) -> ContractsCheckReport:
+    """Run every behavioral contract check against `repo_root`.
+
+    `distribution_root` is where the immutable platform payload lives —
+    `infra/terraform`, `infra/helm`, `libs/floe/profiles`, `docs/schema` — and
+    defaults to `repo_root` for a source checkout, where the two coincide. An
+    installed project's `repo_root` has only `lakehouse_code/` (ADR 0009), so
+    every payload-owned check below runs against `distribution_root` instead;
+    `lakehouse_code/silver/*/contracts/floe/*.yml` remains project-owned and
+    always reads from `repo_root`. `_check_makefile_target_wiring` skips
+    rather than fails when there is no `Makefile` to invoke -- the Makefile is
+    deliberately excluded from the distribution payload as deprecated
+    checkout compatibility (ADR 0008).
+    """
     root = Path(repo_root).resolve()
     if not root.is_dir():
         raise ValueError(f"repo root does not exist: {root}")
+    dist_root = Path(distribution_root).resolve() if distribution_root is not None else root
+
     report = ContractsCheckReport()
-    report.results.append(_check_descriptor_schema_conformance(root))
-    report.results.append(_check_hcl_structured_contracts(root))
-    report.results.append(_check_hcl_phase_two_invariants(root))
+    report.results.append(
+        _check_descriptor_schema_conformance(root, schema_root=dist_root / "docs" / "schema")
+    )
+    report.results.append(_check_hcl_structured_contracts(dist_root))
+    report.results.append(_check_hcl_phase_two_invariants(dist_root))
     report.results.append(_check_floe_rendered_profile())
     report.results.append(_check_floe_contract_structure(root))
-    report.results.append(_check_floe_profile_templates(root))
-    report.results.append(_check_helm_values_as_data(root))
-    report.results.append(_check_makefile_target_wiring(root))
+    report.results.append(_check_floe_profile_templates(dist_root))
+    report.results.append(_check_helm_values_as_data(dist_root))
+    report.results.append(_check_makefile_target_wiring(dist_root))
     return report

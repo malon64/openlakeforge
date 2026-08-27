@@ -52,50 +52,68 @@ def e2e_cfg(tmp_path: Path, env: Environment = "local", suite: Suite = "full") -
     )
 
 
-def write_two_product_fixture(root: Path) -> None:
-    """A minimal two-product, single-domain descriptor for isolation tests."""
-    path = root / "domains" / "widgets" / "domain.yaml"
-    path.parent.mkdir(parents=True)
-    path.write_text(
+def write_two_product_fixture(root: Path, *, dashboards: tuple[tuple[str, str], ...] = ()) -> None:
+    """A minimal two-product, single-domain v1alpha3 descriptor for isolation
+    tests. ``dashboards`` is a sequence of ``(dashboard_name, product_id)``
+    pairs to declare in the top-level ``dashboards:`` list; the caller still
+    has to write the actual Superset export via ``write_dashboard_fixture``.
+    """
+    lakehouse_dir = root / "lakehouse_code"
+    source_dir = lakehouse_dir / "bronze" / "widgets_source"
+    source_dir.mkdir(parents=True)
+    (source_dir / "source.yaml").write_text(
         """\
-apiVersion: openlakeforge.io/v1alpha2
-kind: Domain
-name: widgets
-displayName: Widgets
-description: Widgets domain fixture.
+apiVersion: openlakeforge.io/v1alpha3
+kind: Source
+name: widgets_source
+displayName: Widgets Source
+description: Widgets bronze source fixture.
 status: planned
-data_products:
-  - id: alpha
-    name: widgets_alpha
-    displayName: Widgets Alpha
-    description: Alpha product.
-    status: planned
-    asset_prefix: widgets_alpha
-    bronze:
-      - name: source
-        path: s3://lakehouse-bronze/widgets/alpha/source
-    silver_tables:
-      tables:
-        - name: source
-    gold_tables:
-      tables:
-        - name: mart_alpha_summary
-  - id: beta
-    name: widgets_beta
-    displayName: Widgets Beta
-    description: Beta product.
-    status: planned
-    asset_prefix: widgets_beta
-    bronze:
-      - name: source
-        path: s3://lakehouse-bronze/widgets/beta/source
-    silver_tables:
-      tables:
-        - name: source
-    gold_tables:
-      tables:
-        - name: mart_beta_summary
+resources:
+  - name: source
 """,
+        encoding="utf-8",
+    )
+    dashboards_yaml = ""
+    if dashboards:
+        entries = "\n".join(f"  - name: {name}\n    products: [{product}]" for name, product in dashboards)
+        dashboards_yaml = f"dashboards:\n{entries}\n"
+    (lakehouse_dir / "lakehouse.yaml").write_text(
+        f"""\
+apiVersion: openlakeforge.io/v1alpha3
+kind: Lakehouse
+name: test
+displayName: Test
+description: Widgets fixture lakehouse.
+status: planned
+sources:
+  - widgets_source
+domains:
+  - name: widgets
+    displayName: Widgets
+    description: Widgets domain fixture.
+    status: planned
+    silver_tables:
+      tables:
+        - {{name: source, source: widgets_source, resource: source}}
+    products:
+      - id: widgets_alpha
+        displayName: Widgets Alpha
+        description: Alpha product.
+        status: planned
+        silver_inputs: [source]
+        gold_tables:
+          tables:
+            - name: mart_alpha_summary
+      - id: widgets_beta
+        displayName: Widgets Beta
+        description: Beta product.
+        status: planned
+        silver_inputs: [source]
+        gold_tables:
+          tables:
+            - name: mart_beta_summary
+{dashboards_yaml}""",
         encoding="utf-8",
     )
 

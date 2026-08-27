@@ -474,7 +474,7 @@ wheels = [
 
 [[package]]
 name = "openlakeforge"
-version = "0.1.0a1"
+version = "0.2.0a1"
 source = { editable = "." }
 dependencies = [
     { name = "azure-identity" },
@@ -517,7 +517,7 @@ dev = [
 
 [[package]]
 name = "openlakeforge-domain-model"
-version = "0.1.0a1"
+version = "0.2.0a1"
 source = { directory = "../../packages/domain-model" }
 dependencies = [
     { name = "pyyaml" },
