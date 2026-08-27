@@ -155,7 +155,7 @@ OpenLakeForge includes example data products that can be executed end to end.
 For the Slim profile, run:
 
 ```bash
-olf e2e run --env local --suite smoke
+olf e2e run --env local --suite full
 ```
 
 The validation executes the data pipelines and verifies the core path:
@@ -428,11 +428,7 @@ This is useful after changing Terraform or Helm configuration.
 olf e2e run --env local --suite full
 ```
 
-For Slim:
-
-```bash
-olf e2e run --env local --suite smoke
-```
+This works for both Slim and Full: assertions for a disabled layer (OpenMetadata, Superset) are skipped rather than failed.
 
 ## Run the Slim smoke test
 
