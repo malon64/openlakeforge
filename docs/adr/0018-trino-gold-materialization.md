@@ -2,8 +2,8 @@
 
 ## Status
 
-Accepted. The spike gate in issue #17 passed; dbt-trino is the shipped Gold
-compute engine.
+Spike branch: `spike/17-dbt-trino-gold`. Adopt only after the local and AWS
+acceptance gates in issue #17 pass.
 
 ## Decision
 

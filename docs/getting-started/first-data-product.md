@@ -929,7 +929,7 @@ FROM iceberg.campaign_performance_gold;
 Finally:
 
 ```bash
-olf e2e run --env local --suite smoke
+olf e2e run --env local --suite full
 ```
 
 The E2E suite discovers products from the lakehouse inventory. Your new product

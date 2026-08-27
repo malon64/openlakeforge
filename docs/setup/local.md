@@ -183,7 +183,7 @@ OpenLakeForge services are not exposed outside Kubernetes by default.
 Start local port forwarding with:
 
 ```bash
-olf forward --provider local
+olf forward --provider local --profile slim
 ```
 
 Keep this command running in its terminal.
@@ -405,7 +405,13 @@ olf status --provider local
 If you changed domain code, contracts, pipelines or dbt models without changing the infrastructure:
 
 ```bash
-olf deploy --provider local --phase artifacts
+olf deploy --provider local --profile full --phase artifacts
+```
+
+For Slim:
+
+```bash
+olf deploy --provider local --profile slim --phase artifacts
 ```
 
 ## Reapply platform infrastructure

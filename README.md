@@ -175,7 +175,7 @@ See the [AWS setup guide](/docs/setup/cloud-poc-setup.md#aws-eks) for the requir
 ### 3. Deploy
 
 ```bash
-olf deploy --provider aws --var-file sandbox.tfvars
+olf deploy --provider aws
 ```
 
 Then:
@@ -214,7 +214,7 @@ See the [Azure setup guide](/docs/setup/cloud-poc-setup.md#azure-aks) for the fu
 ### 3. Deploy
 
 ```bash
-olf deploy --provider azure --var-file sandbox.tfvars
+olf deploy --provider azure
 ```
 
 Then:

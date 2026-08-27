@@ -2,9 +2,7 @@
 
 ## Status
 
-Superseded by [ADR 0009](0009-openmetadata-lineage-direct-rest-push.md),
-which is in turn superseded by [ADR 0023](0023-native-openlineage-emission-restored.md)
-for the live lineage decision.
+Superseded by [ADR 0009](0009-openmetadata-lineage-direct-rest-push.md)
 
 ## Context
 
