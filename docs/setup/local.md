@@ -369,7 +369,13 @@ The platform phase only manages the relatively static infrastructure and platfor
 ## 3. Artifacts
 
 ```bash
-olf deploy --provider local --phase artifacts
+olf deploy --provider local --profile full --phase artifacts
+```
+
+or, for Slim:
+
+```bash
+olf deploy --provider local --profile slim --phase artifacts
 ```
 
 The artifact phase deploys the parts of OpenLakeForge that change with data-product code.
