@@ -177,3 +177,83 @@ def test_inspect_rejects_a_sidecar_declaring_a_different_revision(external_proje
 
     with pytest.raises(project_revision.ProjectRevisionError, match="not requested"):
         project_revision.inspect(store, other_revision)
+
+
+def test_validate_rejects_a_top_level_image_field_that_drifted_from_its_component(
+    external_project: Path,
+) -> None:
+    manifest = _build(external_project)
+    tampered = project_revision.ProjectRevisionManifest(
+        project_name=manifest.project_name,
+        distribution_version=manifest.distribution_version,
+        project_code_image="ghcr.io/malon64/openlakeforge-project-code@sha256:" + "9" * 64,
+        components=manifest.components,
+        revision=manifest.revision,
+    )
+
+    with pytest.raises(project_revision.ProjectRevisionError, match="does not match the manifest's image"):
+        project_revision.ProjectRevisionManifest.from_json(tampered.to_json())
+
+
+def test_validate_rejects_a_top_level_distribution_field_that_drifted_from_its_component(
+    external_project: Path,
+) -> None:
+    manifest = _build(external_project)
+    tampered = project_revision.ProjectRevisionManifest(
+        project_name=manifest.project_name,
+        distribution_version="9.9.9-alpha.1",
+        project_code_image=manifest.project_code_image,
+        components=manifest.components,
+        revision=manifest.revision,
+    )
+
+    with pytest.raises(project_revision.ProjectRevisionError, match="does not match the manifest's distribution"):
+        project_revision.ProjectRevisionManifest.from_json(tampered.to_json())
+
+
+def test_build_rejects_a_component_file_containing_a_stage_bound_value(external_project: Path) -> None:
+    descriptor = external_project / "lakehouse_code/lakehouse.yaml"
+    descriptor.write_text(descriptor.read_text() + "\n# s3://leaked-ops-bucket/floe/reports\n")
+
+    with pytest.raises(project_revision.ProjectRevisionError, match="stage-bound value"):
+        _build(external_project)
+
+
+def test_publish_fails_closed_when_a_source_file_changes_after_build(
+    external_project: Path, tmp_path: Path
+) -> None:
+    manifest = _build(external_project)
+    store = FilesystemRevisionStore(tmp_path / "store")
+
+    descriptor = external_project / "lakehouse_code/lakehouse.yaml"
+    descriptor.write_text(descriptor.read_text() + "\n# drifted after build, before publish\n")
+
+    with pytest.raises(project_revision.ProjectRevisionError, match="changed on disk since the revision was built"):
+        project_revision.publish(store, manifest, _spec(external_project))
+
+    # Nothing under this revision's prefix should be readable -- publish must
+    # not have written the drifted bytes under a sidecar that still claims
+    # the original digest.
+    assert store.read(project_revision.sidecar_key(manifest.revision)) is None
+
+
+def test_resolve_image_digest_rejects_a_local_config_id_without_a_repo_digest(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from olf.deployment import engine as engine_module
+    from olf.tooling.process import CommandResult
+
+    class _FakeDocker:
+        def image_inspect(self, image: str, *, check: bool = False) -> CommandResult:  # noqa: ARG002
+            import json as _json
+
+            payload = _json.dumps([{"Id": "sha256:" + "0" * 64, "RepoDigests": []}])
+            return CommandResult(argv=("docker",), returncode=0, stdout=payload, stderr="", duration_seconds=0.0)
+
+    class _FakeToolkit:
+        docker = _FakeDocker()
+
+    monkeypatch.setattr(engine_module.Toolkit, "default", classmethod(lambda cls: _FakeToolkit()))
+
+    with pytest.raises(project_revision.ProjectRevisionError, match="no registry digest"):
+        project_revision.resolve_image_digest("ghcr.io/malon64/openlakeforge-project-code:local")

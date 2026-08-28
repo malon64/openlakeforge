@@ -131,6 +131,24 @@ class ProjectRevisionManifest:
             raise ProjectRevisionError(
                 f"revision sidecar declares {self.revision}, but its components aggregate to {actual}."
             )
+        # The `distribution_version`/`project_code_image` top-level fields are
+        # convenience duplicates of the `distribution`/`image` components --
+        # the aggregate above only covers `components`, so a sidecar edited
+        # to change a top-level field alone (leaving components and the
+        # revision digest untouched) would otherwise pass every other check
+        # while `verify`'s compatibility gate and consumers read the
+        # unbound top-level value. Cross-check both explicitly.
+        image_component = self.component("image")
+        if image_component is None or image_component.entries.get("project-code") != self.project_code_image:
+            raise ProjectRevisionError(
+                f"project_code_image {self.project_code_image!r} does not match the manifest's image component."
+            )
+        distribution_component = self.component("distribution")
+        if distribution_component is None or distribution_component.entries.get("version") != self.distribution_version:
+            raise ProjectRevisionError(
+                f"distribution_version {self.distribution_version!r} does not match the manifest's "
+                "distribution component."
+            )
         _reject_runtime_values(self.to_json())
 
     def component(self, name: str) -> ComponentEntries | None:
@@ -191,8 +209,33 @@ def _reject_runtime_values(rendered_json: str) -> None:
             )
 
 
-def _file_digest(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+def _reject_runtime_bytes(relative_key: str, content: bytes) -> None:
+    """Scan one component file's actual content, not just the rendered manifest.
+
+    `_reject_runtime_values` only sees paths, digests, and the image/
+    distribution fields -- a stage-bound endpoint or credential embedded
+    inside a frozen file's own content (a dbt profile, a Floe contract) would
+    otherwise publish successfully. Decoded leniently: a non-UTF-8 file (a
+    binary asset) cannot contain a matching text pattern either way.
+    """
+    text = content.decode("utf-8", errors="ignore")
+    for pattern in _FORBIDDEN_VALUE_PATTERNS:
+        match = pattern.search(text)
+        if match:
+            raise ProjectRevisionError(
+                f"{relative_key} contains a stage-bound value ({match.group(0)!r}); "
+                "target-stage endpoints and credentials must never enter a promotable revision."
+            )
+
+
+def _content_hash(content: bytes) -> str:
+    return hashlib.sha256(content).hexdigest()
+
+
+def _hash_and_scan(relative_key: str, path: Path) -> str:
+    content = path.read_bytes()
+    _reject_runtime_bytes(relative_key, content)
+    return _content_hash(content)
 
 
 def _walk_files(root: Path) -> list[Path]:
@@ -213,7 +256,7 @@ def _descriptors_component(project: ProjectSpec, inventory: Any) -> ComponentEnt
     paths = [project.lakehouse_path]
     for source in inventory.sources:
         paths.append(project.bronze_root / source.name / "source.yaml")
-    entries = {_relative_key(project, path): _file_digest(path) for path in paths}
+    entries = {(key := _relative_key(project, path)): _hash_and_scan(key, path) for path in paths}
     return ComponentEntries("descriptors", entries)
 
 
@@ -221,7 +264,7 @@ def _floe_component(project: ProjectSpec) -> ComponentEntries:
     from olf.deployment.floe_manifests import discover_floe_configs
 
     configs = discover_floe_configs(project.root)
-    entries = {_relative_key(project, path): _file_digest(path) for path in configs}
+    entries = {(key := _relative_key(project, path)): _hash_and_scan(key, path) for path in configs}
     return ComponentEntries("floe", entries)
 
 
@@ -229,7 +272,8 @@ def _dbt_component(project: ProjectSpec, inventory: Any) -> ComponentEntries:
     entries: dict[str, str] = {}
     for product in inventory.products:
         for path in _walk_files(project.gold_root / product.id / "dbt"):
-            entries[_relative_key(project, path)] = _file_digest(path)
+            key = _relative_key(project, path)
+            entries[key] = _hash_and_scan(key, path)
     return ComponentEntries("dbt", entries)
 
 
@@ -239,7 +283,12 @@ def _dagster_component(project: ProjectSpec, inventory: Any) -> ComponentEntries
         paths.append(project.pipelines_root / f"{product.id}.py")
     for source in inventory.sources:
         paths.append(project.bronze_root / source.name / "dlt" / f"{source.name}.py")
-    entries = {_relative_key(project, path): _file_digest(path) for path in paths if path.is_file()}
+    entries: dict[str, str] = {}
+    for path in paths:
+        if not path.is_file():
+            continue
+        key = _relative_key(project, path)
+        entries[key] = _hash_and_scan(key, path)
     return ComponentEntries("dagster", entries)
 
 
@@ -249,7 +298,8 @@ def _reports_component(project: ProjectSpec, inventory: Any) -> ComponentEntries
     entries: dict[str, str] = {}
     for dashboard in inventory.dashboards:
         for path in _walk_files(project.root / dashboard.report_source_dir):
-            entries[_relative_key(project, path)] = _file_digest(path)
+            key = _relative_key(project, path)
+            entries[key] = _hash_and_scan(key, path)
     return ComponentEntries("reports", entries)
 
 
@@ -275,11 +325,16 @@ def _default_resolve_image_digest(image: str) -> str:
     for repo_digest in entry.get("RepoDigests") or ():
         if is_digest_pinned(repo_digest):
             return repo_digest
-    image_id = entry.get("Id")
-    if not isinstance(image_id, str) or not image_id.startswith("sha256:"):
-        raise ProjectRevisionError(f"image {image!r} has no resolvable digest; push it or build with a tagged base.")
-    repository = image.split("@", 1)[0].rsplit(":", 1)[0]
-    return f"{repository}@{image_id}"
+    # Docker's `Id` is the local image *config* digest, not the registry
+    # manifest digest a `repository@sha256:...` reference resolves through a
+    # pull. Synthesizing one from `Id` would pass the digest-pinned regex
+    # but be unpullable during promotion -- require an actual `RepoDigest`,
+    # which only exists once the image has been pushed to (or pulled from)
+    # a registry.
+    raise ProjectRevisionError(
+        f"image {image!r} has no registry digest (RepoDigests); push it to a registry first, "
+        "or pass an explicit digest-pinned reference. A local image config Id is not a pullable digest."
+    )
 
 
 def resolve_image_digest(image: str, *, resolver: Callable[[str], str] | None = None) -> str:
@@ -348,7 +403,13 @@ def publish(store: RevisionStore, manifest: ProjectRevisionManifest, project: Pr
     """Publish every entry a manifest declares under its immutable revision prefix.
 
     Publishes file content, not just digests, so `inspect`/`verify` can run
-    against the published revision without a source checkout.
+    against the published revision without a source checkout. Re-reads each
+    file from `project.root` rather than reusing `build_project_revision`'s
+    in-memory bytes, so every reread is checked against the digest the
+    manifest already declared before anything is written: a file changed on
+    disk between build and publish must fail closed here, not silently
+    publish drifted content under a prefix whose sidecar claims a different
+    digest.
     """
     from olf.artifact_store import ArtifactStoreError
 
@@ -357,9 +418,16 @@ def publish(store: RevisionStore, manifest: ProjectRevisionManifest, project: Pr
         for component in manifest.components:
             if component.name in {"image", "distribution"}:
                 continue
-            for relative_key in component.entries:
+            for relative_key, expected_digest in component.entries.items():
                 path = project.root / relative_key
                 content = path.read_bytes()
+                actual_digest = _content_hash(content)
+                if actual_digest != expected_digest:
+                    raise ProjectRevisionError(
+                        f"{relative_key} changed on disk since the revision was built: "
+                        f"now hashes to {actual_digest}, but the manifest declares {expected_digest}. "
+                        "Rebuild the revision before publishing."
+                    )
                 publish_immutable(
                     store, f"{prefix}/{component.name}/{relative_key}", content, content_type=_content_type(path)
                 )

@@ -59,8 +59,10 @@ olf project build --project . --image ghcr.io/example/project-code@sha256:<diges
 
 Refuses to build from an invalid project — `olf project build` runs the same
 checks as `olf project validate` first. The image reference must already
-carry a digest, or resolve to one from a local Docker image; a bare mutable
-tag is rejected, because a revision that could point at a moving tag is not
+carry a digest, or resolve to one through the image's registry `RepoDigest`
+(so it has been pushed to, or pulled from, a registry); a bare mutable tag
+and an unpushed local-only image are both rejected, because a revision that
+could point at a moving tag, or at a digest nothing can pull, is not
 actually immutable.
 
 ```bash
