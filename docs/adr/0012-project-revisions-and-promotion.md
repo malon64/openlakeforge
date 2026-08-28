@@ -97,7 +97,11 @@ endpoint — external APIs are `https://`, which is allowed), a concrete
 `AKIA...` AWS access-key ID, and an assignment of a bare credential noun
 (`password: ...`, `api_token = "..."`) to something that is not itself an
 env-lookup or substitution expression (`os.environ[...]`, `os.getenv(...)`,
-`${VAR}`). It is a defense-in-depth layer, not a certified secret scanner —
+`${VAR}`) with no default -- a *default/fallback* argument on that same
+lookup (`os.getenv("TOKEN", "sk-live-...")`, `${DB_PASSWORD:-hunter2}`) is
+exactly where a real secret hides once the bare reference is exempted, so it
+is checked and rejected explicitly rather than falling through the
+exemption. It is a defense-in-depth layer, not a certified secret scanner —
 the load-bearing guarantee is architectural: frozen inputs are
 provider-neutral descriptors, checked-in Floe contracts, dbt/Dagster source,
 and report assets (never a rendered artifact), so a physical endpoint or

@@ -73,15 +73,31 @@ _DIGEST_TAG_PATTERN = re.compile(r"@sha256:[0-9a-f]{64}$")
 # ordinary Python/YAML use to read a secret at runtime rather than embed
 # it: `${VAR}`/`$VAR`, `os.environ[...]`/`os.getenv(...)`, and any
 # `name.name(...)`-shaped call (`config.env(...)`, `environ.get(...)`).
+#
+# That exclusion has its own gap, closed by the second pattern below: it
+# exempts an entire call or substitution expression, including whatever
+# sits inside it -- so a literal secret smuggled in as the *default/
+# fallback* argument (`os.getenv("TOKEN", "sk-live-...")`,
+# `${DB_PASSWORD:-hunter2}`) would otherwise pass clean. A bare reference
+# with no default (`os.getenv("TOKEN")`, `${DB_PASSWORD}`) has nothing to
+# smuggle and still isn't flagged; a reference *with* one is.
+_CREDENTIAL_NOUN = (
+    r"(?:password|passwd|token|secret|api[_-]?key|api[_-]?token|access[_-]?token|"
+    r"client[_-]?secret|private[_-]?key)"
+)
 _FORBIDDEN_VALUE_PATTERNS = (
     re.compile(r"s3://", re.IGNORECASE),
     re.compile(r"http://"),
     re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
     re.compile(
-        r"(?i)\b(password|passwd|token|secret|api[_-]?key|api[_-]?token|access[_-]?token|"
-        r"client[_-]?secret|private[_-]?key)\b['\"]?\s*[:=]\s*"
+        rf"(?i)\b{_CREDENTIAL_NOUN}\b['\"]?\s*[:=]\s*"
         r"(?!\$|os\.environ|os\.getenv|[\w.]+\()"
         r"['\"]?[^\s'\"]{4,}"
+    ),
+    re.compile(
+        rf"(?i)\b{_CREDENTIAL_NOUN}\b['\"]?\s*[:=]\s*"
+        r"(?:[\w.]+\(\s*['\"][^'\"]+['\"]\s*,\s*['\"][^'\"]{4,}['\"]"  # call with a default argument
+        r"|\$\{?\w+\}?:-['\"]?[^\s'\"}]{4,})"  # ${VAR:-default} shell substitution
     ),
 )
 

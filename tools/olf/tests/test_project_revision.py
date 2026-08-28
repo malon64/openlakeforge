@@ -584,3 +584,45 @@ def test_resolve_image_digest_fails_when_no_repo_digest_matches_the_requested_re
 
     with pytest.raises(project_revision.ProjectRevisionError, match="no registry digest"):
         project_revision.resolve_image_digest("ghcr.io/malon64/openlakeforge-project-code:local")
+
+
+def test_build_rejects_a_default_argument_smuggled_into_an_env_lookup(external_project: Path) -> None:
+    descriptor = external_project / "lakehouse_code/lakehouse.yaml"
+    original = descriptor.read_text()
+    descriptor.write_text(original + '\n# token: os.getenv("API_TOKEN", "sk-live-abc123XYZ")\n')
+
+    with pytest.raises(project_revision.ProjectRevisionError, match="stage-bound value"):
+        _build(external_project)
+
+
+def test_build_rejects_a_default_argument_smuggled_into_a_dotted_env_lookup(external_project: Path) -> None:
+    descriptor = external_project / "lakehouse_code/lakehouse.yaml"
+    original = descriptor.read_text()
+    descriptor.write_text(original + '\n# password = os.environ.get("DB_PASSWORD", "changeme123")\n')
+
+    with pytest.raises(project_revision.ProjectRevisionError, match="stage-bound value"):
+        _build(external_project)
+
+
+def test_build_rejects_a_default_smuggled_into_shell_style_substitution(external_project: Path) -> None:
+    descriptor = external_project / "lakehouse_code/lakehouse.yaml"
+    original = descriptor.read_text()
+    descriptor.write_text(original + "\n# password: ${DB_PASSWORD:-hunter2changeme}\n")
+
+    with pytest.raises(project_revision.ProjectRevisionError, match="stage-bound value"):
+        _build(external_project)
+
+
+def test_build_still_allows_a_bare_env_lookup_with_no_default(external_project: Path) -> None:
+    descriptor = external_project / "lakehouse_code/lakehouse.yaml"
+    original = descriptor.read_text()
+    descriptor.write_text(
+        original
+        + '\n# token: os.getenv("API_TOKEN")\n'
+        + '# password = os.environ.get("DB_PASSWORD")\n'
+        + "# password: ${DB_PASSWORD}\n"
+    )
+
+    manifest = _build(external_project)  # must not raise
+
+    assert manifest.revision.startswith("sha256:")
