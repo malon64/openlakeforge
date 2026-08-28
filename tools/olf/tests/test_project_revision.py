@@ -322,3 +322,93 @@ def test_build_rejects_a_concrete_aws_access_key_id(external_project: Path) -> N
 
     with pytest.raises(project_revision.ProjectRevisionError, match="stage-bound value"):
         _build(external_project)
+
+
+def test_build_rejects_a_concrete_credential_assignment(external_project: Path) -> None:
+    descriptor = external_project / "lakehouse_code/lakehouse.yaml"
+    original = descriptor.read_text()
+    descriptor.write_text(original + '\n# password: production-password\n')
+
+    with pytest.raises(project_revision.ProjectRevisionError, match="stage-bound value"):
+        _build(external_project)
+
+
+def test_build_rejects_a_concrete_api_token_assignment(external_project: Path) -> None:
+    descriptor = external_project / "lakehouse_code/lakehouse.yaml"
+    original = descriptor.read_text()
+    descriptor.write_text(original + '\n# api_token = "sk-abc123XYZ456"\n')
+
+    with pytest.raises(project_revision.ProjectRevisionError, match="stage-bound value"):
+        _build(external_project)
+
+
+def test_build_still_allows_secret_and_client_secret_key_references(external_project: Path) -> None:
+    descriptor = external_project / "lakehouse_code/lakehouse.yaml"
+    original = descriptor.read_text()
+    descriptor.write_text(
+        original
+        + "\n# references, not assignments: secret_name: seaweedfs-s3-creds, "
+        "secretRef: polaris-floe-creds, client_secret_key: POLARIS_FLOE_CLIENT_SECRET\n"
+    )
+
+    manifest = _build(external_project)  # must not raise
+
+    assert manifest.revision.startswith("sha256:")
+
+
+def test_validate_rejects_a_self_consistent_sidecar_with_a_mutable_image(external_project: Path) -> None:
+    manifest = _build(external_project)
+    mutable_image = "ghcr.io/malon64/openlakeforge-project-code:latest"
+    image_entries = dict(manifest.component("image").entries)
+    image_entries["project-code"] = mutable_image
+    components = tuple(
+        project_revision.ComponentEntries("image", image_entries) if c.name == "image" else c
+        for c in manifest.components
+    )
+    tampered = project_revision.ProjectRevisionManifest(
+        project_name=manifest.project_name,
+        distribution_version=manifest.distribution_version,
+        project_code_image=mutable_image,
+        components=components,
+        revision=project_revision._aggregate_components(components),
+    )
+
+    with pytest.raises(project_revision.ProjectRevisionError, match="not digest-pinned"):
+        project_revision.ProjectRevisionManifest.from_json(tampered.to_json())
+
+
+def test_dbt_component_excludes_local_artifacts(external_project: Path) -> None:
+    dbt_root = external_project / "lakehouse_code/gold/order_revenue/dbt"
+    (dbt_root / "logs").mkdir(parents=True, exist_ok=True)
+    (dbt_root / "logs/dbt.log").write_text("http://seaweedfs-s3:8333 would trip the scanner if included\n")
+    (dbt_root / ".user.yml").write_text("id: local-only\n")
+    (dbt_root / "package-lock.yml").write_text("packages: []\n")
+
+    manifest = _build(external_project)  # must not raise, and must not include the local artifacts
+
+    dbt_keys = manifest.component("dbt").entries
+    assert not any("logs/" in key for key in dbt_keys)
+    assert not any(key.endswith(".user.yml") for key in dbt_keys)
+    assert not any(key.endswith("package-lock.yml") for key in dbt_keys)
+
+
+def test_dbt_local_artifacts_do_not_change_the_revision(external_project: Path) -> None:
+    before = _build(external_project).revision
+
+    dbt_root = external_project / "lakehouse_code/gold/order_revenue/dbt"
+    (dbt_root / "logs").mkdir(parents=True, exist_ok=True)
+    (dbt_root / "logs/dbt.log").write_text("ran locally\n")
+    (dbt_root / "package-lock.yml").write_text("packages: []\n")
+
+    after = _build(external_project).revision
+
+    assert before == after
+
+
+def test_build_rejects_a_duplicate_floe_config_in_one_domain(external_project: Path) -> None:
+    floe_dir = external_project / "lakehouse_code/silver/sales/contracts/floe"
+    original = (floe_dir / "sales.yml").read_text()
+    (floe_dir / "sales-duplicate.yml").write_text(original)
+
+    with pytest.raises(project_revision.ProjectRevisionError, match="one Floe configuration"):
+        _build(external_project)
