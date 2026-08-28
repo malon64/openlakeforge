@@ -173,6 +173,8 @@ The architecture documentation covers:
 * Superset reporting
 * Terraform deployment boundaries
 * cloud-provider portability
+* project revisions and stage promotion (see
+  [Project revisions](architecture/project-revisions.md))
 
 ### Architecture diagrams
 

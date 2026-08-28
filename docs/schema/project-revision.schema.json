@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openlakeforge.io/schemas/project-revision/v1alpha1",
+  "title": "OpenLakeForge Project Revision",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "apiVersion",
+    "kind",
+    "schema_version",
+    "project_name",
+    "distribution_version",
+    "project_code_image",
+    "components",
+    "revision"
+  ],
+  "properties": {
+    "apiVersion": {"const": "openlakeforge.io/v1alpha1"},
+    "kind": {"const": "ProjectRevision"},
+    "schema_version": {"const": 1},
+    "project_name": {"type": "string", "minLength": 1},
+    "distribution_version": {"type": "string", "minLength": 1},
+    "project_code_image": {"type": "string", "pattern": "@sha256:[0-9a-f]{64}$"},
+    "components": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/component"}
+    },
+    "revision": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+  },
+  "$defs": {
+    "component": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "entries"],
+      "properties": {
+        "name": {
+          "enum": ["descriptors", "floe", "dbt", "dagster", "reports", "image", "distribution"]
+        },
+        "entries": {
+          "type": "object",
+          "additionalProperties": {"type": "string", "minLength": 1}
+        }
+      }
+    }
+  }
+}

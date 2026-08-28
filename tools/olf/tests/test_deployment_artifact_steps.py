@@ -36,7 +36,7 @@ def test_activate_runtime_revision_passes_via_through_to_storage_client(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.setattr(artifact_steps.s3, "discover_runtime_artifacts", lambda runtime_root: ["upload"])
-    monkeypatch.setattr(artifact_steps.olf_config, "env", lambda name, default="": "ops-bucket")
+    monkeypatch.setattr(artifact_steps, "artifact_bucket", lambda: "ops-bucket")
 
     seen_via: list[str] = []
 
@@ -46,7 +46,7 @@ def test_activate_runtime_revision_passes_via_through_to_storage_client(
         assert bucket == "ops-bucket"
         yield object()
 
-    monkeypatch.setattr("olf.commands.revision._artifact_storage_client", _fake_client)
+    monkeypatch.setattr(artifact_steps, "artifact_storage_client", _fake_client)
 
     class _Manifest:
         revision = "sha256:abc"
@@ -61,7 +61,7 @@ def test_activate_runtime_revision_passes_via_through_to_storage_client(
 
 def test_activate_runtime_revision_defaults_to_port_forward(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr(artifact_steps.s3, "discover_runtime_artifacts", lambda runtime_root: ["upload"])
-    monkeypatch.setattr(artifact_steps.olf_config, "env", lambda name, default="": "ops-bucket")
+    monkeypatch.setattr(artifact_steps, "artifact_bucket", lambda: "ops-bucket")
 
     seen_via: list[str] = []
 
@@ -70,7 +70,7 @@ def test_activate_runtime_revision_defaults_to_port_forward(monkeypatch: pytest.
         seen_via.append(via)
         yield object()
 
-    monkeypatch.setattr("olf.commands.revision._artifact_storage_client", _fake_client)
+    monkeypatch.setattr(artifact_steps, "artifact_storage_client", _fake_client)
 
     class _Manifest:
         revision = "sha256:abc"
@@ -84,13 +84,13 @@ def test_activate_runtime_revision_defaults_to_port_forward(monkeypatch: pytest.
 
 def test_activate_runtime_revision_wraps_revision_error(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr(artifact_steps.s3, "discover_runtime_artifacts", lambda runtime_root: ["upload"])
-    monkeypatch.setattr(artifact_steps.olf_config, "env", lambda name, default="": "ops-bucket")
+    monkeypatch.setattr(artifact_steps, "artifact_bucket", lambda: "ops-bucket")
 
     @contextmanager
     def _fake_client(via: str, bucket: str):  # noqa: ANN202, ARG001
         yield object()
 
-    monkeypatch.setattr("olf.commands.revision._artifact_storage_client", _fake_client)
+    monkeypatch.setattr(artifact_steps, "artifact_storage_client", _fake_client)
 
     def _raise(client: Any, bucket: str, uploads: Any) -> None:
         raise artifact_steps.revision.RevisionError("digest mismatch")
