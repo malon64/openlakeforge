@@ -7,7 +7,7 @@ OpenMetadata layer deployment. Parameterized by `via` ("port-forward" for
 the in-cluster S3-compatible local/Azure path, "direct" for AWS's own S3)
 so every provider shares one implementation - kept out of
 `olf.deployment.local` so the AWS/Azure providers (#125) reuse it
-unmodified. Reuses `olf.commands.revision._artifact_storage_client` rather
+unmodified. Reuses `olf.artifact_store.artifact_storage_client` rather
 than keeping a second port-forward-only client builder.
 """
 
@@ -19,8 +19,8 @@ from typing import Any
 
 import typer
 
-from olf import config as olf_config
 from olf import layers, log, revision, s3
+from olf.artifact_store import ArtifactStoreError, artifact_bucket, artifact_storage_client
 from olf.deployment.errors import DeploymentPreconditionError
 
 
@@ -46,24 +46,15 @@ def sync_catalog_namespaces() -> None:
     _run_cli("Catalog namespace reconciliation", sync_namespaces, dry_run=False, prune=None)
 
 
-def _artifact_bucket() -> str:
-    bucket = olf_config.env("OPENLAKEFORGE_OPS_BUCKET_NAME") or olf_config.env("OPENLAKEFORGE_ARTIFACT_BUCKET_NAME")
-    if not bucket:
-        raise ArtifactOperationError("no ops/artifact bucket resolved from the contract environment.")
-    return bucket
-
-
 def activate_runtime_revision(runtime_root: Path, *, via: str = "port-forward") -> str:
-    from olf.commands.revision import _artifact_storage_client
-
     uploads = s3.discover_runtime_artifacts(runtime_root)
     if not uploads:
         raise ArtifactOperationError(f"no rendered Floe runtime artifacts found under {runtime_root}.")
-    bucket = _artifact_bucket()
     try:
-        with _artifact_storage_client(via, bucket) as client:
+        bucket = artifact_bucket()
+        with artifact_storage_client(via, bucket) as client:
             manifest = revision.activate(client, bucket, uploads)
-    except revision.RevisionError as exc:
+    except (ArtifactStoreError, revision.RevisionError) as exc:
         raise ArtifactOperationError(str(exc)) from exc
     return manifest.revision
 

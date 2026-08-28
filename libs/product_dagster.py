@@ -3,7 +3,6 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import re
 import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -26,6 +25,7 @@ from floe_dagster.manifest import load_manifest
 
 from libs.bronze_csv import BronzeLoadResult
 from libs.dbt.render_profiles import ensure_runtime_profile_dir
+from libs.floe_revision import ArtifactRevisionError, built_manifest_revision, revision_digest as _revision_digest
 from libs.openlakeforge_logging import log_event
 from libs.s3_artifacts import is_s3_uri, read_json_uri, read_text_uri, upload_file_to_base_uri
 
@@ -34,13 +34,7 @@ _LAKEHOUSE_CODE_ROOT = Path(__file__).resolve().parents[1] / "lakehouse_code"
 _FLOE_MANIFEST_ACCESS_MODE_ENV = "OPENLAKEFORGE_FLOE_MANIFEST_ACCESS_MODE"
 _FLOE_MANIFEST_ACCESS_MODE_REMOTE = "remote"
 _FLOE_MANIFEST_ACCESS_MODE_LOCAL = "local"
-_FLOE_MANIFEST_REVISION_BUILT_ENV = "OPENLAKEFORGE_FLOE_MANIFEST_REVISION_BUILT"
-_FLOE_MANIFEST_REVISION_PATTERN = re.compile(r"^sha256:([0-9a-f]{64})$")
 _FLOE_S3_REPORT_LOADER_INSTALLED = False
-
-
-class ArtifactRevisionError(RuntimeError):
-    """A project-code image cannot safely use its declared artifact revision."""
 
 
 @dataclass(frozen=True)
@@ -397,7 +391,7 @@ def _cache_remote_manifest_for_dagster(spec: DomainDefinitionSpec, manifest_uri:
     target.parent.mkdir(parents=True, exist_ok=True)
     try:
         manifest_content = read_text_uri(manifest_uri)
-        revision = _built_manifest_revision()
+        revision = built_manifest_revision()
         if revision is not None:
             _verify_revision_manifest(spec, revision, manifest_content)
         target.write_text(manifest_content, encoding="utf-8")
@@ -474,12 +468,12 @@ def _validate_local_floe_manifest_access(
 
 
 def _remote_manifest_uri(spec: DomainDefinitionSpec) -> str | None:
-    revision = _built_manifest_revision()
+    revision = built_manifest_revision()
     if revision is not None:
         artifact_base_uri = os.environ.get("OPENLAKEFORGE_ARTIFACT_BASE_URI")
         if not artifact_base_uri:
             raise ArtifactRevisionError(
-                f"{_FLOE_MANIFEST_REVISION_BUILT_ENV} is set, but "
+                "a Floe manifest revision is configured, but "
                 "OPENLAKEFORGE_ARTIFACT_BASE_URI is not configured."
             )
         return (
@@ -498,31 +492,13 @@ def _remote_manifest_uri(spec: DomainDefinitionSpec) -> str | None:
     return f"{base_uri.rstrip('/')}/{spec.domain}/{spec.domain}.manifest.json"
 
 
-def _built_manifest_revision() -> str | None:
-    revision = os.environ.get(_FLOE_MANIFEST_REVISION_BUILT_ENV, "").strip()
-    if not revision or revision == "manual":
-        return None
-    _revision_digest(revision)
-    return revision
-
-
-def _revision_digest(revision: str) -> str:
-    match = _FLOE_MANIFEST_REVISION_PATTERN.fullmatch(revision)
-    if match is None:
-        raise ArtifactRevisionError(
-            f"invalid {_FLOE_MANIFEST_REVISION_BUILT_ENV} value {revision!r}; "
-            "expected sha256:<64 lowercase hex characters> or 'manual'."
-        )
-    return match.group(1)
-
-
 def _verify_revision_manifest(
     spec: DomainDefinitionSpec, revision: str, manifest_content: str
 ) -> None:
     artifact_base_uri = os.environ.get("OPENLAKEFORGE_ARTIFACT_BASE_URI")
     if not artifact_base_uri:
         raise ArtifactRevisionError(
-            f"{_FLOE_MANIFEST_REVISION_BUILT_ENV} is set, but "
+            "a Floe manifest revision is configured, but "
             "OPENLAKEFORGE_ARTIFACT_BASE_URI is not configured."
         )
     sidecar_uri = (

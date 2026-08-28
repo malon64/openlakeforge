@@ -368,7 +368,7 @@ def test_revision_compute_command_prints_runtime_artifact_revision(tmp_path: Pat
     path.parent.mkdir(parents=True)
     path.write_text("{}")
 
-    result = runner.invoke(app, ["revision", "compute", "--runtime-root", str(tmp_path)])
+    result = runner.invoke(app, ["floe", "revision", "compute", "--runtime-root", str(tmp_path)])
 
     assert result.exit_code == 0
     assert result.output.startswith("sha256:")

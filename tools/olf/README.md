@@ -31,7 +31,9 @@ See [ADR 0008](../../docs/adr/0008-olf-owns-orchestration-and-toolchain.md).
 | `olf catalog sync-namespaces [--dry-run] [--prune]` | Reconcile catalog namespaces (Polaris) or databases (Glue) with domain descriptors (ADR 0002). Runs first in the artifacts phase, before any table is written. It creates, adopts matching legacy namespaces, and relocates OpenLakeForge-managed namespaces. `--prune` removes only OpenLakeForge-managed catalog metadata and retains object-store files; foreign namespaces are never changed. Unsupported providers fail explicitly. |
 | `olf floe render-profile\|generate-manifests` | Render the Floe EnvironmentProfile YAML for the active contract env, or generate domain Floe manifests. |
 | `olf artifacts upload-manifests --via port-forward\|direct` | Publish domain Floe manifests to the ops bucket (in-cluster S3 or cloud S3). |
-| `olf revision compute\|publish\|verify --runtime-root D` | Compute, publish, or verify an immutable Floe runtime-artifact revision. Publication writes `floe/revisions/sha256/<digest>/...` and does not activate that revision. |
+| `olf floe revision compute\|publish\|verify --runtime-root D` | Compute, publish, or verify an immutable Floe runtime-artifact revision. Publication writes `floe/revisions/sha256/<digest>/...` and does not activate that revision. |
+| `olf project build --project P --image REF` | Build and publish the immutable `ProjectRevision` covering descriptors, Floe contracts, dbt, Dagster, reports, and the project-code image digest for one writable project (#154). |
+| `olf project revision inspect\|verify --revision R` | Inspect or verify a published `ProjectRevision` manifest without rebuilding source. |
 | `olf superset deploy-reports` / `export-reports` | Build/import or export Superset report bundles. |
 | `olf openmetadata deploy-metadata` | Seed OpenMetadata domains, data products, and medallion containers over REST. |
 | `olf k8s set-project-code-image --image X` | Point every Dagster surface at a pushed project-code image, trigger one coordinated restart, and wait for its rollout. |

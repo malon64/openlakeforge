@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 import typer
 
@@ -10,6 +11,9 @@ from olf import floe as floe_module
 from olf.commands._shared import fail
 
 app = typer.Typer(help="Floe profile and manifest helpers.")
+
+revision_app = typer.Typer(help="Immutable Floe runtime-artifact revision helpers.")
+app.add_typer(revision_app, name="revision")
 
 
 @app.command("render-profile")
@@ -93,3 +97,88 @@ def generate_manifests(
                 )
     except DeploymentError as exc:
         raise typer.Exit(code=fail(str(exc))) from exc
+
+
+@revision_app.command("compute")
+def revision_compute(
+    runtime_root: str = typer.Option(..., "--runtime-root", help="Rendered Floe runtime artifact root."),
+) -> None:
+    """Print the deterministic content revision for a rendered artifact set."""
+    from olf import revision
+
+    try:
+        typer.echo(revision.compute_revision(Path(runtime_root)).revision)
+    except revision.RevisionError as exc:
+        raise typer.Exit(code=fail(str(exc))) from exc
+
+
+@revision_app.command("publish")
+def revision_publish(
+    runtime_root: str = typer.Option(..., "--runtime-root", help="Rendered Floe runtime artifact root."),
+    via: str = typer.Option(
+        "port-forward",
+        "--via",
+        help="'port-forward' for in-cluster S3-compatible storage, 'direct' for cloud S3.",
+    ),
+) -> None:
+    """Publish a revision-qualified artifact set without activating it."""
+    from olf import revision, s3
+    from olf.artifact_store import artifact_bucket, artifact_storage_client
+
+    uploads = s3.discover_runtime_artifacts(Path(runtime_root))
+    if not uploads:
+        raise typer.Exit(code=fail(f"no rendered Floe runtime artifacts found under {runtime_root}."))
+    bucket = artifact_bucket()
+    try:
+        with artifact_storage_client(via, bucket) as client:
+            manifest = revision.publish(client, bucket, uploads)
+    except revision.RevisionError as exc:
+        raise typer.Exit(code=fail(str(exc))) from exc
+    typer.echo(f"Published {manifest.revision} to s3://{bucket}/{revision.revision_prefix(manifest.revision)}")
+
+
+@revision_app.command("activate")
+def revision_activate(
+    runtime_root: str = typer.Option(..., "--runtime-root", help="Rendered Floe runtime artifact root."),
+    via: str = typer.Option(
+        "port-forward",
+        "--via",
+        help="'port-forward' for in-cluster S3-compatible storage, 'direct' for cloud S3.",
+    ),
+) -> None:
+    """Publish and verify the immutable revision selected for a deployment."""
+    from olf import revision, s3
+    from olf.artifact_store import artifact_bucket, artifact_storage_client
+
+    uploads = s3.discover_runtime_artifacts(Path(runtime_root))
+    if not uploads:
+        raise typer.Exit(code=fail(f"no rendered Floe runtime artifacts found under {runtime_root}."))
+    bucket = artifact_bucket()
+    try:
+        with artifact_storage_client(via, bucket) as client:
+            manifest = revision.activate(client, bucket, uploads)
+    except revision.RevisionError as exc:
+        raise typer.Exit(code=fail(str(exc))) from exc
+    typer.echo(manifest.revision)
+
+
+@revision_app.command("verify")
+def revision_verify(
+    revision_id: str = typer.Option(..., "--revision", help="Revision to verify, e.g. sha256:<digest>."),
+    via: str = typer.Option(
+        "port-forward",
+        "--via",
+        help="'port-forward' for in-cluster S3-compatible storage, 'direct' for cloud S3.",
+    ),
+) -> None:
+    """Verify an immutable revision sidecar and every object it declares."""
+    from olf import revision
+    from olf.artifact_store import artifact_bucket, artifact_storage_client
+
+    bucket = artifact_bucket()
+    try:
+        with artifact_storage_client(via, bucket) as client:
+            manifest = revision.verify(client, bucket, revision_id)
+    except revision.RevisionError as exc:
+        raise typer.Exit(code=fail(str(exc))) from exc
+    typer.echo(f"Verified {manifest.revision} ({len(manifest.entries)} artifacts).")

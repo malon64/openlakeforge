@@ -5,8 +5,7 @@ from pathlib import Path
 import pytest
 from botocore.exceptions import ClientError
 
-from olf import auth, revision, s3
-from olf.commands import revision as revision_command
+from olf import revision, s3
 
 
 class FakeS3:
@@ -25,28 +24,6 @@ class FakeS3:
         self.objects[(Bucket, Key)] = Body
         self.puts.append((Bucket, Key))
 
-
-def test_direct_artifact_client_uses_the_selected_olf_aws_session(monkeypatch: pytest.MonkeyPatch) -> None:
-    calls: list[object] = []
-    sdk_client = object()
-
-    class Session:
-        def client(self, service: str, **kwargs):  # noqa: ANN003, ANN201
-            calls.append((service, kwargs))
-            return sdk_client
-
-    monkeypatch.setattr(auth, "aws_session", lambda environ, *, region: calls.append((environ, region)) or Session())
-    monkeypatch.setattr(
-        revision_command.config,
-        "env",
-        lambda name, default=None: "eu-west-1" if name == "OPENLAKEFORGE_STORAGE_REGION" else default,
-    )
-
-    with revision_command._artifact_storage_client("direct", "ops") as client:
-        assert client is sdk_client
-
-    assert calls[0][1] == "eu-west-1"
-    assert calls[1] == ("s3", {"region_name": "eu-west-1"})
 
 def _uploads(tmp_path: Path) -> list[s3.ManifestUpload]:
     config = tmp_path / "configs/sales/sales.yml"

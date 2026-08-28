@@ -2,7 +2,7 @@
 
 Status: Active
 
-Last updated: 2026-08-11
+Last updated: 2026-08-28
 
 Roadmap board: [OpenLakeForge Industrialization Roadmap](https://github.com/users/malon64/projects/3)
 
@@ -250,7 +250,43 @@ cloning the repository, scaffolds a data product, and reaches a queryable Gold
 table; the slim profile fits the documented footprint; every pull request is
 gated on a real deployment; and a Polaris restart is non-destructive.
 
-## Milestone 3 — Secure AWS Reference Profile (`v0.5-beta`)
+## Milestone 3 — Deployment Profiles, Stages, and Promotion (`v0.3-alpha`)
+
+Goal: introduce a versioned Deployment Profile, isolate shared DEV and PROD
+stages on one Kubernetes cluster, and promote one immutable project revision
+without rebuilding source or copying data/runtime state, before secure
+identity, secret management, ingress/networking, and full observability are
+attached to it (#111).
+
+Dependency order within the milestone, not release priority:
+
+- Close the remaining external-project boundary gaps without renaming the
+  canonical `dashboards/`/`pipelines/` paths (#112).
+- Parse and resolve the minimal Deployment Profile v1 — provider, stage, and
+  preset as distinct typed concepts (#113, ADR 0011).
+- Define provider-contract v3 and prove AWS Glue stage isolation (#153).
+- Make the shared-cluster platform root stage-aware (#133).
+- Provision stage data-plane isolation through provider adapters (#114).
+- Build and verify a complete immutable project revision, independent of any
+  target stage (#154, ADR 0012).
+- Activate an existing project revision in a selected stage without a full
+  Terraform apply or a source rebuild (#115).
+- Seed deterministic raw DEV Bronze from project CSV fixtures (#116).
+- Deploy isolated Dagster instances per shared stage (#134).
+- Add stage-aware Superset authoring and report promotion (#130).
+- Add stage-qualified OpenMetadata reconciliation (#131).
+- Prove runtime isolation and exact-revision reuse end to end (#155).
+- Publish the final reference promotion CI/CD workflow (#119).
+
+Exit gate: a fresh local Slim profile creates isolated DEV and PROD stages;
+optional UAT can be added without changing DEV/PROD identities; DEV
+credentials and configuration cannot read or write PROD through normal
+generated paths, and vice versa; the exact same project revision digest
+deploys to DEV and PROD without a rebuild; promotion copies no lakehouse data
+or mutable service state; and the v0.2 single-stage CLI has a documented
+compatibility path.
+
+## Milestone 4 — Secure AWS Reference Profile (`v0.5-beta`)
 
 Goal: establish a secure, recoverable AWS deployment suitable for controlled
 beta use.
@@ -280,7 +316,7 @@ Exit gate: a fresh AWS deployment passes full end-to-end validation without
 default credentials, public worker/database endpoints, or port-forwarding,
 then passes secret-rotation and backup/restore drills.
 
-## Milestone 4 — Operability and Lifecycle (`v0.9-rc`)
+## Milestone 5 — Operability and Lifecycle (`v0.9-rc`)
 
 Goal: prove the release can be operated, upgraded, recovered, and supported.
 
@@ -306,7 +342,7 @@ Goal: prove the release can be operated, upgraded, recovered, and supported.
 Exit gate: the release candidate meets its reference objectives and survives
 upgrade, rollback, recovery, and failure drills.
 
-## Milestone 5 — Governed Stable Distribution (`v1.0`)
+## Milestone 6 — Governed Stable Distribution (`v1.0`)
 
 Goal: ship a documented, governed distribution with a stable product contract.
 

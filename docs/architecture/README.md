@@ -10,6 +10,8 @@ This directory contains the repo-local architecture source of truth for OpenLake
 - `overview.md` describes the initial v1 platform shape and ownership boundaries.
 - `floe-validation.md` explains Floe's Bronze-to-Silver validation, reject
   handling, materialization, and Kubernetes runner boundary.
+- `project-revisions.md` explains the build-once, content-addressed
+  `ProjectRevision` promoted unchanged across stages.
 - `azure-aks-poc.md` describes the first Azure deployment target and test flow.
 - `aws-eks-poc.md` describes the AWS EKS managed-services POC and compatibility
   gate.

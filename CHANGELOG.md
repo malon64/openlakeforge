@@ -12,6 +12,27 @@ immutable-semver` in `release/component-catalog.yaml`) and are never
 force-updated. See [docs/release/releasing.md](docs/release/releasing.md)
 for how a release is cut and verified.
 
+## [Unreleased]
+
+### Added
+
+- `olf project build --project P --image REF` computes and publishes an
+  immutable, content-addressed `ProjectRevision` covering descriptors, Floe
+  contracts, dbt, Dagster orchestration code, report assets when present,
+  the project-code image digest, and the distribution version; `olf project
+  revision inspect|verify` read a published revision without rebuilding
+  source (#154, ADR 0012).
+
+### Changed
+
+- `olf revision compute|publish|activate|verify` (the v0.2 Floe
+  runtime-artifact revision) moved to `olf floe revision ...`, freeing the
+  top-level `revision` name for the new project revision.
+- `libs/product_dagster.py` prefers the stage-activated runtime
+  `OPENLAKEFORGE_FLOE_MANIFEST_REVISION` over the value baked into the
+  project-code image at build time, so one image digest no longer requires
+  a rebuild per Floe revision (#154).
+
 ## [0.2.0-alpha.1] - 2026-08-26
 
 The small-team adoption release (Milestone 2): OpenLakeForge installs from

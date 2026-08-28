@@ -33,7 +33,6 @@ from olf.commands import (
     profile,
     project,
     release,
-    revision,
     smoke,
     source,
     superset,
@@ -58,7 +57,6 @@ app.add_typer(floe.app, name="floe")
 app.add_typer(artifacts.app, name="artifacts")
 app.add_typer(auth.app, name="auth")
 app.add_typer(layers.app, name="layers")
-app.add_typer(revision.app, name="revision")
 app.add_typer(superset.app, name="superset")
 app.add_typer(openmetadata.app, name="openmetadata")
 app.add_typer(k8s.app, name="k8s")
