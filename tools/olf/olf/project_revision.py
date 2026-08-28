@@ -54,17 +54,26 @@ _DIGEST_TAG_PATTERN = re.compile(r"@sha256:[0-9a-f]{64}$")
 # source might declare. `AKIA...` is the fixed-format AWS access key ID
 # prefix -- a real credential value, not a name. The assignment pattern
 # below matches only a bare credential noun used as its own key
-# (`password: ...`, `api_token = "..."`) -- `\b` word boundaries mean it
-# cannot match inside a compound reference identifier like `secret_name`,
-# `secretRef`, or `client_secret_key`, since `_`/mixed-case letters are all
-# regex word characters with no boundary between them.
+# (`password: ...`, `api_token = "..."`, `"password": "..."`) -- `\b` word
+# boundaries mean it cannot match inside a compound reference identifier
+# like `secret_name`, `secretRef`, or `client_secret_key`, since `_`/mixed-
+# case letters are all regex word characters with no boundary between them.
+# An optional quote is allowed on both sides of the key (JSON quotes it;
+# YAML/Python usually don't) so `"password":` isn't missed just because a
+# closing quote sits between the key and the colon. The negative lookahead
+# excludes the sanctioned env-lookup/substitution forms this codebase and
+# ordinary Python/YAML use to read a secret at runtime rather than embed
+# it: `${VAR}`/`$VAR`, `os.environ[...]`/`os.getenv(...)`, and any
+# `name.name(...)`-shaped call (`config.env(...)`, `environ.get(...)`).
 _FORBIDDEN_VALUE_PATTERNS = (
     re.compile(r"s3://", re.IGNORECASE),
     re.compile(r"http://"),
     re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
     re.compile(
         r"(?i)\b(password|passwd|token|secret|api[_-]?key|api[_-]?token|access[_-]?token|"
-        r"client[_-]?secret|private[_-]?key)\b\s*[:=]\s*['\"]?[^\s'\"]{4,}"
+        r"client[_-]?secret|private[_-]?key)\b['\"]?\s*[:=]\s*"
+        r"(?!\$|os\.environ|os\.getenv|[\w.]+\()"
+        r"['\"]?[^\s'\"]{4,}"
     ),
 )
 
@@ -139,12 +148,15 @@ class ProjectRevisionManifest:
                 f"unsupported {SIDECAR_NAME} apiVersion/kind: "
                 f"{payload.get('apiVersion')!r}/{payload.get('kind')!r}"
             )
+        components_payload = payload.get("components")
+        if not isinstance(components_payload, list):
+            raise ProjectRevisionError(f"malformed {SIDECAR_NAME}: 'components' must be an array")
         try:
             manifest = cls(
                 project_name=payload["project_name"],
                 distribution_version=payload["distribution_version"],
                 project_code_image=payload["project_code_image"],
-                components=tuple(ComponentEntries.from_dict(item) for item in payload["components"]),
+                components=tuple(ComponentEntries.from_dict(item) for item in components_payload),
                 revision=payload["revision"],
             )
         except KeyError as exc:
@@ -283,7 +295,24 @@ def _content_hash(content: bytes) -> str:
     return hashlib.sha256(content).hexdigest()
 
 
-def _hash_and_scan(relative_key: str, path: Path) -> str:
+def _hash_and_scan(relative_key: str, path: Path, *, project_root: Path) -> str:
+    # A symlinked component file can point anywhere on the host: reading it
+    # would hash and publish arbitrary host content under the revision's
+    # own key, and make the same tracked project produce a different
+    # revision on a different machine. `rglob` does not recurse into a
+    # symlinked directory it *encounters mid-walk*, but a component *root*
+    # that is itself a symlink (e.g. `.../dbt` replaced with a link) is
+    # followed by `_walk_files`'s own `is_dir()` check -- its contents are
+    # then real, non-symlink files whose *resolved* location is still
+    # outside `project_root`, which only the containment check below
+    # catches; a leaf-only `is_symlink()` check would miss it entirely.
+    if path.is_symlink():
+        raise ProjectRevisionError(
+            f"{relative_key} is a symlink; project revision inputs must be regular files."
+        )
+    resolved = path.resolve()
+    if not resolved.is_relative_to(project_root.resolve()):
+        raise ProjectRevisionError(f"{relative_key} resolves outside the project root ({resolved}).")
     content = path.read_bytes()
     _reject_runtime_bytes(relative_key, content)
     return _content_hash(content)
@@ -309,7 +338,10 @@ def _descriptors_component(project: ProjectSpec, inventory: Any) -> ComponentEnt
     paths = [project.lakehouse_path]
     for source in inventory.sources:
         paths.append(project.bronze_root / source.name / "source.yaml")
-    entries = {(key := _relative_key(project, path)): _hash_and_scan(key, path) for path in paths}
+    entries = {
+        (key := _relative_key(project, path)): _hash_and_scan(key, path, project_root=project.root)
+        for path in paths
+    }
     return ComponentEntries("descriptors", entries)
 
 
@@ -327,7 +359,10 @@ def _floe_component(project: ProjectSpec) -> ComponentEntries:
         _validate_one_config_per_domain(configs)
     except DeploymentPreconditionError as exc:
         raise ProjectRevisionError(str(exc)) from exc
-    entries = {(key := _relative_key(project, path)): _hash_and_scan(key, path) for path in configs}
+    entries = {
+        (key := _relative_key(project, path)): _hash_and_scan(key, path, project_root=project.root)
+        for path in configs
+    }
     return ComponentEntries("floe", entries)
 
 
@@ -336,7 +371,7 @@ def _dbt_component(project: ProjectSpec, inventory: Any) -> ComponentEntries:
     for product in inventory.products:
         for path in _walk_files(project.gold_root / product.id / "dbt"):
             key = _relative_key(project, path)
-            entries[key] = _hash_and_scan(key, path)
+            entries[key] = _hash_and_scan(key, path, project_root=project.root)
     return ComponentEntries("dbt", entries)
 
 
@@ -351,7 +386,7 @@ def _dagster_component(project: ProjectSpec, inventory: Any) -> ComponentEntries
         if not path.is_file():
             continue
         key = _relative_key(project, path)
-        entries[key] = _hash_and_scan(key, path)
+        entries[key] = _hash_and_scan(key, path, project_root=project.root)
     return ComponentEntries("dagster", entries)
 
 
@@ -362,7 +397,7 @@ def _reports_component(project: ProjectSpec, inventory: Any) -> ComponentEntries
     for dashboard in inventory.dashboards:
         for path in _walk_files(project.root / dashboard.report_source_dir):
             key = _relative_key(project, path)
-            entries[key] = _hash_and_scan(key, path)
+            entries[key] = _hash_and_scan(key, path, project_root=project.root)
     return ComponentEntries("reports", entries)
 
 

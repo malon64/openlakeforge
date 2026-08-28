@@ -412,3 +412,88 @@ def test_build_rejects_a_duplicate_floe_config_in_one_domain(external_project: P
 
     with pytest.raises(project_revision.ProjectRevisionError, match="one Floe configuration"):
         _build(external_project)
+
+
+def test_build_allows_python_environment_lookups(external_project: Path) -> None:
+    descriptor = external_project / "lakehouse_code/lakehouse.yaml"
+    original = descriptor.read_text()
+    descriptor.write_text(
+        original + '\n# token = os.environ["API_TOKEN"]\n# password = os.getenv("DB_PASSWORD")\n'
+    )
+
+    manifest = _build(external_project)  # must not raise
+
+    assert manifest.revision.startswith("sha256:")
+
+
+def test_build_allows_shell_style_env_substitution(external_project: Path) -> None:
+    descriptor = external_project / "lakehouse_code/lakehouse.yaml"
+    original = descriptor.read_text()
+    descriptor.write_text(original + "\n# password: ${DB_PASSWORD}\n")
+
+    manifest = _build(external_project)  # must not raise
+
+    assert manifest.revision.startswith("sha256:")
+
+
+def test_build_rejects_a_quoted_json_style_credential_assignment(external_project: Path) -> None:
+    descriptor = external_project / "lakehouse_code/lakehouse.yaml"
+    original = descriptor.read_text()
+    descriptor.write_text(original + '\n# "password": "production-password"\n')
+
+    with pytest.raises(project_revision.ProjectRevisionError, match="stage-bound value"):
+        _build(external_project)
+
+
+def test_build_rejects_a_symlinked_component_file(external_project: Path, tmp_path: Path) -> None:
+    outside_secret = tmp_path / "outside-the-project" / "host-secret.txt"
+    outside_secret.parent.mkdir(parents=True)
+    outside_secret.write_text("not part of any tracked project\n")
+
+    descriptor = external_project / "lakehouse_code/bronze/crm/dlt/crm.py"
+    descriptor.unlink()
+    descriptor.symlink_to(outside_secret)
+
+    with pytest.raises(project_revision.ProjectRevisionError, match="symlink"):
+        _build(external_project)
+
+
+def test_build_rejects_a_path_escaping_the_project_root_via_a_symlinked_directory(
+    external_project: Path, tmp_path: Path
+) -> None:
+    import shutil
+
+    # rglob does not recurse into a symlink it *encounters while walking* --
+    # confirmed separately -- so the leak vector is specifically a component
+    # *root itself* being a symlink: `_walk_files`'s `root.is_dir()` follows
+    # it, and `root.rglob("*")` then happily enumerates the target's real
+    # files. Reproduce that: keep dbt_project.yml etc. present (so
+    # validate_project still passes) by copying the real dbt dir out, then
+    # replace it with a symlink to the copy.
+    outside_dir = tmp_path / "outside-the-project" / "dbt"
+    dbt_root = external_project / "lakehouse_code/gold/order_revenue/dbt"
+    shutil.copytree(dbt_root, outside_dir)
+    (outside_dir / "host-file.sql").write_text("select 1\n")
+    shutil.rmtree(dbt_root)
+    dbt_root.symlink_to(outside_dir)
+
+    with pytest.raises(project_revision.ProjectRevisionError, match="symlink|outside the project root"):
+        _build(external_project)
+
+
+def test_inspect_rejects_a_sidecar_with_a_null_components_field(tmp_path: Path) -> None:
+    store = FilesystemRevisionStore(tmp_path / "store")
+    revision = "sha256:" + "7" * 64
+    store.write(
+        project_revision.sidecar_key(revision),
+        (
+            '{"apiVersion": "openlakeforge.io/v1alpha1", "kind": "ProjectRevision", '
+            '"schema_version": 1, "project_name": "demo", "distribution_version": "0.0.0", '
+            '"project_code_image": "repo@sha256:' + "a" * 64 + '", "components": null, '
+            '"revision": "' + revision + '"}'
+        ).encode("utf-8"),
+        content_type="application/json",
+    )
+
+    with pytest.raises(project_revision.ProjectRevisionError, match="must be an array"):
+        project_revision.inspect(store, revision)
