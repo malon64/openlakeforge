@@ -47,8 +47,13 @@ Every v3 document has these top-level fields:
 Each stage owns its namespace, distinct Bronze/Silver/Gold storage bindings,
 catalog and query bindings, orchestration, capability-dependent reporting and
 governance bindings, runtime identity, activation prefix, and endpoint
-references. Stage references may point only at `shared/*` or the same
-`stage/<name>/*`; a DEV binding cannot reference PROD.
+references. Stage-scoped bindings (storage identity, orchestration, reporting,
+governance endpoints, and the stage's own catalog endpoint) may reference only
+`shared/*` or the issuing stage's own `stage/<name>/*`; a DEV binding cannot
+reference PROD's. Trino query connectivity is the one deliberate exception:
+`shared.query` is a single service used by every stage, isolated by catalog
+rather than by endpoint, so `stages.<name>.query.endpoint` and `service_ref`
+are not stage-scoped.
 
 Ops artifacts are shared storage with a stage-specific activation prefix,
 `activations/<stage>`. They do not define the revision manifest or promotion
@@ -74,11 +79,21 @@ gain a stage prefix.
   `catalogid`, and distinct S3 buckets per stage.
 
 AWS custom Glue catalog names are lower-case
-`olf_<profile>_<stage>`. If that exceeds Glue's 64-character limit, the
-profile portion is truncated and an eight-character hash of the full name is
-appended. The physical ID is `<account-id>:<catalog-name>`, while Trino's SQL
-alias remains `lakehouse_<stage>`. Thus DEV and PROD may both contain the
+`olf_<profile>_<stage>`. If that exceeds the 64-byte limit AWS Glue enforces on
+catalog names ([AWS Glue Iceberg REST catalog
+limitations](https://docs.aws.amazon.com/glue/latest/dg/limitation-glue-iceberg-rest-api.html)),
+the profile portion is truncated and an eight-character hash of the full name
+is appended. The physical ID is `<account-id>:<catalog-name>`, while Trino's
+SQL alias remains `lakehouse_<stage>`. Thus DEV and PROD may both contain the
 physical Glue database `sales_silver` without collision.
+
+`query.catalog_name` doubles as the name of the Trino catalog properties file
+Terraform renders. v2 kept this separate from the Iceberg catalog name as
+`trino_catalog_name`, deployed today as the fixed value `iceberg`. v3 collapses
+the two into one field, requiring it to equal `lakehouse_<stage>`; #133/#114
+must rename the provisioned Trino catalog from `iceberg` to `lakehouse_<stage>`
+before any root emits v3, or Trino's own catalog name and the SQL alias above
+will disagree.
 
 The AWS adapter keeps native Glue rather than introducing another catalog
 technology. It supplies the stage catalog ID, region, and workload-identity
@@ -88,11 +103,15 @@ catalogs.
 
 ## Validation and migration
 
-`olf check contracts` validates the published v3 JSON Schema and parses local,
-Azure, and AWS fixture contracts. The parser rejects unknown fields and
-versions, missing or extra topology stages, incomplete capability bindings,
-cross-stage references, duplicate stage storage/catalog/identity values, and
-provider/topology mismatches.
+`tools/olf/tests/test_provider_contracts.py` validates the local, Azure, and
+AWS fixture contracts against the published v3 JSON Schema and the typed
+parser on every test run (`olf check contracts` covers the Terraform HCL
+surface and rendered profile/Floe output; it does not re-run the fixture
+suite). The parser rejects unknown fields and versions, missing or extra
+topology stages, incomplete capability bindings, cross-stage storage/catalog
+endpoint/identity references, duplicate stage storage/catalog/identity values,
+unknown or mismatched catalog type/provider pairs, and provider/region/topology
+mismatches.
 
 The v2 adapter is intentionally temporary. It lifts a flat deployed contract
 to one DEV stage without changing current v0.2 environment output. A v3

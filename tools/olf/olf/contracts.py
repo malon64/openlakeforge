@@ -33,6 +33,7 @@ from olf.profile import DeploymentTopology, StageName
 from olf.provider_contracts import (
     SUPPORTED_SCHEMA_VERSIONS,
     V2_SCHEMA_VERSION,
+    V3_SCHEMA_VERSION,
     ProviderContractError,
     parse_provider_contracts,
 )
@@ -100,6 +101,18 @@ def load_provider_contracts(terraform_dir: str, *, environ: Mapping[str, str] | 
         raise ProviderContractError(
             f"provider_contracts.schema_version {schema_version!r} is unsupported; "
             f"expected one of {sorted(SUPPORTED_SCHEMA_VERSIONS)!r}"
+        )
+    if schema_version == V3_SCHEMA_VERSION:
+        # Every caller of this loader (olf.e2e._shell.load_provider_contracts_or_raise
+        # and its consumers, olf.deployment.contract_env, olf.commands.contracts) still
+        # indexes the flat v2 shape and has no DeploymentTopology/stage to select with.
+        # Handing back a v3 payload here would make those callers silently read missing
+        # keys as absent-and-therefore-enabled (see olf.e2e._layers) instead of failing
+        # closed. #133 must update this loader alongside the stage-aware callers before
+        # a v3 payload can flow past this point.
+        raise ProviderContractError(
+            "provider_contracts.schema_version '3.0.0' has no stage-aware consumer yet; "
+            "#133 must resolve a DeploymentTopology and select a stage before this loader can serve it"
         )
     return contracts
 
@@ -461,6 +474,16 @@ def build_contract_env(
         _apply_provider_contracts(env, resolved_contract)
         _apply_default_contract_env(env, base, repo_root)
     if native_v3:
+        # env.default() (used for these four names in _apply_default_contract_env)
+        # only fills an unset-or-empty value: the first default pass above already
+        # pinned POLARIS_WAREHOUSE etc. to the OPENLAKEFORGE_CATALOG_* dev defaults
+        # before the stage's real values were applied, so the second default pass
+        # leaves them stale. A PROD stage would otherwise export
+        # POLARIS_WAREHOUSE=lakehouse_dev. env.set() here re-derives all four from
+        # the now-resolved stage values, unconditionally overriding any caller-set
+        # value — unlike the four OPENLAKEFORGE_* names that honor caller set-ness
+        # (see module docstring), these compatibility aliases always mirror the
+        # resolved stage.
         env.set("POLARIS_REST_URI", env.get("OPENLAKEFORGE_CATALOG_REST_URI"))
         env.set("POLARIS_TOKEN_URI", env.get("OPENLAKEFORGE_CATALOG_TOKEN_URI"))
         env.set("POLARIS_WAREHOUSE", env.get("OPENLAKEFORGE_CATALOG_WAREHOUSE"))

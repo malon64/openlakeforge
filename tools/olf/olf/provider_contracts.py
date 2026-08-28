@@ -88,6 +88,28 @@ def _reference(value: object, *, where: str, allowed: tuple[str, ...]) -> str:
     return reference
 
 
+_CATALOG_TYPES = frozenset({"rest", "glue"})
+_CATALOG_PROVIDERS = frozenset({"polaris", "aws-glue"})
+_CATALOG_TYPE_BY_PROVIDER = {"polaris": "rest", "aws-glue": "glue"}
+
+
+def _stage_or_shared_reference(
+    value: object, *, where: str, stage: StageName, shared_refs: set[str]
+) -> str:
+    """A binding that may point at the owning stage or a resolvable shared service.
+
+    Used for the handful of fields (e.g. reporting.service_ref) that may be
+    satisfied by either a stage-local implementation or a platform-wide one,
+    unlike endpoint_ref fields, which are always stage-scoped.
+    """
+    reference = _string(value, where=where)
+    if reference.startswith(f"stage/{stage.value}/"):
+        return reference
+    if reference in shared_refs:
+        return reference
+    raise ProviderContractError(f"{where} must reference stage/{stage.value}/* or a resolvable shared/* binding")
+
+
 @dataclass(frozen=True)
 class SharedPlatformContract:
     """Provider-owned services that must not be repeated for every stage."""
@@ -254,6 +276,8 @@ def _parse_stage(
     )
     if storage["provider"] != topology.provider.value:
         raise ProviderContractError(f"stages.{name.value}.storage.provider must match DeploymentTopology.provider")
+    if topology.region is not None and storage["region"] != topology.region:
+        raise ProviderContractError(f"stages.{name.value}.storage.region must match DeploymentTopology.region")
     _reference(storage["identity_ref"], where=f"stages.{name.value}.storage.identity_ref", allowed=("stage/",))
     physical_storage: set[str] = set()
     for layer in ("bronze", "silver", "gold"):
@@ -298,12 +322,29 @@ def _parse_stage(
             "deployer_client_secret_key",
         },
     )
+    catalog_type = catalog["catalog_type"]
+    catalog_provider = catalog["catalog_provider"]
+    if catalog_type not in _CATALOG_TYPES:
+        raise ProviderContractError(
+            f"stages.{name.value}.catalog.catalog_type must be one of {sorted(_CATALOG_TYPES)!r}"
+        )
+    if catalog_provider not in _CATALOG_PROVIDERS:
+        raise ProviderContractError(
+            f"stages.{name.value}.catalog.catalog_provider must be one of {sorted(_CATALOG_PROVIDERS)!r}"
+        )
+    if _CATALOG_TYPE_BY_PROVIDER[catalog_provider] != catalog_type:
+        raise ProviderContractError(
+            f"stages.{name.value}.catalog.catalog_type {catalog_type!r} does not match "
+            f"catalog_provider {catalog_provider!r}"
+        )
     expected_catalog = f"lakehouse_{name.value}"
     if catalog["catalog_name"] != expected_catalog:
         raise ProviderContractError(f"stages.{name.value}.catalog.catalog_name must be canonical {expected_catalog!r}")
     if catalog["catalog_provider"] == "aws-glue":
         for field in ("glue_region", "glue_catalog_id"):
             _string(catalog.get(field), where=f"stages.{name.value}.catalog.{field}")
+        if topology.region is not None and catalog["glue_region"] != topology.region:
+            raise ProviderContractError(f"stages.{name.value}.catalog.glue_region must match DeploymentTopology.region")
         if catalog["glue_catalog_id"] != catalog["physical_id"]:
             raise ProviderContractError(f"stages.{name.value}.catalog Glue catalog ID must be its physical identity")
         catalog_name = catalog["glue_catalog_id"].rsplit(":", 1)[-1]
@@ -340,6 +381,11 @@ def _parse_stage(
         where=f"stages.{name.value}.orchestration.service_ref",
         allowed=(f"stage/{name.value}/",),
     )
+    _reference(
+        orchestration["endpoint_ref"],
+        where=f"stages.{name.value}.orchestration.endpoint_ref",
+        allowed=(f"stage/{name.value}/",),
+    )
     activation = _fields(
         document["activation"],
         where=f"stages.{name.value}.activation",
@@ -359,6 +405,9 @@ def _parse_stage(
         raise ProviderContractError(f"stages.{name.value}.endpoints.query must resolve the query service")
     if endpoints["orchestration"] != orchestration["endpoint_ref"]:
         raise ProviderContractError(f"stages.{name.value}.endpoints.orchestration must resolve orchestration")
+    expected_catalog_endpoint = catalog["service_ref"] if "service_ref" in catalog else f"stage/{name.value}/catalog"
+    if endpoints["catalog"] != expected_catalog_endpoint:
+        raise ProviderContractError(f"stages.{name.value}.endpoints.catalog must resolve the stage catalog")
     runtime_identity = _fields(
         document["runtime_identity"],
         where=f"stages.{name.value}.runtime_identity",
@@ -371,7 +420,8 @@ def _parse_stage(
         raise ProviderContractError(f"stages.{name.value} runtime bindings must use their own runtime identity")
 
     resolved_stage = topology.stage(name)
-    assert resolved_stage is not None  # Topology always contains canonical stage names.
+    if resolved_stage is None:
+        raise ProviderContractError(f"DeploymentTopology has no {name.value!r} stage")
     reporting = document.get("reporting")
     governance = document.get("governance")
     if resolved_stage.capabilities.analytics != (reporting is not None):
@@ -384,6 +434,17 @@ def _parse_stage(
             where=f"stages.{name.value}.reporting",
             required={"service_ref", "endpoint_ref"},
         )
+        _stage_or_shared_reference(
+            reporting["service_ref"],
+            where=f"stages.{name.value}.reporting.service_ref",
+            stage=name,
+            shared_refs=shared_refs,
+        )
+        _reference(
+            reporting["endpoint_ref"],
+            where=f"stages.{name.value}.reporting.endpoint_ref",
+            allowed=(f"stage/{name.value}/",),
+        )
         if endpoints.get("reporting") != reporting["endpoint_ref"]:
             raise ProviderContractError(f"stages.{name.value}.endpoints.reporting must resolve reporting")
     if governance is not None:
@@ -394,6 +455,11 @@ def _parse_stage(
         )
         if governance["service_ref"] not in shared_refs:
             raise ProviderContractError(f"stages.{name.value}.governance.service_ref does not resolve")
+        _reference(
+            governance["endpoint_ref"],
+            where=f"stages.{name.value}.governance.endpoint_ref",
+            allowed=(f"stage/{name.value}/",),
+        )
         if endpoints.get("governance") != governance["endpoint_ref"]:
             raise ProviderContractError(f"stages.{name.value}.endpoints.governance must resolve governance")
     return StageContract(
@@ -443,6 +509,8 @@ def _parse_v3(payload: Mapping[str, Any], topology: DeploymentTopology | None) -
         )
     stages: dict[StageName, StageContract] = {}
     physical_storage: set[str] = set()
+    storage_bucket_names: set[str] = set()
+    storage_uris: set[str] = set()
     catalog_ids: set[str] = set()
     principals: set[str] = set()
     stage_endpoint_values: set[str] = set()
@@ -451,10 +519,20 @@ def _parse_v3(payload: Mapping[str, Any], topology: DeploymentTopology | None) -
         stage = _parse_stage(name, stage_value, shared=shared, topology=topology)
         stages[name] = stage
         for layer in ("bronze", "silver", "gold"):
-            physical_id = stage.storage[layer]["physical_id"]
+            layer_binding = stage.storage[layer]
+            physical_id = layer_binding["physical_id"]
             if physical_id in physical_storage:
                 raise ProviderContractError(f"storage physical identity {physical_id!r} is shared between stages")
             physical_storage.add(physical_id)
+            bucket_name = layer_binding["bucket_name"]
+            if bucket_name in storage_bucket_names:
+                raise ProviderContractError(f"storage bucket name {bucket_name!r} is shared between stages")
+            storage_bucket_names.add(bucket_name)
+            uri = layer_binding["uri"]
+            if uri and uri in storage_uris:
+                raise ProviderContractError(f"storage location {uri!r} is shared between stages")
+            if uri:
+                storage_uris.add(uri)
         physical_id = stage.catalog["physical_id"]
         if physical_id in catalog_ids:
             raise ProviderContractError(f"catalog physical identity {physical_id!r} is shared between stages")
@@ -463,7 +541,7 @@ def _parse_v3(payload: Mapping[str, Any], topology: DeploymentTopology | None) -
         if principal in principals:
             raise ProviderContractError(f"runtime principal {principal!r} is shared between stages")
         principals.add(principal)
-        for endpoint_name in ("orchestration", "reporting"):
+        for endpoint_name in ("orchestration", "reporting", "governance"):
             endpoint = stage.endpoints.get(endpoint_name)
             if endpoint is None:
                 continue
