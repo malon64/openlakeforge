@@ -33,10 +33,14 @@ The local environment is the quickest way to evaluate OpenLakeForge.
 
 It runs on a local Kubernetes cluster using `kind` and requires a working Docker engine together with the OpenLakeForge deployment tooling.
 
-The local platform is available in two profiles:
+The local platform is available in two presets:
 
 * **Slim** — the core ingestion-to-Gold lakehouse stack.
 * **Full** — Slim plus OpenMetadata governance and Superset dashboards.
+
+`--provider local --profile slim|full` is the deprecated single-DEV-stage
+shorthand for the typed Deployment Profile (`openlakeforge.yaml`), which
+`olf profile validate`/`resolve` parse and resolve — see ADR 0011.
 
 ➡️ [Install OpenLakeForge locally](setup/local.md)
 

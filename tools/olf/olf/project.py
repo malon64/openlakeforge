@@ -98,10 +98,12 @@ class ProjectValidationReport:
 
 
 def validate_project(project: ProjectSpec) -> ProjectValidationReport:
-    """Validate the provider-neutral project files without resolving a profile."""
+    """Validate the provider-neutral project files. Parses the Deployment
+    Profile's structure but does not resolve it into a topology -- that is
+    `olf profile resolve`."""
     from olf.contracts_check import descriptor_schema_errors
 
-    checks = [_canonical_layout_check(project)]
+    checks = [_canonical_layout_check(project), _profile_check(project)]
     descriptor_errors = descriptor_schema_errors(project.root, schema_root=project.schema_root)
     checks.append(
         ProjectCheck(
@@ -141,6 +143,16 @@ def _canonical_layout_check(project: ProjectSpec) -> ProjectCheck:
     if missing:
         return ProjectCheck("canonical_layout", False, f"missing: {', '.join(missing)}")
     return ProjectCheck("canonical_layout", True, "canonical project paths are present")
+
+
+def _profile_check(project: ProjectSpec) -> ProjectCheck:
+    from olf.profile import DeploymentProfileError, load_deployment_profile
+
+    try:
+        load_deployment_profile(project.profile_path)
+    except (DeploymentProfileError, OSError) as exc:
+        return ProjectCheck("profile", False, str(exc))
+    return ProjectCheck("profile", True, "deployment profile validated")
 
 
 def _project_assets_check(project: ProjectSpec, inventory: LakehouseInventory | None) -> ProjectCheck:

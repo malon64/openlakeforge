@@ -58,9 +58,10 @@ distinct rather than one emulating the other.
 `ProjectSpec` is the typed project/distribution boundary for project
 consumers. It supplies canonical paths for the profile, descriptors, Bronze,
 Silver, Gold, dashboard, and Dagster directories. `olf project validate
---project PATH` emits a JSON report for the structural layout, descriptors,
-inventory, and declared assets. The profile is structurally required but its
-contents are not parsed or resolved yet.
+--project PATH` emits a JSON report for the structural layout, the Deployment
+Profile, descriptors, inventory, and declared assets. The profile's typed
+model and its resolution into one effective topology are ADR 0011; `olf
+project validate` parses it, `olf profile resolve` resolves it.
 
 The consequence worth naming: scaffolding validates user descriptors against
 schemas that live outside the project, because the schema is platform material
@@ -104,4 +105,4 @@ payload) and 0032 (the installed project root). ADR 0032's transitional-project
 rule is recorded in ADR 0005 alongside the descriptor model it waives.
 Updated for the v0.3 external project contract: `ProjectSpec` makes the
 project/distribution split explicit, and `openlakeforge.yaml` is the required
-project-root profile marker pending its semantic resolver.
+project-root Deployment Profile, parsed and resolved per ADR 0011.

@@ -42,7 +42,7 @@ labels expressing intended sequence within a milestone.
 | `lakehouse_code/dashboards/superset/<dashboard>/` | Consumption-owned: Superset reports |
 | `lakehouse_code/pipelines/dagster/` | User-maintained Dagster orchestration code |
 | `lakehouse_code/lakehouse.yaml` | Canonical domain/product business metadata descriptor |
-| `openlakeforge.yaml` | Project-root profile marker; semantic profile resolution is pending |
+| `openlakeforge.yaml` | Project-root Deployment Profile v1; parsed and resolved by `olf profile validate`/`resolve` (ADR 0011) |
 | `libs/` | Shared runtime Python imported by the project-code image |
 | `packages/domain-model/` | Canonical provider-neutral descriptor and inventory package |
 | `tools/olf/` | The `olf` CLI — uv-managed deploy tooling, contracts, artifacts, scaffolding, e2e |
@@ -53,6 +53,7 @@ labels expressing intended sequence within a milestone.
 | `images/project-code/` | The Dagster runtime image |
 | `release/component-catalog.yaml` | Immutable version, digest pins, and the distribution version contract both `pyproject.toml` files must match |
 | `docs/schema/lakehouse.schema.json`, `docs/schema/source.schema.json` | Schemas `lakehouse.yaml` and `source.yaml` validate against |
+| `docs/schema/deployment-profile.schema.json` | Schema `openlakeforge.yaml` validates against |
 
 ## Architectural rules
 

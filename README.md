@@ -93,10 +93,10 @@ is not a prerequisite.
 
 `olf init` verifies the packaged platform payload, provisions or reuses the
 pinned toolchain, checks that Docker is reachable, and creates the writable
-project files `openlakeforge.yaml` and `lakehouse_code/`. The profile is
-included now as a structural project marker; profile interpretation follows in
-the next milestone slice. Validate the project boundary with
-`olf project validate --project .`. Use `olf init --empty` to start from a
+project files `openlakeforge.yaml` and `lakehouse_code/`. Validate the project
+boundary and the Deployment Profile with `olf project validate --project .`,
+or resolve the profile on its own with `olf profile resolve --project . --json`.
+Use `olf init --empty` to start from a
 bare project instead — it has no source or product yet, so scaffold both with
 `olf source new` and `olf product new` before deploying.
 

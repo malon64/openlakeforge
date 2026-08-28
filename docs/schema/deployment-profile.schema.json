@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openlakeforge.io/schemas/deployment-profile/v1alpha1",
+  "title": "OpenLakeForge Deployment Profile",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "properties": {
+    "apiVersion": {"const": "openlakeforge.io/v1alpha1"},
+    "kind": {"const": "DeploymentProfile"},
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$"}
+      }
+    },
+    "spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider", "preset", "stages"],
+      "properties": {
+        "provider": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type"],
+          "properties": {
+            "type": {"enum": ["local", "aws", "azure"]},
+            "region": {"type": "string", "minLength": 1}
+          }
+        },
+        "preset": {"enum": ["slim", "full"]},
+        "stages": {
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "properties": {
+            "dev": {"$ref": "#/$defs/stage"},
+            "uat": {"$ref": "#/$defs/stage"},
+            "prod": {"$ref": "#/$defs/stage"}
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "stage": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "capabilities": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "analytics": {"type": "boolean"},
+            "governance": {"type": "boolean"}
+          }
+        }
+      }
+    }
+  }
+}

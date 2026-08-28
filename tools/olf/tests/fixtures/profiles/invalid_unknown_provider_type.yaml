@@ -1,0 +1,13 @@
+apiVersion: openlakeforge.io/v1alpha1
+kind: DeploymentProfile
+
+metadata:
+  name: fixture
+
+spec:
+  provider:
+    type: gcp
+  preset: slim
+  stages:
+    dev:
+      enabled: true

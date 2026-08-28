@@ -1,0 +1,15 @@
+apiVersion: openlakeforge.io/v1alpha1
+kind: DeploymentProfile
+
+metadata:
+  name: fixture
+
+spec:
+  provider:
+    type: local
+  preset: slim
+  stages:
+    dev:
+      enabled: true
+    staging:
+      enabled: true

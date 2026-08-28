@@ -1,0 +1,21 @@
+apiVersion: openlakeforge.io/v1alpha1
+kind: DeploymentProfile
+
+metadata:
+  name: fixture-full
+
+spec:
+  provider:
+    type: aws
+    region: eu-west-3
+  preset: full
+  stages:
+    dev:
+      enabled: true
+    uat:
+      enabled: true
+    prod:
+      enabled: true
+      capabilities:
+        analytics: true
+        governance: false
