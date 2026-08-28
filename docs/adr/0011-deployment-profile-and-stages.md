@@ -114,8 +114,10 @@ modules or backends, IAM policies, credentials, images, PVCs, buckets,
 catalogs, and generated endpoints. `DeploymentTopology` carries only logical
 service identities (`catalog`, `query`, `metadata_database`, `governance` as
 shared services; `orchestration`, `reporting` per stage) — never namespaces,
-Helm releases, or endpoints. Deriving those is the provider-contract resolver
-(`#153`) and the stage-aware platform root (`#133`), not this profile.
+Helm releases, or endpoints. The typed provider-contract v3 resolver derives
+those from this topology (ADR 0003); #133 and #114 will make the platform root
+and provider adapters emit and provision the resolved bindings. None belongs in
+this profile.
 
 ### The v0.2 compatibility path
 
@@ -131,9 +133,9 @@ topology.
 
 - `olf profile validate` and `olf profile resolve --json` expose the
   effective topology before any mutation, for both humans and CI.
-- Every later v0.3 issue (`#153`, `#133`, `#114`, `#154`, `#115`, …) consumes
-  `DeploymentTopology`, not `--profile`/`--provider` flags directly, once they
-  land.
+- Every later v0.3 issue (`#133`, `#114`, `#154`, `#115`, …) consumes
+  `DeploymentTopology`, not `--profile`/`--provider` flags directly, once it
+  lands.
 - Local, AWS, and Azure POC shapes are representable without credentials,
   sizing, or endpoints — those stay behind provider contracts (ADR 0003).
 
@@ -142,3 +144,6 @@ topology.
 New record. No prior ADR modeled provider, stage, and preset as distinct
 types; ADR 0002 and ADR 0009 are corrected in place to stop describing
 `--profile` as an environment or the profile file as inert.
+
+2026-08-28: Updated the provider-contract handoff after v3 established the
+typed topology-to-provider boundary; no profile fields were added.

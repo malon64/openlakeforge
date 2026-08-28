@@ -1,0 +1,235 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "OpenLakeForge Provider Contracts v3",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "deployment", "shared", "stages"],
+  "properties": {
+    "schema_version": {"const": "3.0.0"},
+    "deployment": {"$ref": "#/definitions/deployment"},
+    "shared": {"$ref": "#/definitions/shared"},
+    "stages": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": false,
+      "properties": {
+        "dev": {"$ref": "#/definitions/stage"},
+        "uat": {"$ref": "#/definitions/stage"},
+        "prod": {"$ref": "#/definitions/stage"}
+      }
+    }
+  },
+  "definitions": {
+    "nonEmptyString": {"type": "string", "minLength": 1},
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref", "implementation"],
+      "properties": {
+        "ref": {"$ref": "#/definitions/nonEmptyString"},
+        "implementation": {"$ref": "#/definitions/nonEmptyString"},
+        "endpoint": {"$ref": "#/definitions/nonEmptyString"},
+        "bucket_name": {"$ref": "#/definitions/nonEmptyString"},
+        "artifact_base_uri": {"$ref": "#/definitions/nonEmptyString"},
+        "access_mode": {"$ref": "#/definitions/nonEmptyString"},
+        "local_upload_access_mode": {"$ref": "#/definitions/nonEmptyString"}
+      }
+    },
+    "deployment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profile_name", "provider", "region"],
+      "properties": {
+        "profile_name": {"$ref": "#/definitions/nonEmptyString"},
+        "provider": {"enum": ["local", "aws", "azure"]},
+        "region": {"type": ["string", "null"]}
+      }
+    },
+    "shared": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "foundation",
+        "kubernetes_platform",
+        "metadata_database",
+        "query",
+        "artifact_registry",
+        "ops_storage",
+        "secrets",
+        "identity",
+        "access",
+        "observability"
+      ],
+      "properties": {
+        "foundation": {"$ref": "#/definitions/binding"},
+        "kubernetes_platform": {"$ref": "#/definitions/binding"},
+        "metadata_database": {"$ref": "#/definitions/binding"},
+        "query": {"$ref": "#/definitions/binding"},
+        "artifact_registry": {"$ref": "#/definitions/binding"},
+        "ops_storage": {"$ref": "#/definitions/binding"},
+        "secrets": {"$ref": "#/definitions/binding"},
+        "identity": {"$ref": "#/definitions/binding"},
+        "access": {"$ref": "#/definitions/binding"},
+        "observability": {"$ref": "#/definitions/binding"},
+        "catalog_service": {"$ref": "#/definitions/binding"},
+        "governance_service": {"$ref": "#/definitions/binding"}
+      }
+    },
+    "layerStorage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["physical_id", "bucket_name", "uri"],
+      "properties": {
+        "physical_id": {"$ref": "#/definitions/nonEmptyString"},
+        "bucket_name": {"$ref": "#/definitions/nonEmptyString"},
+        "uri": {"type": "string"}
+      }
+    },
+    "storage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "provider",
+        "implementation",
+        "protocol",
+        "region",
+        "identity_ref",
+        "bronze",
+        "silver",
+        "gold"
+      ],
+      "properties": {
+        "provider": {"enum": ["local", "aws", "azure"]},
+        "implementation": {"$ref": "#/definitions/nonEmptyString"},
+        "protocol": {"$ref": "#/definitions/nonEmptyString"},
+        "region": {"$ref": "#/definitions/nonEmptyString"},
+        "identity_ref": {"$ref": "#/definitions/nonEmptyString"},
+        "endpoint": {"type": "string"},
+        "virtual_host_endpoint": {"type": "string"},
+        "path_style_access": {"type": "boolean"},
+        "ssl_mode": {"$ref": "#/definitions/nonEmptyString"},
+        "credentials_secret_name": {"type": "string"},
+        "access_key_id_key": {"type": "string"},
+        "secret_access_key_key": {"type": "string"},
+        "s3_service_name": {"type": "string"},
+        "s3_service_port": {"type": ["integer", "string"]},
+        "bronze": {"$ref": "#/definitions/layerStorage"},
+        "silver": {"$ref": "#/definitions/layerStorage"},
+        "gold": {"$ref": "#/definitions/layerStorage"}
+      }
+    },
+    "catalog": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "logical_name",
+        "implementation",
+        "catalog_type",
+        "catalog_provider",
+        "catalog_name",
+        "runtime_profile",
+        "physical_id"
+      ],
+      "properties": {
+        "logical_name": {"$ref": "#/definitions/nonEmptyString"},
+        "implementation": {"$ref": "#/definitions/nonEmptyString"},
+        "catalog_type": {"enum": ["rest", "glue"]},
+        "catalog_provider": {"enum": ["polaris", "aws-glue"]},
+        "catalog_name": {"$ref": "#/definitions/nonEmptyString"},
+        "runtime_profile": {"$ref": "#/definitions/nonEmptyString"},
+        "physical_id": {"$ref": "#/definitions/nonEmptyString"},
+        "service_ref": {"$ref": "#/definitions/nonEmptyString"},
+        "warehouse": {"type": "string"},
+        "rest_uri": {"type": "string"},
+        "token_uri": {"type": "string"},
+        "oauth_scope": {"type": "string"},
+        "glue_region": {"type": "string"},
+        "glue_catalog_id": {"type": "string"},
+        "glue_rest_uri": {"type": "string"},
+        "glue_rest_warehouse": {"type": "string"},
+        "glue_warehouse_prefix": {"type": "string"},
+        "catalog_namespace_model": {"type": "string"},
+        "floe_credentials_secret_name": {"type": "string"},
+        "floe_client_id_key": {"type": "string"},
+        "floe_client_secret_key": {"type": "string"},
+        "deployer_credentials_secret_name": {"type": "string"},
+        "deployer_client_id_key": {"type": "string"},
+        "deployer_client_secret_key": {"type": "string"}
+      }
+    },
+    "query": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["service_ref", "catalog_ref", "catalog_name", "endpoint", "runtime_identity_ref"],
+      "properties": {
+        "service_ref": {"$ref": "#/definitions/nonEmptyString"},
+        "catalog_ref": {"$ref": "#/definitions/nonEmptyString"},
+        "catalog_name": {"$ref": "#/definitions/nonEmptyString"},
+        "endpoint": {"$ref": "#/definitions/nonEmptyString"},
+        "runtime_identity_ref": {"$ref": "#/definitions/nonEmptyString"}
+      }
+    },
+    "serviceBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["service_ref", "endpoint_ref"],
+      "properties": {
+        "service_ref": {"$ref": "#/definitions/nonEmptyString"},
+        "endpoint_ref": {"$ref": "#/definitions/nonEmptyString"}
+      }
+    },
+    "stage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "namespace",
+        "storage",
+        "catalog",
+        "query",
+        "orchestration",
+        "activation",
+        "endpoints",
+        "runtime_identity"
+      ],
+      "properties": {
+        "namespace": {"$ref": "#/definitions/nonEmptyString"},
+        "storage": {"$ref": "#/definitions/storage"},
+        "catalog": {"$ref": "#/definitions/catalog"},
+        "query": {"$ref": "#/definitions/query"},
+        "orchestration": {"$ref": "#/definitions/serviceBinding"},
+        "reporting": {"$ref": "#/definitions/serviceBinding"},
+        "governance": {"$ref": "#/definitions/serviceBinding"},
+        "activation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["ops_storage_ref", "prefix"],
+          "properties": {
+            "ops_storage_ref": {"$ref": "#/definitions/nonEmptyString"},
+            "prefix": {"$ref": "#/definitions/nonEmptyString"}
+          }
+        },
+        "endpoints": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["catalog", "query", "orchestration"],
+          "properties": {
+            "catalog": {"$ref": "#/definitions/nonEmptyString"},
+            "query": {"$ref": "#/definitions/nonEmptyString"},
+            "orchestration": {"$ref": "#/definitions/nonEmptyString"},
+            "reporting": {"$ref": "#/definitions/nonEmptyString"},
+            "governance": {"$ref": "#/definitions/nonEmptyString"}
+          }
+        },
+        "runtime_identity": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["ref", "principal"],
+          "properties": {
+            "ref": {"$ref": "#/definitions/nonEmptyString"},
+            "principal": {"$ref": "#/definitions/nonEmptyString"}
+          }
+        }
+      }
+    }
+  }
+}

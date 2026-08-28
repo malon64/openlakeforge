@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -28,11 +29,20 @@ from openlakeforge_domain import (
 
 from olf import contracts as contracts_module
 from olf import floe as floe_module
+from olf.profile import resolve_topology, validate_deployment_profile
+from olf.provider_contracts import ProviderContractError, parse_provider_contracts
 
 _SCHEMA_BY_KIND = {
     "lakehouse": "docs/schema/lakehouse.schema.json",
     "source": "docs/schema/source.schema.json",
 }
+
+_PROVIDER_CONTRACT_V3_SCHEMA = "docs/schema/provider-contracts.schema.json"
+_PROVIDER_CONTRACT_V3_FIXTURES = (
+    "local-provider-contracts-v3.json",
+    "azure-provider-contracts-v3.json",
+    "aws-provider-contracts-v3.json",
+)
 
 # Terraform environment roots that carry a `contracts.tf` provider-contract
 # surface (ADR-defined; local/azure-poc/aws-poc are the only ones today).
@@ -194,9 +204,7 @@ def descriptor_schema_errors(
             continue
 
         schema_relpath = _SCHEMA_BY_KIND[kind]
-        schema_path = (
-            schema_root / Path(schema_relpath).name if schema_root is not None else repo_root / schema_relpath
-        )
+        schema_path = schema_root / Path(schema_relpath).name if schema_root is not None else repo_root / schema_relpath
         schema = json.loads(schema_path.read_text(encoding="utf-8"))
         validator = jsonschema.Draft202012Validator(schema)
         schema_errors = sorted(validator.iter_errors(document), key=lambda e: list(e.absolute_path))
@@ -207,6 +215,64 @@ def descriptor_schema_errors(
             errors.append(f"{rel_path}: schema violation at {location}: {error.message}")
 
     return errors
+
+
+def _topology_for_provider_fixture(contract: Mapping[str, Any]):
+    deployment = contract.get("deployment")
+    stages = contract.get("stages")
+    if not isinstance(deployment, dict) or not isinstance(stages, dict):
+        raise ProviderContractError("fixture is missing deployment or stages")
+    stage_profile = {
+        name: {
+            "enabled": True,
+            "capabilities": {
+                "analytics": isinstance(stage, dict) and "reporting" in stage,
+                "governance": isinstance(stage, dict) and "governance" in stage,
+            },
+        }
+        for name, stage in stages.items()
+    }
+    provider = {"type": deployment.get("provider")}
+    if deployment.get("region") is not None:
+        provider["region"] = deployment["region"]
+    return resolve_topology(
+        validate_deployment_profile(
+            {
+                "apiVersion": "openlakeforge.io/v1alpha1",
+                "kind": "DeploymentProfile",
+                "metadata": {"name": deployment.get("profile_name")},
+                "spec": {"provider": provider, "preset": "slim", "stages": stage_profile},
+            },
+            source="provider-contract fixture",
+        )
+    )
+
+
+def _check_provider_contract_v3_fixtures(repo_root: Path, *, schema_root: Path) -> CheckResult:
+    """Parse each provider's stage contract against the published v3 schema."""
+    name = "provider_contract_v3_fixtures"
+    schema_path = schema_root / _PROVIDER_CONTRACT_V3_SCHEMA
+    fixtures_root = repo_root / "tools/olf/tests/fixtures"
+    if not schema_path.is_file():
+        return CheckResult(name, ok=False, detail=f"missing {schema_path}")
+    if not fixtures_root.is_dir():
+        return CheckResult(name, ok=True, detail="skipped: source fixture directory is unavailable")
+    try:
+        schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return CheckResult(name, ok=False, detail=f"cannot parse schema: {exc}")
+    errors: list[str] = []
+    for fixture_name in _PROVIDER_CONTRACT_V3_FIXTURES:
+        fixture_path = fixtures_root / fixture_name
+        try:
+            contract = json.loads(fixture_path.read_text(encoding="utf-8"))
+            jsonschema.validate(contract, schema)
+            parse_provider_contracts(contract, _topology_for_provider_fixture(contract))
+        except (OSError, json.JSONDecodeError, jsonschema.ValidationError, ProviderContractError) as exc:
+            errors.append(f"{fixture_name}: {exc}")
+    if errors:
+        return CheckResult(name, ok=False, detail="; ".join(errors))
+    return CheckResult(name, ok=True, detail=f"{len(_PROVIDER_CONTRACT_V3_FIXTURES)} fixture(s) validated")
 
 
 def _check_descriptor_schema_conformance(repo_root: Path, *, schema_root: Path | None = None) -> CheckResult:
@@ -663,12 +729,9 @@ def run_contracts_check(
     dist_root = Path(distribution_root).resolve() if distribution_root is not None else root
 
     report = ContractsCheckReport()
-    report.results.append(
-        _check_descriptor_schema_conformance(root, schema_root=dist_root / "docs" / "schema")
-    )
-    report.results.append(
-        _check_deployment_profile_schema_conformance(root, schema_root=dist_root / "docs" / "schema")
-    )
+    report.results.append(_check_descriptor_schema_conformance(root, schema_root=dist_root / "docs" / "schema"))
+    report.results.append(_check_deployment_profile_schema_conformance(root, schema_root=dist_root / "docs" / "schema"))
+    report.results.append(_check_provider_contract_v3_fixtures(root, schema_root=dist_root))
     report.results.append(_check_hcl_structured_contracts(dist_root))
     report.results.append(_check_hcl_phase_two_invariants(dist_root))
     report.results.append(_check_floe_rendered_profile())

@@ -1,164 +1,108 @@
 # Provider Contracts
 
 OpenLakeForge platform modules exchange provider-neutral contracts instead of
-assuming one local implementation. Local, Azure, and AWS roots now publish the
-same contract families while choosing different provider adapters.
+allowing runtime code or project descriptors to select infrastructure directly.
+The contract is the portability boundary: the same project can use Polaris and
+SeaweedFS locally or on Azure, and Glue and S3 on AWS.
 
-These environments are functionally implemented but validated as POCs/sandbox deployments and are not production-hardened. It does not add Keycloak, Vault, remote Terraform
-state, ingress/TLS, or production hardening services.
+Terraform remains the source of physical provider values. `olf` parses those
+values, validates them against the resolved Deployment Profile topology, and
+derives the environment consumed by Floe, dbt, Dagster, Superset, and metadata
+reconciliation. Product-owned descriptors contain logical identities only.
 
-## Environment overview
+## Versions and deployment phases
 
-The OpenLakeForge data platform remains logically identical across environments.
-Provider contracts determine which infrastructure implementation satisfies each
-platform capability.
+The deployed Terraform roots currently export flat `2.0.0` contracts. `olf`
+adapts one to a single DEV-stage v3 view, preserving the v0.2 environment
+exports. Unknown versions fail closed.
 
-| Capability | Local | Azure | AWS |
-| --- | --- | --- | --- |
-| Kubernetes | kind | AKS | EKS |
-| Object storage | SeaweedFS | SeaweedFS | S3 |
-| Metadata database | PostgreSQL | PostgreSQL | RDS PostgreSQL |
-| Iceberg catalog | Polaris | Polaris | AWS Glue |
-| Container registry | local kind images | ACR | ECR |
+`3.0.0` is the binding stage-aware shape. It is represented by strict schema,
+typed parser, and local, Azure, and AWS fixtures now; #133 and #114 will make
+the Terraform roots emit and provision it. A native v3 runtime must select a
+stage explicitly. No profile or project descriptor receives a bucket, catalog,
+provider adapter, credential, or generated endpoint.
 
-Data products remain provider-neutral: the same domain descriptors, Floe
-contracts, dbt projects and Dagster definitions can be deployed against each
-environment.
+`olf deploy` has three ordered phases:
 
-The sections below describe the contracts that make this portability possible.
+1. Foundation creates the cluster and registry.
+2. Platform creates static Terraform-managed services.
+3. Artifacts deploys data-project-derived images, manifests, reports, and
+   metadata.
 
-## Contract Source Of Truth
+The static/dynamic boundary is between platform and artifacts. A code commit
+runs artifacts only; platform never waits for project artifacts.
 
-Provider contract exports carry `schema_version: "2.0.0"`. Consumers reject
-unknown versions rather than guessing field meanings. This version is
-independent of deployment and component versions.
+## v3 contract shape
 
-Terraform is the source of truth for provider contracts. The local, Azure, and
-AWS platform roots normalize explicit contract objects in their `contracts.tf`
-files and validate them with Terraform `check` blocks. Runtime scripts can read
-the exported `provider_contracts` output and fall back to local defaults before
-the stack is applied.
+Every v3 document has these top-level fields:
 
-The current hardening is provider-first, not service-replacement-first. Dagster,
-Trino, Superset, OpenMetadata, dbt-trino, and Floe remain the implemented v1
-solution stack. Their runtime configuration should depend on provider contracts
-for storage, catalog, secrets, artifacts, identity, and access.
+- `deployment`: logical profile name, provider, and region, verified against
+  `DeploymentTopology`.
+- `shared`: foundation, cluster, metadata database, query, optional catalog or
+  governance service, registry, ops storage, secrets, identity/access, and
+  observability.
+- `stages`: one entry for every enabled DEV/UAT/PROD stage, and no disabled
+  stages.
 
-## Phase Contract
+Each stage owns its namespace, distinct Bronze/Silver/Gold storage bindings,
+catalog and query bindings, orchestration, capability-dependent reporting and
+governance bindings, runtime identity, activation prefix, and endpoint
+references. Stage references may point only at `shared/*` or the same
+`stage/<name>/*`; a DEV binding cannot reference PROD.
 
-OpenLakeForge has two deployment phases:
+Ops artifacts are shared storage with a stage-specific activation prefix,
+`activations/<stage>`. They do not define the revision manifest or promotion
+workflow, which belong to #154 and #115.
 
-1. Cluster foundation creates or selects the Kubernetes cluster.
-2. Platform apply deploys the lakehouse services into that cluster with
-   Terraform, Helm, and Kubernetes resources.
+## Logical and physical identity
 
-Local implements the cluster foundation with `kind` through
-`infra/terraform/foundations/local-kind`. Azure uses
-`infra/terraform/foundations/azure-aks` for AKS and ACR. AWS uses
-`infra/terraform/foundations/aws-eks` for VPC, EKS, node groups, add-ons, ECR,
-and EKS Pod Identity readiness.
-
-## Stable Contracts
-
-| Contract | Local implementation | Azure POC implementation | AWS POC implementation |
-| --- | --- | --- | --- |
-| Foundation | `foundation.kind` | `foundation.aks` | `foundation.eks` |
-| Kubernetes platform | `platform.kubernetes.kind` | `platform.kubernetes.aks` | `platform.kubernetes.eks` |
-| Storage | `storage.s3_compatible.seaweedfs` | `storage.s3_compatible.seaweedfs_on_aks` | `storage.aws_s3` |
-| Metadata database | `metadata_database.postgresql.in_cluster` | `metadata_database.postgresql.in_cluster_on_aks` | `metadata_database.aws_rds_postgresql` |
-| Catalog | `catalog.iceberg_rest.polaris` | `catalog.iceberg_rest.polaris_on_aks` | `catalog.aws_glue` |
-| Query | Trino Helm release | Trino Helm release | Trino Helm release with Glue catalog |
-| Reporting | Superset Helm release | Superset Helm release with ACR image | Superset Helm release with ECR image and RDS metadata DB |
-| Orchestration | Dagster with domain code locations | Dagster with ACR project-code image | Dagster with ECR project-code image and EKS Pod Identity |
-| Artifacts | `artifacts.local_kind_and_s3` | `artifacts.azure_acr_and_s3_compatible_bucket` | `artifacts.aws_ecr_and_s3` |
-| Secrets | `secrets.kubernetes_secret` | `secrets.kubernetes_secret_on_aks` | `secrets.kubernetes_secret_on_eks` |
-| Identity | Local/basic app credentials | AKS OIDC readiness | `identity.aws_pod_identity` |
-| Access | `kubectl port-forward` | `kubectl port-forward` | `kubectl port-forward` |
-| Observability | `observability.object_log_archive` | `observability.object_log_archive_on_aks` | `observability.object_log_archive_on_eks` |
-
-Consumers should depend on fields such as endpoint, bucket, region, Secret name,
-database host, service name, image reference, access mode, and
-`catalog_type`. They should not depend on whether the provider behind those
-fields is SeaweedFS, S3, in-cluster PostgreSQL, RDS, kind, EKS, Polaris, or
-Glue.
-
-Product-owned runtime assets use logical aliases. Local and Azure resolve
-`lakehouse_bronze` and `lakehouse_silver` to SeaweedFS-backed medallion buckets.
-AWS resolves them to S3 buckets. Local and Azure resolve `iceberg_catalog` to
-Polaris; AWS resolves it to Glue.
-
-Lakehouse descriptors use `apiVersion: openlakeforge.io/v1alpha3` with
-`kind: Lakehouse` (one `lakehouse_code/lakehouse.yaml`) plus one `kind: Source`
-descriptor per bronze source at `lakehouse_code/bronze/<source>/source.yaml`;
-the machine-readable schemas are
-[`docs/schema/lakehouse.schema.json`](../schema/lakehouse.schema.json) and
-[`docs/schema/source.schema.json`](../schema/source.schema.json). Descriptors
-contain logical product and table names only. Provider contracts derive the
-physical catalog/database/schema FQNs at runtime, so changing catalog adapters
-does not require editing business metadata.
-
-### Compatibility and migration
-
-The v1alpha3 Lakehouse/Source descriptor pair is the only shape the platform
-parses. The `v1alpha1`/`v1alpha2` `Domain` descriptors and their loaders were
-removed; a project on the old shape must be rewritten by hand (ADR 0005). A
-future incompatible shape must publish a new API version and migration guide;
-deployments fail closed when a version is unknown.
-
-## Catalog Contract
-
-The catalog contract describes an Iceberg catalog implementation. The local
-provider sets:
+Logical SQL is invariant across providers:
 
 ```text
-catalog_type = "rest"
-catalog_provider = "polaris"
-runtime_profile = "polaris-rest"
+lakehouse_<stage>.<owner>_<layer>.<table>
 ```
 
-Polaris-specific fields such as REST URI, token URI, OAuth scope, and service
-principal Secret names remain part of the local contract because local Floe,
-dbt-trino, Trino, and OpenMetadata use them.
+For example, every provider exposes DEV sales orders as
+`lakehouse_dev.sales_silver.orders`. Business asset keys and descriptors do not
+gain a stage prefix.
 
-The AWS provider sets:
+- Local: shared Polaris service, one physical Polaris catalog per stage, and
+  distinct SeaweedFS Bronze, Silver, and Gold buckets per stage.
+- Azure: shared Polaris service on AKS, one physical Polaris catalog per
+  stage, and distinct SeaweedFS-on-AKS buckets per stage.
+- AWS: one custom Glue catalog per stage, exposed through Trino's native Glue
+  `catalogid`, and distinct S3 buckets per stage.
 
-```text
-catalog_type = "glue"
-catalog_provider = "aws-glue"
-runtime_profile = "aws-glue-rest"
-```
+AWS custom Glue catalog names are lower-case
+`olf_<profile>_<stage>`. If that exceeds Glue's 64-character limit, the
+profile portion is truncated and an eight-character hash of the full name is
+appended. The physical ID is `<account-id>:<catalog-name>`, while Trino's SQL
+alias remains `lakehouse_<stage>`. Thus DEV and PROD may both contain the
+physical Glue database `sales_silver` without collision.
 
-The AWS implementation does not expose Polaris REST or OAuth credentials to
-writer runtimes. Floe uses its native Glue catalog profile (`type: "glue"`).
-Other consumers that support more than one Iceberg catalog implementation
-branch on `catalog_type`. AWS keeps the same three-part SQL hierarchy as local
-and Azure, but maps it onto Glue's two-level physical model: the first SQL
-segment (`lakehouse_dev` by default) is the engine catalog alias for the AWS Glue
-Data Catalog, while product layers such as `sales_silver` are Glue
-databases/namespaces. A table resolves in SQL as
-`lakehouse_dev.sales_silver.orders`.
+The AWS adapter keeps native Glue rather than introducing another catalog
+technology. It supplies the stage catalog ID, region, and workload-identity
+reference; it never supplies credentials. #114 must upgrade the AWS Terraform
+provider to a release supporting `aws_glue_catalog` before it provisions these
+catalogs.
 
-## Local Defaults
+## Validation and migration
 
-The local provider profile remains intentionally lightweight:
+`olf check contracts` validates the published v3 JSON Schema and parses local,
+Azure, and AWS fixture contracts. The parser rejects unknown fields and
+versions, missing or extra topology stages, incomplete capability bindings,
+cross-stage references, duplicate stage storage/catalog/identity values, and
+provider/topology mismatches.
 
-- kind is the cluster foundation, managed by Terraform in a separate local
-  foundation root.
-- SeaweedFS implements the object storage contract.
-- PostgreSQL runs in the cluster for Dagster, OpenMetadata, and Superset
-  metadata.
-- Kubernetes Secrets are the secret delivery mechanism.
-- Basic/local application credentials are development-only.
-- `kubectl port-forward` is the access model.
-- Terraform state remains local and may contain development credentials.
+The v2 adapter is intentionally temporary. It lifts a flat deployed contract
+to one DEV stage without changing current v0.2 environment output. A v3
+contract is not permitted to choose DEV implicitly: callers must select the
+stage they are configuring.
 
-These defaults are not production controls. They are the local implementation of
-the same contracts a future provider profile should satisfy.
+## Stable capability interfaces
 
-## AWS POC Notes
-
-The AWS roots use managed S3, RDS PostgreSQL, Glue, ECR, and EKS Pod Identity, but keep the
-same POC limits as the other environments: local Terraform state, Kubernetes
-Secrets, no ingress/TLS, and port-forward access. Athena, Secrets Manager,
-External Secrets, Lake Formation, remote state, and production observability are
-future adapters, not part of the active AWS POC.
+Consumers depend on fields such as storage URI and bucket, catalog type and
+logical name, query endpoint, Secret reference, identity reference, and
+artifact activation prefix. They do not depend on SeaweedFS, S3, Polaris, Glue,
+kind, AKS, EKS, or a physical catalog name. See ADR 0003 for the binding
+decision and ADR 0010 for the provider mappings.

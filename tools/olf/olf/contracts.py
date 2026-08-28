@@ -29,18 +29,19 @@ from typing import Any
 
 from openlakeforge_domain import inventory_for
 
+from olf.profile import DeploymentTopology, StageName
+from olf.provider_contracts import (
+    SUPPORTED_SCHEMA_VERSIONS,
+    V2_SCHEMA_VERSION,
+    ProviderContractError,
+    parse_provider_contracts,
+)
 from olf.tooling.terraform import external_state_options
 
-PROVIDER_CONTRACT_SCHEMA_VERSION = "2.0.0"
+PROVIDER_CONTRACT_SCHEMA_VERSION = V2_SCHEMA_VERSION
 
 
-class ProviderContractError(ValueError):
-    """Raised when Terraform returns an unsupported provider contract version."""
-
-
-def load_provider_contracts(
-    terraform_dir: str, *, environ: Mapping[str, str] | None = None
-) -> dict[str, Any] | None:
+def load_provider_contracts(terraform_dir: str, *, environ: Mapping[str, str] | None = None) -> dict[str, Any] | None:
     """Read the Terraform provider_contracts output, or None before apply.
 
     Only a missing executable (`ExecutableNotFoundError`) is treated as
@@ -95,10 +96,10 @@ def load_provider_contracts(
     if not isinstance(contracts, dict):
         return None
     schema_version = contracts.get("schema_version")
-    if schema_version != PROVIDER_CONTRACT_SCHEMA_VERSION:
+    if schema_version not in SUPPORTED_SCHEMA_VERSIONS:
         raise ProviderContractError(
             f"provider_contracts.schema_version {schema_version!r} is unsupported; "
-            f"expected {PROVIDER_CONTRACT_SCHEMA_VERSION!r}"
+            f"expected one of {sorted(SUPPORTED_SCHEMA_VERSIONS)!r}"
         )
     return contracts
 
@@ -429,7 +430,12 @@ def _apply_provider_contracts(env: _Env, contracts: dict[str, Any]) -> None:
 
 
 def build_contract_env(
-    base: Mapping[str, str], contracts: dict[str, Any] | None, *, repo_root: Path
+    base: Mapping[str, str],
+    contracts: Mapping[str, Any] | None,
+    *,
+    repo_root: Path,
+    topology: DeploymentTopology | None = None,
+    stage: StageName | str | None = None,
 ) -> tuple[dict[str, str], list[str]]:
     """Compute the runtime contract environment.
 
@@ -445,15 +451,20 @@ def build_contract_env(
 
     env = _Env(base)
     _apply_default_contract_env(env, base, repo_root)
+    native_v3 = False
     if contracts is not None:
-        schema_version = contracts.get("schema_version")
-        if schema_version != PROVIDER_CONTRACT_SCHEMA_VERSION:
-            raise ProviderContractError(
-                f"provider_contracts.schema_version {schema_version!r} is unsupported; "
-                f"expected {PROVIDER_CONTRACT_SCHEMA_VERSION!r}"
-            )
-        _apply_provider_contracts(env, contracts)
+        parsed = parse_provider_contracts(contracts, topology)
+        native_v3 = not parsed.compatibility_v2
+        resolved_contract = (
+            dict(contracts) if parsed.compatibility_v2 else parsed.for_stage(stage).as_v2_environment_contract()
+        )
+        _apply_provider_contracts(env, resolved_contract)
         _apply_default_contract_env(env, base, repo_root)
+    if native_v3:
+        env.set("POLARIS_REST_URI", env.get("OPENLAKEFORGE_CATALOG_REST_URI"))
+        env.set("POLARIS_TOKEN_URI", env.get("OPENLAKEFORGE_CATALOG_TOKEN_URI"))
+        env.set("POLARIS_WAREHOUSE", env.get("OPENLAKEFORGE_CATALOG_WAREHOUSE"))
+        env.set("POLARIS_OAUTH_SCOPE", env.get("OPENLAKEFORGE_CATALOG_OAUTH_SCOPE"))
 
     if env.get("OPENLAKEFORGE_STORAGE_IMPLEMENTATION") == "storage.aws_s3":
         env.set("OPENLAKEFORGE_STORAGE_ENDPOINT", "")

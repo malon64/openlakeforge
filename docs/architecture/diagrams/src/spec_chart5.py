@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""Chart 5 — Provider Contracts. The modularity chart: engines that never change
-sit above five contracts, which resolve to a different adapter per deployment
-target. Cell colour is the argument — grey means the Terraform module is the same
-one local uses, orange means it was swapped. Sources: each environment's
-contracts.tf and docs/architecture/provider-contracts.md."""
+"""Chart 5 — Provider Contracts. Engines consume the v3 shared platform and
+selected-stage bindings, which resolve to a different adapter per deployment
+target. Grey means the Terraform module is the same one local uses; orange means
+it was swapped. Current Terraform roots still emit v2 during the v3 transition.
+Sources: contracts.tf and docs/architecture/provider-contracts.md."""
 from pathlib import Path
 from k8ssvg import Chart, C
 
 c = Chart(1180, 830, "Provider Contracts",
-          "engines consume interfaces, never implementations · swap the adapters, keep the engines")
+          "v3 shared platform + selected stage · engines consume interfaces, never implementations")
 
 LABEL_X, LABEL_W = 52, 248
 COL_W, COL_GAP = 270, 10
@@ -27,7 +27,7 @@ c.label(590, 244, "same images · same Helm charts · same SQL · same manifests
 
 # ---------- connector ----------
 c.edge([(590, 258), (590, 300)], color="platform", width=3)
-c.label(602, 282, "fields only", size=10.5, mono=True, color=C["platform"])
+c.label(602, 282, "shared fields + selected stage", size=10.5, mono=True, color=C["platform"])
 
 # ---------- matrix header ----------
 HEAD_Y = 312
