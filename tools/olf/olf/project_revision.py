@@ -34,11 +34,22 @@ SIDECAR_NAME = "PROJECT-REVISION.json"
 
 _EXCLUDED_DIR_NAMES = frozenset({"target", "dbt_packages", "__pycache__", ".venv", ".pytest_cache"})
 _DIGEST_TAG_PATTERN = re.compile(r"@sha256:[0-9a-f]{64}$")
+# Deliberately narrow: an env var *name* (AWS_REGION, AWS_SECRET_ACCESS_KEY)
+# or a Kubernetes Secret *reference* (secret_name:/secretRef) is the
+# sanctioned way credentials reach a pod (AGENTS "No credentials in
+# generated artifacts") and must never be flagged -- only a concrete,
+# unambiguous physical value is. `s3://` is always a physical bucket
+# location (ADR 0004: object-store names never appear in project source).
+# `http://` (not `https://`) is this codebase's own convention for every
+# in-cluster stage endpoint (`http://seaweedfs-s3:8333`,
+# `http://polaris:8181/...`; see `olf/floe.py`), so it is a strong signal
+# without rejecting legitimate external HTTPS API references a Bronze
+# source might declare. `AKIA...` is the fixed-format AWS access key ID
+# prefix -- a real credential value, not a name.
 _FORBIDDEN_VALUE_PATTERNS = (
     re.compile(r"s3://", re.IGNORECASE),
-    re.compile(r"https?://"),
-    re.compile(r"\bAWS_[A-Z_]+"),
-    re.compile(r"[A-Z_]*SECRET[A-Z_]*", re.IGNORECASE),
+    re.compile(r"http://"),
+    re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
 )
 
 
@@ -126,6 +137,20 @@ class ProjectRevisionManifest:
         return manifest
 
     def validate(self) -> None:
+        # A duplicate component name is otherwise exploitable: `component()`
+        # returns the first match (read by the cross-checks below) while
+        # `_aggregate_components`'s dict-comprehension flattening keeps the
+        # last match per overlapping key (read by the digest check) -- a
+        # sidecar with two "image" components could put a mutable/legit
+        # value first (matching a forged top-level field) and the value the
+        # digest was actually computed from last, passing every check below
+        # while `component("image")` reports the forged one.
+        names = [component.name for component in self.components]
+        if len(names) != len(set(names)):
+            duplicates = sorted({name for name in names if names.count(name) > 1})
+            raise ProjectRevisionError(
+                f"revision sidecar declares duplicate component name(s): {', '.join(duplicates)}."
+            )
         actual = _aggregate_components(self.components)
         if self.revision != actual:
             raise ProjectRevisionError(

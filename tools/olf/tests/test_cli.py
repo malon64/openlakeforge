@@ -374,6 +374,48 @@ def test_revision_compute_command_prints_runtime_artifact_revision(tmp_path: Pat
     assert result.output.startswith("sha256:")
 
 
+def test_floe_revision_publish_fails_closed_when_no_ops_bucket_is_resolved(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    path = tmp_path / "manifests/sales/sales.manifest.json"
+    path.parent.mkdir(parents=True)
+    path.write_text("{}")
+    monkeypatch.delenv("OPENLAKEFORGE_OPS_BUCKET_NAME", raising=False)
+    monkeypatch.delenv("OPENLAKEFORGE_ARTIFACT_BUCKET_NAME", raising=False)
+
+    result = runner.invoke(app, ["floe", "revision", "publish", "--runtime-root", str(tmp_path)])
+
+    assert result.exit_code == 1
+    assert result.exception is None or isinstance(result.exception, SystemExit)
+
+
+def test_project_build_fails_closed_when_no_ops_bucket_is_resolved(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from openlakeforge_domain import inventory_for
+
+    from olf import config
+
+    monkeypatch.delenv("OPENLAKEFORGE_OPS_BUCKET_NAME", raising=False)
+    monkeypatch.delenv("OPENLAKEFORGE_ARTIFACT_BUCKET_NAME", raising=False)
+    inventory_for(config.repo_root())  # sanity: reference project resolves before the command runs
+
+    result = runner.invoke(
+        app,
+        [
+            "project",
+            "build",
+            "--project",
+            str(config.repo_root()),
+            "--image",
+            "ghcr.io/malon64/openlakeforge-project-code@sha256:" + "a" * 64,
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert result.exception is None or isinstance(result.exception, SystemExit)
+
+
 def test_superset_export_reports_defaults_come_from_the_first_dashboard(monkeypatch: pytest.MonkeyPatch) -> None:
     from openlakeforge_domain import inventory_for
 

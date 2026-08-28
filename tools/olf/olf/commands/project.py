@@ -48,6 +48,7 @@ def build(
     json_output: bool = typer.Option(False, "--json", help="Print the full manifest instead of the revision id."),
 ) -> None:
     """Build and publish the immutable ProjectRevision for one writable project."""
+    from olf.artifact_store import ArtifactStoreError
     from olf.commands._project import writable_project_layout
     from olf.project_revision import ProjectRevisionError, build_project_revision, publish
 
@@ -57,7 +58,7 @@ def build(
         manifest = build_project_revision(spec, image=image, distribution_version=layout.distribution_version)
         with _revision_store(via=via, output=output) as store:
             publish(store, manifest, spec)
-    except ProjectRevisionError as exc:
+    except (ProjectRevisionError, ArtifactStoreError) as exc:
         raise typer.Exit(code=fail(str(exc))) from exc
     typer.echo(manifest.to_json() if json_output else manifest.revision)
 
@@ -74,13 +75,14 @@ def revision_inspect(
     json_output: bool = typer.Option(False, "--json", help="Print the full manifest instead of a summary."),
 ) -> None:
     """Read a published ProjectRevision manifest without rebuilding source."""
+    from olf.artifact_store import ArtifactStoreError
     from olf.project_revision import ProjectRevisionError
     from olf.project_revision import inspect as inspect_revision
 
     try:
         with _revision_store(via=via, output=output) as store:
             manifest = inspect_revision(store, revision)
-    except ProjectRevisionError as exc:
+    except (ProjectRevisionError, ArtifactStoreError) as exc:
         raise typer.Exit(code=fail(str(exc))) from exc
     if json_output:
         typer.echo(manifest.to_json())
@@ -103,6 +105,7 @@ def revision_verify(
     ),
 ) -> None:
     """Verify manifest self-consistency, distribution compatibility, and every published object's digest."""
+    from olf.artifact_store import ArtifactStoreError
     from olf.distribution import runtime_layout
     from olf.project_revision import ProjectRevisionError
     from olf.project_revision import verify as verify_revision
@@ -111,7 +114,7 @@ def revision_verify(
     try:
         with _revision_store(via=via, output=output) as store:
             manifest = verify_revision(store, revision, running_distribution_version=running_version)
-    except ProjectRevisionError as exc:
+    except (ProjectRevisionError, ArtifactStoreError) as exc:
         raise typer.Exit(code=fail(str(exc))) from exc
     entry_count = sum(len(component.entries) for component in manifest.components)
     typer.echo(f"Verified {manifest.revision} ({entry_count} entries across {len(manifest.components)} components).")

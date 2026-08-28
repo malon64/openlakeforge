@@ -257,3 +257,68 @@ def test_resolve_image_digest_rejects_a_local_config_id_without_a_repo_digest(
 
     with pytest.raises(project_revision.ProjectRevisionError, match="no registry digest"):
         project_revision.resolve_image_digest("ghcr.io/malon64/openlakeforge-project-code:local")
+
+
+def test_validate_rejects_duplicate_component_names(external_project: Path) -> None:
+    manifest = _build(external_project)
+    image_component = manifest.component("image")
+    assert image_component is not None
+    forged_image = "ghcr.io/malon64/openlakeforge-project-code@sha256:" + "5" * 64
+    tampered = project_revision.ProjectRevisionManifest(
+        project_name=manifest.project_name,
+        distribution_version=manifest.distribution_version,
+        project_code_image=forged_image,
+        # Two "image" components: a forged one matching the top-level field
+        # (first, read by component()) and the original (last, read by the
+        # digest aggregation) -- this must be rejected outright rather than
+        # silently picking one or the other.
+        components=(
+            project_revision.ComponentEntries("image", {"project-code": forged_image}),
+            *manifest.components,
+        ),
+        revision=manifest.revision,
+    )
+
+    with pytest.raises(project_revision.ProjectRevisionError, match="duplicate component name"):
+        project_revision.ProjectRevisionManifest.from_json(tampered.to_json())
+
+
+def test_build_does_not_reject_a_referenced_secret_name_or_env_var_name(external_project: Path) -> None:
+    descriptor = external_project / "lakehouse_code/lakehouse.yaml"
+    original = descriptor.read_text()
+    descriptor.write_text(
+        original
+        + "\n# references only, not values: AWS_REGION, AWS_SECRET_ACCESS_KEY, secret_name: seaweedfs-s3-creds\n"
+    )
+
+    manifest = _build(external_project)  # must not raise
+
+    assert manifest.revision.startswith("sha256:")
+
+
+def test_build_does_not_reject_a_legitimate_external_https_reference(external_project: Path) -> None:
+    descriptor = external_project / "lakehouse_code/lakehouse.yaml"
+    original = descriptor.read_text()
+    descriptor.write_text(original + "\n# see https://example.com/docs for background\n")
+
+    manifest = _build(external_project)  # must not raise
+
+    assert manifest.revision.startswith("sha256:")
+
+
+def test_build_rejects_an_in_cluster_http_endpoint(external_project: Path) -> None:
+    descriptor = external_project / "lakehouse_code/lakehouse.yaml"
+    original = descriptor.read_text()
+    descriptor.write_text(original + "\n# http://seaweedfs-s3:8333\n")
+
+    with pytest.raises(project_revision.ProjectRevisionError, match="stage-bound value"):
+        _build(external_project)
+
+
+def test_build_rejects_a_concrete_aws_access_key_id(external_project: Path) -> None:
+    descriptor = external_project / "lakehouse_code/lakehouse.yaml"
+    original = descriptor.read_text()
+    descriptor.write_text(original + "\n# AKIAABCDEFGHIJKLMNOP\n")
+
+    with pytest.raises(project_revision.ProjectRevisionError, match="stage-bound value"):
+        _build(external_project)
