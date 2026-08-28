@@ -81,10 +81,27 @@ part of this record — see `docs/technical-debt.md`.
 `validate`) for actionable, fail-closed errors, and
 `docs/schema/project-revision.schema.json` for the versioned, tool-checkable
 shape (ADR 0005, ADR 0011). `olf project build` runs both: the manifest must
-round-trip through its own aggregate check, must contain no stage-bound value
-(`s3://`, `http(s)://`, `AWS_*`, `*SECRET*` — the mechanical form of "no
-credentials or target-stage endpoints"), and must validate against the schema
-before it is published.
+round-trip through its own aggregate check, declare every required component
+(`descriptors`, `floe`, `dbt`, `dagster`, `image`, `distribution`), carry a
+digest-pinned `project_code_image`, and pass a value scan before it is
+published and before it is read back by `inspect`/`verify`.
+
+The value scan (`_FORBIDDEN_VALUE_PATTERNS` in `project_revision.py`) is
+deliberately narrower than "no `http(s)://`/`AWS_*`/`SECRET`": a bare env-var
+*name* (`AWS_REGION`) or Kubernetes Secret *reference*
+(`secret_name:`/`secretRef`/`client_secret_key`) is the sanctioned way a
+credential reaches a pod and must never be flagged, only a concrete physical
+value. It rejects `s3://` (always a bucket location, ADR 0004), bare
+`http://` (this codebase's own convention for every in-cluster stage
+endpoint — external APIs are `https://`, which is allowed), a concrete
+`AKIA...` AWS access-key ID, and an assignment of a bare credential noun
+(`password: ...`, `api_token = "..."`) to something that is not itself an
+env-lookup or substitution expression (`os.environ[...]`, `os.getenv(...)`,
+`${VAR}`). It is a defense-in-depth layer, not a certified secret scanner —
+the load-bearing guarantee is architectural: frozen inputs are
+provider-neutral descriptors, checked-in Floe contracts, dbt/Dagster source,
+and report assets (never a rendered artifact), so a physical endpoint or
+credential should never appear in them to begin with.
 
 ### The project-code image is decoupled from the Floe revision
 

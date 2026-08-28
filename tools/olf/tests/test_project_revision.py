@@ -497,3 +497,90 @@ def test_inspect_rejects_a_sidecar_with_a_null_components_field(tmp_path: Path) 
 
     with pytest.raises(project_revision.ProjectRevisionError, match="must be an array"):
         project_revision.inspect(store, revision)
+
+
+def test_validate_rejects_a_sidecar_missing_required_components(external_project: Path) -> None:
+    manifest = _build(external_project)
+    kept = tuple(c for c in manifest.components if c.name in {"image", "distribution"})
+    tampered = project_revision.ProjectRevisionManifest(
+        project_name=manifest.project_name,
+        distribution_version=manifest.distribution_version,
+        project_code_image=manifest.project_code_image,
+        components=kept,
+        revision=project_revision._aggregate_components(kept),
+    )
+
+    with pytest.raises(project_revision.ProjectRevisionError, match="missing required component"):
+        project_revision.ProjectRevisionManifest.from_json(tampered.to_json())
+
+
+def test_validate_rejects_a_sidecar_with_an_unknown_component_name(external_project: Path) -> None:
+    manifest = _build(external_project)
+    components = (*manifest.components, project_revision.ComponentEntries("mystery", {"a": "0" * 64}))
+    tampered = project_revision.ProjectRevisionManifest(
+        project_name=manifest.project_name,
+        distribution_version=manifest.distribution_version,
+        project_code_image=manifest.project_code_image,
+        components=components,
+        revision=project_revision._aggregate_components(components),
+    )
+
+    with pytest.raises(project_revision.ProjectRevisionError, match="unknown component"):
+        project_revision.ProjectRevisionManifest.from_json(tampered.to_json())
+
+
+def test_resolve_image_digest_selects_the_repo_digest_matching_the_requested_repository(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from olf.deployment import engine as engine_module
+    from olf.tooling.process import CommandResult
+
+    wrong_repo_digest = "docker.io/someone-else/project-code@sha256:" + "1" * 64
+    right_repo_digest = "ghcr.io/malon64/openlakeforge-project-code@sha256:" + "2" * 64
+
+    class _FakeDocker:
+        def image_inspect(self, image: str, *, check: bool = False) -> CommandResult:  # noqa: ARG002
+            import json as _json
+
+            payload = _json.dumps(
+                [{"Id": "sha256:" + "0" * 64, "RepoDigests": [wrong_repo_digest, right_repo_digest]}]
+            )
+            return CommandResult(argv=("docker",), returncode=0, stdout=payload, stderr="", duration_seconds=0.0)
+
+    class _FakeToolkit:
+        docker = _FakeDocker()
+
+    monkeypatch.setattr(engine_module.Toolkit, "default", classmethod(lambda cls: _FakeToolkit()))
+
+    resolved = project_revision.resolve_image_digest("ghcr.io/malon64/openlakeforge-project-code:local")
+
+    assert resolved == right_repo_digest
+
+
+def test_resolve_image_digest_fails_when_no_repo_digest_matches_the_requested_repository(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from olf.deployment import engine as engine_module
+    from olf.tooling.process import CommandResult
+
+    class _FakeDocker:
+        def image_inspect(self, image: str, *, check: bool = False) -> CommandResult:  # noqa: ARG002
+            import json as _json
+
+            payload = _json.dumps(
+                [
+                    {
+                        "Id": "sha256:" + "0" * 64,
+                        "RepoDigests": ["docker.io/someone-else/project-code@sha256:" + "1" * 64],
+                    }
+                ]
+            )
+            return CommandResult(argv=("docker",), returncode=0, stdout=payload, stderr="", duration_seconds=0.0)
+
+    class _FakeToolkit:
+        docker = _FakeDocker()
+
+    monkeypatch.setattr(engine_module.Toolkit, "default", classmethod(lambda cls: _FakeToolkit()))
+
+    with pytest.raises(project_revision.ProjectRevisionError, match="no registry digest"):
+        project_revision.resolve_image_digest("ghcr.io/malon64/openlakeforge-project-code:local")
