@@ -194,9 +194,7 @@ def descriptor_schema_errors(
             continue
 
         schema_relpath = _SCHEMA_BY_KIND[kind]
-        schema_path = (
-            schema_root / Path(schema_relpath).name if schema_root is not None else repo_root / schema_relpath
-        )
+        schema_path = schema_root / Path(schema_relpath).name if schema_root is not None else repo_root / schema_relpath
         schema = json.loads(schema_path.read_text(encoding="utf-8"))
         validator = jsonschema.Draft202012Validator(schema)
         schema_errors = sorted(validator.iter_errors(document), key=lambda e: list(e.absolute_path))
@@ -663,12 +661,8 @@ def run_contracts_check(
     dist_root = Path(distribution_root).resolve() if distribution_root is not None else root
 
     report = ContractsCheckReport()
-    report.results.append(
-        _check_descriptor_schema_conformance(root, schema_root=dist_root / "docs" / "schema")
-    )
-    report.results.append(
-        _check_deployment_profile_schema_conformance(root, schema_root=dist_root / "docs" / "schema")
-    )
+    report.results.append(_check_descriptor_schema_conformance(root, schema_root=dist_root / "docs" / "schema"))
+    report.results.append(_check_deployment_profile_schema_conformance(root, schema_root=dist_root / "docs" / "schema"))
     report.results.append(_check_hcl_structured_contracts(dist_root))
     report.results.append(_check_hcl_phase_two_invariants(dist_root))
     report.results.append(_check_floe_rendered_profile())

@@ -170,12 +170,12 @@ never to raw paths. Rejected rows are quarantined as CSV; exit code 0 covers
 *Engines consume interfaces, never implementations — swap the adapters, keep the
 engines.*
 
-The modularity chart. The engines across the top are byte-identical in every deployment;
-the five contracts below are what they actually depend on (endpoint, buckets,
-`catalog_type`, secret names), and those stay stable across all three targets. Each cell
-names the adapter and the Terraform source that selects it — because swapping a provider
-means the environment's root instantiates a *different module*, not just a different
-value in `contracts.tf`.
+The modularity chart. The engines across the top are byte-identical in every deployment.
+Provider-contract v3 supplies shared platform bindings plus a selected stage's endpoint,
+storage, catalog, and identity bindings. The matrix records the stable capability fields
+(`catalog_type`, buckets, Secret references) and the adapter selected in each target.
+Terraform roots still emit v2 while #133 and #114 provision v3; the chart is the binding
+contract shape, not a claim that multi-stage infrastructure already exists.
 
 Cell colour is the argument: grey means the module is the same one `local` uses, orange
 means it was swapped. **`azure-poc` instantiates the same seven platform modules as

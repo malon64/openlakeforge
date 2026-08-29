@@ -20,9 +20,7 @@ def test_dashboard_validation_rejects_unknown_dataset_column(tmp_path: Path) -> 
     chart = tmp_path / "lakehouse_code/dashboards/superset/example/charts/orders.yaml"
     dataset.parent.mkdir(parents=True)
     chart.parent.mkdir(parents=True)
-    dataset.write_text(
-        "uuid: orders\ncolumns:\n  - column_name: order_date\nmetrics:\n  - metric_name: sum__sales\n"
-    )
+    dataset.write_text("uuid: orders\ncolumns:\n  - column_name: order_date\nmetrics:\n  - metric_name: sum__sales\n")
     chart.write_text(
         "viz_type: echarts_timeseries_line\ndataset_uuid: orders\nparams:\n"
         "  x_axis: missing_column\n  metrics:\n    - sum__sales\n"
@@ -90,6 +88,7 @@ def test_structure_registry_preserves_the_full_non_script_skeleton() -> None:
         ".github/workflows/checks.yml",
         "docs/architecture/overview.md",
         "docs/architecture/provider-contracts.md",
+        "docs/schema/provider-contracts.schema.json",
         "docs/adr/0008-olf-owns-orchestration-and-toolchain.md",
         "infra/terraform/foundations/aws-eks/outputs.tf",
         "lakehouse_code/silver/sales/contracts/floe/sales.yml",

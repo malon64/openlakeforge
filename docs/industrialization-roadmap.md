@@ -375,8 +375,11 @@ private networking, ingress/TLS, and restore validation.
   install paths (#40, #80) that do not assume a repository clone.
 - Add explicit preflight, conformance, backup, restore, and release-check
   targets as those capabilities are delivered.
-- Add `schema_version` to `provider_contracts`. Minor releases may add compatible
-  fields; removal or rename requires a major release.
+- `provider_contracts` v3 separates shared platform bindings from explicit
+  DEV/UAT/PROD stage bindings. The deployed v2 surface adapts to one DEV stage
+  until the stage-aware Terraform work lands; unknown versions fail closed.
+  Minor releases may add compatible fields; removal or rename requires a major
+  release.
 - Version the lakehouse descriptor schemas (`lakehouse.yaml` / `source.yaml`)
   independently and provide validation and migration tools for schema changes.
 - Publish a compatibility matrix for OpenLakeForge, Kubernetes, Terraform,

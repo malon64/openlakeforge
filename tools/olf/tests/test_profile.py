@@ -136,6 +136,15 @@ def test_validate_deployment_profile_rejects_wrong_kind() -> None:
         validate_deployment_profile(document)
 
 
+@pytest.mark.parametrize("field", ["bucket", "catalog", "endpoint", "credentials"])
+def test_validate_deployment_profile_rejects_provider_physical_details(field: str) -> None:
+    document = _load_fixture("valid_slim_local.yaml")
+    document["spec"]["provider"][field] = "provider-owned"
+
+    with pytest.raises(DeploymentProfileError, match="must not contain"):
+        validate_deployment_profile(document)
+
+
 def test_validate_deployment_profile_rejects_non_mapping_document() -> None:
     with pytest.raises(DeploymentProfileError, match="must contain a YAML object"):
         validate_deployment_profile([])  # type: ignore[arg-type]

@@ -13,6 +13,7 @@ import pytest
 
 from olf.contracts import load_provider_contracts
 from olf.deployment.errors import ExecutableNotFoundError, ToolchainError
+from olf.provider_contracts import ProviderContractError
 
 
 def test_missing_terraform_executable_is_treated_as_not_applied_yet(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -86,6 +87,36 @@ def test_external_state_root_is_translated_into_terraform_state_and_data_dir(
     assert f"-state={expected_state}" in argv
     assert not expected_state.parent.exists(), "read-only contract reads must not create state directories"
     assert captured["env"]["TF_DATA_DIR"] == str(tmp_path / "terraform-data" / "platform")
+
+
+def test_a_native_v3_terraform_output_is_rejected_until_a_stage_aware_caller_exists(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """Every current consumer of this loader (olf.e2e._shell and its
+    callers, olf.deployment.contract_env, olf.commands.contracts) indexes
+    the flat v2 shape and has no DeploymentTopology/stage to select with. A
+    v3 payload must not reach them - olf.e2e._layers, for one, would read a
+    missing "governance" key as enabled=True for what could be a slim
+    deployment instead of failing closed."""
+    import subprocess
+
+    from olf.tooling.resolver import ExecutableResolver
+
+    class _Resolver(ExecutableResolver):
+        def resolve(self, tool: str):  # noqa: ANN001, ANN202
+            return Path("/usr/local/bin/terraform")
+
+    def _fake_run(argv, **kwargs):  # noqa: ANN001, ANN202
+        return subprocess.CompletedProcess(argv, 0, stdout='{"schema_version": "3.0.0"}', stderr="")
+
+    monkeypatch.setattr("olf.tooling.resolver.build_resolver", lambda environ=None: _Resolver())
+    monkeypatch.setattr("olf.contracts.subprocess.run", _fake_run)
+
+    terraform_dir = tmp_path / "environments" / "local"
+    environ = {"PATH": "/usr/bin"}
+
+    with pytest.raises(ProviderContractError, match="no stage-aware consumer yet"):
+        load_provider_contracts(str(terraform_dir), environ=environ)
 
 
 def test_without_external_state_root_behaviour_is_unchanged(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:

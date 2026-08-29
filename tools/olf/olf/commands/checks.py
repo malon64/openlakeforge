@@ -36,6 +36,7 @@ REQUIRED_PATHS: tuple[str, ...] = (
     "docs/architecture/azure-aks-poc.md",
     "docs/architecture/aws-eks-poc.md",
     "docs/architecture/provider-contracts.md",
+    "docs/schema/provider-contracts.schema.json",
     "docs/technical-debt.md",
     "docs/testing/floe-openlineage-capture-test-plan.md",
     "docs/adr/README.md",
@@ -545,9 +546,7 @@ def _check_compiled_lock(path: Path, *, uv: str, root: Path) -> None:
         _run([*argv, "--quiet"], cwd=root)
         if "\n".join(lines[2:]) != "\n".join(compiled.read_text().splitlines()[2:]):
             raise typer.Exit(
-                code=fail(
-                    f"{path.relative_to(root)} does not match its pinned uv pip compile command; regenerate it."
-                )
+                code=fail(f"{path.relative_to(root)} does not match its pinned uv pip compile command; regenerate it.")
             )
 
 
@@ -561,8 +560,7 @@ def project_code(repo_root: str = typer.Option("", "--repo-root", help="Checkout
     if sys.version_info[:2] != (3, 12):
         raise typer.Exit(
             code=fail(
-                "project-code check requires Python >=3.12,<3.13; "
-                f"found {sys.version_info[0]}.{sys.version_info[1]}"
+                f"project-code check requires Python >=3.12,<3.13; found {sys.version_info[0]}.{sys.version_info[1]}"
             )
         )
     cache = _check_cache_root(project.root, project.distribution_root) / "project-code"

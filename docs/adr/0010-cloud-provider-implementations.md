@@ -2,97 +2,83 @@
 
 ## Status
 
-Binding. Both are proof-of-concept maturity — see "POC limits" below.
+Binding. Both are proof-of-concept maturity; secure identity, ingress, and
+network policy remain outside the active profile.
 
 ## Context
 
-Provider contracts (ADR 0003) only prove portability if something other than the
-local stack satisfies them. Two cloud targets exist, and they deliberately test
-different things.
+Local and Azure use Polaris while AWS uses Glue. v0.3 adds shared DEV, optional
+UAT, and PROD stages in one cluster. Reusing a default Glue catalog with the
+same unqualified database names would collide across stages or force a
+provider-specific SQL naming scheme.
 
 ## Decision
 
-### AWS replaces dependencies; Azure relocates hosting
+Local and Azure retain a shared Polaris service with one physical catalog per
+enabled stage. AWS uses one custom Glue catalog per enabled stage. The logical
+SQL alias is always `lakehouse_<stage>`; owner/layer namespaces such as
+`sales_silver` remain unchanged inside each catalog.
 
-**AWS (`aws-poc`)** substitutes managed services behind the existing contracts:
+For AWS, the physical Glue catalog name is lower-case
+`olf_<profile>_<stage>`. Long names are truncated with an eight-character hash
+suffix. The physical Glue catalog ID is
+`<account-id>:olf_<profile>_<stage>`. Trino exposes the catalog through its
+native Glue adapter and its stage-specific `catalogid`, so
+`lakehouse_dev.sales_silver.orders` and
+`lakehouse_prod.sales_silver.orders` select different Glue catalogs while
+keeping the same namespace/table convention.
 
-| Contract | AWS implementation |
-| --- | --- |
-| `foundation` | EKS, VPC with two public subnets, managed node group, VPC CNI / CoreDNS / kube-proxy / EBS CSI / Pod Identity add-ons |
-| `artifact_registry` | ECR |
-| `storage` | S3 for Bronze, Silver, Gold, ops |
-| `metadata_database` | RDS PostgreSQL (`ssl_mode=require`) |
-| `catalog` | AWS Glue Data Catalog |
-| `identity` | EKS Pod Identity |
+AWS stage contracts carry Glue region, catalog ID, and workload-identity
+reference, never credentials. Runtime access is stage-scoped: a stage runtime
+receives only its storage, catalog alias, activation prefix, and identity
+reference. Shared Trino may expose all stage catalogs, but its generated access
+rules must bind each stage identity to its own alias when #114 provisions them.
 
-**Azure (`azure-poc`)** keeps SeaweedFS, Polaris, and in-cluster PostgreSQL, and
-replaces only the Kubernetes and registry hosting with AKS and ACR.
+AWS custom-catalog provisioning belongs to #114, not this decision's contract
+implementation. It requires upgrading the AWS Terraform provider from the
+current v5 line to a version supporting `aws_glue_catalog`. That upgrade must
+be pinned and validated with the provisioning change.
 
-The split is intentional. AWS proves that *replacing a contract implementation*
-works — Glue instead of Polaris, S3 instead of SeaweedFS. Azure proves the
-*Helm-based platform itself* runs on a managed cluster. Doing both at once on one
-provider would leave neither claim isolated when something failed.
+EKS Pod Identity remains the AWS workload identity mechanism. Azure retains
+AKS OIDC readiness, and local retains development-only Kubernetes Secrets.
 
-Trino stays the query path on both. Athena is deferred: it changes query cost
-from always-on compute to pay-per-scan, and with it Superset connectivity,
-validation behaviour, and the runtime contracts.
+### Existing provider substitutions remain binding
 
-### Polaris for local and Azure; Glue for AWS
+AWS continues to use EKS, S3 for Bronze/Silver/Gold/ops, RDS PostgreSQL, ECR,
+and Pod Identity behind the existing capability interfaces. Azure continues to
+use AKS and ACR while retaining SeaweedFS, Polaris, and in-cluster PostgreSQL.
+Trino remains the shared query path; Athena is deferred because it would change
+query cost, Superset connectivity, validation, and runtime contracts.
 
-Polaris owns Iceberg table identity on local and Azure, backed by a dedicated
-`polaris` role and database in the in-cluster PostgreSQL.
+Polaris on local and Azure uses its dedicated persistent PostgreSQL role and
+database. Its catalog state must survive a pod restart; an in-memory metastore
+would lose catalogs, namespaces, principals, and tables. Polaris credentials
+reach workloads through Kubernetes Secret references, never Terraform outputs
+or rendered Helm values.
 
-The relational metastore is not optional. Polaris's in-memory metastore lost
-catalogs, namespaces, principals, and tables on every pod restart, and recovery
-meant a full platform re-apply that could rotate client credentials while Trino
-still held the old ones. For a small team on a small cluster, a restart is a
-routine event, so losing catalog state to one is unrecoverable in practice.
+AWS Pod Identity replaces IRSA because the validation environment cannot create
+the required IAM OIDC provider. Its contract remains
+`identity.aws_pod_identity`; AWS storage and catalog authentication use the
+stage workload-identity reference rather than static keys.
 
-Credentials reach Polaris only through a `postgresql-polaris-creds` Kubernetes
-Secret; the contract exposes the Secret name, never a JDBC string or password, so
-no credential appears in Terraform outputs or rendered Helm values.
+Account-specific tags, ownership, region, and cluster naming remain in ignored
+`sandbox.tfvars` files or environment variables. All providers retain local
+Terraform state, Kubernetes Secrets, port-forward access, no ingress/TLS, no
+external secret manager, and no Lake Formation. Secure-state, private-network,
+least-privilege, and external-secret work belongs to the secure beta profile.
 
-AWS is deliberately excluded: its catalog contract is implemented by Glue and
-must not acquire a Polaris dependency.
+## Consequences
 
-### EKS Pod Identity instead of IRSA
+The catalog technology remains Polaris for local/Azure and Glue for AWS; no
+new Iceberg catalog technology is introduced. Physical Glue and S3 names stay
+out of Deployment Profiles and `lakehouse_code` descriptors.
 
-Workload identity uses EKS Pod Identity. Service accounts bind to roles through
-`aws_eks_pod_identity_association`; there is no OIDC provider, issuer URL, or
-`sub`/`aud` trust condition.
-
-IRSA was the original choice and is not available: it requires an IAM OIDC
-identity provider created from the cluster issuer, and the validation sandbox
-denies `iam:CreateOpenIDConnectProvider` outright. Its guardrails also mandate a
-`limited-` name prefix, and an OIDC provider has no name to apply one to.
-
-Pod Identity is the better fit regardless — it removes the OIDC provider as a
-resource to manage and keeps the per-service-account role model.
-
-The identity contract is `identity.aws_pod_identity`
-(`workload_identity = "aws-pod-identity"`, `oidc_enabled = false`); storage and
-catalog auth modes are `aws-pod-identity` / `aws-sigv4-pod-identity`.
-
-### Account-specific configuration stays local
-
-Tags, owner, region, and cluster naming live in gitignored `sandbox.tfvars`
-files created from tracked `.example` templates, or in environment variables.
-Nothing account-specific is committed.
-
-## POC limits
-
-Both targets keep local Terraform state, Kubernetes Secrets, `kubectl
-port-forward` access, no ingress or TLS, no external secret manager, and — on
-AWS — no Lake Formation. Remote encrypted state, private subnets, least-privilege
-per-service roles, External Secrets, ingress with cert-manager, and OIDC access
-control belong to the secure beta profile.
-
-`poc` names the environment these were validated in. It does not mean a reduced
-OpenLakeForge stack: both run the same platform as local.
+Stage resource provisioning, IAM policy implementation, External Secrets,
+ingress, network policy, and live isolation testing are follow-on work in
+#114, #133, and #155.
 
 ## History
 
-Merges the decisions previously recorded as ADR 0015 (the AWS EKS managed-services
-POC), 0016 (EKS Pod Identity over IRSA, which amended 0015's identity choice), and
-0020 (the Polaris relational metastore). The Azure target was previously described
-only in `docs/architecture/azure-aks-poc.md`.
+2026-08-28: Rewritten for v3 stages. The former single AWS Glue catalog mapping
+is replaced by a custom Glue catalog per stage so canonical SQL remains
+portable.

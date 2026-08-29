@@ -29,18 +29,20 @@ from typing import Any
 
 from openlakeforge_domain import inventory_for
 
+from olf.profile import DeploymentTopology, StageName
+from olf.provider_contracts import (
+    SUPPORTED_SCHEMA_VERSIONS,
+    V2_SCHEMA_VERSION,
+    V3_SCHEMA_VERSION,
+    ProviderContractError,
+    parse_provider_contracts,
+)
 from olf.tooling.terraform import external_state_options
 
-PROVIDER_CONTRACT_SCHEMA_VERSION = "2.0.0"
+PROVIDER_CONTRACT_SCHEMA_VERSION = V2_SCHEMA_VERSION
 
 
-class ProviderContractError(ValueError):
-    """Raised when Terraform returns an unsupported provider contract version."""
-
-
-def load_provider_contracts(
-    terraform_dir: str, *, environ: Mapping[str, str] | None = None
-) -> dict[str, Any] | None:
+def load_provider_contracts(terraform_dir: str, *, environ: Mapping[str, str] | None = None) -> dict[str, Any] | None:
     """Read the Terraform provider_contracts output, or None before apply.
 
     Only a missing executable (`ExecutableNotFoundError`) is treated as
@@ -95,10 +97,22 @@ def load_provider_contracts(
     if not isinstance(contracts, dict):
         return None
     schema_version = contracts.get("schema_version")
-    if schema_version != PROVIDER_CONTRACT_SCHEMA_VERSION:
+    if schema_version not in SUPPORTED_SCHEMA_VERSIONS:
         raise ProviderContractError(
             f"provider_contracts.schema_version {schema_version!r} is unsupported; "
-            f"expected {PROVIDER_CONTRACT_SCHEMA_VERSION!r}"
+            f"expected one of {sorted(SUPPORTED_SCHEMA_VERSIONS)!r}"
+        )
+    if schema_version == V3_SCHEMA_VERSION:
+        # Every caller of this loader (olf.e2e._shell.load_provider_contracts_or_raise
+        # and its consumers, olf.deployment.contract_env, olf.commands.contracts) still
+        # indexes the flat v2 shape and has no DeploymentTopology/stage to select with.
+        # Handing back a v3 payload here would make those callers silently read missing
+        # keys as absent-and-therefore-enabled (see olf.e2e._layers) instead of failing
+        # closed. #133 must update this loader alongside the stage-aware callers before
+        # a v3 payload can flow past this point.
+        raise ProviderContractError(
+            "provider_contracts.schema_version '3.0.0' has no stage-aware consumer yet; "
+            "#133 must resolve a DeploymentTopology and select a stage before this loader can serve it"
         )
     return contracts
 
@@ -429,7 +443,12 @@ def _apply_provider_contracts(env: _Env, contracts: dict[str, Any]) -> None:
 
 
 def build_contract_env(
-    base: Mapping[str, str], contracts: dict[str, Any] | None, *, repo_root: Path
+    base: Mapping[str, str],
+    contracts: Mapping[str, Any] | None,
+    *,
+    repo_root: Path,
+    topology: DeploymentTopology | None = None,
+    stage: StageName | str | None = None,
 ) -> tuple[dict[str, str], list[str]]:
     """Compute the runtime contract environment.
 
@@ -445,16 +464,15 @@ def build_contract_env(
 
     env = _Env(base)
     _apply_default_contract_env(env, base, repo_root)
+    native_v3 = False
     if contracts is not None:
-        schema_version = contracts.get("schema_version")
-        if schema_version != PROVIDER_CONTRACT_SCHEMA_VERSION:
-            raise ProviderContractError(
-                f"provider_contracts.schema_version {schema_version!r} is unsupported; "
-                f"expected {PROVIDER_CONTRACT_SCHEMA_VERSION!r}"
-            )
-        _apply_provider_contracts(env, contracts)
+        parsed = parse_provider_contracts(contracts, topology)
+        native_v3 = not parsed.compatibility_v2
+        resolved_contract = (
+            dict(contracts) if parsed.compatibility_v2 else parsed.for_stage(stage).as_v2_environment_contract()
+        )
+        _apply_provider_contracts(env, resolved_contract)
         _apply_default_contract_env(env, base, repo_root)
-
     if env.get("OPENLAKEFORGE_STORAGE_IMPLEMENTATION") == "storage.aws_s3":
         env.set("OPENLAKEFORGE_STORAGE_ENDPOINT", "")
         env.set("OPENLAKEFORGE_STORAGE_VIRTUAL_HOST_ENDPOINT", "")
@@ -483,6 +501,40 @@ def build_contract_env(
         env.set("OPENLAKEFORGE_CATALOG_FLOE_CREDENTIALS_SECRET_NAME", "")
         env.set("OPENLAKEFORGE_CATALOG_FLOE_CLIENT_ID_KEY", "")
         env.set("OPENLAKEFORGE_CATALOG_FLOE_CLIENT_SECRET_KEY", "")
+
+    if native_v3:
+        # env.default() (used for these four names in _apply_default_contract_env)
+        # only fills an unset-or-empty value: the first default pass above already
+        # pinned POLARIS_WAREHOUSE etc. to the OPENLAKEFORGE_CATALOG_* dev defaults
+        # before the stage's real values were applied, so an intermediate default
+        # pass leaves them stale. env.set() here re-derives all four from the
+        # now-fully-resolved (including the is_glue normalization above, which
+        # blanks OPENLAKEFORGE_CATALOG_TOKEN_URI/OAUTH_SCOPE) stage values,
+        # unconditionally overriding any caller-set value — unlike the four
+        # OPENLAKEFORGE_* names that honor caller set-ness (see module
+        # docstring), these compatibility aliases always mirror the resolved
+        # stage. This must run after the is_glue block: reading
+        # OPENLAKEFORGE_CATALOG_TOKEN_URI/OAUTH_SCOPE before Glue normalization
+        # blanks them would leave POLARIS_TOKEN_URI/OAUTH_SCOPE pinned to the
+        # local Polaris defaults for a Glue stage.
+        env.set("POLARIS_REST_URI", env.get("OPENLAKEFORGE_CATALOG_REST_URI"))
+        env.set("POLARIS_TOKEN_URI", env.get("OPENLAKEFORGE_CATALOG_TOKEN_URI"))
+        env.set("POLARIS_WAREHOUSE", env.get("OPENLAKEFORGE_CATALOG_WAREHOUSE"))
+        env.set("POLARIS_OAUTH_SCOPE", env.get("OPENLAKEFORGE_CATALOG_OAUTH_SCOPE"))
+        # Same staleness as the POLARIS_* aliases above, for the non-aws_s3
+        # branch's AWS_ENDPOINT_URL_S3/AWS_S3_FORCE_PATH_STYLE: the first
+        # default pass already pinned them from the generic local endpoint
+        # default before the stage's real storage.endpoint/path_style_access
+        # applied, and env.default() (used for both names below) will not
+        # move an already-set value. A stage with a non-default endpoint
+        # would otherwise leave consumers like libs/bronze_csv.py connecting
+        # to the wrong SeaweedFS host or using the wrong addressing style.
+        # The storage.aws_s3 block above already re-derives both correctly
+        # (unconditional unset/default run after the resolved implementation
+        # is known), so this only needs to cover the non-aws_s3 case.
+        if env.get("OPENLAKEFORGE_STORAGE_IMPLEMENTATION") != "storage.aws_s3":
+            env.set("AWS_ENDPOINT_URL_S3", env.get("OPENLAKEFORGE_STORAGE_ENDPOINT"))
+            env.set("AWS_S3_FORCE_PATH_STYLE", env.get("OPENLAKEFORGE_STORAGE_PATH_STYLE_ACCESS"))
 
     catalog_om_service_name = "aws_glue" if is_glue else "polaris"
     catalog_name = env.get("OPENLAKEFORGE_CATALOG_NAME")
