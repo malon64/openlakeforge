@@ -369,6 +369,64 @@ def test_catalog_physical_id_must_be_a_non_empty_string() -> None:
         parse_provider_contracts(contract, topology)
 
 
+def test_glue_rest_warehouse_must_match_its_own_glue_catalog_id() -> None:
+    """as_v2_environment_contract() exports glue_rest_warehouse to the runtime;
+    a stage could keep a valid, distinct glue_catalog_id/physical_id while
+    pointing glue_rest_warehouse at another stage's Glue catalog."""
+    contract = _fixture("aws-provider-contracts-v3.json")
+    topology = _topology(contract)
+    contract["stages"]["prod"]["catalog"]["glue_rest_warehouse"] = contract["stages"]["dev"]["catalog"][
+        "glue_catalog_id"
+    ]
+
+    with pytest.raises(ProviderContractError, match="glue_rest_warehouse must match its own Glue catalog ID"):
+        parse_provider_contracts(contract, topology)
+
+
+def test_duplicate_namespace_across_stages_is_rejected() -> None:
+    """Each stage is documented as owning its Kubernetes namespace; two stages
+    sharing one namespace would let stage-specific orchestration and artifact
+    operations target the same resource scope."""
+    contract = _fixture("local-provider-contracts-v3.json")
+    topology = _topology(contract)
+    contract["stages"]["prod"]["namespace"] = contract["stages"]["dev"]["namespace"]
+
+    with pytest.raises(ProviderContractError, match="namespace .* is shared between stages"):
+        parse_provider_contracts(contract, topology)
+
+
+def test_governance_service_ref_must_be_the_shared_governance_service_specifically() -> None:
+    """Same failure mode as query.service_ref and catalog.service_ref: a
+    governance-enabled stage could point governance.service_ref at any
+    resolvable shared/* binding instead of shared.governance_service."""
+    contract = _fixture("aws-provider-contracts-v3.json")
+    topology = _topology(contract)
+    contract["stages"]["dev"]["governance"]["service_ref"] = "shared/ops_storage"
+
+    with pytest.raises(ProviderContractError, match="must reference the shared governance service"):
+        parse_provider_contracts(contract, topology)
+
+
+@pytest.mark.parametrize(
+    ("principal", "match"),
+    [
+        (["not-hashable"], "principal must be a non-empty string"),
+        ("", "principal must be a non-empty string"),
+    ],
+)
+def test_runtime_identity_principal_must_be_a_non_empty_string(principal, match: str) -> None:
+    """runtime_identity.principal feeds the cross-stage principals dedupe set
+    in _parse_v3 without prior type validation; an unhashable value would
+    crash with TypeError, and an empty string would pass a single-stage
+    topology's dedupe check entirely."""
+    contract = _fixture("local-provider-contracts-v3.json")
+    topology = _topology(contract)
+    contract["stages"]["dev"]["runtime_identity"]["principal"] = principal
+
+    with pytest.raises(ProviderContractError, match=match):
+        parse_provider_contracts(contract, topology)
+
+
 def test_glue_stage_does_not_leak_local_polaris_token_and_scope_aliases() -> None:
     """The POLARIS_* compatibility aliases were re-derived before the is_glue
     normalization cleared OPENLAKEFORGE_CATALOG_TOKEN_URI/OAUTH_SCOPE, so an

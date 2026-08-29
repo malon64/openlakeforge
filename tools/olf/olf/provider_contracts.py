@@ -351,6 +351,10 @@ def _parse_stage(
             raise ProviderContractError(f"stages.{name.value}.catalog.glue_region must match DeploymentTopology.region")
         if catalog["glue_catalog_id"] != catalog["physical_id"]:
             raise ProviderContractError(f"stages.{name.value}.catalog Glue catalog ID must be its physical identity")
+        if "glue_rest_warehouse" in catalog and catalog["glue_rest_warehouse"] != catalog["glue_catalog_id"]:
+            raise ProviderContractError(
+                f"stages.{name.value}.catalog.glue_rest_warehouse must match its own Glue catalog ID"
+            )
         catalog_name = catalog["glue_catalog_id"].rsplit(":", 1)[-1]
         if catalog_name != aws_catalog_name(topology.profile_name, name):
             raise ProviderContractError(
@@ -430,6 +434,7 @@ def _parse_stage(
     identity_ref = f"stage/{name.value}/runtime_identity"
     if runtime_identity["ref"] != identity_ref:
         raise ProviderContractError(f"stages.{name.value}.runtime_identity.ref must be {identity_ref!r}")
+    _string(runtime_identity["principal"], where=f"stages.{name.value}.runtime_identity.principal")
     if storage["identity_ref"] != identity_ref or query["runtime_identity_ref"] != identity_ref:
         raise ProviderContractError(f"stages.{name.value} runtime bindings must use their own runtime identity")
 
@@ -471,6 +476,11 @@ def _parse_stage(
         )
         if governance["service_ref"] not in shared_refs:
             raise ProviderContractError(f"stages.{name.value}.governance.service_ref does not resolve")
+        governance_service_ref = shared.values.get("governance_service", {}).get("ref")
+        if governance["service_ref"] != governance_service_ref:
+            raise ProviderContractError(
+                f"stages.{name.value}.governance.service_ref must reference the shared governance service"
+            )
         _reference(
             governance["endpoint_ref"],
             where=f"stages.{name.value}.governance.endpoint_ref",
@@ -532,11 +542,15 @@ def _parse_v3(payload: Mapping[str, Any], topology: DeploymentTopology | None) -
     catalog_ids: set[str] = set()
     principals: set[str] = set()
     stage_endpoint_values: set[str] = set()
+    namespaces: set[str] = set()
     shared_query_endpoint: str | None = None
     for raw_name, stage_value in stages_document.items():
         name = _stage_name(raw_name)
         stage = _parse_stage(name, stage_value, shared=shared, topology=topology)
         stages[name] = stage
+        if stage.namespace in namespaces:
+            raise ProviderContractError(f"namespace {stage.namespace!r} is shared between stages")
+        namespaces.add(stage.namespace)
         query_endpoint = stage.query["endpoint"]
         if shared_query_endpoint is None:
             shared_query_endpoint = query_endpoint
