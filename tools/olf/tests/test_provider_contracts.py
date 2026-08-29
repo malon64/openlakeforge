@@ -170,7 +170,7 @@ def test_dev_reporting_cannot_reference_prod() -> None:
     topology = _topology(contract)
     contract["stages"]["dev"]["reporting"]["service_ref"] = "stage/prod/reporting"
 
-    with pytest.raises(ProviderContractError, match="must reference stage/dev"):
+    with pytest.raises(ProviderContractError, match="reporting.service_ref must be 'stage/dev/reporting'"):
         parse_provider_contracts(contract, topology)
 
 
@@ -180,7 +180,9 @@ def test_dev_orchestration_endpoint_cannot_reference_prod() -> None:
     contract["stages"]["dev"]["orchestration"]["endpoint_ref"] = "stage/prod/endpoints/orchestration"
     contract["stages"]["dev"]["endpoints"]["orchestration"] = "stage/prod/endpoints/orchestration"
 
-    with pytest.raises(ProviderContractError, match="must reference one of stage/dev"):
+    with pytest.raises(
+        ProviderContractError, match="orchestration.endpoint_ref must be 'stage/dev/endpoints/orchestration'"
+    ):
         parse_provider_contracts(contract, topology)
 
 
@@ -415,6 +417,37 @@ def test_shared_binding_ref_must_be_its_own_canonical_name() -> None:
     contract["shared"]["ops_storage"]["ref"] = "shared/foundation"
 
     with pytest.raises(ProviderContractError, match="shared.ops_storage.ref must be 'shared/ops_storage'"):
+        parse_provider_contracts(contract, topology)
+
+
+def test_orchestration_service_ref_cannot_be_another_same_stage_binding() -> None:
+    """The prior stage/<name>/* prefix check accepted ANY same-stage binding,
+    so orchestration.service_ref could point at the stage's own catalog and
+    the StageContract would advertise that catalog as its orchestration
+    service - ADR 0011 classifies orchestration as a per-stage service with
+    one canonical name, not a free-form same-stage path."""
+    contract = _fixture("local-provider-contracts-v3.json")
+    topology = _topology(contract)
+    contract["stages"]["dev"]["orchestration"]["service_ref"] = "stage/dev/catalog"
+
+    with pytest.raises(ProviderContractError, match="orchestration.service_ref must be 'stage/dev/orchestration'"):
+        parse_provider_contracts(contract, topology)
+
+
+@pytest.mark.parametrize(
+    "service_ref",
+    ["shared/ops_storage", "stage/dev/orchestration"],
+)
+def test_reporting_service_ref_cannot_be_shared_or_another_same_stage_binding(service_ref: str) -> None:
+    """reporting.service_ref previously accepted any resolvable shared/*
+    binding via _stage_or_shared_reference, contradicting ADR 0011's
+    classification of reporting as per-stage only (never shared) - and, like
+    orchestration, also accepted another same-stage binding entirely."""
+    contract = _fixture("aws-provider-contracts-v3.json")
+    topology = _topology(contract)
+    contract["stages"]["dev"]["reporting"]["service_ref"] = service_ref
+
+    with pytest.raises(ProviderContractError, match="reporting.service_ref must be 'stage/dev/reporting'"):
         parse_provider_contracts(contract, topology)
 
 

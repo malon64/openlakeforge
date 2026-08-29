@@ -123,21 +123,20 @@ _STORAGE_IMPLEMENTATION_BY_TOPOLOGY_PROVIDER = {
 }
 
 
-def _stage_or_shared_reference(
-    value: object, *, where: str, stage: StageName, shared_refs: set[str]
-) -> str:
-    """A binding that may point at the owning stage or a resolvable shared service.
+def _canonical_stage_reference(value: object, *, where: str, stage: StageName, path: str) -> str:
+    """A stage-service binding pinned to its one canonical name.
 
-    Used for the handful of fields (e.g. reporting.service_ref) that may be
-    satisfied by either a stage-local implementation or a platform-wide one,
-    unlike endpoint_ref fields, which are always stage-scoped.
+    ADR 0011 classifies orchestration and reporting as per-stage services
+    (never shared, unlike catalog/query/governance) - a prefix check such as
+    ``stage/<name>/*`` would accept another same-stage binding entirely (e.g.
+    orchestration.service_ref: stage/dev/catalog), so every stage-service
+    service_ref/endpoint_ref must equal its own fixed path.
     """
+    expected = f"stage/{stage.value}/{path}"
     reference = _string(value, where=where)
-    if reference.startswith(f"stage/{stage.value}/"):
-        return reference
-    if reference in shared_refs:
-        return reference
-    raise ProviderContractError(f"{where} must reference stage/{stage.value}/* or a resolvable shared/* binding")
+    if reference != expected:
+        raise ProviderContractError(f"{where} must be {expected!r}")
+    return reference
 
 
 @dataclass(frozen=True)
@@ -440,15 +439,17 @@ def _parse_stage(
         where=f"stages.{name.value}.orchestration",
         required={"service_ref", "endpoint_ref"},
     )
-    _reference(
+    _canonical_stage_reference(
         orchestration["service_ref"],
         where=f"stages.{name.value}.orchestration.service_ref",
-        allowed=(f"stage/{name.value}/",),
+        stage=name,
+        path="orchestration",
     )
-    _reference(
+    _canonical_stage_reference(
         orchestration["endpoint_ref"],
         where=f"stages.{name.value}.orchestration.endpoint_ref",
-        allowed=(f"stage/{name.value}/",),
+        stage=name,
+        path="endpoints/orchestration",
     )
     activation = _fields(
         document["activation"],
@@ -499,16 +500,17 @@ def _parse_stage(
             where=f"stages.{name.value}.reporting",
             required={"service_ref", "endpoint_ref"},
         )
-        _stage_or_shared_reference(
+        _canonical_stage_reference(
             reporting["service_ref"],
             where=f"stages.{name.value}.reporting.service_ref",
             stage=name,
-            shared_refs=shared_refs,
+            path="reporting",
         )
-        _reference(
+        _canonical_stage_reference(
             reporting["endpoint_ref"],
             where=f"stages.{name.value}.reporting.endpoint_ref",
-            allowed=(f"stage/{name.value}/",),
+            stage=name,
+            path="endpoints/reporting",
         )
         if endpoints.get("reporting") != reporting["endpoint_ref"]:
             raise ProviderContractError(f"stages.{name.value}.endpoints.reporting must resolve reporting")
@@ -527,10 +529,11 @@ def _parse_stage(
             raise ProviderContractError(
                 f"stages.{name.value}.governance.service_ref must reference the shared governance service"
             )
-        _reference(
+        _canonical_stage_reference(
             governance["endpoint_ref"],
             where=f"stages.{name.value}.governance.endpoint_ref",
-            allowed=(f"stage/{name.value}/",),
+            stage=name,
+            path="endpoints/governance",
         )
         if endpoints.get("governance") != governance["endpoint_ref"]:
             raise ProviderContractError(f"stages.{name.value}.endpoints.governance must resolve governance")
