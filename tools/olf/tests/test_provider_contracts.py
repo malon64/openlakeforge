@@ -330,6 +330,45 @@ def test_query_service_ref_must_be_the_shared_query_service_specifically() -> No
         parse_provider_contracts(contract, topology)
 
 
+def test_catalog_service_ref_must_be_the_shared_catalog_service_specifically() -> None:
+    """Same failure mode as query.service_ref: a Polaris stage could point its
+    catalog service_ref at any resolvable shared/* binding and the StageContract
+    would advertise that unrelated service as its catalog."""
+    contract = _fixture("local-provider-contracts-v3.json")
+    topology = _topology(contract)
+    contract["stages"]["dev"]["catalog"]["service_ref"] = "shared/ops_storage"
+    contract["stages"]["dev"]["endpoints"]["catalog"] = "shared/ops_storage"
+
+    with pytest.raises(ProviderContractError, match="must reference the shared catalog service"):
+        parse_provider_contracts(contract, topology)
+
+
+def test_query_endpoint_must_agree_across_stages() -> None:
+    """shared.query is one Trino service used by every stage, isolated by
+    catalog rather than by endpoint; a stage that keeps service_ref: shared/query
+    but declares a different endpoint would silently be routed to a different
+    Trino host despite passing the shared-service-reference check."""
+    contract = _fixture("local-provider-contracts-v3.json")
+    topology = _topology(contract)
+    contract["stages"]["prod"]["query"]["endpoint"] = "http://other-trino:8080"
+
+    with pytest.raises(ProviderContractError, match="query.endpoint must match the shared query service"):
+        parse_provider_contracts(contract, topology)
+
+
+def test_catalog_physical_id_must_be_a_non_empty_string() -> None:
+    """catalog.physical_id feeds the cross-stage catalog_ids dedupe set in
+    _parse_v3 without prior type validation, unlike storage physical_id, which
+    already used _string(); an unhashable value there would crash with
+    TypeError instead of failing closed."""
+    contract = _fixture("local-provider-contracts-v3.json")
+    topology = _topology(contract)
+    contract["stages"]["dev"]["catalog"]["physical_id"] = ["not-hashable"]
+
+    with pytest.raises(ProviderContractError, match="catalog.physical_id must be a non-empty string"):
+        parse_provider_contracts(contract, topology)
+
+
 def test_glue_stage_does_not_leak_local_polaris_token_and_scope_aliases() -> None:
     """The POLARIS_* compatibility aliases were re-derived before the is_glue
     normalization cleared OPENLAKEFORGE_CATALOG_TOKEN_URI/OAUTH_SCOPE, so an

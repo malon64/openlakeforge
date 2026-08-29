@@ -325,6 +325,7 @@ def _parse_stage(
             "deployer_client_secret_key",
         },
     )
+    _string(catalog["physical_id"], where=f"stages.{name.value}.catalog.physical_id")
     catalog_type = catalog["catalog_type"]
     catalog_provider = catalog["catalog_provider"]
     if catalog_type not in _CATALOG_TYPES:
@@ -362,6 +363,11 @@ def _parse_stage(
         _reference(catalog["service_ref"], where=f"stages.{name.value}.catalog.service_ref", allowed=("shared/",))
         if catalog["service_ref"] not in shared_refs:
             raise ProviderContractError(f"stages.{name.value}.catalog.service_ref does not resolve")
+        catalog_service_ref = shared.values.get("catalog_service", {}).get("ref")
+        if catalog["service_ref"] != catalog_service_ref:
+            raise ProviderContractError(
+                f"stages.{name.value}.catalog.service_ref must reference the shared catalog service"
+            )
     if "warehouse" in catalog and catalog["warehouse"] != catalog["physical_id"]:
         raise ProviderContractError(f"stages.{name.value}.catalog.warehouse must match its own physical identity")
     query = _fields(
@@ -526,10 +532,16 @@ def _parse_v3(payload: Mapping[str, Any], topology: DeploymentTopology | None) -
     catalog_ids: set[str] = set()
     principals: set[str] = set()
     stage_endpoint_values: set[str] = set()
+    shared_query_endpoint: str | None = None
     for raw_name, stage_value in stages_document.items():
         name = _stage_name(raw_name)
         stage = _parse_stage(name, stage_value, shared=shared, topology=topology)
         stages[name] = stage
+        query_endpoint = stage.query["endpoint"]
+        if shared_query_endpoint is None:
+            shared_query_endpoint = query_endpoint
+        elif query_endpoint != shared_query_endpoint:
+            raise ProviderContractError(f"stages.{name.value}.query.endpoint must match the shared query service")
         for layer in ("bronze", "silver", "gold"):
             layer_binding = stage.storage[layer]
             physical_id = layer_binding["physical_id"]
