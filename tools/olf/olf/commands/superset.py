@@ -16,7 +16,7 @@ app = typer.Typer(help="Superset report deploy/export helpers.")
 @app.command("deploy-reports")
 def superset_deploy_reports(
     provider: str = typer.Option("local", "--provider", help="Provider owning the deployed contracts."),
-    profile: str = typer.Option("full", "--profile", help="full or slim."),
+    profile: str = typer.Option("", "--profile", help="Deprecated single-DEV preset shorthand: 'full' or 'slim'."),
     namespace: str = typer.Option("", "--namespace", help="Kubernetes namespace override."),
     cluster_name: str = typer.Option("", "--cluster-name", help="Local kind cluster name override."),
     kubeconfig_path: str = typer.Option("", "--kubeconfig-path", help="Kubeconfig file path override."),
@@ -63,7 +63,7 @@ def deploy_superset_reports() -> None:
 @app.command("export-reports")
 def superset_export_reports(
     provider: str = typer.Option("local", "--provider", help="Provider owning the deployed contracts."),
-    profile: str = typer.Option("full", "--profile", help="full or slim."),
+    profile: str = typer.Option("", "--profile", help="Deprecated single-DEV preset shorthand: 'full' or 'slim'."),
     namespace: str = typer.Option("", "--namespace", help="Kubernetes namespace override."),
     cluster_name: str = typer.Option("", "--cluster-name", help="Local kind cluster name override."),
     kubeconfig_path: str = typer.Option("", "--kubeconfig-path", help="Kubeconfig file path override."),

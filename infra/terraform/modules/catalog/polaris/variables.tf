@@ -32,6 +32,12 @@ variable "base_values_file" {
   type        = string
 }
 
+variable "workload_namespaces" {
+  description = "Namespaces the bootstrap job replicates principal credential Secrets into, for workloads that run outside this module's namespace."
+  type        = list(string)
+  default     = []
+}
+
 variable "catalog_name" {
   description = "Polaris catalog name."
   type        = string

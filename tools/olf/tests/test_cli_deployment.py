@@ -3,9 +3,11 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+import typer
 from typer.testing import CliRunner
 
 from olf.cli import app
+from olf.profile import StageName
 
 runner = CliRunner()
 
@@ -201,3 +203,61 @@ def test_an_invalid_toolchain_mode_surfaces_as_a_clean_cli_error(monkeypatch: py
     assert result.exit_code != 0
     assert not isinstance(result.exception, ToolchainError)
     assert "OLF_TOOLCHAIN_MODE" in result.output
+
+
+def _write_profile(root: Path, *, provider: str = "local", stages: str = "    dev:\n      enabled: true\n") -> None:
+    (root / "openlakeforge.yaml").write_text(
+        "apiVersion: openlakeforge.io/v1alpha1\n"
+        "kind: DeploymentProfile\n"
+        "metadata:\n"
+        "  name: acme-data\n"
+        "spec:\n"
+        f"  provider:\n    type: {provider}\n"
+        "  preset: slim\n"
+        "  stages:\n" + stages
+    )
+
+
+def test_the_deployment_profile_decides_the_stages(tmp_path: Path) -> None:
+    from olf.commands._shared import resolve_topology
+    from olf.deployment.context import Provider
+
+    _write_profile(tmp_path, stages="    dev:\n      enabled: true\n    prod:\n      enabled: true\n")
+
+    topology = resolve_topology(tmp_path, provider=Provider.LOCAL)
+
+    assert [stage.name.value for stage in topology.stages if stage.enabled] == ["dev", "prod"]
+
+
+def test_an_explicit_preset_selects_the_deprecated_single_dev_shorthand(tmp_path: Path) -> None:
+    from olf.commands._shared import resolve_topology
+    from olf.deployment.context import Provider
+
+    _write_profile(tmp_path, stages="    dev:\n      enabled: true\n    prod:\n      enabled: true\n")
+
+    topology = resolve_topology(tmp_path, provider=Provider.LOCAL, preset="full")
+
+    assert [stage.name.value for stage in topology.stages if stage.enabled] == ["dev"]
+    assert topology.stage(StageName.DEV).capabilities.analytics is True
+
+
+def test_a_profile_for_another_provider_does_not_describe_this_deployment(tmp_path: Path) -> None:
+    from olf.commands._shared import resolve_topology
+    from olf.deployment.context import Provider
+
+    _write_profile(tmp_path, provider="aws", stages="    dev:\n      enabled: true\n    prod:\n      enabled: true\n")
+
+    topology = resolve_topology(tmp_path, provider=Provider.LOCAL)
+
+    assert topology.provider == Provider.LOCAL
+    assert [stage.name.value for stage in topology.stages if stage.enabled] == ["dev"]
+
+
+def test_an_invalid_profile_fails_closed(tmp_path: Path) -> None:
+    from olf.commands._shared import resolve_topology
+    from olf.deployment.context import Provider
+
+    (tmp_path / "openlakeforge.yaml").write_text("apiVersion: openlakeforge.io/v1alpha1\nkind: NotAProfile\n")
+
+    with pytest.raises(typer.Exit):
+        resolve_topology(tmp_path, provider=Provider.LOCAL)

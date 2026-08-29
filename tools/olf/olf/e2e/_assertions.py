@@ -100,7 +100,7 @@ def check_openmetadata_assets(cfg: E2EConfig) -> None:
     with k8s.port_forward(
         "openmetadata",
         8585,
-        cfg.namespace,
+        cfg.platform_namespace,
         local_port=cfg.openmetadata_local_port,
         log_path=log_path,
         kube_context=cfg.kube_context,

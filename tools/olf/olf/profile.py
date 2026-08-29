@@ -317,10 +317,9 @@ def resolve_topology(profile: DeploymentProfile) -> DeploymentTopology:
 def legacy_single_stage_topology(*, provider: Provider, preset: Preset) -> DeploymentTopology:
     """The v0.2 compatibility path: `olf deploy --provider <provider>
     --profile <preset>` resolves to one enabled DEV stage using the preset's
-    capability defaults, matching `DeploymentFeatures.for_profile`
-    (`olf.deployment.context`). `#133` wires this into `DeploymentContext`;
-    here it proves and documents the deprecated shorthand's resolver entry
-    point."""
+    capability defaults. `DeploymentContext` resolves every run through this
+    model, so the deprecated shorthand is literally the single-DEV-stage case
+    rather than a second code path."""
     profile = DeploymentProfile(
         name="legacy",
         provider=ProviderSpec(type=provider),

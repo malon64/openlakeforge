@@ -47,11 +47,12 @@ def artifact_storage_client(via: str, bucket: str) -> Iterator[Any]:
     secret_name = config.env("OPENLAKEFORGE_STORAGE_CREDENTIALS_SECRET_NAME")
     service = config.env("OPENLAKEFORGE_STORAGE_S3_SERVICE_NAME", "seaweedfs-s3")
     remote_port = int(config.env("OPENLAKEFORGE_STORAGE_S3_SERVICE_PORT", "8333"))
+    service_namespace = config.env("OPENLAKEFORGE_STORAGE_S3_SERVICE_NAMESPACE") or namespace
     with s3.port_forward_client(
         bucket,
         service=service,
         remote_port=remote_port,
-        namespace=namespace,
+        namespace=service_namespace,
         access_key_id=k8s.secret_value(
             secret_name, config.env("OPENLAKEFORGE_STORAGE_ACCESS_KEY_ID_KEY", "AWS_ACCESS_KEY_ID"), namespace
         ),

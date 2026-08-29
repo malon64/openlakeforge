@@ -5,7 +5,7 @@ locals {
     "openlakeforge.io/component"   = "governance"
   }
 
-  om_url                        = "http://${var.release_name}:${var.om_http_port}"
+  om_url                        = "http://${var.release_name}.${var.namespace}:${var.om_http_port}"
   catalog_schema_names_json     = jsonencode(var.catalog_schema_names)
   catalog_schema_names_json_b64 = base64encode(local.catalog_schema_names_json)
   catalog_type                  = coalesce(try(var.catalog_contract.catalog_type, null), "rest")
@@ -38,6 +38,10 @@ locals {
     },
   ]
   bootstrap_secret_env = concat(local.storage_secret_env, local.polaris_secret_env)
+  # See the Polaris module: an immutable Job template needs a new name for
+  # the ingestion-bot Secret replicas to be created for a newly added stage.
+  workload_revision = substr(sha256(join(",", sort(var.workload_namespaces))), 0, 8)
+
   bootstrap_annotations = {
     "openlakeforge.io/openmetadata-release-revision" = tostring(helm_release.openmetadata.metadata.revision)
     "openlakeforge.io/catalog-schema-hash"           = sha256(local.catalog_schema_names_json)

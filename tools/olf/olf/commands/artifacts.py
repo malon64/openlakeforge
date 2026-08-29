@@ -45,7 +45,7 @@ def artifacts_upload_manifests(
         help="Rendered Floe runtime artifact root containing configs/, profiles/, and manifests/.",
     ),
     provider: str = typer.Option("local", "--provider", help="Provider owning the deployed contracts."),
-    profile: str = typer.Option("full", "--profile", help="full or slim."),
+    profile: str = typer.Option("", "--profile", help="Deprecated single-DEV preset shorthand: 'full' or 'slim'."),
     namespace: str = typer.Option("", "--namespace", help="Kubernetes namespace override."),
     cluster_name: str = typer.Option("", "--cluster-name", help="Local kind cluster name override."),
     kubeconfig_path: str = typer.Option("", "--kubeconfig-path", help="Kubeconfig file path override."),
@@ -104,6 +104,7 @@ def upload_manifests(
         secret_name = config.env("OPENLAKEFORGE_STORAGE_CREDENTIALS_SECRET_NAME")
         service = config.env("OPENLAKEFORGE_STORAGE_S3_SERVICE_NAME", "seaweedfs-s3")
         remote_port = int(config.env("OPENLAKEFORGE_STORAGE_S3_SERVICE_PORT", "8333"))
+        service_namespace = config.env("OPENLAKEFORGE_STORAGE_S3_SERVICE_NAMESPACE") or namespace
         from olf import k8s
 
         s3.upload_via_port_forward(
@@ -111,7 +112,7 @@ def upload_manifests(
             uploads,
             service=service,
             remote_port=remote_port,
-            namespace=namespace,
+            namespace=service_namespace,
             access_key_id=k8s.secret_value(
                 secret_name, config.env("OPENLAKEFORGE_STORAGE_ACCESS_KEY_ID_KEY", "AWS_ACCESS_KEY_ID"), namespace
             ),

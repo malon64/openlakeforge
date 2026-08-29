@@ -22,6 +22,7 @@ def provider_contract_environment(
     cluster_name: str,
     kubeconfig_path: str,
     project_root: str = "",
+    stage: str = "",
 ) -> Iterator[None]:
     """Hydrate Terraform contracts for a command outside the full deploy flow."""
     from olf.commands.deployment import _build_context, _build_engine
@@ -36,6 +37,7 @@ def provider_contract_environment(
         cluster_name=cluster_name,
         kubeconfig_path=kubeconfig_path,
         project_root=project_root,
+        stage=stage,
     )
     deployment_provider = _build_engine(context, var_file="").provider
     if isinstance(deployment_provider, LocalProvider):
@@ -60,5 +62,7 @@ def provider_contract_environment(
         kubeconfig_path=context.paths.kubeconfig_path,
         port_forward_log_prefix=context.paths.port_forward_log_prefix,
         environ=deployment_provider.env,
+        topology=context.topology,
+        stage=context.stage,
     ):
         yield

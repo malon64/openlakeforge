@@ -293,7 +293,7 @@ def _ensure_dbt_manifest(spec: ProductDefinitionSpec) -> Path:
     env.setdefault("OPENLAKEFORGE_STORAGE_REGION", "us-east-1")
     env.setdefault("AWS_REGION", env["OPENLAKEFORGE_STORAGE_REGION"])
     env.setdefault("AWS_DEFAULT_REGION", env["AWS_REGION"])
-    env.setdefault("OPENLAKEFORGE_STORAGE_ENDPOINT", "http://seaweedfs-s3:8333")
+    env.setdefault("OPENLAKEFORGE_STORAGE_ENDPOINT", "http://seaweedfs-s3.olf-system:8333")
     env.setdefault("AWS_ENDPOINT_URL_S3", env["OPENLAKEFORGE_STORAGE_ENDPOINT"])
     env.setdefault("OPENLAKEFORGE_QUERY_TRINO_HOST", "trino")
     env.setdefault("OPENLAKEFORGE_QUERY_TRINO_PORT", "8080")
@@ -302,8 +302,10 @@ def _ensure_dbt_manifest(spec: ProductDefinitionSpec) -> Path:
     env.setdefault("OPENLAKEFORGE_DBT_TRINO_USER", "openlakeforge-dbt")
     env.setdefault("OPENLAKEFORGE_CATALOG_TYPE", "rest")
     env.setdefault("OPENLAKEFORGE_CATALOG_PROVIDER", "polaris")
-    env.setdefault("OPENLAKEFORGE_CATALOG_REST_URI", "http://polaris:8181/api/catalog")
-    env.setdefault("OPENLAKEFORGE_CATALOG_TOKEN_URI", "http://polaris:8181/api/catalog/v1/oauth/tokens")
+    env.setdefault("OPENLAKEFORGE_CATALOG_REST_URI", "http://polaris.olf-system:8181/api/catalog")
+    env.setdefault(
+        "OPENLAKEFORGE_CATALOG_TOKEN_URI", "http://polaris.olf-system:8181/api/catalog/v1/oauth/tokens"
+    )
     env.setdefault("OPENLAKEFORGE_CATALOG_WAREHOUSE", "lakehouse_dev")
     env.setdefault("OPENLAKEFORGE_CATALOG_OAUTH_SCOPE", "PRINCIPAL_ROLE:ALL")
     profiles_dir = _ensure_dbt_profiles_dir(spec, env=env)

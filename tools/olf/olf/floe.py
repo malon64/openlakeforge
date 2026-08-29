@@ -29,7 +29,7 @@ def render_profile(environ: Mapping[str, str]) -> str:
     def env(name: str, default: str) -> str:
         return environ.get(name, default)
 
-    namespace = env("NAMESPACE", env("OPENLAKEFORGE_KUBE_NAMESPACE", "lakehouse"))
+    namespace = env("NAMESPACE", env("OPENLAKEFORGE_KUBE_NAMESPACE", "olf-dev"))
     catalog_name = env("OPENLAKEFORGE_CATALOG_LOGICAL_NAME", "iceberg_catalog")
     storage_bronze_bucket = env(
         "OPENLAKEFORGE_STORAGE_BRONZE_BUCKET", env("OPENLAKEFORGE_STORAGE_BUCKET", "lakehouse-bronze")

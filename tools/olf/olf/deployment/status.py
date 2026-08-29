@@ -38,25 +38,31 @@ class StatusReport:
 def collect_status(
     kubectl: Kubectl,
     *,
-    namespace: str,
+    namespaces: Sequence[str],
     context: str,
     kubeconfig: Path,
     env: Mapping[str, str] | None = None,
     resources: Sequence[tuple[str, str]] = DEFAULT_RESOURCES,
 ) -> StatusReport:
+    """Report one section per resource kind and namespace.
+
+    A stage-aware deployment spreads its workloads over the shared platform
+    namespace and one namespace per enabled stage, so the caller passes every
+    namespace it owns rather than one."""
     sections = []
-    for title, resource in resources:
-        result = kubectl.get(
-            resource,
-            namespace=namespace,
-            context=context,
-            kubeconfig=kubeconfig,
-            env=env,
-            check=False,
-        )
-        if not result.ok:
-            detail = result.stderr.strip() or f"kubectl exited {result.returncode}"
-            raise DeploymentPreconditionError(f"failed to query {title} in namespace '{namespace}': {detail}")
-        output = result.stdout.strip() or result.stderr.strip()
-        sections.append(StatusSection(title=title, output=output))
+    for namespace in namespaces:
+        for title, resource in resources:
+            result = kubectl.get(
+                resource,
+                namespace=namespace,
+                context=context,
+                kubeconfig=kubeconfig,
+                env=env,
+                check=False,
+            )
+            if not result.ok:
+                detail = result.stderr.strip() or f"kubectl exited {result.returncode}"
+                raise DeploymentPreconditionError(f"failed to query {title} in namespace '{namespace}': {detail}")
+            output = result.stdout.strip() or result.stderr.strip()
+            sections.append(StatusSection(title=f"{title} ({namespace})", output=output))
     return StatusReport(sections=tuple(sections))

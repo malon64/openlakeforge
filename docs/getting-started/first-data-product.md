@@ -897,7 +897,7 @@ From the repository root:
 ```bash
 KUBECONFIG=.tmp/kubeconfigs/local.yaml \
 kubectl --context kind-openlakeforge-local \
-exec -n lakehouse deploy/trino-coordinator -- \
+exec -n olf-system deploy/trino-coordinator -- \
 trino --execute "
 SELECT *
 FROM iceberg.campaign_performance_gold.mart_campaign_performance

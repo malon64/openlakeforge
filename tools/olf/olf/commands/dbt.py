@@ -19,7 +19,7 @@ app = typer.Typer(help="Render and validate dbt product projects.")
 def parse(
     project_dir: str = typer.Option("", "--project-dir", help="One dbt project; defaults to all products."),
     provider: str = typer.Option("local", "--provider", help="Provider owning the deployed contracts."),
-    profile: str = typer.Option("full", "--profile", help="full or slim."),
+    profile: str = typer.Option("", "--profile", help="Deprecated single-DEV preset shorthand: 'full' or 'slim'."),
     namespace: str = typer.Option("", "--namespace", help="Kubernetes namespace override."),
     cluster_name: str = typer.Option("", "--cluster-name", help="Local kind cluster name override."),
     kubeconfig_path: str = typer.Option("", "--kubeconfig-path", help="Kubeconfig file path override."),

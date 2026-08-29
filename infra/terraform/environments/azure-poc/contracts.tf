@@ -54,6 +54,35 @@ locals {
     gold_bucket_name      = var.gold_bucket_name
   })
 
+  # This POC root is still single-stage: one database per platform service in
+  # the one namespace. The local root derives the same list per stage (#133);
+  # #114 carries that split to the cloud roots.
+  metadata_databases = concat(
+    [{
+      key                     = "dagster"
+      db_name                 = "dagster"
+      db_user                 = "dagster"
+      credentials_secret_name = "postgresql-dagster-creds"
+      namespaces              = [var.namespace]
+    }],
+    var.enable_governance ? [{
+      key                     = "openmetadata"
+      db_name                 = "openmetadata_db"
+      db_user                 = "openmetadata_user"
+      credentials_secret_name = "postgresql-openmetadata-creds"
+      namespaces              = [var.namespace]
+    }] : [],
+    var.enable_analytics ? [{
+      key                     = "superset"
+      db_name                 = "superset"
+      db_user                 = "superset"
+      credentials_secret_name = "postgresql-superset-creds"
+      namespaces              = [var.namespace]
+    }] : [],
+  )
+
+  metadata_database_service_contract = { for database in local.metadata_databases : database.key => database }
+
   metadata_database_contract = merge(module.postgresql.contract, {
     provider              = local.azure_provider_name
     implementation        = "metadata_database.postgresql.in_cluster_on_aks"
@@ -67,6 +96,18 @@ locals {
     local_only            = false
     poc_only              = true
     future_adapter_shapes = ["metadata_database.azure_postgresql_flexible_server"]
+
+    dagster_db_name                 = local.metadata_database_service_contract["dagster"].db_name
+    dagster_db_user                 = local.metadata_database_service_contract["dagster"].db_user
+    dagster_credentials_secret_name = local.metadata_database_service_contract["dagster"].credentials_secret_name
+
+    openmetadata_db_name                 = var.enable_governance ? local.metadata_database_service_contract["openmetadata"].db_name : null
+    openmetadata_db_user                 = var.enable_governance ? local.metadata_database_service_contract["openmetadata"].db_user : null
+    openmetadata_credentials_secret_name = var.enable_governance ? local.metadata_database_service_contract["openmetadata"].credentials_secret_name : null
+
+    superset_db_name                 = var.enable_analytics ? local.metadata_database_service_contract["superset"].db_name : null
+    superset_db_user                 = var.enable_analytics ? local.metadata_database_service_contract["superset"].db_user : null
+    superset_credentials_secret_name = var.enable_analytics ? local.metadata_database_service_contract["superset"].credentials_secret_name : null
   })
 
   catalog_contract = merge(module.polaris.contract, {

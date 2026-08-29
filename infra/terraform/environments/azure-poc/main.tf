@@ -72,9 +72,8 @@ resource "kubernetes_namespace_v1" "lakehouse" {
 module "postgresql" {
   source = "../../modules/storage/postgresql"
 
-  namespace           = kubernetes_namespace_v1.lakehouse.metadata[0].name
-  enable_openmetadata = var.enable_governance
-  enable_superset     = var.enable_analytics
+  namespace = kubernetes_namespace_v1.lakehouse.metadata[0].name
+  databases = local.metadata_databases
 }
 
 module "seaweedfs" {

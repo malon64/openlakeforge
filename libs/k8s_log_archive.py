@@ -11,7 +11,7 @@ from libs.s3_artifacts import s3_client, split_s3_uri
 
 
 def main() -> None:
-    namespace = os.environ.get("OPENLAKEFORGE_KUBE_NAMESPACE", "lakehouse")
+    namespace = os.environ.get("OPENLAKEFORGE_KUBE_NAMESPACE", "olf-dev")
     since_seconds = int(os.environ.get("OPENLAKEFORGE_LOG_ARCHIVE_SINCE_SECONDS", "3600"))
     log_base_uri = os.environ.get("OPENLAKEFORGE_LOG_BASE_URI", "s3://openlakeforge-ops/logs")
 

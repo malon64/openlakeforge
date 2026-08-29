@@ -7,6 +7,7 @@ semantics of the shell script.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 
 from olf import log
@@ -19,8 +20,12 @@ from olf.deployment.retry import RetryPolicy, run_with_retry
 from olf.tooling.kubectl import KubeContextUnreachableError
 
 _SEAWEEDFS_RESOURCE_ADDR = "module.seaweedfs.helm_release.seaweedfs"
-_NAMESPACE_RESOURCE_ADDR = "kubernetes_namespace_v1.lakehouse"
+_SHARED_NAMESPACE_RESOURCE_ADDR = "kubernetes_namespace_v1.shared"
 _POLARIS_JOB_PREFIXES = ("polaris-bootstrap-", "polaris-metastore-bootstrap-")
+
+
+def stage_namespace_resource_addr(stage: str) -> str:
+    return f'kubernetes_namespace_v1.stage["{stage}"]'
 
 
 def platform_var_files(config: LocalDeploymentConfig) -> tuple[str, ...]:
@@ -40,10 +45,35 @@ def prepare_charts(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mappin
         )
 
 
+def topology_variables(config: LocalDeploymentConfig) -> dict[str, str]:
+    """The resolved topology, as the platform root's typed Terraform inputs.
+
+    The root derives every stage namespace, service multiplicity, and
+    capability gate from `stages`; nothing downstream re-reads the
+    Deployment Profile. Every stage the resolver knows about is passed with
+    its own `enabled` flag rather than only the enabled subset, so what the
+    root receives is the resolved topology itself and not a filtered view of
+    it.
+    """
+    topology = config.context.topology
+    stages = {
+        stage.name.value: {
+            "enabled": stage.enabled,
+            "analytics": stage.capabilities.analytics,
+            "governance": stage.capabilities.governance,
+        }
+        for stage in topology.stages
+    }
+    return {
+        "profile_name": topology.profile_name,
+        "shared_namespace": config.context.shared_namespace,
+        "stages": json.dumps(stages, sort_keys=True, separators=(",", ":")),
+    }
+
+
 def platform_apply_variables(config: LocalDeploymentConfig) -> dict[str, str]:
     images = config.images
-    return {
-        "namespace": config.namespace,
+    return topology_variables(config) | {
         "kube_context": config.kube_context,
         "kubeconfig_path": str(config.paths.kubeconfig_path),
         # The Terraform helm provider (not the `helm` CLI olf's own tooling
@@ -58,8 +88,6 @@ def platform_apply_variables(config: LocalDeploymentConfig) -> dict[str, str]:
         "project_code_image_tag": images.project_code_tag,
         "project_code_image_pull_policy": images.project_code_pull_policy,
         "project_code_image_revision": images.project_code_revision,
-        "enable_governance": "true" if config.features.governance_enabled else "false",
-        "enable_analytics": "true" if config.features.analytics_enabled else "false",
         "superset_image_repository": images.superset_repository,
         "superset_image_tag": images.superset_tag,
         "superset_image_pull_policy": images.superset_pull_policy,
@@ -67,8 +95,7 @@ def platform_apply_variables(config: LocalDeploymentConfig) -> dict[str, str]:
 
 
 def platform_destroy_variables(config: LocalDeploymentConfig) -> dict[str, str]:
-    return {
-        "namespace": config.namespace,
+    return topology_variables(config) | {
         "kube_context": config.kube_context,
         "kubeconfig_path": str(config.paths.kubeconfig_path),
         "helm_repository_cache_path": str(config.paths.helm_repository_cache),
@@ -77,10 +104,43 @@ def platform_destroy_variables(config: LocalDeploymentConfig) -> dict[str, str]:
     }
 
 
+def applied_stage_names(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[str, str]) -> tuple[str, ...]:
+    """Stages the platform root has already applied, empty before any apply."""
+    try:
+        applied = tools.terraform.output_json(config.paths.platform_terraform_dir, "stage_names", env=env)
+    except CommandExecutionError:
+        return ()
+    if not isinstance(applied, list):
+        return ()
+    return tuple(str(name) for name in applied)
+
+
+def require_no_stage_removal(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[str, str]) -> None:
+    """Refuse an ordinary apply that would drop an already-applied stage.
+
+    Disabling a stage in the Deployment Profile is a destructive operation:
+    the apply that follows removes that stage's namespace and every service
+    and metadata database inside it. Terraform's own `prevent_destroy`
+    cannot be made conditional, so the opt-in lives here instead.
+    """
+    enabled = {stage.value for stage in config.context.enabled_stages}
+    removed = [stage for stage in applied_stage_names(config, tools, env=env) if stage not in enabled]
+    if not removed or config.context.allow_stage_removal:
+        return
+    raise DeploymentPreconditionError(
+        f"applying would remove already-deployed stage(s) {', '.join(sorted(removed))}, destroying their "
+        "namespaces, services, and metadata state. Re-run with --allow-stage-removal to proceed."
+    )
+
+
 def reset_drifted_platform_if_needed(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[str, str]) -> bool:
     platform_dir = config.paths.platform_terraform_dir
     if not kube_ops.namespace_exists(
-        tools.kubectl, config.namespace, context=config.kube_context, kubeconfig=config.paths.kubeconfig_path, env=env
+        tools.kubectl,
+        config.context.shared_namespace,
+        context=config.kube_context,
+        kubeconfig=config.paths.kubeconfig_path,
+        env=env,
     ):
         return False
     if kube_ops.state_has_resource(tools.terraform, platform_dir, _SEAWEEDFS_RESOURCE_ADDR, env=env):
@@ -126,42 +186,48 @@ def platform_up(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[s
             "Run the foundation phase before applying the local platform."
         ) from exc
 
-    if config.features.analytics_enabled:
+    if config.platform_features.analytics_enabled:
         from olf.deployment.local import images
 
         images.prepare_superset_image(config, tools, env=env)
     else:
-        log.step("Skipping Superset image build: analytics layer is disabled.")
+        log.step("Skipping Superset image build: no enabled stage has analytics.")
 
     prepare_charts(config, tools, env=env)
 
     log.step("Initializing Terraform...")
     tools.terraform.init(platform_dir, env=env)
 
+    require_no_stage_removal(config, tools, env=env)
     reset_drifted_platform_if_needed(config, tools, env=env)
 
     variables = platform_apply_variables(config)
     var_files = platform_var_files(config)
 
-    kube_ops.import_namespace_if_missing_in_state(
-        tools.terraform,
-        tools.kubectl,
-        terraform_dir=platform_dir,
-        resource_addr=_NAMESPACE_RESOURCE_ADDR,
-        namespace=config.namespace,
-        var_files=var_files,
-        variables=variables,
-        context=config.kube_context,
-        kubeconfig=config.paths.kubeconfig_path,
-        env=env,
-    )
+    namespace_resources = {_SHARED_NAMESPACE_RESOURCE_ADDR: config.context.shared_namespace} | {
+        stage_namespace_resource_addr(stage.value): config.context.namespace_for(stage)
+        for stage in config.context.enabled_stages
+    }
+    for resource_addr, namespace in namespace_resources.items():
+        kube_ops.import_namespace_if_missing_in_state(
+            tools.terraform,
+            tools.kubectl,
+            terraform_dir=platform_dir,
+            resource_addr=resource_addr,
+            namespace=namespace,
+            var_files=var_files,
+            variables=variables,
+            context=config.kube_context,
+            kubeconfig=config.paths.kubeconfig_path,
+            env=env,
+        )
 
     def _apply_once() -> None:
         for prefix in _POLARIS_JOB_PREFIXES:
             kube_ops.cleanup_failed_jobs_by_prefix(
                 tools.kubectl,
                 prefix,
-                namespace=config.namespace,
+                namespace=config.context.shared_namespace,
                 context=config.kube_context,
                 kubeconfig=config.paths.kubeconfig_path,
                 env=env,

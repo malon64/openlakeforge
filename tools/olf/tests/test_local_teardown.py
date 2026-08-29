@@ -103,10 +103,12 @@ def test_platform_down_orders_superset_job_delete_before_destroy_and_namespace_d
             kinds.append("terraform-destroy")
         elif "namespace" in call.argv and "delete" in call.argv:
             kinds.append("namespace-delete")
-    assert kinds == ["superset-job-delete", "terraform-destroy", "namespace-delete"]
+    # One Superset job per enabled stage, then destroy, then every namespace
+    # this deployment owns: the shared one plus one per stage.
+    assert kinds == ["superset-job-delete", "terraform-destroy", "namespace-delete", "namespace-delete"]
 
 
-def test_platform_down_destroy_uses_four_var_subset(tmp_path: Path) -> None:
+def test_platform_down_destroy_uses_the_topology_var_subset(tmp_path: Path) -> None:
     config = _config(tmp_path)
     runner = _TeardownScriptedRunner()
     tools = _toolkit(runner)
@@ -114,7 +116,7 @@ def test_platform_down_destroy_uses_four_var_subset(tmp_path: Path) -> None:
     teardown.platform_down(config, tools, env={})
 
     destroy_call = next(c for c in runner.calls if c.argv[0] == "terraform" and "destroy" in c.argv)
-    assert "-var=namespace=lakehouse" in destroy_call.argv
+    assert "-var=shared_namespace=olf-system" in destroy_call.argv
     assert not any("project_code_image" in arg for arg in destroy_call.argv)
     assert not any("trino_chart_package_path" in arg for arg in destroy_call.argv)
 
@@ -163,3 +165,20 @@ def test_cleanup_legacy_helm_releases_skips_when_helm_missing(tmp_path: Path) ->
     removed = teardown.cleanup_legacy_helm_releases(config, tools, env={})
 
     assert removed == []
+
+
+def test_platform_down_deletes_every_namespace_the_deployment_owns(tmp_path: Path) -> None:
+    """Teardown that only removed the selected stage's namespace would leave
+    the shared services and every other stage behind."""
+    config = _config(tmp_path)
+    runner = _TeardownScriptedRunner()
+    tools = _toolkit(runner)
+
+    teardown.platform_down(config, tools, env={})
+
+    deleted = [
+        call.argv[call.argv.index("namespace") + 1]
+        for call in runner.calls
+        if "namespace" in call.argv and "delete" in call.argv
+    ]
+    assert deleted == ["olf-system", "olf-dev"]

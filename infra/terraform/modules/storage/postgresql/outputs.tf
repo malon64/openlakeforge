@@ -4,17 +4,13 @@ output "contract" {
     host = local.host
     port = local.port
 
-    dagster_db_name                 = var.dagster_db_name
-    dagster_db_user                 = var.dagster_db_user
-    dagster_credentials_secret_name = var.dagster_credentials_secret_name
-
-    openmetadata_db_name                 = var.enable_openmetadata ? var.openmetadata_db_name : null
-    openmetadata_db_user                 = var.enable_openmetadata ? var.openmetadata_db_user : null
-    openmetadata_credentials_secret_name = var.enable_openmetadata ? var.openmetadata_credentials_secret_name : null
-
-    superset_db_name                 = var.enable_superset ? var.superset_db_name : null
-    superset_db_user                 = var.enable_superset ? var.superset_db_user : null
-    superset_credentials_secret_name = var.enable_superset ? var.superset_credentials_secret_name : null
+    databases = {
+      for database in var.databases : database.key => {
+        db_name                 = database.db_name
+        db_user                 = database.db_user
+        credentials_secret_name = database.credentials_secret_name
+      }
+    }
 
     polaris_credentials_secret_name = var.polaris_credentials_secret_name
   }

@@ -14,11 +14,31 @@ from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from enum import StrEnum
 from pathlib import Path
+from typing import TYPE_CHECKING
 
+from olf.deployment.errors import DeploymentPreconditionError
 from olf.project import ProjectSpec
 
-DEFAULT_NAMESPACE = "lakehouse"
+if TYPE_CHECKING:
+    from olf.profile import DeploymentTopology, StageName
+
+SHARED_NAMESPACE = "olf-system"
+# The cloud POC roots are still single-namespace: #133 made only the local
+# platform root stage-aware, and #114 carries the same split to AWS/Azure.
+CLOUD_POC_NAMESPACE = "lakehouse"
 DEFAULT_LOCAL_CLUSTER_NAME = "openlakeforge-local"
+
+
+def stage_namespace(stage: StageName | str) -> str:
+    """The deterministic Kubernetes namespace owning one stage's services.
+
+    Namespace naming is physical, so it lives here rather than on
+    `DeploymentTopology` -- ADR 0011 keeps the resolved topology free of
+    namespaces, Helm releases, and endpoints.
+    """
+    from olf.profile import StageName
+
+    return f"olf-{StageName(stage).value}"
 
 
 def _resolve_foundation_state_path(foundation_terraform_dir: Path) -> Path:
@@ -35,6 +55,13 @@ def _resolve_foundation_state_path(foundation_terraform_dir: Path) -> Path:
     if override:
         return Path(override).resolve()
     return foundation_terraform_dir / "terraform.tfstate"
+
+
+def _default_namespace(shared_namespace: str, stage: StageName) -> str:
+    """A stage-aware root puts each stage in its own namespace; the
+    single-namespace cloud POC roots keep serving the stage from the shared
+    one until #114 splits them too."""
+    return stage_namespace(stage) if shared_namespace == SHARED_NAMESPACE else shared_namespace
 
 
 class Provider(StrEnum):
@@ -87,9 +114,28 @@ class DeploymentFeatures:
     analytics_enabled: bool
 
     @classmethod
-    def for_profile(cls, profile: Profile) -> DeploymentFeatures:
-        enabled = profile == Profile.FULL
-        return cls(governance_enabled=enabled, analytics_enabled=enabled)
+    def for_stage(cls, topology: DeploymentTopology, stage: StageName) -> DeploymentFeatures:
+        resolved = topology.stage(stage)
+        if resolved is None or not resolved.enabled:
+            return cls(governance_enabled=False, analytics_enabled=False)
+        return cls(
+            governance_enabled=resolved.capabilities.governance,
+            analytics_enabled=resolved.capabilities.analytics,
+        )
+
+    @classmethod
+    def across_stages(cls, topology: DeploymentTopology) -> DeploymentFeatures:
+        """The union of every enabled stage's capabilities.
+
+        What Terraform must provision, as opposed to what one selected stage
+        consumes: a slim DEV plus a full PROD still needs the Superset chart
+        pulled and the shared OpenMetadata deployed.
+        """
+        enabled = [stage for stage in topology.stages if stage.enabled]
+        return cls(
+            governance_enabled=any(stage.capabilities.governance for stage in enabled),
+            analytics_enabled=any(stage.capabilities.analytics for stage in enabled),
+        )
 
 
 @dataclass(frozen=True)
@@ -100,6 +146,25 @@ class DeploymentContext:
     kube_context: str
     paths: DeploymentPaths
     features: DeploymentFeatures
+    topology: DeploymentTopology
+    stage: StageName
+    shared_namespace: str = SHARED_NAMESPACE
+    allow_stage_removal: bool = False
+
+    @property
+    def platform_features(self) -> DeploymentFeatures:
+        """Capabilities across every enabled stage. See `DeploymentFeatures.across_stages`."""
+        return DeploymentFeatures.across_stages(self.topology)
+
+    @property
+    def enabled_stages(self) -> tuple[StageName, ...]:
+        return tuple(stage.name for stage in self.topology.stages if stage.enabled)
+
+    def namespace_for(self, stage: StageName | str) -> str:
+        """The namespace owning one stage's services on this provider."""
+        from olf.profile import StageName
+
+        return _default_namespace(self.shared_namespace, StageName(stage))
 
     @classmethod
     def for_provider(cls, provider: Provider | str, *, repo_root: Path, **kwargs: object) -> DeploymentContext:
@@ -121,9 +186,12 @@ class DeploymentContext:
         state_root: Path | None = None,
         work_root: Path | None = None,
         cache_root: Path | None = None,
-        namespace: str = DEFAULT_NAMESPACE,
+        namespace: str = "",
         cluster_name: str = DEFAULT_LOCAL_CLUSTER_NAME,
         kubeconfig_path: Path | None = None,
+        topology: DeploymentTopology | None = None,
+        stage: StageName | str | None = None,
+        allow_stage_removal: bool = False,
     ) -> DeploymentContext:
         """Build the local `DeploymentContext`.
 
@@ -144,6 +212,10 @@ class DeploymentContext:
             cache_root=cache_root,
             profile=profile,
             namespace=namespace,
+            topology=topology,
+            stage=stage,
+            allow_stage_removal=allow_stage_removal,
+            shared_namespace=SHARED_NAMESPACE,
             kube_context=f"kind-{cluster_name}",
             foundation_terraform_dir=Path("infra/terraform/foundations/local-kind"),
             platform_terraform_dir=Path("infra/terraform/environments/local"),
@@ -162,9 +234,12 @@ class DeploymentContext:
         state_root: Path | None = None,
         work_root: Path | None = None,
         cache_root: Path | None = None,
-        namespace: str = DEFAULT_NAMESPACE,
+        namespace: str = "",
         kube_context: str = "",
         kubeconfig_path: Path | None = None,
+        topology: DeploymentTopology | None = None,
+        stage: StageName | str | None = None,
+        allow_stage_removal: bool = False,
     ) -> DeploymentContext:
         """Build the AWS `DeploymentContext`.
 
@@ -184,6 +259,10 @@ class DeploymentContext:
             cache_root=cache_root,
             profile=profile,
             namespace=namespace,
+            topology=topology,
+            stage=stage,
+            allow_stage_removal=allow_stage_removal,
+            shared_namespace=CLOUD_POC_NAMESPACE,
             kube_context=kube_context,
             foundation_terraform_dir=Path("infra/terraform/foundations/aws-eks"),
             platform_terraform_dir=Path("infra/terraform/environments/aws-poc"),
@@ -202,9 +281,12 @@ class DeploymentContext:
         state_root: Path | None = None,
         work_root: Path | None = None,
         cache_root: Path | None = None,
-        namespace: str = DEFAULT_NAMESPACE,
+        namespace: str = "",
         kube_context: str = "",
         kubeconfig_path: Path | None = None,
+        topology: DeploymentTopology | None = None,
+        stage: StageName | str | None = None,
+        allow_stage_removal: bool = False,
     ) -> DeploymentContext:
         """Build the Azure `DeploymentContext`.
 
@@ -221,6 +303,10 @@ class DeploymentContext:
             cache_root=cache_root,
             profile=profile,
             namespace=namespace,
+            topology=topology,
+            stage=stage,
+            allow_stage_removal=allow_stage_removal,
+            shared_namespace=CLOUD_POC_NAMESPACE,
             kube_context=kube_context,
             foundation_terraform_dir=Path("infra/terraform/foundations/azure-aks"),
             platform_terraform_dir=Path("infra/terraform/environments/azure-poc"),
@@ -242,10 +328,28 @@ class DeploymentContext:
         cache_root: Path | None,
         profile: Profile,
         namespace: str,
+        topology: DeploymentTopology | None,
+        stage: StageName | str | None,
+        allow_stage_removal: bool,
+        shared_namespace: str,
         kube_context: str,
         foundation_terraform_dir: Path,
         platform_terraform_dir: Path,
     ) -> DeploymentContext:
+        from olf.profile import Preset, StageName, legacy_single_stage_topology
+
+        resolved_topology = (
+            topology
+            if topology is not None
+            else legacy_single_stage_topology(provider=provider, preset=Preset(profile.value))
+        )
+        resolved_stage = StageName(stage) if stage is not None else StageName.DEV
+        selected = resolved_topology.stage(resolved_stage)
+        if selected is None or not selected.enabled:
+            raise DeploymentPreconditionError(
+                f"stage {resolved_stage.value!r} is not enabled in the resolved topology "
+                f"(enabled: {[s.name.value for s in resolved_topology.stages if s.enabled]})"
+            )
         resolved_repo_root = Path(repo_root).resolve()
         resolved_distribution_root = (
             Path(distribution_root).resolve() if distribution_root is not None else resolved_repo_root
@@ -296,10 +400,14 @@ class DeploymentContext:
         return cls(
             provider=provider,
             profile=profile,
-            namespace=namespace,
+            namespace=namespace or _default_namespace(shared_namespace, resolved_stage),
             kube_context=kube_context,
             paths=paths,
-            features=DeploymentFeatures.for_profile(profile),
+            features=DeploymentFeatures.for_stage(resolved_topology, resolved_stage),
+            topology=resolved_topology,
+            stage=resolved_stage,
+            allow_stage_removal=allow_stage_removal,
+            shared_namespace=shared_namespace,
         )
 
     def command_env(
@@ -317,6 +425,8 @@ class DeploymentContext:
         env: dict[str, str] = dict(base) if base is not None else {}
         env["KUBECONFIG"] = str(self.paths.kubeconfig_path)
         env["KUBE_CONTEXT"] = self.kube_context
+        env["OPENLAKEFORGE_STAGE"] = self.stage.value
+        env["OPENLAKEFORGE_SHARED_NAMESPACE"] = self.shared_namespace
         env["DOCKER_CONFIG"] = str(self.paths.docker_config_dir)
         env.setdefault("DOCKER_BUILDKIT", "1")
         env.setdefault("BUILDKIT_PROGRESS", "plain")

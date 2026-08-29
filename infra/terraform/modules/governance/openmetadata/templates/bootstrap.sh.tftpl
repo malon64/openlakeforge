@@ -106,7 +106,7 @@
   # Enable native OpenLineage ingestion for dbt-trino and Floe. Floe
   # emits accepted Iceberg datasets under the catalog service name
   # (polaris or aws_glue), while dbt-trino uses its Trino URI.
-  trino_namespace="trino://trino:8080"
+  trino_namespace="${trino_lineage_namespace}"
   lineage_settings="$(jq -n \
     --arg service "$catalog_service" \
     --arg trino "$trino_namespace" \

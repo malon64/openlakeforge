@@ -27,10 +27,15 @@ resource "random_password" "s3_secret_key" {
   special = false
 }
 
+# One Secret per namespace that runs a workload reading object storage: a
+# Secret cannot be read across namespaces, and stage-scoped services no
+# longer share this module's own namespace.
 resource "kubernetes_secret_v1" "s3_credentials" {
+  for_each = toset(concat([var.namespace], var.workload_namespaces))
+
   metadata {
     name      = var.credentials_secret_name
-    namespace = var.namespace
+    namespace = each.value
     labels    = local.labels
   }
 

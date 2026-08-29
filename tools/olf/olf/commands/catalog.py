@@ -43,14 +43,20 @@ def _sync_polaris_namespaces(*, desired: tuple, dry_run: bool, prune: bool) -> N
     from olf import k8s
     from olf import polaris as polaris_module
 
-    rest_uri = config.env("OPENLAKEFORGE_CATALOG_REST_URI", "http://polaris:8181/api/catalog")
+    rest_uri = config.env("OPENLAKEFORGE_CATALOG_REST_URI", "http://polaris.olf-system:8181/api/catalog")
     parsed = urlparse(rest_uri)
     if not parsed.hostname:
         raise typer.Exit(code=fail(f"OPENLAKEFORGE_CATALOG_REST_URI {rest_uri!r} has no host to port-forward to."))
-    service = parsed.hostname
+    # The contract qualifies a shared service as `<service>.<namespace>` so
+    # stage-scoped pods can resolve it; `kubectl port-forward` wants the two
+    # apart again.
+    service, _, service_namespace = parsed.hostname.partition(".")
     remote_port = parsed.port or 8181
 
+    # The catalog runs in the shared namespace; its deployer credentials are
+    # replicated into the stage namespace this command was invoked for.
     namespace = config.namespace()
+    catalog_namespace = service_namespace or config.shared_namespace()
     secret_name = config.env("OPENLAKEFORGE_CATALOG_DEPLOYER_CREDENTIALS_SECRET_NAME", "polaris-deployer-creds")
     client_id_key = config.env("OPENLAKEFORGE_CATALOG_DEPLOYER_CLIENT_ID_KEY", "POLARIS_DEPLOYER_CLIENT_ID")
     client_secret_key = config.env(
@@ -59,7 +65,7 @@ def _sync_polaris_namespaces(*, desired: tuple, dry_run: bool, prune: bool) -> N
 
     log_prefix = config.env("OPENLAKEFORGE_PORT_FORWARD_LOG_PREFIX", "/tmp/openlakeforge")
     with k8s.port_forward(
-        service, remote_port, namespace, log_path=f"{log_prefix}-polaris-port-forward.log"
+        service, remote_port, catalog_namespace, log_path=f"{log_prefix}-polaris-port-forward.log"
     ) as local_port:
         client = polaris_module.PolarisClient(
             polaris_module.PolarisConfig(
@@ -134,7 +140,7 @@ def catalog_sync_namespaces(
         help="Remove managed metadata for undeclared products; object-store files are retained.",
     ),
     provider: str = typer.Option("local", "--provider", help="Provider owning the deployed contracts."),
-    profile: str = typer.Option("full", "--profile", help="full or slim."),
+    profile: str = typer.Option("", "--profile", help="Deprecated single-DEV preset shorthand: 'full' or 'slim'."),
     namespace: str = typer.Option("", "--namespace", help="Kubernetes namespace override."),
     cluster_name: str = typer.Option("", "--cluster-name", help="Local kind cluster name override."),
     kubeconfig_path: str = typer.Option("", "--kubeconfig-path", help="Kubeconfig file path override."),

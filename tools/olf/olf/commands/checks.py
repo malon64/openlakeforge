@@ -55,7 +55,6 @@ REQUIRED_PATHS: tuple[str, ...] = (
     "infra/README.md",
     "infra/terraform/README.md",
     "infra/terraform/environments/local/contracts.tf",
-    "infra/terraform/environments/local/slim.tfvars",
     "infra/terraform/environments/azure-poc/main.tf",
     "infra/terraform/environments/azure-poc/variables.tf",
     "infra/terraform/environments/azure-poc/outputs.tf",
@@ -436,7 +435,7 @@ def infra(repo_root: str = typer.Option("", "--repo-root", help="Checkout root t
             "--version",
             version,
             "--namespace",
-            "lakehouse",
+            "olf-system",
             "--values",
             str(root / values),
         ]

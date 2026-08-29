@@ -70,6 +70,15 @@ Kubernetes detail (ADR 0011). `olf profile validate --project .` parses it;
 `olf profile resolve --project . --json` resolves it into one effective,
 machine-readable `DeploymentTopology` before anything is deployed.
 
+The platform Terraform root consumes that topology as typed inputs and derives
+the cluster's namespaces from it: one `olf-system` holding the services a
+deployment runs once -- PostgreSQL, SeaweedFS, Polaris, Trino, and
+OpenMetadata -- plus one `olf-<stage>` per enabled stage holding that stage's
+Dagster and, where analytics is enabled, its Superset. Each stage-scoped
+service instance owns its own metadata database and a stage-labelled runtime
+service account. Stage data-plane isolation -- per-stage storage and catalogs
+-- is #114; today every stage still resolves the shared catalog and buckets.
+
 ## Execution Model
 
 OpenLakeForge v1 uses one custom runtime image:

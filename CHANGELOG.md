@@ -16,6 +16,18 @@ for how a release is cut and verified.
 
 ### Added
 
+- The local platform Terraform root is stage-aware: it takes the resolved
+  `DeploymentTopology` as typed inputs and provisions one shared `olf-system`
+  namespace plus one `olf-<stage>` namespace, runtime service account, and
+  isolated metadata database per enabled stage. Dagster and Superset are
+  `for_each` instances over the enabled stages instead of single module
+  blocks; PostgreSQL, SeaweedFS, Polaris, Trino, and OpenMetadata keep exactly
+  one Terraform owner (#133, ADR 0002).
+- `olf deploy`/`plan`/`status`/`forward`/`e2e run` take `--stage` (default
+  `dev`), and `olf deploy`/`plan` take `--allow-stage-removal`: an apply that
+  would drop an already-deployed stage — destroying its namespace, services,
+  and metadata state — now fails closed without it (#133).
+
 - `olf project build --project P --image REF` computes and publishes an
   immutable, content-addressed `ProjectRevision` covering descriptors, Floe
   contracts, dbt, Dagster orchestration code, report assets when present,
@@ -25,6 +37,24 @@ for how a release is cut and verified.
 
 ### Changed
 
+- The local stack no longer runs in one `lakehouse` namespace. Shared services
+  move to `olf-system` and stage services to `olf-<stage>`, and every service
+  endpoint in the provider contract is namespace-qualified. Upgrading a v0.2
+  local deployment means `olf destroy --provider local` followed by a fresh
+  deploy -- destroying first is what releases the cluster-scoped objects a
+  chart owns (SeaweedFS' ClusterRole among them), which a new release in
+  another namespace cannot adopt; the `--namespace` option now only
+  overrides the stage namespace, and
+  the `aws-poc`/`azure-poc` roots keep their single `lakehouse` namespace
+  until #114 (#133).
+- `--profile slim|full` is now an explicit, deprecated single-DEV shorthand.
+  With no `--profile`, the project-root `openlakeforge.yaml` Deployment
+  Profile decides which stages and capabilities are deployed; a project with
+  no profile file falls back to the same single-DEV shorthand, and an invalid
+  profile fails closed (#133, ADR 0011).
+- `olf.contracts.load_provider_contracts` returns a provider-contract v3
+  payload instead of refusing it; `build_contract_env` resolves it against a
+  `DeploymentTopology` and an explicit stage (#133, ADR 0003).
 - `olf revision compute|publish|activate|verify` (the v0.2 Floe
   runtime-artifact revision) moved to `olf floe revision ...`, freeing the
   top-level `revision` name for the new project revision.

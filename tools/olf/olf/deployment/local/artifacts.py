@@ -69,6 +69,8 @@ def applied_contract_environment(
         kubeconfig_path=config.paths.kubeconfig_path,
         port_forward_log_prefix=config.paths.port_forward_log_prefix,
         environ=environ,
+        topology=config.context.topology,
+        stage=config.context.stage,
     ) as env:
         yield env
 

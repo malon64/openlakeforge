@@ -63,73 +63,23 @@ resource "kubernetes_job_v1" "bootstrap" {
             name  = "PGPORT"
             value = tostring(local.port)
           }
-          env {
-            name  = "DAGSTER_DB_USER"
-            value = var.dagster_db_user
-          }
-          env {
-            name = "DAGSTER_DB_PASSWORD"
-            value_from {
-              secret_key_ref {
-                name = kubernetes_secret_v1.dagster_credentials.metadata[0].name
-                key  = "postgresql-password"
-              }
-            }
-          }
-          env {
-            name  = "DAGSTER_DB_NAME"
-            value = var.dagster_db_name
-          }
           dynamic "env" {
-            for_each = var.enable_openmetadata ? [true] : []
+            for_each = local.database_env_values
             content {
-              name  = "OM_DB_USER"
-              value = var.openmetadata_db_user
+              name  = env.key
+              value = env.value
             }
           }
           dynamic "env" {
-            for_each = var.enable_openmetadata ? [true] : []
+            for_each = local.database_env_passwords
             content {
-              name = "OM_DB_PASSWORD"
+              name = env.key
               value_from {
                 secret_key_ref {
-                  name = kubernetes_secret_v1.openmetadata_credentials[0].metadata[0].name
+                  name = local.databases_by_key[env.value].credentials_secret_name
                   key  = "postgresql-password"
                 }
               }
-            }
-          }
-          dynamic "env" {
-            for_each = var.enable_openmetadata ? [true] : []
-            content {
-              name  = "OM_DB_NAME"
-              value = var.openmetadata_db_name
-            }
-          }
-          dynamic "env" {
-            for_each = var.enable_superset ? [true] : []
-            content {
-              name  = "SUPERSET_DB_USER"
-              value = var.superset_db_user
-            }
-          }
-          dynamic "env" {
-            for_each = var.enable_superset ? [true] : []
-            content {
-              name = "SUPERSET_DB_PASSWORD"
-              value_from {
-                secret_key_ref {
-                  name = kubernetes_secret_v1.superset_credentials[0].metadata[0].name
-                  key  = "postgresql-password"
-                }
-              }
-            }
-          }
-          dynamic "env" {
-            for_each = var.enable_superset ? [true] : []
-            content {
-              name  = "SUPERSET_DB_NAME"
-              value = var.superset_db_name
             }
           }
           env {

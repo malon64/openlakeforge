@@ -48,10 +48,16 @@ the eventual hardening work from being a rewrite.
 
 The current Terraform roots export v2. `olf` adapts v2 into a synthetic,
 single-DEV v3 view without changing v0.2 runtime exports. A native v3 contract
-requires an explicit stage. Unknown versions, fields, missing/extra stages,
-cross-stage bindings, duplicate physical identities (including storage bucket
-names, not only physical IDs), unknown or mismatched catalog type/provider
-pairs, and provider/region/topology mismatches fail closed. Trino query
+requires an explicit stage. The local root is stage-aware (#133) but still
+exports v2: a v3 contract must name distinct storage identities and a catalog
+per stage, which is what #114 provisions. Until then its v2 surface describes
+the DEV stage, and every service endpoint in it is namespace-qualified so a
+stage-scoped consumer can resolve a shared service from its own namespace.
+
+Unknown versions, fields, missing/extra stages, cross-stage bindings,
+duplicate physical identities (including storage bucket names, not only
+physical IDs), unknown or mismatched catalog type/provider pairs, and
+provider/region/topology mismatches fail closed. Trino query
 connectivity is a deliberate exception to stage isolation: `shared.query` is
 one service used by every enabled stage, isolated by catalog rather than by
 endpoint.
@@ -66,10 +72,12 @@ emits v3.
 Adding a provider or stage-scoped capability starts by extending v3 and its
 fixtures, then implementing provider adapters. #133 and #114 consume this
 contract to make the platform roots stage-aware and provision physical
-resources; they must not invent a competing wire shape. They must also update
-`olf.contracts.load_provider_contracts` and its callers to resolve a
-`DeploymentTopology` and select a stage — today that loader refuses a v3
-payload outright because no caller can consume it yet.
+resources; they must not invent a competing wire shape.
+
+`olf.contracts.load_provider_contracts` now returns either version unchanged;
+`build_contract_env` is where a v3 payload resolves, and it needs a
+`DeploymentTopology` plus a stage to do it. Selecting the stage each runtime
+consumer reads is #114's remaining half.
 
 `tools/olf/tests/test_provider_contracts.py` validates the v3 schema and
 local, Azure, and AWS fixtures against the typed parser; `olf check contracts`
@@ -78,6 +86,9 @@ profile/Floe output. The architecture guide records the field families and
 migration boundary.
 
 ## History
+
+2026-08-29: Recorded that the local root is stage-aware but still exports v2,
+and that the loader no longer refuses a v3 payload (#133).
 
 2026-08-28: Rewritten for provider-contract v3. The prior flat-capability
 contract remains supported only through the v2 compatibility adapter while

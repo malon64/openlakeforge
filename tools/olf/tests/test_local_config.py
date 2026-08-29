@@ -68,17 +68,19 @@ def test_full_profile_defaults(tmp_path: Path) -> None:
     assert config.features.analytics_enabled is True
 
 
-def test_slim_profile_defaults_the_tfvars_file(tmp_path: Path) -> None:
+def test_the_slim_preset_needs_no_var_file(tmp_path: Path) -> None:
+    """Capabilities travel in the resolved topology, not in a platform-owned
+    tfvars file: a slim run passes no var file at all."""
     context = DeploymentContext.local(repo_root=tmp_path, profile=Profile.SLIM)
 
     config = LocalDeploymentConfig.from_environment({}, context=context)
 
-    assert config.terraform.var_file == tmp_path / "infra/terraform/environments/local/slim.tfvars"
+    assert config.terraform.var_file is None
     assert config.features.governance_enabled is False
     assert config.features.analytics_enabled is False
 
 
-def test_explicit_var_file_overrides_slim_default(tmp_path: Path) -> None:
+def test_an_explicit_var_file_is_resolved_against_the_project(tmp_path: Path) -> None:
     context = DeploymentContext.local(repo_root=tmp_path, profile=Profile.SLIM)
 
     config = LocalDeploymentConfig.from_environment({}, context=context, var_file=Path("custom.tfvars"))
@@ -188,16 +190,15 @@ def test_relative_local_tfvars_file_env_var_resolves_against_the_writable_projec
     assert config.terraform.var_file == project / "custom.tfvars"
 
 
-def test_slim_default_tfvars_still_resolves_against_the_distribution_payload(tmp_path: Path) -> None:
-    """The platform-owned `slim.tfvars` default is part of the distribution
-    payload, not the user's project - it must keep resolving against
-    distribution_root even when project_root differs."""
+def test_a_user_var_file_resolves_against_the_project_not_the_payload(tmp_path: Path) -> None:
+    """A user-provided tfvars file lives in the writable project; the
+    distribution payload is read-only and owns no var file of its own."""
     project = tmp_path / "project"
     distribution = tmp_path / "distribution"
     project.mkdir()
     distribution.mkdir()
     context = DeploymentContext.local(repo_root=project, distribution_root=distribution, profile=Profile.SLIM)
 
-    config = LocalDeploymentConfig.from_environment({}, context=context)
+    config = LocalDeploymentConfig.from_environment({"LOCAL_TFVARS_FILE": "custom.tfvars"}, context=context)
 
-    assert config.terraform.var_file == distribution / "infra/terraform/environments/local/slim.tfvars"
+    assert config.terraform.var_file == project / "custom.tfvars"

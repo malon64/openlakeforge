@@ -5,10 +5,10 @@ from pathlib import Path
 from k8ssvg import Chart
 
 c = Chart(1180, 1090, "Cluster Pod Census",
-          "namespace: lakehouse · kind cluster openlakeforge-local · long-lived services + on-demand Jobs")
+          "olf-system + one olf-<stage> per stage · kind cluster openlakeforge-local · long-lived services + on-demand Jobs")
 
 # namespace boundary
-c.box(28, 92, 1124, 968, "namespace: lakehouse", color="control", title_size=14)
+c.box(28, 92, 1124, 968, "namespaces: olf-system (shared) + olf-<stage>", color="control", title_size=14)
 
 ROW1, ROW2, ROW3 = 150, 436, 660
 IY1, IY2 = 46, 152  # icon y-offsets inside a row-1 card

@@ -96,6 +96,18 @@ variable "om_http_port" {
   default     = 8585
 }
 
+variable "workload_namespaces" {
+  description = "Namespaces the bootstrap job replicates the ingestion-bot Secret into, for workloads that run outside this module's namespace."
+  type        = list(string)
+  default     = []
+}
+
+variable "trino_lineage_namespace" {
+  description = "OpenLineage namespace the query engine reports itself as. Must match the host:port runtime clients actually connect to, or lineage events land under an unmapped namespace."
+  type        = string
+  default     = "trino://trino:8080"
+}
+
 variable "ingestion_bot_secret_name" {
   description = "Kubernetes Secret written by the bootstrap job containing the ingestion-bot JWT."
   type        = string

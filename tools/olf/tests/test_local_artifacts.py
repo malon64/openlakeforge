@@ -29,7 +29,7 @@ def test_applied_contract_environment_applies_and_restores(monkeypatch: pytest.M
     monkeypatch.setattr(
         contracts_module,
         "build_contract_env",
-        lambda base, contracts_value, *, repo_root: (
+        lambda base, contracts_value, *, repo_root, **_: (
             {"OPENLAKEFORGE_CATALOG_NAME": "lakehouse_dev"},
             ["SOME_STALE_VAR"],
         ),
@@ -40,7 +40,7 @@ def test_applied_contract_environment_applies_and_restores(monkeypatch: pytest.M
     with artifacts.applied_contract_environment(config):
         assert os.environ["OPENLAKEFORGE_CATALOG_NAME"] == "lakehouse_dev"
         assert "SOME_STALE_VAR" not in os.environ
-        assert os.environ["NAMESPACE"] == "lakehouse"
+        assert os.environ["NAMESPACE"] == "olf-dev"
 
     assert "OPENLAKEFORGE_CATALOG_NAME" not in os.environ
     assert os.environ["SOME_STALE_VAR"] == "old-value"

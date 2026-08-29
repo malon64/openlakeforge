@@ -2,6 +2,8 @@
 .PHONY: help tree check-structure check-components check-contracts check-infra check-project-code check-dbt check-lockfiles release-check release-bundle floe-manifest floe-manifest-upload dbt-parse project-code-image project-code-load superset-image superset-load superset-reports-deploy superset-reports-export openmetadata-metadata-deploy local-foundation-up local-foundation-down local-platform-up local-platform-down local-artifacts-deploy local-up local-down local-status local-forward local-prefetch local-e2e local-slim-platform-up local-slim-artifacts-deploy local-slim-up local-slim-e2e local-slim-smoke local-slim-down azure-foundation-up azure-platform-up azure-platform-down azure-artifacts-deploy azure-up azure-status azure-forward azure-e2e azure-down azure-foundation-down aws-foundation-up aws-platform-up aws-platform-down aws-artifacts-deploy aws-up aws-status aws-forward aws-e2e aws-down aws-foundation-down
 
 OLF_BIN ?= uv run --project tools/olf --locked olf
+# Cloud POC roots only: the local stack derives `olf-system` plus one
+# namespace per enabled stage from the Deployment Profile (ADR 0011).
 NAMESPACE ?= lakehouse
 CLUSTER_NAME ?= openlakeforge-local
 KUBE_CONTEXT ?= kind-$(CLUSTER_NAME)
@@ -39,9 +41,9 @@ release-check:
 release-bundle:
 	@$(OLF_BIN) release build-bundle
 floe-manifest:
-	@$(OLF_BIN) floe generate-manifests --provider local --profile $(LOCAL_PROFILE) --namespace $(NAMESPACE) --cluster-name $(CLUSTER_NAME) --kubeconfig-path "$(LOCAL_KUBECONFIG_PATH)"
+	@$(OLF_BIN) floe generate-manifests --provider local --profile $(LOCAL_PROFILE) --cluster-name $(CLUSTER_NAME) --kubeconfig-path "$(LOCAL_KUBECONFIG_PATH)"
 floe-manifest-upload:
-	@$(OLF_BIN) artifacts upload-manifests --provider local --profile $(LOCAL_PROFILE) --namespace $(NAMESPACE) --cluster-name $(CLUSTER_NAME) --kubeconfig-path "$(LOCAL_KUBECONFIG_PATH)" --via port-forward
+	@$(OLF_BIN) artifacts upload-manifests --provider local --profile $(LOCAL_PROFILE) --cluster-name $(CLUSTER_NAME) --kubeconfig-path "$(LOCAL_KUBECONFIG_PATH)" --via port-forward
 dbt-parse:
 	@$(OLF_BIN) dbt parse
 project-code-image:
@@ -53,46 +55,46 @@ superset-image:
 superset-load:
 	@$(OLF_BIN) images load superset --cluster-name $(CLUSTER_NAME)
 superset-reports-deploy:
-	@$(OLF_BIN) superset deploy-reports --provider local --profile $(LOCAL_PROFILE) --namespace $(NAMESPACE) --cluster-name $(CLUSTER_NAME) --kubeconfig-path "$(LOCAL_KUBECONFIG_PATH)"
+	@$(OLF_BIN) superset deploy-reports --provider local --profile $(LOCAL_PROFILE) --cluster-name $(CLUSTER_NAME) --kubeconfig-path "$(LOCAL_KUBECONFIG_PATH)"
 superset-reports-export:
-	@$(OLF_BIN) superset export-reports --provider local --profile $(LOCAL_PROFILE) --namespace $(NAMESPACE) --cluster-name $(CLUSTER_NAME) --kubeconfig-path "$(LOCAL_KUBECONFIG_PATH)"
+	@$(OLF_BIN) superset export-reports --provider local --profile $(LOCAL_PROFILE) --cluster-name $(CLUSTER_NAME) --kubeconfig-path "$(LOCAL_KUBECONFIG_PATH)"
 openmetadata-metadata-deploy:
-	@$(OLF_BIN) openmetadata deploy-metadata --provider local --profile $(LOCAL_PROFILE) --namespace $(NAMESPACE) --cluster-name $(CLUSTER_NAME) --kubeconfig-path "$(LOCAL_KUBECONFIG_PATH)"
+	@$(OLF_BIN) openmetadata deploy-metadata --provider local --profile $(LOCAL_PROFILE) --cluster-name $(CLUSTER_NAME) --kubeconfig-path "$(LOCAL_KUBECONFIG_PATH)"
 
 local-foundation-up:
-	@$(OLF_BIN) deploy --provider local --namespace $(NAMESPACE) --cluster-name $(CLUSTER_NAME) --kubeconfig-path "$(LOCAL_KUBECONFIG_PATH)" --profile $(LOCAL_PROFILE) --phase foundation
+	@$(OLF_BIN) deploy --provider local --cluster-name $(CLUSTER_NAME) --kubeconfig-path "$(LOCAL_KUBECONFIG_PATH)" --profile $(LOCAL_PROFILE) --phase foundation
 local-foundation-down:
-	@$(OLF_BIN) destroy --provider local --namespace $(NAMESPACE) --cluster-name $(CLUSTER_NAME) --kubeconfig-path "$(LOCAL_KUBECONFIG_PATH)" --profile $(LOCAL_PROFILE) --phase foundation
+	@$(OLF_BIN) destroy --provider local --cluster-name $(CLUSTER_NAME) --kubeconfig-path "$(LOCAL_KUBECONFIG_PATH)" --profile $(LOCAL_PROFILE) --phase foundation
 local-platform-up:
-	@$(OLF_BIN) deploy --provider local --namespace $(NAMESPACE) --cluster-name $(CLUSTER_NAME) --kubeconfig-path "$(LOCAL_KUBECONFIG_PATH)" --profile $(LOCAL_PROFILE) --phase platform $(LOCAL_VAR_FILE_FLAG)
+	@$(OLF_BIN) deploy --provider local --cluster-name $(CLUSTER_NAME) --kubeconfig-path "$(LOCAL_KUBECONFIG_PATH)" --profile $(LOCAL_PROFILE) --phase platform $(LOCAL_VAR_FILE_FLAG)
 local-artifacts-deploy:
-	@$(OLF_BIN) deploy --provider local --namespace $(NAMESPACE) --cluster-name $(CLUSTER_NAME) --kubeconfig-path "$(LOCAL_KUBECONFIG_PATH)" --profile $(LOCAL_PROFILE) --phase artifacts
+	@$(OLF_BIN) deploy --provider local --cluster-name $(CLUSTER_NAME) --kubeconfig-path "$(LOCAL_KUBECONFIG_PATH)" --profile $(LOCAL_PROFILE) --phase artifacts
 local-up:
-	@$(OLF_BIN) deploy --provider local --namespace $(NAMESPACE) --cluster-name $(CLUSTER_NAME) --kubeconfig-path "$(LOCAL_KUBECONFIG_PATH)" --profile full $(LOCAL_VAR_FILE_FLAG)
+	@$(OLF_BIN) deploy --provider local --cluster-name $(CLUSTER_NAME) --kubeconfig-path "$(LOCAL_KUBECONFIG_PATH)" --profile full $(LOCAL_VAR_FILE_FLAG)
 local-slim-platform-up:
-	@$(OLF_BIN) deploy --provider local --namespace $(NAMESPACE) --cluster-name $(CLUSTER_NAME) --kubeconfig-path "$(LOCAL_KUBECONFIG_PATH)" --profile slim --phase platform $(LOCAL_VAR_FILE_FLAG)
+	@$(OLF_BIN) deploy --provider local --cluster-name $(CLUSTER_NAME) --kubeconfig-path "$(LOCAL_KUBECONFIG_PATH)" --profile slim --phase platform $(LOCAL_VAR_FILE_FLAG)
 local-slim-artifacts-deploy:
-	@$(OLF_BIN) deploy --provider local --namespace $(NAMESPACE) --cluster-name $(CLUSTER_NAME) --kubeconfig-path "$(LOCAL_KUBECONFIG_PATH)" --profile slim --phase artifacts
+	@$(OLF_BIN) deploy --provider local --cluster-name $(CLUSTER_NAME) --kubeconfig-path "$(LOCAL_KUBECONFIG_PATH)" --profile slim --phase artifacts
 local-slim-up:
-	@$(OLF_BIN) deploy --provider local --namespace $(NAMESPACE) --cluster-name $(CLUSTER_NAME) --kubeconfig-path "$(LOCAL_KUBECONFIG_PATH)" --profile slim $(LOCAL_VAR_FILE_FLAG)
+	@$(OLF_BIN) deploy --provider local --cluster-name $(CLUSTER_NAME) --kubeconfig-path "$(LOCAL_KUBECONFIG_PATH)" --profile slim $(LOCAL_VAR_FILE_FLAG)
 local-slim-e2e:
-	@NAMESPACE="$(NAMESPACE)" CLUSTER_NAME="$(CLUSTER_NAME)" KUBE_CONTEXT="$(KUBE_CONTEXT)" KUBECONFIG="$(LOCAL_KUBECONFIG_PATH)" OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR=infra/terraform/environments/local $(OLF_BIN) e2e run --env local --suite $(E2E_SUITE)
+	@CLUSTER_NAME="$(CLUSTER_NAME)" KUBE_CONTEXT="$(KUBE_CONTEXT)" KUBECONFIG="$(LOCAL_KUBECONFIG_PATH)" OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR=infra/terraform/environments/local $(OLF_BIN) e2e run --env local --suite $(E2E_SUITE)
 local-slim-smoke:
 	@$(OLF_BIN) smoke run --timeout-seconds $(SMOKE_TIMEOUT_SECONDS)
 local-slim-down:
-	@$(OLF_BIN) destroy --provider local --namespace $(NAMESPACE) --cluster-name $(CLUSTER_NAME) --kubeconfig-path "$(LOCAL_KUBECONFIG_PATH)" --profile slim $(LOCAL_VAR_FILE_FLAG)
+	@$(OLF_BIN) destroy --provider local --cluster-name $(CLUSTER_NAME) --kubeconfig-path "$(LOCAL_KUBECONFIG_PATH)" --profile slim $(LOCAL_VAR_FILE_FLAG)
 local-down:
-	@$(OLF_BIN) destroy --provider local --namespace $(NAMESPACE) --cluster-name $(CLUSTER_NAME) --kubeconfig-path "$(LOCAL_KUBECONFIG_PATH)" --profile $(LOCAL_PROFILE) $(LOCAL_VAR_FILE_FLAG)
+	@$(OLF_BIN) destroy --provider local --cluster-name $(CLUSTER_NAME) --kubeconfig-path "$(LOCAL_KUBECONFIG_PATH)" --profile $(LOCAL_PROFILE) $(LOCAL_VAR_FILE_FLAG)
 local-platform-down:
-	@$(OLF_BIN) destroy --provider local --namespace $(NAMESPACE) --cluster-name $(CLUSTER_NAME) --kubeconfig-path "$(LOCAL_KUBECONFIG_PATH)" --profile $(LOCAL_PROFILE) --phase platform $(LOCAL_VAR_FILE_FLAG)
+	@$(OLF_BIN) destroy --provider local --cluster-name $(CLUSTER_NAME) --kubeconfig-path "$(LOCAL_KUBECONFIG_PATH)" --profile $(LOCAL_PROFILE) --phase platform $(LOCAL_VAR_FILE_FLAG)
 local-status:
-	@$(OLF_BIN) status --provider local --namespace $(NAMESPACE) --cluster-name $(CLUSTER_NAME) --kubeconfig-path "$(LOCAL_KUBECONFIG_PATH)"
+	@$(OLF_BIN) status --provider local --cluster-name $(CLUSTER_NAME) --kubeconfig-path "$(LOCAL_KUBECONFIG_PATH)"
 local-prefetch:
-	@$(OLF_BIN) deploy --provider local --namespace $(NAMESPACE) --cluster-name $(CLUSTER_NAME) --kubeconfig-path "$(LOCAL_KUBECONFIG_PATH)" --profile $(LOCAL_PROFILE) --phase prefetch
+	@$(OLF_BIN) deploy --provider local --cluster-name $(CLUSTER_NAME) --kubeconfig-path "$(LOCAL_KUBECONFIG_PATH)" --profile $(LOCAL_PROFILE) --phase prefetch
 local-forward:
-	@$(OLF_BIN) forward --provider local --namespace $(NAMESPACE) --cluster-name $(CLUSTER_NAME) --kubeconfig-path "$(LOCAL_KUBECONFIG_PATH)" --profile $(LOCAL_PROFILE)
+	@$(OLF_BIN) forward --provider local --cluster-name $(CLUSTER_NAME) --kubeconfig-path "$(LOCAL_KUBECONFIG_PATH)" --profile $(LOCAL_PROFILE)
 local-e2e:
-	@NAMESPACE="$(NAMESPACE)" CLUSTER_NAME="$(CLUSTER_NAME)" KUBE_CONTEXT="$(KUBE_CONTEXT)" KUBECONFIG="$(LOCAL_KUBECONFIG_PATH)" OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR=infra/terraform/environments/local $(OLF_BIN) e2e run --env local --suite $(E2E_SUITE)
+	@CLUSTER_NAME="$(CLUSTER_NAME)" KUBE_CONTEXT="$(KUBE_CONTEXT)" KUBECONFIG="$(LOCAL_KUBECONFIG_PATH)" OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR=infra/terraform/environments/local $(OLF_BIN) e2e run --env local --suite $(E2E_SUITE)
 
 azure-foundation-up:
 	@$(AZURE_COMPAT_ENV) $(OLF_BIN) deploy --provider azure --namespace $(NAMESPACE) --kubeconfig-path "$(AZURE_KUBECONFIG_PATH)" --phase foundation

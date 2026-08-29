@@ -21,70 +21,16 @@ variable "storage_class_name" {
   default     = null
 }
 
-variable "dagster_db_name" {
-  description = "PostgreSQL database name for Dagster."
-  type        = string
-  default     = "dagster"
-}
-
-variable "dagster_db_user" {
-  description = "PostgreSQL user for Dagster."
-  type        = string
-  default     = "dagster"
-}
-
-variable "dagster_credentials_secret_name" {
-  description = "Kubernetes Secret holding the Dagster PostgreSQL password. Key 'postgresql-password' (Dagster Helm chart convention)."
-  type        = string
-  default     = "postgresql-dagster-creds"
-}
-
-variable "enable_openmetadata" {
-  description = "Whether to create the OpenMetadata PostgreSQL database credentials."
-  type        = bool
-  default     = true
-}
-
-variable "enable_superset" {
-  description = "Whether to create the Superset PostgreSQL database credentials."
-  type        = bool
-  default     = true
-}
-
-variable "openmetadata_db_name" {
-  description = "PostgreSQL database name for OpenMetadata."
-  type        = string
-  default     = "openmetadata_db"
-}
-
-variable "openmetadata_db_user" {
-  description = "PostgreSQL user for OpenMetadata."
-  type        = string
-  default     = "openmetadata_user"
-}
-
-variable "openmetadata_credentials_secret_name" {
-  description = "Kubernetes Secret holding the OpenMetadata PostgreSQL password."
-  type        = string
-  default     = "postgresql-openmetadata-creds"
-}
-
-variable "superset_db_name" {
-  description = "PostgreSQL database name for Superset."
-  type        = string
-  default     = "superset"
-}
-
-variable "superset_db_user" {
-  description = "PostgreSQL user for Superset."
-  type        = string
-  default     = "superset"
-}
-
-variable "superset_credentials_secret_name" {
-  description = "Kubernetes Secret holding the Superset PostgreSQL password."
-  type        = string
-  default     = "postgresql-superset-creds"
+variable "databases" {
+  description = "Metadata databases to create, one entry per service instance. Each entry's credentials Secret is materialized in every namespace listed, plus this module's own, so a stage-scoped consumer mounts it from where it runs."
+  type = list(object({
+    key                     = string
+    db_name                 = string
+    db_user                 = string
+    credentials_secret_name = string
+    namespaces              = list(string)
+  }))
+  default = []
 }
 
 variable "polaris_db_name" {

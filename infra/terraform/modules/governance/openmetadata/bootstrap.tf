@@ -38,6 +38,7 @@ resource "kubernetes_job_v1" "bootstrap" {
             token_uri                     = (try(var.catalog_contract.token_uri, null) == null ? "" : try(var.catalog_contract.token_uri, null))
             oauth_scope                   = (try(var.catalog_contract.oauth_scope, null) == null ? "" : try(var.catalog_contract.oauth_scope, null))
             ingestion_bot_secret_name     = var.ingestion_bot_secret_name
+            trino_lineage_namespace       = var.trino_lineage_namespace
             ingestion_bot_jwt_key         = var.ingestion_bot_jwt_key
             storage_region                = var.storage_contract.region
             storage_endpoint              = (try(var.storage_contract.virtual_host_endpoint, null) == null ? "" : try(var.storage_contract.virtual_host_endpoint, null))

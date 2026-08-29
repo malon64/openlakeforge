@@ -16,8 +16,12 @@ import os
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from olf import contracts
+
+if TYPE_CHECKING:
+    from olf.profile import DeploymentTopology, StageName
 
 
 @contextmanager
@@ -30,7 +34,12 @@ def applied_contract_environment(
     kubeconfig_path: Path,
     port_forward_log_prefix: Path,
     environ: Mapping[str, str] | None = None,
+    topology: DeploymentTopology | None = None,
+    stage: StageName | str | None = None,
 ) -> Iterator[dict[str, str]]:
+    """`topology` and `stage` select which stage a v3 contract resolves to.
+    They are inert for the v2 payload the roots export today, which carries
+    one deployment's worth of bindings and no stage index."""
     # Contract reads are Terraform operations too.  Start with the process
     # environment and overlay the provider's scoped command environment so an
     # installed wheel uses its extracted catalog and external state rather
@@ -43,7 +52,9 @@ def applied_contract_environment(
         if environ
         else contracts.load_provider_contracts(str(contract_terraform_dir))
     )
-    exports, unsets = contracts.build_contract_env(base, provider_contracts, repo_root=repo_root)
+    exports, unsets = contracts.build_contract_env(
+        base, provider_contracts, repo_root=repo_root, topology=topology, stage=stage
+    )
 
     extra = {
         "OPENLAKEFORGE_REPO_ROOT": str(repo_root),

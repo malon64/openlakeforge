@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from olf.deployment.charts import ChartSetting, resolve_chart_settings
-from olf.deployment.context import DeploymentContext, DeploymentFeatures, Profile
+from olf.deployment.context import DeploymentContext, DeploymentFeatures
 from olf.deployment.env_settings import env as _env
 from olf.deployment.env_settings import float_env as _float_env
 from olf.deployment.env_settings import int_env as _int_env
@@ -167,25 +167,20 @@ class TerraformSettings:
         cls,
         environ: Mapping[str, str],
         *,
-        distribution_root: Path,
         project_root: Path,
-        profile: Profile,
         var_file: Path | None = None,
     ) -> TerraformSettings:
-        """`distribution_root` and `project_root` coincide in source mode,
-        so this split only matters for an installed run: the platform-owned
-        `slim.tfvars` default lives in the distribution payload, but a
-        user-provided `--var-file`/`LOCAL_TFVARS_FILE` is the user's own
-        tfvars, which - with `--project-root` - lives in their writable
-        project, never inside the read-only payload.
+        """There is no platform-owned default var file: which capabilities a
+        stage gets is part of the resolved topology `platform_apply_variables`
+        already sends. A user-provided `--var-file`/`LOCAL_TFVARS_FILE` is the
+        user's own tfvars, which - with `--project-root` - lives in their
+        writable project, never inside the read-only distribution payload.
         """
         user_raw = str(var_file) if var_file is not None else environ.get("LOCAL_TFVARS_FILE", "")
         resolved: Path | None = None
         if user_raw:
             candidate = Path(user_raw)
             resolved = candidate if candidate.is_absolute() else project_root / candidate
-        elif profile == Profile.SLIM:
-            resolved = distribution_root / "infra/terraform/environments/local/slim.tfvars"
         return cls(
             var_file=resolved,
             apply_retry=RetryPolicy(
@@ -241,6 +236,10 @@ class LocalDeploymentConfig:
     def features(self):  # noqa: ANN201 - DeploymentFeatures
         return self.context.features
 
+    @property
+    def platform_features(self):  # noqa: ANN201 - DeploymentFeatures
+        return self.context.platform_features
+
     @classmethod
     def from_environment(
         cls,
@@ -261,13 +260,14 @@ class LocalDeploymentConfig:
                 cache_root=context.paths.cache_root,
                 catalog_path=context.paths.distribution_root / "release/component-catalog.yaml",
                 installed=context.paths.installed,
-                features=context.features,
+                # Charts are a platform-wide input: one chart archive serves
+                # every stage that enables its capability, so a slim DEV
+                # alongside a full PROD must still fetch Superset.
+                features=context.platform_features,
             ),
             terraform=TerraformSettings.from_environment(
                 environ,
-                distribution_root=distribution_root,
                 project_root=context.paths.repo_root,
-                profile=context.profile,
                 var_file=var_file,
             ),
             prefetch=PrefetchSettings.from_environment(environ),

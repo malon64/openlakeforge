@@ -34,7 +34,7 @@ def run(
     env = dict(environ or os.environ)
     root = config.repo_root()
     cluster_name = env.get("CLUSTER_NAME", "openlakeforge-local")
-    namespace = env.get("NAMESPACE") or env.get("OPENLAKEFORGE_KUBE_NAMESPACE") or "lakehouse"
+    namespace = env.get("NAMESPACE") or env.get("OPENLAKEFORGE_KUBE_NAMESPACE") or "olf-dev"
     kubeconfig_path = Path(env.get("LOCAL_KUBECONFIG_PATH", root / ".tmp/kubeconfigs/local.yaml"))
     context = DeploymentContext.local(
         repo_root=root,

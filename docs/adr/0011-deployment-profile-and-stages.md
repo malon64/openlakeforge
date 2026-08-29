@@ -125,9 +125,16 @@ this profile.
 behavior as a deprecated shorthand: `olf.profile.legacy_single_stage_topology`
 resolves it to one enabled DEV stage using the preset's capability defaults,
 proving the shorthand is exactly the single-DEV-stage case of the general
-model. `#133` is the issue that re-wires `DeploymentContext` onto the
-resolver; this record only establishes that the two produce the same
-topology.
+model.
+
+`DeploymentContext` now carries the resolved topology and the selected stage.
+With no `--profile`, the project-root Deployment Profile is authoritative; an
+explicit `--profile slim|full`, or a project that has no profile file at all,
+resolves the single-DEV shorthand instead. A profile file that exists but is
+invalid fails closed. Namespaces are derived from the topology but are not
+part of it: `olf-system` for shared services and `olf-<stage>` per enabled
+stage live in `olf.deployment.context`, since ADR 0011 keeps the resolved
+topology free of namespaces, Helm releases, and endpoints.
 
 ## Consequences
 
@@ -147,3 +154,8 @@ types; ADR 0002 and ADR 0009 are corrected in place to stop describing
 
 2026-08-28: Updated the provider-contract handoff after v3 established the
 typed topology-to-provider boundary; no profile fields were added.
+
+2026-08-29: The topology reaches Terraform (#133). `DeploymentContext`
+resolves it, the local platform root consumes it as typed variables, and
+namespace derivation is recorded as living outside the topology. No profile
+fields were added.

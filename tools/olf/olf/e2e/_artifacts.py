@@ -46,7 +46,7 @@ def check_ops_artifacts(cfg: E2EConfig) -> None:
     with k8s.port_forward(
         "seaweedfs-s3",
         8333,
-        cfg.namespace,
+        cfg.platform_namespace,
         local_port=cfg.seaweedfs_local_port,
         log_path=log_path,
         kube_context=cfg.kube_context,
