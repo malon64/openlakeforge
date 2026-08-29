@@ -88,6 +88,26 @@ def _reference(value: object, *, where: str, allowed: tuple[str, ...]) -> str:
     return reference
 
 
+def _http_host_port_uri(value: object, *, where: str) -> str:
+    """A URI olf.contracts._apply_provider_contracts can extract host:port from.
+
+    That adapter only recognizes the ``http://`` scheme (see its
+    ``endpoint.startswith("http://")`` gate) and requires a colon-delimited
+    port; anything else silently keeps the local Trino host/port defaults
+    instead of routing to the declared service. Validate the same shape here
+    so a scheme or port the adapter cannot use fails closed at the contract
+    boundary instead of downstream.
+    """
+    uri = _string(value, where=where)
+    if not uri.startswith("http://"):
+        raise ProviderContractError(f"{where} must be an http:// URI")
+    host_port = uri.removeprefix("http://").split("/", 1)[0]
+    host, _, port = host_port.partition(":")
+    if not host or not port.isdigit():
+        raise ProviderContractError(f"{where} must be http://<host>:<port>")
+    return uri
+
+
 _CATALOG_TYPES = frozenset({"rest", "glue"})
 _CATALOG_PROVIDERS = frozenset({"polaris", "aws-glue"})
 _CATALOG_TYPE_BY_PROVIDER = {"polaris": "rest", "aws-glue": "glue"}
@@ -238,6 +258,8 @@ def _parse_shared(value: object) -> SharedPlatformContract:
             },
         )
         _reference(parsed[name]["ref"], where=f"shared.{name}.ref", allowed=("shared/",))
+        if parsed[name]["ref"] != f"shared/{name}":
+            raise ProviderContractError(f"shared.{name}.ref must be 'shared/{name}'")
     ops_storage = parsed["ops_storage"]
     for field in ("bucket_name", "artifact_base_uri"):
         _string(ops_storage.get(field), where=f"shared.ops_storage.{field}")
@@ -391,6 +413,11 @@ def _parse_stage(
             raise ProviderContractError(
                 f"stages.{name.value}.catalog.service_ref must reference the shared catalog service"
             )
+        catalog_service_endpoint = shared.values.get("catalog_service", {}).get("endpoint")
+        if catalog_service_endpoint is not None and catalog.get("rest_uri") != catalog_service_endpoint:
+            raise ProviderContractError(
+                f"stages.{name.value}.catalog.rest_uri must match the shared catalog service's endpoint"
+            )
     if "warehouse" in catalog and catalog["warehouse"] != catalog["physical_id"]:
         raise ProviderContractError(f"stages.{name.value}.catalog.warehouse must match its own physical identity")
     query = _fields(
@@ -398,7 +425,7 @@ def _parse_stage(
         where=f"stages.{name.value}.query",
         required={"service_ref", "catalog_ref", "catalog_name", "endpoint", "runtime_identity_ref"},
     )
-    _string(query["endpoint"], where=f"stages.{name.value}.query.endpoint")
+    _http_host_port_uri(query["endpoint"], where=f"stages.{name.value}.query.endpoint")
     _reference(query["service_ref"], where=f"stages.{name.value}.query.service_ref", allowed=("shared/",))
     if query["service_ref"] not in shared_refs:
         raise ProviderContractError(f"stages.{name.value}.query.service_ref does not resolve")

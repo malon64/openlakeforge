@@ -369,6 +369,55 @@ def test_query_endpoint_must_match_the_shared_binding_even_if_every_stage_agrees
         parse_provider_contracts(contract, topology)
 
 
+def test_catalog_rest_uri_must_match_the_shared_catalog_services_endpoint() -> None:
+    """as_v2_environment_contract() exports catalog.rest_uri to runtime
+    consumers; a stage could keep a valid service_ref while pointing rest_uri
+    at a different Polaris deployment entirely."""
+    contract = _fixture("local-provider-contracts-v3.json")
+    topology = _topology(contract)
+    contract["stages"]["dev"]["catalog"]["rest_uri"] = "http://other-polaris:8181/api/catalog"
+
+    with pytest.raises(ProviderContractError, match="rest_uri must match the shared catalog service's endpoint"):
+        parse_provider_contracts(contract, topology)
+
+
+@pytest.mark.parametrize(
+    ("endpoint", "match"),
+    [
+        ("https://trino.example:8443", "must be an http:// URI"),
+        ("http://trino", "must be http://<host>:<port>"),
+        ("http://trino:notaport", "must be http://<host>:<port>"),
+    ],
+)
+def test_query_endpoint_must_be_a_shape_the_runtime_adapter_can_parse(endpoint: str, match: str) -> None:
+    """olf.contracts._apply_provider_contracts only extracts host:port from an
+    http:// endpoint; any other scheme or a missing/non-numeric port leaves
+    OPENLAKEFORGE_QUERY_TRINO_HOST/PORT at their local defaults instead of
+    routing to the declared service, silently."""
+    contract = _fixture("local-provider-contracts-v3.json")
+    topology = _topology(contract)
+    for stage in contract["stages"].values():
+        stage["query"]["endpoint"] = endpoint
+
+    with pytest.raises(ProviderContractError, match=match):
+        parse_provider_contracts(contract, topology)
+
+
+def test_shared_binding_ref_must_be_its_own_canonical_name() -> None:
+    """_parse_shared only checked that each binding's ref started with
+    'shared/', not that it named the binding itself; a mistakenly wrong
+    shared.ops_storage.ref would not resolve through the hardcoded
+    activation.ops_storage_ref == 'shared/ops_storage' check, but
+    environment adaptation indexes the ops_storage key directly and would
+    mask the mismatch instead of failing closed."""
+    contract = _fixture("local-provider-contracts-v3.json")
+    topology = _topology(contract)
+    contract["shared"]["ops_storage"]["ref"] = "shared/foundation"
+
+    with pytest.raises(ProviderContractError, match="shared.ops_storage.ref must be 'shared/ops_storage'"):
+        parse_provider_contracts(contract, topology)
+
+
 @pytest.mark.parametrize(
     ("fixture_name", "catalog_type", "catalog_provider"),
     [
