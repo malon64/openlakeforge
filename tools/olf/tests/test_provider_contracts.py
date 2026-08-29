@@ -223,6 +223,45 @@ def test_stage_storage_region_must_match_deployment_region() -> None:
         parse_provider_contracts(contract, topology)
 
 
+def test_polaris_warehouse_must_match_its_own_physical_identity() -> None:
+    """A Polaris catalog's warehouse is exported to the runtime by
+    as_v2_environment_contract(); a stage could keep a distinct physical_id
+    while pointing warehouse at another stage's catalog and reach the wrong
+    Polaris warehouse despite passing the duplicate-catalog-identity check."""
+    contract = _fixture("local-provider-contracts-v3.json")
+    topology = _topology(contract)
+    contract["stages"]["prod"]["catalog"]["warehouse"] = "lakehouse_dev"
+
+    with pytest.raises(ProviderContractError, match="warehouse must match its own physical identity"):
+        parse_provider_contracts(contract, topology)
+
+
+@pytest.mark.parametrize("capability_key", ["reporting", "governance"])
+def test_endpoint_leak_is_rejected_when_the_capability_is_disabled(capability_key: str) -> None:
+    """endpoints.<capability> must not survive when the capability binding
+    itself is absent - otherwise a slim stage can still publish (and have a
+    consumer resolve) a stray or cross-stage endpoint reference."""
+    contract = _fixture("aws-provider-contracts-v3.json")
+    contract["stages"]["prod"].pop(capability_key, None)
+    contract["stages"]["prod"]["endpoints"][capability_key] = f"stage/prod/endpoints/orphan-{capability_key}"
+    topology = _topology(contract)
+
+    with pytest.raises(ProviderContractError, match=f"endpoints.{capability_key} must be absent"):
+        parse_provider_contracts(contract, topology)
+
+
+def test_query_endpoint_must_be_a_non_empty_string() -> None:
+    """A schema-invalid non-string endpoint must fail closed with
+    ProviderContractError at the parser boundary, not crash later in
+    build_contract_env's endpoint.startswith("http://") with AttributeError."""
+    contract = _fixture("local-provider-contracts-v3.json")
+    topology = _topology(contract)
+    contract["stages"]["dev"]["query"]["endpoint"] = 1
+
+    with pytest.raises(ProviderContractError, match="query.endpoint must be a non-empty string"):
+        parse_provider_contracts(contract, topology)
+
+
 def test_glue_region_must_match_deployment_region() -> None:
     contract = _fixture("aws-provider-contracts-v3.json")
     topology = _topology(contract)

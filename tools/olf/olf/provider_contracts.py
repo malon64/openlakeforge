@@ -359,11 +359,14 @@ def _parse_stage(
         _reference(catalog["service_ref"], where=f"stages.{name.value}.catalog.service_ref", allowed=("shared/",))
         if catalog["service_ref"] not in shared_refs:
             raise ProviderContractError(f"stages.{name.value}.catalog.service_ref does not resolve")
+    if "warehouse" in catalog and catalog["warehouse"] != catalog["physical_id"]:
+        raise ProviderContractError(f"stages.{name.value}.catalog.warehouse must match its own physical identity")
     query = _fields(
         document["query"],
         where=f"stages.{name.value}.query",
         required={"service_ref", "catalog_ref", "catalog_name", "endpoint", "runtime_identity_ref"},
     )
+    _string(query["endpoint"], where=f"stages.{name.value}.query.endpoint")
     _reference(query["service_ref"], where=f"stages.{name.value}.query.service_ref", allowed=("shared/",))
     if query["service_ref"] not in shared_refs:
         raise ProviderContractError(f"stages.{name.value}.query.service_ref does not resolve")
@@ -447,6 +450,8 @@ def _parse_stage(
         )
         if endpoints.get("reporting") != reporting["endpoint_ref"]:
             raise ProviderContractError(f"stages.{name.value}.endpoints.reporting must resolve reporting")
+    elif "reporting" in endpoints:
+        raise ProviderContractError(f"stages.{name.value}.endpoints.reporting must be absent without reporting")
     if governance is not None:
         governance = _fields(
             governance,
@@ -462,6 +467,8 @@ def _parse_stage(
         )
         if endpoints.get("governance") != governance["endpoint_ref"]:
             raise ProviderContractError(f"stages.{name.value}.endpoints.governance must resolve governance")
+    elif "governance" in endpoints:
+        raise ProviderContractError(f"stages.{name.value}.endpoints.governance must be absent without governance")
     return StageContract(
         name=name,
         namespace=namespace,
