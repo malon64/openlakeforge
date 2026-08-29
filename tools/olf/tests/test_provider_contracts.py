@@ -493,6 +493,39 @@ def test_catalog_uri_port_must_be_valid(port_suffix: str) -> None:
         parse_provider_contracts(contract, topology)
 
 
+def test_glue_catalog_id_must_include_the_account_id_prefix() -> None:
+    """The prior check only compared the suffix after the last ':', so a
+    bare catalog name with no account-id prefix at all (and no colon)
+    passed as long as physical_id matched it too; GlueClient then receives
+    that as an unusable CatalogId and only fails at the AWS API."""
+    contract = _fixture("aws-provider-contracts-v3.json")
+    topology = _topology(contract)
+    bare_id = "olf_acme_data_dev"
+    contract["stages"]["dev"]["catalog"]["glue_catalog_id"] = bare_id
+    contract["stages"]["dev"]["catalog"]["physical_id"] = bare_id
+    contract["stages"]["dev"]["catalog"]["glue_rest_warehouse"] = bare_id
+
+    with pytest.raises(
+        ProviderContractError, match="glue_catalog_id must be '<12-digit-account-id>:<catalog-name>'"
+    ):
+        parse_provider_contracts(contract, topology)
+
+
+def test_storage_region_is_validated_even_when_topology_has_no_region() -> None:
+    """The region-agreement check only ran when topology.region was not
+    None, so for local (and any region-less cloud) profile, storage.region
+    had no type validation at all - a non-string value would be stringified
+    into OPENLAKEFORGE_STORAGE_REGION/AWS_REGION and fail S3/Floe
+    operations downstream instead of at the contract boundary."""
+    contract = _fixture("local-provider-contracts-v3.json")
+    topology = _topology(contract)
+    assert topology.region is None
+    contract["stages"]["dev"]["storage"]["region"] = []
+
+    with pytest.raises(ProviderContractError, match="storage.region must be a non-empty string"):
+        parse_provider_contracts(contract, topology)
+
+
 def test_query_endpoint_port_must_be_within_the_valid_tcp_range() -> None:
     """The prior fix only checked the port was all-decimal-digits, so
     http://trino:65536 (out of the 1-65535 TCP range) still passed and was

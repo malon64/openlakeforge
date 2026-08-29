@@ -8,6 +8,7 @@ topology before a runtime consumes them.
 from __future__ import annotations
 
 import hashlib
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
@@ -128,6 +129,20 @@ def _s3_uri_bucket(value: object, *, where: str) -> str:
     if parts.scheme != "s3" or not parts.netloc:
         raise ProviderContractError(f"{where} must be an s3://<bucket>[/prefix] URI")
     return parts.netloc
+
+
+_GLUE_CATALOG_ID_PATTERN = re.compile(r"^\d{12}:[a-z0-9_]+$")
+
+
+def _glue_catalog_id(value: object, *, where: str) -> str:
+    """Return the catalog-name suffix of a validated <account-id>:<name> Glue
+    catalog ID. A suffix-only check (rsplit on ":") accepts a bare catalog
+    name with no account-id prefix at all - GlueClient then receives that as
+    an unusable CatalogId and only fails at the AWS API instead of here."""
+    catalog_id = _string(value, where=where)
+    if not _GLUE_CATALOG_ID_PATTERN.match(catalog_id):
+        raise ProviderContractError(f"{where} must be '<12-digit-account-id>:<catalog-name>'")
+    return catalog_id.split(":", 1)[1]
 
 
 def _absolute_http_uri(value: object, *, where: str) -> str:
@@ -367,6 +382,7 @@ def _parse_stage(
         raise ProviderContractError(
             f"stages.{name.value}.storage.implementation must match DeploymentTopology.provider"
         )
+    _string(storage["region"], where=f"stages.{name.value}.storage.region")
     if topology.region is not None and storage["region"] != topology.region:
         raise ProviderContractError(f"stages.{name.value}.storage.region must match DeploymentTopology.region")
     if "s3_service_port" in storage:
@@ -454,7 +470,9 @@ def _parse_stage(
             raise ProviderContractError(
                 f"stages.{name.value}.catalog.glue_rest_warehouse must match its own Glue catalog ID"
             )
-        catalog_name = catalog["glue_catalog_id"].rsplit(":", 1)[-1]
+        catalog_name = _glue_catalog_id(
+            catalog["glue_catalog_id"], where=f"stages.{name.value}.catalog.glue_catalog_id"
+        )
         if catalog_name != aws_catalog_name(topology.profile_name, name):
             raise ProviderContractError(
                 f"stages.{name.value}.catalog Glue catalog ID must end with "
