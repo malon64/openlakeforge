@@ -462,6 +462,37 @@ def test_ops_storage_artifact_base_uri_must_address_its_own_bucket_name() -> Non
         parse_provider_contracts(contract, topology)
 
 
+def test_catalog_token_uri_is_required_whenever_rest_uri_is_supplied() -> None:
+    """token_uri was only validated when present; the first environment-
+    default pass leaves OPENLAKEFORGE_CATALOG_TOKEN_URI at the local
+    Polaris default when omitted, and Floe renders that stale address as
+    oauth2_server_uri regardless of the anchored, non-default rest_uri."""
+    contract = _fixture("local-provider-contracts-v3.json")
+    topology = _topology(contract)
+    del contract["stages"]["dev"]["catalog"]["token_uri"]
+
+    with pytest.raises(ProviderContractError, match="token_uri is required when rest_uri is supplied"):
+        parse_provider_contracts(contract, topology)
+
+
+@pytest.mark.parametrize(
+    "port_suffix",
+    [":invalid", ":99999"],
+)
+def test_catalog_uri_port_must_be_valid(port_suffix: str) -> None:
+    """urlsplit() supplies a non-empty netloc even for an invalid or
+    out-of-range port (its own .port property only raises when actually
+    accessed); catalog reconciliation in commands/catalog.py evaluates
+    .port later and would raise an uncaught ValueError instead of failing
+    closed at the contract boundary."""
+    contract = _fixture("local-provider-contracts-v3.json")
+    topology = _topology(contract)
+    contract["stages"]["dev"]["catalog"]["rest_uri"] = f"http://polaris{port_suffix}/api/catalog"
+
+    with pytest.raises(ProviderContractError, match="rest_uri must have a valid TCP port"):
+        parse_provider_contracts(contract, topology)
+
+
 def test_query_endpoint_port_must_be_within_the_valid_tcp_range() -> None:
     """The prior fix only checked the port was all-decimal-digits, so
     http://trino:65536 (out of the 1-65535 TCP range) still passed and was

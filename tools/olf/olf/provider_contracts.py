@@ -145,6 +145,12 @@ def _absolute_http_uri(value: object, *, where: str) -> str:
     parts = urlsplit(uri)
     if parts.scheme not in ("http", "https") or not parts.netloc:
         raise ProviderContractError(f"{where} must be an absolute http:// or https:// URI")
+    try:
+        port = parts.port
+    except ValueError as exc:
+        raise ProviderContractError(f"{where} must have a valid TCP port") from exc
+    if port is not None and not (1 <= port <= 65535):
+        raise ProviderContractError(f"{where} must have a valid TCP port")
     return uri
 
 
@@ -477,6 +483,8 @@ def _parse_stage(
                 raise ProviderContractError(
                     f"stages.{name.value}.catalog.rest_uri must match the shared catalog service's endpoint"
                 )
+        if rest_uri is not None and "token_uri" not in catalog:
+            raise ProviderContractError(f"stages.{name.value}.catalog.token_uri is required when rest_uri is supplied")
         if "token_uri" in catalog:
             if rest_uri is None:
                 raise ProviderContractError(f"stages.{name.value}.catalog.token_uri requires rest_uri")
