@@ -12,6 +12,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any
+from urllib.parse import urlsplit
 
 from olf.deployment.context import Provider
 from olf.profile import DeploymentTopology, StageName
@@ -115,9 +116,18 @@ def _http_host_port_uri(value: object, *, where: str) -> str:
         raise ProviderContractError(f"{where} must be an http:// URI")
     host_port = uri.removeprefix("http://").split("/", 1)[0]
     host, _, port = host_port.partition(":")
-    if not host or not port.isdigit():
-        raise ProviderContractError(f"{where} must be http://<host>:<port>")
+    if not host or not port.isdigit() or not (1 <= int(port) <= 65535):
+        raise ProviderContractError(f"{where} must be http://<host>:<port> with a valid TCP port")
     return uri
+
+
+def _same_origin(left: str, right: str) -> bool:
+    """Compare (scheme, host, port) rather than string-prefixing one URI
+    against the other - a prefix match lets http://polaris.attacker.test
+    pass against an anchor of http://polaris, since the former literally
+    starts with the latter."""
+    a, b = urlsplit(left), urlsplit(right)
+    return (a.scheme, a.netloc) == (b.scheme, b.netloc)
 
 
 _CATALOG_TYPES = frozenset({"rest", "glue"})
@@ -433,9 +443,9 @@ def _parse_stage(
             )
         if "token_uri" in catalog:
             rest_uri = catalog.get("rest_uri")
-            if not isinstance(rest_uri, str) or not catalog["token_uri"].startswith(rest_uri):
+            if not isinstance(rest_uri, str) or not _same_origin(catalog["token_uri"], rest_uri):
                 raise ProviderContractError(
-                    f"stages.{name.value}.catalog.token_uri must be derived from its own rest_uri"
+                    f"stages.{name.value}.catalog.token_uri must share its own rest_uri's scheme and host:port"
                 )
     if "warehouse" in catalog and catalog["warehouse"] != catalog["physical_id"]:
         raise ProviderContractError(f"stages.{name.value}.catalog.warehouse must match its own physical identity")

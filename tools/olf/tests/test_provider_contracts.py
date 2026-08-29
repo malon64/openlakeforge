@@ -392,7 +392,36 @@ def test_catalog_token_uri_must_be_derived_from_its_own_rest_uri() -> None:
     topology = _topology(contract)
     contract["stages"]["dev"]["catalog"]["token_uri"] = "http://other-idp:9000/oauth/tokens"
 
-    with pytest.raises(ProviderContractError, match="token_uri must be derived from its own rest_uri"):
+    with pytest.raises(ProviderContractError, match="token_uri must share its own rest_uri's scheme and host:port"):
+        parse_provider_contracts(contract, topology)
+
+
+def test_catalog_token_uri_prefix_match_does_not_permit_a_lookalike_host() -> None:
+    """A textual startswith() check treats http://polaris.attacker.test as
+    prefixed by http://polaris, since the former literally begins with the
+    latter's characters; comparing scheme+netloc via urlsplit instead must
+    reject it even though the naive prefix check would have passed it."""
+    contract = _fixture("local-provider-contracts-v3.json")
+    topology = _topology(contract)
+    contract["shared"]["catalog_service"]["endpoint"] = "http://polaris"
+    contract["stages"]["dev"]["catalog"]["rest_uri"] = "http://polaris"
+    contract["stages"]["dev"]["catalog"]["token_uri"] = "http://polaris.attacker.test/oauth"
+
+    with pytest.raises(ProviderContractError, match="token_uri must share its own rest_uri's scheme and host:port"):
+        parse_provider_contracts(contract, topology)
+
+
+def test_query_endpoint_port_must_be_within_the_valid_tcp_range() -> None:
+    """The prior fix only checked the port was all-decimal-digits, so
+    http://trino:65536 (out of the 1-65535 TCP range) still passed and was
+    exported into the dbt profile and SQLAlchemy URI, failing every query
+    client downstream instead of at the contract boundary."""
+    contract = _fixture("local-provider-contracts-v3.json")
+    topology = _topology(contract)
+    for stage in contract["stages"].values():
+        stage["query"]["endpoint"] = "http://trino:65536"
+
+    with pytest.raises(ProviderContractError, match="must be http://<host>:<port> with a valid TCP port"):
         parse_provider_contracts(contract, topology)
 
 
