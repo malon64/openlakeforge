@@ -521,6 +521,20 @@ def build_contract_env(
         env.set("POLARIS_TOKEN_URI", env.get("OPENLAKEFORGE_CATALOG_TOKEN_URI"))
         env.set("POLARIS_WAREHOUSE", env.get("OPENLAKEFORGE_CATALOG_WAREHOUSE"))
         env.set("POLARIS_OAUTH_SCOPE", env.get("OPENLAKEFORGE_CATALOG_OAUTH_SCOPE"))
+        # Same staleness as the POLARIS_* aliases above, for the non-aws_s3
+        # branch's AWS_ENDPOINT_URL_S3/AWS_S3_FORCE_PATH_STYLE: the first
+        # default pass already pinned them from the generic local endpoint
+        # default before the stage's real storage.endpoint/path_style_access
+        # applied, and env.default() (used for both names below) will not
+        # move an already-set value. A stage with a non-default endpoint
+        # would otherwise leave consumers like libs/bronze_csv.py connecting
+        # to the wrong SeaweedFS host or using the wrong addressing style.
+        # The storage.aws_s3 block above already re-derives both correctly
+        # (unconditional unset/default run after the resolved implementation
+        # is known), so this only needs to cover the non-aws_s3 case.
+        if env.get("OPENLAKEFORGE_STORAGE_IMPLEMENTATION") != "storage.aws_s3":
+            env.set("AWS_ENDPOINT_URL_S3", env.get("OPENLAKEFORGE_STORAGE_ENDPOINT"))
+            env.set("AWS_S3_FORCE_PATH_STYLE", env.get("OPENLAKEFORGE_STORAGE_PATH_STYLE_ACCESS"))
 
     catalog_om_service_name = "aws_glue" if is_glue else "polaris"
     catalog_name = env.get("OPENLAKEFORGE_CATALOG_NAME")

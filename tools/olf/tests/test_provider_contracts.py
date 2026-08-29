@@ -299,6 +299,29 @@ def test_prod_stage_does_not_leak_dev_polaris_warehouse() -> None:
     assert prod_exports["POLARIS_WAREHOUSE"] == "lakehouse_prod"
 
 
+def test_non_default_s3_endpoint_does_not_leak_the_generic_local_default() -> None:
+    """Same two-pass staleness as the POLARIS_* aliases, but for
+    AWS_ENDPOINT_URL_S3/AWS_S3_FORCE_PATH_STYLE: the first default pass pins
+    them from the generic local endpoint default before the stage's real
+    storage.endpoint/path_style_access apply, and env.default() (used for
+    both in the non-aws_s3 branch) will not move an already-set value.
+    Consumers like libs/bronze_csv.py would otherwise connect to the wrong
+    SeaweedFS host or use the wrong addressing style for a stage with a
+    genuinely different endpoint."""
+    contract = _fixture("local-provider-contracts-v3.json")
+    contract["stages"]["prod"]["storage"]["endpoint"] = "http://custom-seaweedfs:9000"
+    contract["stages"]["prod"]["storage"]["path_style_access"] = False
+    topology = _topology(contract)
+
+    dev_exports, _ = build_contract_env({}, contract, repo_root=REPO_ROOT, topology=topology, stage="dev")
+    prod_exports, _ = build_contract_env({}, contract, repo_root=REPO_ROOT, topology=topology, stage="prod")
+
+    assert dev_exports["AWS_ENDPOINT_URL_S3"] == "http://seaweedfs-s3:8333"
+    assert dev_exports["AWS_S3_FORCE_PATH_STYLE"] == "true"
+    assert prod_exports["AWS_ENDPOINT_URL_S3"] == "http://custom-seaweedfs:9000"
+    assert prod_exports["AWS_S3_FORCE_PATH_STYLE"] == "false"
+
+
 @pytest.mark.parametrize(
     ("field", "value", "match"),
     [
