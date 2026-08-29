@@ -121,11 +121,35 @@ def _http_host_port_uri(value: object, *, where: str) -> str:
     return uri
 
 
+def _s3_uri_bucket(value: object, *, where: str) -> str:
+    """Parse an s3://<bucket>[/prefix] URI and return its bucket component."""
+    uri = _string(value, where=where)
+    parts = urlsplit(uri)
+    if parts.scheme != "s3" or not parts.netloc:
+        raise ProviderContractError(f"{where} must be an s3://<bucket>[/prefix] URI")
+    return parts.netloc
+
+
+def _absolute_http_uri(value: object, *, where: str) -> str:
+    """A URI with a real scheme and authority, fit to compare by origin.
+
+    Floe's Iceberg REST client accepts either http or https, unlike the
+    Trino query endpoint (_http_host_port_uri), so both schemes are valid
+    here. Without this, two relative strings (urlsplit gives an empty
+    scheme/netloc for e.g. "polaris") would compare as trivially
+    "same origin" in _same_origin, and a non-string value would raise
+    AttributeError/TypeError inside urlsplit's caller instead of
+    ProviderContractError.
+    """
+    uri = _string(value, where=where)
+    parts = urlsplit(uri)
+    if parts.scheme not in ("http", "https") or not parts.netloc:
+        raise ProviderContractError(f"{where} must be an absolute http:// or https:// URI")
+    return uri
+
+
 def _same_origin(left: str, right: str) -> bool:
-    """Compare (scheme, host, port) rather than string-prefixing one URI
-    against the other - a prefix match lets http://polaris.attacker.test
-    pass against an anchor of http://polaris, since the former literally
-    starts with the latter."""
+    """Compare (scheme, host, port) of two already-validated absolute URIs."""
     a, b = urlsplit(left), urlsplit(right)
     return (a.scheme, a.netloc) == (b.scheme, b.netloc)
 
@@ -284,6 +308,10 @@ def _parse_shared(value: object) -> SharedPlatformContract:
     ops_storage = parsed["ops_storage"]
     for field in ("bucket_name", "artifact_base_uri"):
         _string(ops_storage.get(field), where=f"shared.ops_storage.{field}")
+    if _s3_uri_bucket(ops_storage["artifact_base_uri"], where="shared.ops_storage.artifact_base_uri") != ops_storage[
+        "bucket_name"
+    ]:
+        raise ProviderContractError("shared.ops_storage.artifact_base_uri must address its own bucket_name")
     return SharedPlatformContract(values=_frozen(parsed))
 
 
@@ -350,8 +378,9 @@ def _parse_stage(
             raise ProviderContractError(f"stages.{name.value}.storage reuses physical identity {physical_id!r}")
         physical_storage.add(physical_id)
         _string(binding["bucket_name"], where=f"stages.{name.value}.storage.{layer}.bucket_name")
-        if not isinstance(binding["uri"], str):
-            raise ProviderContractError(f"stages.{name.value}.storage.{layer}.uri must be a string")
+        uri_bucket = _s3_uri_bucket(binding["uri"], where=f"stages.{name.value}.storage.{layer}.uri")
+        if uri_bucket != binding["bucket_name"]:
+            raise ProviderContractError(f"stages.{name.value}.storage.{layer}.uri must address its own bucket_name")
     catalog = _fields(
         document["catalog"],
         where=f"stages.{name.value}.catalog",
@@ -436,14 +465,23 @@ def _parse_stage(
             raise ProviderContractError(
                 f"stages.{name.value}.catalog.service_ref must reference the shared catalog service"
             )
+        rest_uri = catalog.get("rest_uri")
+        if rest_uri is not None:
+            rest_uri = _absolute_http_uri(rest_uri, where=f"stages.{name.value}.catalog.rest_uri")
         catalog_service_endpoint = shared.values.get("catalog_service", {}).get("endpoint")
-        if catalog_service_endpoint is not None and catalog.get("rest_uri") != catalog_service_endpoint:
-            raise ProviderContractError(
-                f"stages.{name.value}.catalog.rest_uri must match the shared catalog service's endpoint"
+        if catalog_service_endpoint is not None:
+            catalog_service_endpoint = _absolute_http_uri(
+                catalog_service_endpoint, where="shared.catalog_service.endpoint"
             )
+            if rest_uri != catalog_service_endpoint:
+                raise ProviderContractError(
+                    f"stages.{name.value}.catalog.rest_uri must match the shared catalog service's endpoint"
+                )
         if "token_uri" in catalog:
-            rest_uri = catalog.get("rest_uri")
-            if not isinstance(rest_uri, str) or not _same_origin(catalog["token_uri"], rest_uri):
+            if rest_uri is None:
+                raise ProviderContractError(f"stages.{name.value}.catalog.token_uri requires rest_uri")
+            token_uri = _absolute_http_uri(catalog["token_uri"], where=f"stages.{name.value}.catalog.token_uri")
+            if not _same_origin(token_uri, rest_uri):
                 raise ProviderContractError(
                     f"stages.{name.value}.catalog.token_uri must share its own rest_uri's scheme and host:port"
                 )

@@ -160,6 +160,7 @@ def test_duplicate_bucket_name_across_stages_is_rejected() -> None:
     contract = _fixture("local-provider-contracts-v3.json")
     topology = _topology(contract)
     contract["stages"]["prod"]["storage"]["bronze"]["bucket_name"] = "acme-dev-bronze"
+    contract["stages"]["prod"]["storage"]["bronze"]["uri"] = "s3://acme-dev-bronze"
 
     with pytest.raises(ProviderContractError, match="shared between stages"):
         parse_provider_contracts(contract, topology)
@@ -303,7 +304,7 @@ def test_prod_stage_does_not_leak_dev_polaris_warehouse() -> None:
     [
         ("bucket_name", 12345, "bucket_name must be a non-empty string"),
         ("bucket_name", ["not-hashable"], "bucket_name must be a non-empty string"),
-        ("uri", ["not-a-string"], "uri must be a string"),
+        ("uri", ["not-a-string"], "uri must be a non-empty string"),
     ],
 )
 def test_storage_layer_fields_must_be_the_declared_type(field: str, value, match: str) -> None:
@@ -408,6 +409,56 @@ def test_catalog_token_uri_prefix_match_does_not_permit_a_lookalike_host() -> No
     contract["stages"]["dev"]["catalog"]["token_uri"] = "http://polaris.attacker.test/oauth"
 
     with pytest.raises(ProviderContractError, match="token_uri must share its own rest_uri's scheme and host:port"):
+        parse_provider_contracts(contract, topology)
+
+
+def test_relative_catalog_uris_do_not_bypass_same_origin_as_trivially_equal() -> None:
+    """urlsplit("polaris") and urlsplit("oauth") both give an empty scheme
+    and netloc, so _same_origin would have compared them as trivially equal
+    without a prior absoluteness check - both operands must be validated as
+    real http(s) URIs before their origins are ever compared."""
+    contract = _fixture("local-provider-contracts-v3.json")
+    topology = _topology(contract)
+    contract["shared"]["catalog_service"]["endpoint"] = "polaris"
+    contract["stages"]["dev"]["catalog"]["rest_uri"] = "polaris"
+    contract["stages"]["dev"]["catalog"]["token_uri"] = "oauth"
+
+    with pytest.raises(ProviderContractError, match="must be an absolute http:// or https:// URI"):
+        parse_provider_contracts(contract, topology)
+
+
+def test_non_string_token_uri_fails_closed_instead_of_crashing() -> None:
+    contract = _fixture("local-provider-contracts-v3.json")
+    topology = _topology(contract)
+    contract["stages"]["dev"]["catalog"]["token_uri"] = 12345
+
+    with pytest.raises(ProviderContractError, match="must be a non-empty string"):
+        parse_provider_contracts(contract, topology)
+
+
+def test_storage_layer_uri_must_address_its_own_bucket_name() -> None:
+    """The published contract lists storage URI as a consumer-facing
+    locator; a stage could keep a unique, correctly-deduped bucket_name
+    while its uri names a different bucket entirely (even another stage's),
+    routing a native consumer's reads/writes to the wrong bucket."""
+    contract = _fixture("local-provider-contracts-v3.json")
+    topology = _topology(contract)
+    contract["stages"]["dev"]["storage"]["bronze"]["uri"] = "s3://acme-prod-bronze"
+
+    with pytest.raises(ProviderContractError, match="storage.bronze.uri must address its own bucket_name"):
+        parse_provider_contracts(contract, topology)
+
+
+def test_ops_storage_artifact_base_uri_must_address_its_own_bucket_name() -> None:
+    """Artifact commands publish through the bucket-name environment
+    variable while Dagster reads OPENLAKEFORGE_ARTIFACT_BASE_URI directly;
+    a mismatch between the two would make the same deployment write and
+    read different buckets."""
+    contract = _fixture("local-provider-contracts-v3.json")
+    topology = _topology(contract)
+    contract["shared"]["ops_storage"]["artifact_base_uri"] = "s3://another-bucket"
+
+    with pytest.raises(ProviderContractError, match="artifact_base_uri must address its own bucket_name"):
         parse_provider_contracts(contract, topology)
 
 
