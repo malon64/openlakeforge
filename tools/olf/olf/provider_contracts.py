@@ -160,6 +160,12 @@ def _absolute_http_uri(value: object, *, where: str) -> str:
     parts = urlsplit(uri)
     if parts.scheme not in ("http", "https") or not parts.netloc:
         raise ProviderContractError(f"{where} must be an absolute http:// or https:// URI")
+    if parts.username is not None or parts.password is not None:
+        # AGENTS.md: credentials never appear in the contract, only Secret
+        # references - a URI with embedded userinfo would otherwise be
+        # exported by build_contract_env() and written into Floe's
+        # generated EnvironmentProfile.
+        raise ProviderContractError(f"{where} must not embed credentials in its authority")
     try:
         port = parts.port
     except ValueError as exc:
@@ -387,6 +393,8 @@ def _parse_stage(
         raise ProviderContractError(f"stages.{name.value}.storage.region must match DeploymentTopology.region")
     if "s3_service_port" in storage:
         _tcp_port(storage["s3_service_port"], where=f"stages.{name.value}.storage.s3_service_port")
+    if "endpoint" in storage:
+        _absolute_http_uri(storage["endpoint"], where=f"stages.{name.value}.storage.endpoint")
     _reference(storage["identity_ref"], where=f"stages.{name.value}.storage.identity_ref", allowed=("stage/",))
     physical_storage: set[str] = set()
     for layer in ("bronze", "silver", "gold"):

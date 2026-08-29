@@ -459,6 +459,53 @@ def test_non_string_token_uri_fails_closed_instead_of_crashing() -> None:
         parse_provider_contracts(contract, topology)
 
 
+def test_catalog_rest_uri_must_not_embed_credentials() -> None:
+    """A credential-bearing authority (user:password@host) would still
+    same-origin-match a matching anchor without embedded credentials, and
+    build_contract_env()/floe.render_profile() would export and write those
+    credentials into the generated EnvironmentProfile instead of keeping
+    them as Kubernetes Secret references."""
+    contract = _fixture("local-provider-contracts-v3.json")
+    topology = _topology(contract)
+    contract["shared"]["catalog_service"]["endpoint"] = "http://user:password@polaris:8181"
+    contract["stages"]["dev"]["catalog"]["rest_uri"] = "http://user:password@polaris:8181"
+
+    with pytest.raises(ProviderContractError, match="rest_uri must not embed credentials in its authority"):
+        parse_provider_contracts(contract, topology)
+
+
+def test_catalog_token_uri_must_not_embed_credentials() -> None:
+    """Same as rest_uri: token_uri's own credential check must fire even
+    when rest_uri itself is clean, since token_uri is validated
+    independently after the same-origin comparison passes."""
+    contract = _fixture("local-provider-contracts-v3.json")
+    topology = _topology(contract)
+    contract["stages"]["dev"]["catalog"]["token_uri"] = "http://user:password@polaris:8181/v1/oauth/tokens"
+
+    with pytest.raises(ProviderContractError, match="token_uri must not embed credentials in its authority"):
+        parse_provider_contracts(contract, topology)
+
+
+@pytest.mark.parametrize(
+    ("endpoint", "match"),
+    [
+        ("seaweedfs:8333", "must be an absolute http:// or https:// URI"),
+        (12345, "must be a non-empty string"),
+    ],
+)
+def test_storage_endpoint_must_be_a_valid_absolute_uri(endpoint, match: str) -> None:
+    """storage.endpoint was accepted unchanged and synchronized into
+    AWS_ENDPOINT_URL_S3; a bare host:port or non-string value would hand
+    boto3 an invalid endpoint in libs/bronze_csv.py instead of the contract
+    failing closed here."""
+    contract = _fixture("local-provider-contracts-v3.json")
+    topology = _topology(contract)
+    contract["stages"]["dev"]["storage"]["endpoint"] = endpoint
+
+    with pytest.raises(ProviderContractError, match=match):
+        parse_provider_contracts(contract, topology)
+
+
 def test_storage_layer_uri_must_address_its_own_bucket_name() -> None:
     """The published contract lists storage URI as a consumer-facing
     locator; a stage could keep a unique, correctly-deduped bucket_name
