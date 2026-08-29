@@ -91,6 +91,11 @@ def _reference(value: object, *, where: str, allowed: tuple[str, ...]) -> str:
 _CATALOG_TYPES = frozenset({"rest", "glue"})
 _CATALOG_PROVIDERS = frozenset({"polaris", "aws-glue"})
 _CATALOG_TYPE_BY_PROVIDER = {"polaris": "rest", "aws-glue": "glue"}
+_CATALOG_PROVIDER_BY_TOPOLOGY_PROVIDER = {
+    Provider.LOCAL: "polaris",
+    Provider.AZURE: "polaris",
+    Provider.AWS: "aws-glue",
+}
 
 
 def _stage_or_shared_reference(
@@ -341,6 +346,11 @@ def _parse_stage(
             f"stages.{name.value}.catalog.catalog_type {catalog_type!r} does not match "
             f"catalog_provider {catalog_provider!r}"
         )
+    if catalog_provider != _CATALOG_PROVIDER_BY_TOPOLOGY_PROVIDER[topology.provider]:
+        raise ProviderContractError(
+            f"stages.{name.value}.catalog.catalog_provider {catalog_provider!r} does not match "
+            f"DeploymentTopology.provider {topology.provider.value!r}"
+        )
     expected_catalog = f"lakehouse_{name.value}"
     if catalog["catalog_name"] != expected_catalog:
         raise ProviderContractError(f"stages.{name.value}.catalog.catalog_name must be canonical {expected_catalog!r}")
@@ -543,7 +553,11 @@ def _parse_v3(payload: Mapping[str, Any], topology: DeploymentTopology | None) -
     principals: set[str] = set()
     stage_endpoint_values: set[str] = set()
     namespaces: set[str] = set()
-    shared_query_endpoint: str | None = None
+    # Anchor to shared.query's own endpoint when the binding declares one (AWS's
+    # fixture does not, so the first stage's endpoint is the anchor there) -
+    # otherwise every stage could agree on a value that still diverges from the
+    # one shared Trino service the binding actually names.
+    shared_query_endpoint: str | None = shared.values["query"].get("endpoint")
     for raw_name, stage_value in stages_document.items():
         name = _stage_name(raw_name)
         stage = _parse_stage(name, stage_value, shared=shared, topology=topology)

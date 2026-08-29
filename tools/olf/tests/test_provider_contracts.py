@@ -356,6 +356,44 @@ def test_query_endpoint_must_agree_across_stages() -> None:
         parse_provider_contracts(contract, topology)
 
 
+def test_query_endpoint_must_match_the_shared_binding_even_if_every_stage_agrees() -> None:
+    """The prior cross-stage-equality check only compared stages to each
+    other; every stage agreeing on a value that still diverges from
+    shared.query's own declared endpoint must still fail closed."""
+    contract = _fixture("local-provider-contracts-v3.json")
+    topology = _topology(contract)
+    for stage in contract["stages"].values():
+        stage["query"]["endpoint"] = "http://other-trino:8080"
+
+    with pytest.raises(ProviderContractError, match="query.endpoint must match the shared query service"):
+        parse_provider_contracts(contract, topology)
+
+
+@pytest.mark.parametrize(
+    ("fixture_name", "catalog_type", "catalog_provider"),
+    [
+        ("local-provider-contracts-v3.json", "glue", "aws-glue"),
+        ("aws-provider-contracts-v3.json", "rest", "polaris"),
+    ],
+)
+def test_catalog_provider_must_match_the_deployment_topology_provider(
+    fixture_name: str, catalog_type: str, catalog_provider: str
+) -> None:
+    """catalog_type/catalog_provider pairing alone doesn't stop a local/Azure
+    topology from accepting a well-formed Glue catalog, or an AWS topology
+    from accepting Polaris if a catalog_service happens to be supplied - ADR
+    0010 binds Polaris to local/Azure and Glue to AWS specifically."""
+    contract = _fixture(fixture_name)
+    topology = _topology(contract)
+    contract["stages"]["dev"]["catalog"]["catalog_type"] = catalog_type
+    contract["stages"]["dev"]["catalog"]["catalog_provider"] = catalog_provider
+    if catalog_provider == "polaris":
+        contract["stages"]["dev"]["catalog"]["service_ref"] = "shared/catalog_service"
+
+    with pytest.raises(ProviderContractError, match="does not match DeploymentTopology.provider"):
+        parse_provider_contracts(contract, topology)
+
+
 def test_catalog_physical_id_must_be_a_non_empty_string() -> None:
     """catalog.physical_id feeds the cross-stage catalog_ids dedupe set in
     _parse_v3 without prior type validation, unlike storage physical_id, which
