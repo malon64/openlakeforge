@@ -473,22 +473,6 @@ def build_contract_env(
         )
         _apply_provider_contracts(env, resolved_contract)
         _apply_default_contract_env(env, base, repo_root)
-    if native_v3:
-        # env.default() (used for these four names in _apply_default_contract_env)
-        # only fills an unset-or-empty value: the first default pass above already
-        # pinned POLARIS_WAREHOUSE etc. to the OPENLAKEFORGE_CATALOG_* dev defaults
-        # before the stage's real values were applied, so the second default pass
-        # leaves them stale. A PROD stage would otherwise export
-        # POLARIS_WAREHOUSE=lakehouse_dev. env.set() here re-derives all four from
-        # the now-resolved stage values, unconditionally overriding any caller-set
-        # value — unlike the four OPENLAKEFORGE_* names that honor caller set-ness
-        # (see module docstring), these compatibility aliases always mirror the
-        # resolved stage.
-        env.set("POLARIS_REST_URI", env.get("OPENLAKEFORGE_CATALOG_REST_URI"))
-        env.set("POLARIS_TOKEN_URI", env.get("OPENLAKEFORGE_CATALOG_TOKEN_URI"))
-        env.set("POLARIS_WAREHOUSE", env.get("OPENLAKEFORGE_CATALOG_WAREHOUSE"))
-        env.set("POLARIS_OAUTH_SCOPE", env.get("OPENLAKEFORGE_CATALOG_OAUTH_SCOPE"))
-
     if env.get("OPENLAKEFORGE_STORAGE_IMPLEMENTATION") == "storage.aws_s3":
         env.set("OPENLAKEFORGE_STORAGE_ENDPOINT", "")
         env.set("OPENLAKEFORGE_STORAGE_VIRTUAL_HOST_ENDPOINT", "")
@@ -517,6 +501,26 @@ def build_contract_env(
         env.set("OPENLAKEFORGE_CATALOG_FLOE_CREDENTIALS_SECRET_NAME", "")
         env.set("OPENLAKEFORGE_CATALOG_FLOE_CLIENT_ID_KEY", "")
         env.set("OPENLAKEFORGE_CATALOG_FLOE_CLIENT_SECRET_KEY", "")
+
+    if native_v3:
+        # env.default() (used for these four names in _apply_default_contract_env)
+        # only fills an unset-or-empty value: the first default pass above already
+        # pinned POLARIS_WAREHOUSE etc. to the OPENLAKEFORGE_CATALOG_* dev defaults
+        # before the stage's real values were applied, so an intermediate default
+        # pass leaves them stale. env.set() here re-derives all four from the
+        # now-fully-resolved (including the is_glue normalization above, which
+        # blanks OPENLAKEFORGE_CATALOG_TOKEN_URI/OAUTH_SCOPE) stage values,
+        # unconditionally overriding any caller-set value — unlike the four
+        # OPENLAKEFORGE_* names that honor caller set-ness (see module
+        # docstring), these compatibility aliases always mirror the resolved
+        # stage. This must run after the is_glue block: reading
+        # OPENLAKEFORGE_CATALOG_TOKEN_URI/OAUTH_SCOPE before Glue normalization
+        # blanks them would leave POLARIS_TOKEN_URI/OAUTH_SCOPE pinned to the
+        # local Polaris defaults for a Glue stage.
+        env.set("POLARIS_REST_URI", env.get("OPENLAKEFORGE_CATALOG_REST_URI"))
+        env.set("POLARIS_TOKEN_URI", env.get("OPENLAKEFORGE_CATALOG_TOKEN_URI"))
+        env.set("POLARIS_WAREHOUSE", env.get("OPENLAKEFORGE_CATALOG_WAREHOUSE"))
+        env.set("POLARIS_OAUTH_SCOPE", env.get("OPENLAKEFORGE_CATALOG_OAUTH_SCOPE"))
 
     catalog_om_service_name = "aws_glue" if is_glue else "polaris"
     catalog_name = env.get("OPENLAKEFORGE_CATALOG_NAME")

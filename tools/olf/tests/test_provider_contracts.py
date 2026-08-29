@@ -296,6 +296,57 @@ def test_prod_stage_does_not_leak_dev_polaris_warehouse() -> None:
     assert prod_exports["POLARIS_WAREHOUSE"] == "lakehouse_prod"
 
 
+@pytest.mark.parametrize(
+    ("field", "value", "match"),
+    [
+        ("bucket_name", 12345, "bucket_name must be a non-empty string"),
+        ("bucket_name", ["not-hashable"], "bucket_name must be a non-empty string"),
+        ("uri", ["not-a-string"], "uri must be a string"),
+    ],
+)
+def test_storage_layer_fields_must_be_the_declared_type(field: str, value, match: str) -> None:
+    """A malformed physical_id was already caught by _string(); bucket_name and
+    uri were not, so a non-string value silently reached as_v2_environment_contract()
+    (an empty/wrong-typed bucket) or crashed the cross-stage dedupe set with
+    TypeError on an unhashable value."""
+    contract = _fixture("local-provider-contracts-v3.json")
+    topology = _topology(contract)
+    contract["stages"]["dev"]["storage"]["bronze"][field] = value
+
+    with pytest.raises(ProviderContractError, match=match):
+        parse_provider_contracts(contract, topology)
+
+
+def test_query_service_ref_must_be_the_shared_query_service_specifically() -> None:
+    """query.service_ref resolving to *any* shared/* binding (e.g. shared/ops_storage)
+    would let a stage's query service masquerade as something else entirely; the
+    documented shared-query exception is specifically shared.query."""
+    contract = _fixture("local-provider-contracts-v3.json")
+    topology = _topology(contract)
+    contract["stages"]["dev"]["query"]["service_ref"] = "shared/ops_storage"
+    contract["stages"]["dev"]["endpoints"]["query"] = "shared/ops_storage"
+
+    with pytest.raises(ProviderContractError, match="must reference the shared query service"):
+        parse_provider_contracts(contract, topology)
+
+
+def test_glue_stage_does_not_leak_local_polaris_token_and_scope_aliases() -> None:
+    """The POLARIS_* compatibility aliases were re-derived before the is_glue
+    normalization cleared OPENLAKEFORGE_CATALOG_TOKEN_URI/OAUTH_SCOPE, so an
+    AWS/Glue stage exported the local Polaris dev defaults through
+    POLARIS_TOKEN_URI/POLARIS_OAUTH_SCOPE while the canonical variables were
+    correctly blank."""
+    contract = _fixture("aws-provider-contracts-v3.json")
+    topology = _topology(contract)
+
+    exports, _ = build_contract_env({}, contract, repo_root=REPO_ROOT, topology=topology, stage="dev")
+
+    assert exports["OPENLAKEFORGE_CATALOG_TOKEN_URI"] == ""
+    assert exports["POLARIS_TOKEN_URI"] == ""
+    assert exports["OPENLAKEFORGE_CATALOG_OAUTH_SCOPE"] == ""
+    assert exports["POLARIS_OAUTH_SCOPE"] == ""
+
+
 def test_v2_contract_lifts_to_legacy_dev_without_changing_environment_output() -> None:
     contract = _fixture("local-provider-contracts.json")
     parsed = parse_provider_contracts(contract)

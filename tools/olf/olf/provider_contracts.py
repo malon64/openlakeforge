@@ -290,6 +290,9 @@ def _parse_stage(
         if physical_id in physical_storage:
             raise ProviderContractError(f"stages.{name.value}.storage reuses physical identity {physical_id!r}")
         physical_storage.add(physical_id)
+        _string(binding["bucket_name"], where=f"stages.{name.value}.storage.{layer}.bucket_name")
+        if not isinstance(binding["uri"], str):
+            raise ProviderContractError(f"stages.{name.value}.storage.{layer}.uri must be a string")
     catalog = _fields(
         document["catalog"],
         where=f"stages.{name.value}.catalog",
@@ -370,6 +373,8 @@ def _parse_stage(
     _reference(query["service_ref"], where=f"stages.{name.value}.query.service_ref", allowed=("shared/",))
     if query["service_ref"] not in shared_refs:
         raise ProviderContractError(f"stages.{name.value}.query.service_ref does not resolve")
+    if query["service_ref"] != shared.values["query"]["ref"]:
+        raise ProviderContractError(f"stages.{name.value}.query.service_ref must reference the shared query service")
     if query["catalog_ref"] != f"stage/{name.value}/catalog":
         raise ProviderContractError(f"stages.{name.value}.query.catalog_ref cannot reference another stage")
     if query["catalog_name"] != expected_catalog:
