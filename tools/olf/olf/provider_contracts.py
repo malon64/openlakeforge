@@ -96,6 +96,11 @@ _CATALOG_PROVIDER_BY_TOPOLOGY_PROVIDER = {
     Provider.AZURE: "polaris",
     Provider.AWS: "aws-glue",
 }
+_STORAGE_IMPLEMENTATION_BY_TOPOLOGY_PROVIDER = {
+    Provider.LOCAL: "storage.s3_compatible.seaweedfs",
+    Provider.AZURE: "storage.s3_compatible.seaweedfs_on_aks",
+    Provider.AWS: "storage.aws_s3",
+}
 
 
 def _stage_or_shared_reference(
@@ -281,6 +286,10 @@ def _parse_stage(
     )
     if storage["provider"] != topology.provider.value:
         raise ProviderContractError(f"stages.{name.value}.storage.provider must match DeploymentTopology.provider")
+    if storage["implementation"] != _STORAGE_IMPLEMENTATION_BY_TOPOLOGY_PROVIDER[topology.provider]:
+        raise ProviderContractError(
+            f"stages.{name.value}.storage.implementation must match DeploymentTopology.provider"
+        )
     if topology.region is not None and storage["region"] != topology.region:
         raise ProviderContractError(f"stages.{name.value}.storage.region must match DeploymentTopology.region")
     _reference(storage["identity_ref"], where=f"stages.{name.value}.storage.identity_ref", allowed=("stage/",))

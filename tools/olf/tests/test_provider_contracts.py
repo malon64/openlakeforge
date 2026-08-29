@@ -394,6 +394,29 @@ def test_catalog_provider_must_match_the_deployment_topology_provider(
         parse_provider_contracts(contract, topology)
 
 
+@pytest.mark.parametrize(
+    ("fixture_name", "implementation"),
+    [
+        ("aws-provider-contracts-v3.json", "storage.s3_compatible.seaweedfs"),
+        ("local-provider-contracts-v3.json", "storage.aws_s3"),
+    ],
+)
+def test_storage_implementation_must_match_the_deployment_topology_provider(
+    fixture_name: str, implementation: str
+) -> None:
+    """storage.provider alone doesn't stop an AWS stage from retaining a
+    SeaweedFS implementation (so build_contract_env's storage.aws_s3 branch
+    at contracts.py never fires and local S3-compatible endpoint/credential
+    defaults leak into an AWS deployment), or a local stage from claiming
+    storage.aws_s3."""
+    contract = _fixture(fixture_name)
+    topology = _topology(contract)
+    contract["stages"]["dev"]["storage"]["implementation"] = implementation
+
+    with pytest.raises(ProviderContractError, match="storage.implementation must match DeploymentTopology.provider"):
+        parse_provider_contracts(contract, topology)
+
+
 def test_catalog_physical_id_must_be_a_non_empty_string() -> None:
     """catalog.physical_id feeds the cross-stage catalog_ids dedupe set in
     _parse_v3 without prior type validation, unlike storage physical_id, which
