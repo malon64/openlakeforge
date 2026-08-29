@@ -73,6 +73,18 @@ def _frozen(value: Any) -> Any:
     return value
 
 
+def _tcp_port(value: object, *, where: str) -> None:
+    """Reject a port that would blow up int() downstream instead of at the
+    contract boundary (artifact_store.artifact_storage_client() and the
+    port-forward path in commands/artifacts.py both call int() on the
+    exported value without their own validation)."""
+    if isinstance(value, bool) or not isinstance(value, (int, str)):
+        raise ProviderContractError(f"{where} must be a valid TCP port")
+    text = str(value)
+    if not text.isdigit() or not (1 <= int(text) <= 65535):
+        raise ProviderContractError(f"{where} must be a valid TCP port")
+
+
 def _stage_name(value: StageName | str) -> StageName:
     try:
         return StageName(value)
@@ -313,6 +325,8 @@ def _parse_stage(
         )
     if topology.region is not None and storage["region"] != topology.region:
         raise ProviderContractError(f"stages.{name.value}.storage.region must match DeploymentTopology.region")
+    if "s3_service_port" in storage:
+        _tcp_port(storage["s3_service_port"], where=f"stages.{name.value}.storage.s3_service_port")
     _reference(storage["identity_ref"], where=f"stages.{name.value}.storage.identity_ref", allowed=("stage/",))
     physical_storage: set[str] = set()
     for layer in ("bronze", "silver", "gold"):
@@ -417,6 +431,12 @@ def _parse_stage(
             raise ProviderContractError(
                 f"stages.{name.value}.catalog.rest_uri must match the shared catalog service's endpoint"
             )
+        if "token_uri" in catalog:
+            rest_uri = catalog.get("rest_uri")
+            if not isinstance(rest_uri, str) or not catalog["token_uri"].startswith(rest_uri):
+                raise ProviderContractError(
+                    f"stages.{name.value}.catalog.token_uri must be derived from its own rest_uri"
+                )
     if "warehouse" in catalog and catalog["warehouse"] != catalog["physical_id"]:
         raise ProviderContractError(f"stages.{name.value}.catalog.warehouse must match its own physical identity")
     query = _fields(

@@ -383,6 +383,36 @@ def test_catalog_rest_uri_must_match_the_shared_catalog_services_endpoint() -> N
         parse_provider_contracts(contract, topology)
 
 
+def test_catalog_token_uri_must_be_derived_from_its_own_rest_uri() -> None:
+    """floe.py renders catalog.token_uri as oauth2_server_uri alongside the
+    client-credential Secret references; a stage could keep the correct,
+    anchored rest_uri while pointing token_uri at an unrelated service and
+    post credentials there instead."""
+    contract = _fixture("local-provider-contracts-v3.json")
+    topology = _topology(contract)
+    contract["stages"]["dev"]["catalog"]["token_uri"] = "http://other-idp:9000/oauth/tokens"
+
+    with pytest.raises(ProviderContractError, match="token_uri must be derived from its own rest_uri"):
+        parse_provider_contracts(contract, topology)
+
+
+@pytest.mark.parametrize(
+    "port",
+    ["invalid", 99999, 0, True, 8333.5],
+)
+def test_s3_service_port_must_be_a_valid_tcp_port(port) -> None:
+    """artifact_store.artifact_storage_client() and the port-forward path in
+    commands/artifacts.py both call int() on the exported value without
+    their own validation; a malformed port must fail closed here instead of
+    with an uncaught ValueError downstream."""
+    contract = _fixture("local-provider-contracts-v3.json")
+    topology = _topology(contract)
+    contract["stages"]["dev"]["storage"]["s3_service_port"] = port
+
+    with pytest.raises(ProviderContractError, match="s3_service_port must be a valid TCP port"):
+        parse_provider_contracts(contract, topology)
+
+
 @pytest.mark.parametrize(
     ("endpoint", "match"),
     [
