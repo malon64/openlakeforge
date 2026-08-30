@@ -34,7 +34,9 @@ def test_run_uses_deployment_engine_and_e2e_without_make(monkeypatch: pytest.Mon
     assert calls[1][1]["kube_context"] == "kind-openlakeforge-pr-123"
 
 
-def test_run_honors_namespace_from_the_supplied_environment(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+def test_run_derives_its_namespaces_from_the_topology(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:  # noqa: ANN001
+    """A NAMESPACE override cannot move what the local root creates, so the
+    smoke suite must validate the namespaces the deploy actually made."""
     contexts: list[object] = []
     e2e_calls: list[dict] = []
     monkeypatch.setattr(smoke.config, "repo_root", lambda: tmp_path)
@@ -48,8 +50,8 @@ def test_run_honors_namespace_from_the_supplied_environment(monkeypatch: pytest.
         monotonic=iter((0.0, 1.0, 2.0, 3.0)).__next__,
     )
 
-    assert contexts[0].namespace == "custom-lakehouse"
-    assert e2e_calls[0]["namespace"] == "custom-lakehouse"
+    assert contexts[0].namespace == "olf-dev"
+    assert e2e_calls[0]["namespace"] == "olf-dev"
 
 
 def test_run_tells_e2e_where_the_shared_services_live(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:  # noqa: ANN001

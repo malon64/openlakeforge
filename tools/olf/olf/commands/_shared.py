@@ -99,6 +99,18 @@ def deployment_context(
             Profile(profile)
         except ValueError as exc:
             raise typer.Exit(code=fail(f"unknown --profile: {profile!r} (expected 'full' or 'slim')")) from exc
+    if namespace and resolved_provider == Provider.LOCAL:
+        # The stage-aware root derives `olf-system` and `olf-<stage>` from the
+        # resolved topology, so an override here would only rename what the
+        # artifacts and forwarding paths look for -- never what Terraform
+        # creates. Rejecting it beats a platform that applies cleanly while
+        # every later phase points at a namespace nobody made.
+        raise typer.Exit(
+            code=fail(
+                "--namespace is not supported for the local provider: namespaces are derived from the "
+                "Deployment Profile (olf-system plus olf-<stage>). Use --stage to select a stage."
+            )
+        )
     if stage:
         try:
             StageName(stage)

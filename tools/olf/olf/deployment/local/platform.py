@@ -126,12 +126,31 @@ def platform_destroy_variables(config: LocalDeploymentConfig) -> dict[str, str]:
     )
 
 
+# What `terraform output` says when the root has never been applied, or was
+# applied before this output existed. Anything else is a real failure.
+_NO_APPLIED_OUTPUT_MARKERS = (
+    "no outputs found",
+    "output variable requested could not be found",
+    "not found in state",
+)
+
+
 def applied_stage_names(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[str, str]) -> tuple[str, ...]:
-    """Stages the platform root has already applied, empty before any apply."""
+    """Stages the platform root has already applied, empty before any apply.
+
+    Only a positively identified "there is no such output" answer counts as
+    empty. Any other `terraform output` failure -- an unreadable state file, a
+    lock, a broken toolchain -- propagates: swallowing it would report a
+    multi-stage deployment as having no stages, and `require_no_stage_removal`
+    would then wave through the very apply it exists to stop.
+    """
     try:
         applied = tools.terraform.output_json(config.paths.platform_terraform_dir, "stage_names", env=env)
-    except CommandExecutionError:
-        return ()
+    except CommandExecutionError as exc:
+        detail = f"{exc}".lower()
+        if any(marker in detail for marker in _NO_APPLIED_OUTPUT_MARKERS):
+            return ()
+        raise
     if not isinstance(applied, list):
         return ()
     return tuple(str(name) for name in applied)

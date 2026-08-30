@@ -261,3 +261,17 @@ def test_an_invalid_profile_fails_closed(tmp_path: Path) -> None:
 
     with pytest.raises(typer.Exit):
         resolve_topology(tmp_path, provider=Provider.LOCAL)
+
+
+def test_local_rejects_a_namespace_override(tmp_path: Path) -> None:
+    """Terraform derives the local namespaces from the topology, so an
+    override would only move what the later phases look for."""
+    _write_profile(tmp_path)
+
+    result = runner.invoke(
+        app,
+        ["deploy", "--provider", "local", "--namespace", "custom", "--project-root", str(tmp_path)],
+    )
+
+    assert result.exit_code == 1
+    assert "--namespace is not supported for the local provider" in result.output

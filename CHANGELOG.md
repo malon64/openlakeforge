@@ -44,9 +44,16 @@ for how a release is cut and verified.
   deploy -- destroying first is what releases the cluster-scoped objects a
   chart owns (SeaweedFS' ClusterRole among them), which a new release in
   another namespace cannot adopt; the `--namespace` option now only
-  overrides the stage namespace, and
+  overrides the stage namespace on the cloud POC roots (it is rejected for
+  local, where namespaces are derived), and
   the `aws-poc`/`azure-poc` roots keep their single `lakehouse` namespace
   until #114 (#133).
+- The `azure-poc` root's PostgreSQL databases moved to the same typed
+  `databases` list the local root uses. Their names, users, and Secret names
+  are unchanged, but the Terraform addresses are keyed now, so an
+  already-applied POC stack needs the same destroy-then-redeploy as local
+  rather than an in-place upgrade: a `moved` block cannot name an address
+  whose key comes from a variable (#133).
 - `--profile slim|full` is now an explicit, deprecated single-DEV shorthand.
   With no `--profile`, the project-root `openlakeforge.yaml` Deployment
   Profile decides which stages and capabilities are deployed; a project with

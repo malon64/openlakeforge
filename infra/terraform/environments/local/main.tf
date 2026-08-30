@@ -291,17 +291,23 @@ module "dagster" {
   project_code_image_revision    = var.project_code_image_revision
   storage_contract               = local.storage_contract
   catalog_contract               = local.catalog_contract
-  governance_contract            = local.governance_contract
-  query_contract                 = local.query_contract
-  postgresql_contract            = local.stage_metadata_database_contracts[each.key]
-  code_locations                 = local.orchestration_contract.code_locations
-  floe_manifest_base_uri         = local.artifact_bucket_contract.base_uri
-  floe_manifest_access_mode      = local.artifact_bucket_contract.access_mode
-  artifact_bucket_name           = local.artifact_bucket_contract.bucket_name
-  artifact_base_uri              = local.artifact_bucket_contract.artifact_base_uri
-  floe_report_base_uri           = local.artifact_bucket_contract.floe_report_base_uri
-  log_base_uri                   = local.artifact_bucket_contract.log_base_uri
-  run_artifact_base_uri          = local.artifact_bucket_contract.run_artifact_base_uri
+  # The shared governance service exists whenever any stage enables it, but a
+  # stage that did not ask for governance must not receive OpenLineage
+  # configuration or the ingestion-bot credential: capabilities are per stage
+  # (ADR 0011).
+  governance_contract = merge(local.governance_contract, {
+    enabled = local.governance_enabled && each.value.governance
+  })
+  query_contract            = local.query_contract
+  postgresql_contract       = local.stage_metadata_database_contracts[each.key]
+  code_locations            = local.orchestration_contract.code_locations
+  floe_manifest_base_uri    = local.artifact_bucket_contract.base_uri
+  floe_manifest_access_mode = local.artifact_bucket_contract.access_mode
+  artifact_bucket_name      = local.artifact_bucket_contract.bucket_name
+  artifact_base_uri         = local.artifact_bucket_contract.artifact_base_uri
+  floe_report_base_uri      = local.artifact_bucket_contract.floe_report_base_uri
+  log_base_uri              = local.artifact_bucket_contract.log_base_uri
+  run_artifact_base_uri     = local.artifact_bucket_contract.run_artifact_base_uri
 
   depends_on = [
     module.trino,

@@ -260,6 +260,11 @@ class _PlatformScriptedRunner(RecordingRunner):
         argv = list(command.argv) if hasattr(command, "argv") else [str(p) for p in command]
         self.calls.append(RecordedCall(argv=argv, kwargs=kwargs))
 
+        if "stage_names" in argv:
+            # An applied root answers with its stage list; the removal guard
+            # only treats an explicit "no such output" as "never applied".
+            return _ok('["dev"]')
+
         if argv[0] == "kubectl" and "get-contexts" in argv:
             return _ok("kind-openlakeforge-local\n")
         if argv[0] == "kubectl" and "namespace" in argv and "get" in argv and "jsonpath" not in " ".join(argv):
@@ -373,3 +378,20 @@ def test_adding_a_stage_is_not_a_removal(tmp_path: Path) -> None:
     tools = _toolkit(_stage_names_runner('["dev"]'))
 
     platform.require_no_stage_removal(config, tools, env={})
+
+
+def test_an_unreadable_state_does_not_read_as_no_stages(tmp_path: Path) -> None:
+    """A guard that treats any `terraform output` failure as "no stages
+    applied" waves through the very apply it exists to stop."""
+    config = _config(tmp_path, topology=_topology(dev=True))
+
+    class _Runner(RecordingRunner):
+        def run(self, command, **kwargs):  # type: ignore[override]
+            argv = list(command.argv) if hasattr(command, "argv") else [str(part) for part in command]
+            self.calls.append(RecordedCall(argv=argv, kwargs=kwargs))
+            if "stage_names" in argv:
+                raise CommandExecutionError(argv, 1, stderr="Failed to load state: unable to open statefile")
+            return _ok()
+
+    with pytest.raises(CommandExecutionError):
+        platform.require_no_stage_removal(config, _toolkit(_Runner()), env={})
