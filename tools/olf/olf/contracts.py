@@ -591,7 +591,12 @@ def build_contract_env(
     if not query_uri_user_set:
         env.set(
             "OPENLAKEFORGE_QUERY_SQLALCHEMY_URI",
-            "trino://superset@{host}:{port}/{catalog}".format(
+            "trino://{user}@{host}:{port}/{catalog}".format(
+                # Reuse the stage's own runtime identity: Trino's file-based
+                # access control (modules/query/trino/main.tf) grants
+                # catalog access by this exact user string, and a literal
+                # "superset" would be denied by the default-deny catalog rule.
+                user=env.get("OPENLAKEFORGE_DBT_TRINO_USER"),
                 host=env.get("OPENLAKEFORGE_QUERY_TRINO_HOST"),
                 port=env.get("OPENLAKEFORGE_QUERY_TRINO_PORT"),
                 catalog=env.get("OPENLAKEFORGE_QUERY_TRINO_CATALOG"),

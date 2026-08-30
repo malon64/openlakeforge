@@ -64,12 +64,21 @@ resource "kubernetes_secret_v1" "s3_auth_config" {
             accessKey = "olf${random_id.stage_s3_access_key[stage].hex}"
             secretKey = random_password.stage_s3_secret_key[stage].result
           }]
-          actions = flatten([for bucket in [
-            binding.bronze_bucket_name,
-            binding.silver_bucket_name,
-            binding.gold_bucket_name,
-            binding.ops_bucket_name,
-          ] : ["Read:${bucket}", "Write:${bucket}", "List:${bucket}"]])
+          # Bronze/Silver/Gold are wholly stage-exclusive buckets, so the
+          # bucket-level grant is already scoped. The ops bucket is shared
+          # across every stage's activation artifacts, so its grant is
+          # further scoped to this stage's own prefix - SeaweedFS matches the
+          # action's bucket/key component with filepath.Match, so a trailing
+          # `*` confines it to `activations/<stage>/...` and denies every
+          # other stage's prefix in the same bucket.
+          actions = concat(
+            flatten([for bucket in [
+              binding.bronze_bucket_name,
+              binding.silver_bucket_name,
+              binding.gold_bucket_name,
+            ] : ["Read:${bucket}", "Write:${bucket}", "List:${bucket}"]]),
+            [for action in ["Read", "Write", "List"] : "${action}:${binding.ops_bucket_name}/activations/${stage}*"],
+          )
         }],
       )
     })

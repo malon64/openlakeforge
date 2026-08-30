@@ -36,8 +36,14 @@ def test_defaults_without_contracts_match_local_profile() -> None:
     assert exports["AWS_ENDPOINT_URL_S3"] == "http://seaweedfs-s3.olf-system:8333"
     assert exports["AWS_ALLOW_HTTP"] == "true"
     assert exports["CODE_BUCKET_NAME"] == "openlakeforge-ops"
+    # Superset's Trino connection reuses the same identity dbt/Dagster use
+    # (OPENLAKEFORGE_DBT_TRINO_USER) rather than a hardcoded "superset" -
+    # Trino's file-based access control (modules/query/trino/main.tf) grants
+    # catalog access by this exact user string, so a mismatched literal would
+    # be denied once a stage-aware root provisions that access control.
+    assert exports["OPENLAKEFORGE_DBT_TRINO_USER"] == "openlakeforge-dbt"
     assert (
-        exports["OPENLAKEFORGE_QUERY_SQLALCHEMY_URI"] == "trino://superset@trino.olf-system:8080/iceberg"
+        exports["OPENLAKEFORGE_QUERY_SQLALCHEMY_URI"] == "trino://openlakeforge-dbt@trino.olf-system:8080/iceberg"
     )
     assert unsets == []
 

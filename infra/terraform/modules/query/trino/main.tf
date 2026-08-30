@@ -74,6 +74,13 @@ locals {
       CATALOG
     )
   }
+  # Every stage-scoped client (dbt, Dagster, Superset, and the e2e suite)
+  # authenticates to Trino as its own stage's runtime identity
+  # (`olf-<stage>-runtime`, see `runtime_identity_principal` in
+  # olf/contracts.py) - Trino has no authentication configured, so this
+  # string match is the only thing that keeps a DEV client from resolving
+  # PROD's catalog. `system` stays read-only for cluster metadata; every
+  # other catalog is denied unless explicitly listed above.
   catalog_access_rules = jsonencode({
     catalogs = concat(
       [
@@ -83,7 +90,10 @@ locals {
           allow   = "all"
         }
       ],
-      [{ catalog = ".*", allow = "none" }],
+      [
+        { catalog = "system", allow = "read-only" },
+        { catalog = ".*", allow = "none" },
+      ],
     )
   })
   # Create a named service account when one is explicitly requested (EKS Pod Identity

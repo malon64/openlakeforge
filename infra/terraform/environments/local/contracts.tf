@@ -128,10 +128,10 @@ locals {
     logical_name               = "iceberg_catalog"
     catalog_provider           = "polaris"
     catalog_type               = "rest"
-    catalog_name               = var.catalog_name
+    catalog_name               = "lakehouse_${local.selected_stage}"
     runtime_profile            = "polaris-rest"
     trino_catalog_name         = "iceberg"
-    default_warehouse_location = "s3://${var.silver_bucket_name}"
+    default_warehouse_location = "s3://${local.stage_storage[local.selected_stage].silver_bucket_name}"
     catalog_namespace_model    = local.catalog_namespace_model
     auth_mode                  = "oauth-client-secret"
     secret_delivery_mode       = "kubernetes-secret-env"
@@ -147,7 +147,7 @@ locals {
     floe_support               = ["rest"]
     dbt_support                = ["rest"]
     openmetadata_support       = ["rest"]
-    catalog_database_fqn       = "polaris.${var.catalog_name}"
+    catalog_database_fqn       = "polaris.lakehouse_${local.selected_stage}"
     # Per-product namespaces and schema FQNs are deliberately absent: Phase 2
     # reconciles them from the descriptors (ADR 0002), and olf/contracts.py
     # derives both from the same inventory when the contract omits them.
@@ -544,7 +544,7 @@ check "catalog_contract_consumer_support" {
 
 check "openmetadata_catalog_fqn_uses_lakehouse_database" {
   assert {
-    condition     = local.catalog_contract.catalog_database_fqn == "polaris.${var.catalog_name}" && local.catalog_contract.catalog_name != "default"
+    condition     = local.catalog_contract.catalog_database_fqn == "polaris.lakehouse_${local.selected_stage}" && local.catalog_contract.catalog_name != "default"
     error_message = "OpenMetadata catalog assets must resolve under polaris.<catalog_name>, not polaris.default."
   }
 }

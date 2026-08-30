@@ -94,9 +94,9 @@
         exit 1
       fi
     else
-      if ! kubectl get configmap "$pending_name" -n "$NAMESPACE" >/dev/null 2>&1; then
+      if ! kubectl get configmap "$pending_name" -n "$target_namespace" >/dev/null 2>&1; then
         kubectl create configmap "$pending_name" \
-        -n "$target_namespace" \
+          -n "$target_namespace" \
           --from-literal="principal=$principal_name"
       fi
 

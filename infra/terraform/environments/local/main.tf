@@ -96,9 +96,9 @@ locals {
   stage_service_accounts = { for name in keys(local.enabled_stages) : name => "olf-${name}-runtime" }
   stage_storage = {
     for name in keys(local.enabled_stages) : name => {
-      bronze_bucket_name      = (name == "dev" ? var.bronze_bucket_name : "${var.profile_name}-${name}-bronze")
-      silver_bucket_name      = (name == "dev" ? var.silver_bucket_name : "${var.profile_name}-${name}-silver")
-      gold_bucket_name        = (name == "dev" ? var.gold_bucket_name : "${var.profile_name}-${name}-gold")
+      bronze_bucket_name      = "${var.profile_name}-${name}-bronze"
+      silver_bucket_name      = "${var.profile_name}-${name}-silver"
+      gold_bucket_name        = "${var.profile_name}-${name}-gold"
       credentials_secret_name = "seaweedfs-${name}-s3-creds"
     }
   }
@@ -229,7 +229,7 @@ module "polaris" {
   namespace             = kubernetes_namespace_v1.shared.metadata[0].name
   base_values_file      = "${path.root}/../../../helm/values/local/polaris.yaml"
   chart_package_path    = var.polaris_chart_package_path
-  catalog_name          = var.catalog_name
+  catalog_name          = "lakehouse_${local.selected_stage}"
   principal_name        = "trino"
   principal_role        = "data-engineer"
   catalog_role          = "catalog-admin"
@@ -241,7 +241,7 @@ module "polaris" {
   stage_catalogs = {
     for name, binding in local.stage_storage : name => {
       namespace                        = local.stage_namespaces[name]
-      catalog_name                     = (name == "dev" ? var.catalog_name : "lakehouse_${name}")
+      catalog_name                     = "lakehouse_${name}"
       bronze_bucket_name               = binding.bronze_bucket_name
       silver_bucket_name               = binding.silver_bucket_name
       gold_bucket_name                 = binding.gold_bucket_name
