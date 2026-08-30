@@ -37,3 +37,14 @@ output "s3_secret_key" {
   value       = random_password.s3_secret_key.result
   sensitive   = true
 }
+
+output "stage_credentials" {
+  description = "Stage-scoped S3 credential bindings for provider-contract construction."
+  value = {
+    for stage, binding in var.stage_credentials : stage => {
+      credentials_secret_name = binding.credentials_secret_name
+      access_key_id_key       = "AWS_ACCESS_KEY_ID"
+      secret_access_key_key   = "AWS_SECRET_ACCESS_KEY"
+    }
+  }
+}

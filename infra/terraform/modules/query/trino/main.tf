@@ -1,12 +1,10 @@
 locals {
-  chart                = var.chart_package_path != null ? var.chart_package_path : "trino"
-  repository           = var.chart_package_path != null ? null : var.chart_repository
-  version              = var.chart_package_path != null ? null : var.chart_version
-  iceberg_catalog_type = coalesce(try(var.catalog_contract.catalog_type, null), "rest")
-  trino_catalog_name   = coalesce(try(var.catalog_contract.trino_catalog_name, null), "iceberg")
-  lineage_catalog_name = coalesce(try(var.catalog_contract.catalog_name, null), "lakehouse_dev")
-  trino_catalog_names  = toset([local.trino_catalog_name, local.lineage_catalog_name])
-  glue_region          = coalesce(try(var.catalog_contract.glue_region, null), var.storage_contract.region)
+  chart      = var.chart_package_path != null ? var.chart_package_path : "trino"
+  repository = var.chart_package_path != null ? null : var.chart_repository
+  version    = var.chart_package_path != null ? null : var.chart_version
+  stage_catalog_contracts = length(var.stage_catalog_contracts) > 0 ? var.stage_catalog_contracts : {
+    dev = var.catalog_contract
+  }
 
   storage_secret_env_from = var.storage_contract.credentials_secret_name == null ? [] : [
     {
@@ -16,34 +14,28 @@ locals {
     },
   ]
 
-  catalog_secret_env_from = try(var.catalog_contract.trino_credentials_secret_name, null) == null ? [] : [
-    {
-      secretRef = {
-        name = var.catalog_contract.trino_credentials_secret_name
-      }
-    },
-  ]
-
-  catalog_secret_env = try(var.catalog_contract.trino_credentials_secret_name, null) == null ? [] : [
-    {
-      name = "OPENLAKEFORGE_CATALOG_TRINO_CLIENT_ID"
-      valueFrom = {
-        secretKeyRef = {
-          name = var.catalog_contract.trino_credentials_secret_name
-          key  = coalesce(try(var.catalog_contract.trino_client_id_key, null), "POLARIS_TRINO_CLIENT_ID")
+  catalog_secret_env = flatten([
+    for stage, contract in local.stage_catalog_contracts : try(contract.trino_credentials_secret_name, null) == null ? [] : [
+      {
+        name = "OPENLAKEFORGE_CATALOG_${upper(stage)}_CLIENT_ID"
+        valueFrom = {
+          secretKeyRef = {
+            name = contract.trino_credentials_secret_name
+            key  = coalesce(try(contract.trino_client_id_key, null), "POLARIS_TRINO_CLIENT_ID")
+          }
         }
-      }
-    },
-    {
-      name = "OPENLAKEFORGE_CATALOG_TRINO_CLIENT_SECRET"
-      valueFrom = {
-        secretKeyRef = {
-          name = var.catalog_contract.trino_credentials_secret_name
-          key  = coalesce(try(var.catalog_contract.trino_client_secret_key, null), "POLARIS_TRINO_CLIENT_SECRET")
+      },
+      {
+        name = "OPENLAKEFORGE_CATALOG_${upper(stage)}_CLIENT_SECRET"
+        valueFrom = {
+          secretKeyRef = {
+            name = contract.trino_credentials_secret_name
+            key  = coalesce(try(contract.trino_client_secret_key, null), "POLARIS_TRINO_CLIENT_SECRET")
+          }
         }
-      }
-    },
-  ]
+      },
+    ]
+  ])
 
   s3_catalog_properties = join("\n", compact([
     "fs.native-s3.enabled=true",
@@ -54,32 +46,46 @@ locals {
     var.storage_contract.credentials_secret_name == null ? "" : "s3.aws-secret-key=$${ENV:AWS_SECRET_ACCESS_KEY}",
   ]))
 
-  rest_iceberg_catalog = <<-CATALOG
-    # openlakeforge.catalog-provider=${coalesce(try(var.catalog_contract.catalog_provider, null), "polaris")}
-    # openlakeforge.polaris-bootstrap-run=${(try(var.catalog_contract.bootstrap_run_id, null) == null ? "" : try(var.catalog_contract.bootstrap_run_id, null))}
-    # openlakeforge.polaris-bootstrap-revision=${var.catalog_bootstrap_revision}
-    connector.name=iceberg
-    iceberg.catalog.type=rest
-    iceberg.rest-catalog.uri=${(try(var.catalog_contract.rest_uri, null) == null ? "" : try(var.catalog_contract.rest_uri, null))}
-    iceberg.rest-catalog.warehouse=${(try(var.catalog_contract.warehouse, null) == null ? "" : try(var.catalog_contract.warehouse, null))}
-    iceberg.rest-catalog.security=OAUTH2
-    iceberg.rest-catalog.oauth2.credential=$${ENV:OPENLAKEFORGE_CATALOG_TRINO_CLIENT_ID}:$${ENV:OPENLAKEFORGE_CATALOG_TRINO_CLIENT_SECRET}
-    iceberg.rest-catalog.oauth2.server-uri=${(try(var.catalog_contract.token_uri, null) == null ? "" : try(var.catalog_contract.token_uri, null))}
-    iceberg.rest-catalog.oauth2.scope=${(try(var.catalog_contract.oauth_scope, null) == null ? "" : try(var.catalog_contract.oauth_scope, null))}
-    iceberg.rest-catalog.vended-credentials-enabled=false
-    iceberg.rest-catalog.nested-namespace-enabled=true
-    ${local.s3_catalog_properties}
-  CATALOG
-
-  glue_iceberg_catalog = <<-CATALOG
-    # openlakeforge.catalog-provider=aws-glue
-    connector.name=iceberg
-    iceberg.catalog.type=glue
-    hive.metastore.glue.region=${local.glue_region}
-    ${local.s3_catalog_properties}
-  CATALOG
-
-  iceberg_catalog_properties = local.iceberg_catalog_type == "glue" ? local.glue_iceberg_catalog : local.rest_iceberg_catalog
+  iceberg_catalog_properties = {
+    for stage, contract in local.stage_catalog_contracts : contract.catalog_name => (
+      try(contract.catalog_type, "rest") == "glue" ? <<-CATALOG
+        # openlakeforge.catalog-provider=aws-glue
+        connector.name=iceberg
+        iceberg.catalog.type=glue
+        hive.metastore.glue.region=${coalesce(try(contract.glue_region, null), var.storage_contract.region)}
+        hive.metastore.glue.catalogid=${try(contract.glue_catalog_id, "")}
+        ${local.s3_catalog_properties}
+      CATALOG
+      : <<-CATALOG
+        # openlakeforge.catalog-provider=${coalesce(try(contract.catalog_provider, null), "polaris")}
+        # openlakeforge.polaris-bootstrap-run=${try(contract.bootstrap_run_id, "")}
+        # openlakeforge.polaris-bootstrap-revision=${var.catalog_bootstrap_revision}
+        connector.name=iceberg
+        iceberg.catalog.type=rest
+        iceberg.rest-catalog.uri=${try(contract.rest_uri, "")}
+        iceberg.rest-catalog.warehouse=${try(contract.warehouse, "")}
+        iceberg.rest-catalog.security=OAUTH2
+        iceberg.rest-catalog.oauth2.credential=$${ENV:OPENLAKEFORGE_CATALOG_${upper(stage)}_CLIENT_ID}:$${ENV:OPENLAKEFORGE_CATALOG_${upper(stage)}_CLIENT_SECRET}
+        iceberg.rest-catalog.oauth2.server-uri=${try(contract.token_uri, "")}
+        iceberg.rest-catalog.oauth2.scope=${try(contract.oauth_scope, "")}
+        iceberg.rest-catalog.vended-credentials-enabled=false
+        iceberg.rest-catalog.nested-namespace-enabled=true
+        ${local.s3_catalog_properties}
+      CATALOG
+    )
+  }
+  catalog_access_rules = jsonencode({
+    catalogs = concat(
+      [
+        for stage, contract in local.stage_catalog_contracts : {
+          user    = "olf-${stage}-runtime"
+          catalog = contract.catalog_name
+          allow   = "all"
+        }
+      ],
+      [{ catalog = ".*", allow = "none" }],
+    )
+  })
   # Create a named service account when one is explicitly requested (EKS Pod Identity
   # binds credentials by SA name and needs no annotation) or, IRSA-style, when
   # annotations are supplied. Otherwise Trino runs under the namespace default SA.
@@ -100,11 +106,17 @@ resource "helm_release" "trino" {
   values = [
     file(var.base_values_file),
     yamlencode({
-      envFrom = concat(local.storage_secret_env_from, local.catalog_secret_env_from)
+      envFrom = local.storage_secret_env_from
       env     = local.catalog_secret_env
 
-      catalogs = {
-        for catalog_name in local.trino_catalog_names : catalog_name => local.iceberg_catalog_properties
+      catalogs = local.iceberg_catalog_properties
+
+      accessControl = {
+        type       = "configmap"
+        configFile = "rules.json"
+        rules = {
+          "rules.json" = local.catalog_access_rules
+        }
       }
 
       serviceAccount = {

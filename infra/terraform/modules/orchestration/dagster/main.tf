@@ -235,7 +235,7 @@ locals {
     },
     {
       name  = "OPENLAKEFORGE_DBT_TRINO_USER"
-      value = "openlakeforge-dbt"
+      value = coalesce(try(var.query_contract.runtime_identity_principal, null), "openlakeforge-dbt")
     },
     {
       name  = "OPENLAKEFORGE_POSTGRES_SSL_MODE"

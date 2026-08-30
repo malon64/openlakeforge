@@ -94,6 +94,14 @@ locals {
     "http://superset.${local.stage_namespaces[local.governance_superset_stage]}:8088",
   )
   stage_service_accounts = { for name in keys(local.enabled_stages) : name => "olf-${name}-runtime" }
+  stage_storage = {
+    for name in keys(local.enabled_stages) : name => {
+      bronze_bucket_name      = (name == "dev" ? var.bronze_bucket_name : "${var.profile_name}-${name}-bronze")
+      silver_bucket_name      = (name == "dev" ? var.silver_bucket_name : "${var.profile_name}-${name}-silver")
+      gold_bucket_name        = (name == "dev" ? var.gold_bucket_name : "${var.profile_name}-${name}-gold")
+      credentials_secret_name = "seaweedfs-${name}-s3-creds"
+    }
+  }
   stage_labels = { for name in keys(local.enabled_stages) : name => {
     "openlakeforge.io/stage"      = name
     "openlakeforge.io/managed-by" = "openlakeforge"
@@ -188,14 +196,27 @@ module "seaweedfs" {
   namespace          = kubernetes_namespace_v1.shared.metadata[0].name
   base_values_file   = "${path.root}/../../../helm/values/local/seaweedfs.yaml"
   chart_package_path = var.seaweedfs_chart_package_path
-  bucket_names = [
-    var.bronze_bucket_name,
-    var.silver_bucket_name,
-    var.gold_bucket_name,
-    var.ops_bucket_name,
-  ]
-  region              = var.s3_region
-  workload_namespaces = values(local.stage_namespaces)
+  bucket_names = concat(flatten([
+    for binding in values(local.stage_storage) : [
+      binding.bronze_bucket_name,
+      binding.silver_bucket_name,
+      binding.gold_bucket_name,
+    ]
+  ]), [var.ops_bucket_name])
+  region = var.s3_region
+  # Platform credentials stay in olf-system; stage workloads mount only the
+  # stage-owned identities supplied through stage_credentials below.
+  workload_namespaces = []
+  stage_credentials = {
+    for name, binding in local.stage_storage : name => {
+      namespace               = local.stage_namespaces[name]
+      credentials_secret_name = binding.credentials_secret_name
+      bronze_bucket_name      = binding.bronze_bucket_name
+      silver_bucket_name      = binding.silver_bucket_name
+      gold_bucket_name        = binding.gold_bucket_name
+      ops_bucket_name         = var.ops_bucket_name
+    }
+  }
 
   depends_on = [
     kubernetes_namespace_v1.stage,
@@ -205,17 +226,33 @@ module "seaweedfs" {
 module "polaris" {
   source = "../../modules/catalog/polaris"
 
-  namespace           = kubernetes_namespace_v1.shared.metadata[0].name
-  base_values_file    = "${path.root}/../../../helm/values/local/polaris.yaml"
-  chart_package_path  = var.polaris_chart_package_path
-  catalog_name        = var.catalog_name
-  principal_name      = "trino"
-  principal_role      = "data-engineer"
-  catalog_role        = "catalog-admin"
-  storage_contract    = local.storage_contract
-  postgresql_contract = local.metadata_database_contract
-  bootstrap_revision  = local.polaris_bootstrap_hash
-  workload_namespaces = values(local.stage_namespaces)
+  namespace             = kubernetes_namespace_v1.shared.metadata[0].name
+  base_values_file      = "${path.root}/../../../helm/values/local/polaris.yaml"
+  chart_package_path    = var.polaris_chart_package_path
+  catalog_name          = var.catalog_name
+  principal_name        = "trino"
+  principal_role        = "data-engineer"
+  catalog_role          = "catalog-admin"
+  storage_contract      = local.storage_contract
+  postgresql_contract   = local.metadata_database_contract
+  bootstrap_revision    = local.polaris_bootstrap_hash
+  workload_namespaces   = values(local.stage_namespaces)
+  replicate_credentials = false
+  stage_catalogs = {
+    for name, binding in local.stage_storage : name => {
+      namespace                        = local.stage_namespaces[name]
+      catalog_name                     = (name == "dev" ? var.catalog_name : "lakehouse_${name}")
+      bronze_bucket_name               = binding.bronze_bucket_name
+      silver_bucket_name               = binding.silver_bucket_name
+      gold_bucket_name                 = binding.gold_bucket_name
+      trino_principal_name             = "trino-${name}"
+      trino_credentials_secret_name    = "polaris-${name}-trino-creds"
+      floe_principal_name              = "floe-${name}"
+      floe_credentials_secret_name     = "polaris-${name}-floe-creds"
+      deployer_principal_name          = "deployer-${name}"
+      deployer_credentials_secret_name = "polaris-${name}-deployer-creds"
+    }
+  }
 
   depends_on = [
     module.seaweedfs,
@@ -231,6 +268,7 @@ module "trino" {
   chart_package_path         = var.trino_chart_package_path
   storage_contract           = local.storage_contract
   catalog_contract           = local.catalog_contract
+  stage_catalog_contracts    = local.stage_catalog_contracts
   catalog_bootstrap_revision = local.polaris_bootstrap_hash
 
   depends_on = [
@@ -317,8 +355,8 @@ module "dagster" {
   project_code_image_tag         = var.project_code_image_tag
   project_code_image_pull_policy = var.project_code_image_pull_policy
   project_code_image_revision    = var.project_code_image_revision
-  storage_contract               = local.storage_contract
-  catalog_contract               = local.catalog_contract
+  storage_contract               = local.stage_storage_contracts[each.key]
+  catalog_contract               = local.stage_catalog_contracts[each.key]
   # The shared governance service exists whenever any stage enables it, but a
   # stage that did not ask for governance must not receive OpenLineage
   # configuration or the ingestion-bot credential: capabilities are per stage
@@ -326,16 +364,19 @@ module "dagster" {
   governance_contract = merge(local.governance_contract, {
     enabled = local.governance_enabled && each.value.governance
   })
-  query_contract            = local.query_contract
+  query_contract = merge(local.query_contract, {
+    catalog_name               = local.stage_catalog_contracts[each.key].catalog_name
+    runtime_identity_principal = local.stage_service_accounts[each.key]
+  })
   postgresql_contract       = local.stage_metadata_database_contracts[each.key]
   code_locations            = local.orchestration_contract.code_locations
-  floe_manifest_base_uri    = local.artifact_bucket_contract.base_uri
+  floe_manifest_base_uri    = "${local.artifact_bucket_contract.artifact_base_uri}/activations/${each.key}/floe/manifests"
   floe_manifest_access_mode = local.artifact_bucket_contract.access_mode
   artifact_bucket_name      = local.artifact_bucket_contract.bucket_name
-  artifact_base_uri         = local.artifact_bucket_contract.artifact_base_uri
-  floe_report_base_uri      = local.artifact_bucket_contract.floe_report_base_uri
-  log_base_uri              = local.artifact_bucket_contract.log_base_uri
-  run_artifact_base_uri     = local.artifact_bucket_contract.run_artifact_base_uri
+  artifact_base_uri         = "${local.artifact_bucket_contract.artifact_base_uri}/activations/${each.key}"
+  floe_report_base_uri      = "${local.artifact_bucket_contract.artifact_base_uri}/activations/${each.key}/floe/reports"
+  log_base_uri              = "${local.artifact_bucket_contract.artifact_base_uri}/activations/${each.key}/logs"
+  run_artifact_base_uri     = "${local.artifact_bucket_contract.artifact_base_uri}/activations/${each.key}/run-artifacts"
 
   depends_on = [
     module.trino,

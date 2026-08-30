@@ -272,7 +272,11 @@ class StageContract:
                 "local_upload_access_mode": ops_storage.get("local_upload_access_mode", "direct"),
             },
             "kubernetes_platform": {"namespace": self.namespace},
-            "query": {"catalog_name": self.query["catalog_name"], "endpoint": self.query["endpoint"]},
+            "query": {
+                "catalog_name": self.query["catalog_name"],
+                "endpoint": self.query["endpoint"],
+                "runtime_identity_principal": self.runtime_identity["principal"],
+            },
             "governance": {"enabled": self.governance is not None},
             "reporting": {"enabled": self.reporting is not None},
         }

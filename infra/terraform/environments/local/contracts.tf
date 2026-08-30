@@ -39,6 +39,31 @@ locals {
     workload_identity    = "kubernetes-service-account"
   }
 
+  stage_storage_contracts = {
+    for name, binding in local.stage_storage : name => merge(module.seaweedfs.contract, {
+      provider                = local.local_provider_name
+      implementation          = "storage.s3_compatible.seaweedfs"
+      adapter                 = "storage.s3_compatible.seaweedfs"
+      logical_name            = "stage/${name}/storage"
+      protocol                = "s3"
+      auth_mode               = "static-access-key-secret"
+      secret_delivery_mode    = "kubernetes-secret-env"
+      workload_identity       = false
+      ssl_mode                = "disabled"
+      ingress_mode            = "cluster-internal"
+      local_only              = true
+      future_adapter_shapes   = ["storage.aws_s3"]
+      bronze_bucket_name      = binding.bronze_bucket_name
+      silver_bucket_name      = binding.silver_bucket_name
+      gold_bucket_name        = binding.gold_bucket_name
+      credentials_secret_name = module.seaweedfs.stage_credentials[name].credentials_secret_name
+      access_key_id_key       = module.seaweedfs.stage_credentials[name].access_key_id_key
+      secret_access_key_key   = module.seaweedfs.stage_credentials[name].secret_access_key_key
+    })
+  }
+
+  # Shared platform services keep their own administrative S3 binding. Runtime
+  # workloads below receive only the corresponding stage_storage_contract.
   storage_contract = merge(module.seaweedfs.contract, {
     provider              = local.local_provider_name
     implementation        = "storage.s3_compatible.seaweedfs"
@@ -52,9 +77,9 @@ locals {
     ingress_mode          = "cluster-internal"
     local_only            = true
     future_adapter_shapes = ["storage.aws_s3"]
-    bronze_bucket_name    = var.bronze_bucket_name
-    silver_bucket_name    = var.silver_bucket_name
-    gold_bucket_name      = var.gold_bucket_name
+    bronze_bucket_name    = local.stage_storage[local.selected_stage].bronze_bucket_name
+    silver_bucket_name    = local.stage_storage[local.selected_stage].silver_bucket_name
+    gold_bucket_name      = local.stage_storage[local.selected_stage].gold_bucket_name
   })
 
   # One contract per stage-scoped service instance: the shared PostgreSQL
@@ -127,6 +152,34 @@ locals {
     # reconciles them from the descriptors (ADR 0002), and olf/contracts.py
     # derives both from the same inventory when the contract omits them.
   })
+
+  stage_catalog_contracts = {
+    for name, binding in module.polaris.stage_contracts : name => merge(binding, {
+      provider                  = local.local_provider_name
+      implementation            = "catalog.iceberg_rest.polaris"
+      adapter                   = "catalog.iceberg_rest.polaris"
+      logical_name              = "stage/${name}/catalog"
+      catalog_provider          = "polaris"
+      catalog_type              = "rest"
+      runtime_profile           = "polaris-rest"
+      catalog_namespace_model   = local.catalog_namespace_model
+      auth_mode                 = "oauth-client-secret"
+      secret_delivery_mode      = "kubernetes-secret-env"
+      ssl_mode                  = "disabled"
+      endpoint                  = module.polaris.contract.rest_uri
+      ingress_mode              = "cluster-internal"
+      local_only                = true
+      implemented_catalog_types = ["rest"]
+      future_catalog_types      = ["glue"]
+      future_adapter_shapes     = ["catalog.aws_glue"]
+      trino_support             = ["rest", "glue"]
+      dagster_support           = ["rest"]
+      floe_support              = ["rest"]
+      dbt_support               = ["rest"]
+      openmetadata_support      = ["rest"]
+      catalog_database_fqn      = "polaris.${binding.catalog_name}"
+    })
+  }
 
   governance_contract = merge(local.governance_enabled ? module.openmetadata[0].contract : {}, {
     enabled        = local.governance_enabled
@@ -317,24 +370,132 @@ locals {
   }
 
   provider_contracts = {
-    schema_version      = "2.0.0"
-    foundation          = local.foundation_contract
-    kubernetes_platform = local.kubernetes_platform_contract
-    cluster             = local.kubernetes_platform_contract
-    storage             = local.storage_contract
-    metadata_database   = local.metadata_database_contract
-    catalog             = local.catalog_contract
-    query               = local.query_contract
-    orchestration       = local.orchestration_contract
-    governance          = local.governance_contract
-    reporting           = local.reporting_contract
-    artifact_registry   = local.artifact_registry_contract
-    artifact_bucket     = local.artifact_bucket_contract
-    artifacts           = local.artifact_contract
-    secrets             = local.secrets_contract
-    identity            = local.identity_contract
-    access              = local.access_contract
-    observability       = local.observability_contract
+    schema_version = "3.0.0"
+    deployment = {
+      profile_name = var.profile_name
+      provider     = local.local_provider_name
+      region       = null
+    }
+    shared = {
+      foundation          = { ref = "shared/foundation", implementation = local.foundation_contract.implementation }
+      kubernetes_platform = { ref = "shared/kubernetes_platform", implementation = local.kubernetes_platform_contract.implementation }
+      metadata_database   = { ref = "shared/metadata_database", implementation = local.metadata_database_contract.implementation }
+      query = {
+        ref            = "shared/query"
+        implementation = local.query_contract.implementation
+        endpoint       = local.query_contract.endpoint
+      }
+      catalog_service = {
+        ref            = "shared/catalog_service"
+        implementation = local.catalog_contract.implementation
+        endpoint       = local.catalog_contract.endpoint
+      }
+      artifact_registry = { ref = "shared/artifact_registry", implementation = local.artifact_registry_contract.implementation }
+      ops_storage = {
+        ref                      = "shared/ops_storage"
+        implementation           = local.artifact_bucket_contract.implementation
+        bucket_name              = local.artifact_bucket_contract.bucket_name
+        artifact_base_uri        = local.artifact_bucket_contract.artifact_base_uri
+        access_mode              = local.artifact_bucket_contract.access_mode
+        local_upload_access_mode = local.artifact_bucket_contract.local_upload_access_mode
+      }
+      secrets       = { ref = "shared/secrets", implementation = local.secrets_contract.implementation }
+      identity      = { ref = "shared/identity", implementation = local.identity_contract.implementation }
+      access        = { ref = "shared/access", implementation = local.access_contract.implementation }
+      observability = { ref = "shared/observability", implementation = local.observability_contract.implementation }
+    }
+    stages = {
+      for name, stage in local.enabled_stages : name => merge({
+        namespace = local.stage_namespaces[name]
+        storage = {
+          provider                = local.local_provider_name
+          implementation          = "storage.s3_compatible.seaweedfs"
+          protocol                = "s3"
+          region                  = var.s3_region
+          endpoint                = local.stage_storage_contracts[name].endpoint
+          virtual_host_endpoint   = local.stage_storage_contracts[name].virtual_host_endpoint
+          path_style_access       = true
+          ssl_mode                = "disabled"
+          credentials_secret_name = local.stage_storage_contracts[name].credentials_secret_name
+          access_key_id_key       = local.stage_storage_contracts[name].access_key_id_key
+          secret_access_key_key   = local.stage_storage_contracts[name].secret_access_key_key
+          s3_service_name         = local.stage_storage_contracts[name].s3_service_name
+          s3_service_port         = local.stage_storage_contracts[name].s3_service_port
+          identity_ref            = "stage/${name}/runtime_identity"
+          bronze = {
+            physical_id = local.stage_storage[name].bronze_bucket_name
+            bucket_name = local.stage_storage[name].bronze_bucket_name
+            uri         = "s3://${local.stage_storage[name].bronze_bucket_name}"
+          }
+          silver = {
+            physical_id = local.stage_storage[name].silver_bucket_name
+            bucket_name = local.stage_storage[name].silver_bucket_name
+            uri         = "s3://${local.stage_storage[name].silver_bucket_name}"
+          }
+          gold = {
+            physical_id = local.stage_storage[name].gold_bucket_name
+            bucket_name = local.stage_storage[name].gold_bucket_name
+            uri         = "s3://${local.stage_storage[name].gold_bucket_name}"
+          }
+        }
+        catalog = {
+          logical_name                     = "iceberg_catalog"
+          implementation                   = local.stage_catalog_contracts[name].implementation
+          catalog_type                     = "rest"
+          catalog_provider                 = "polaris"
+          catalog_name                     = local.stage_catalog_contracts[name].catalog_name
+          runtime_profile                  = "polaris-rest"
+          physical_id                      = local.stage_catalog_contracts[name].catalog_name
+          service_ref                      = "shared/catalog_service"
+          warehouse                        = local.stage_catalog_contracts[name].warehouse
+          rest_uri                         = local.stage_catalog_contracts[name].rest_uri
+          token_uri                        = local.stage_catalog_contracts[name].token_uri
+          oauth_scope                      = local.stage_catalog_contracts[name].oauth_scope
+          catalog_namespace_model          = local.catalog_namespace_model
+          floe_credentials_secret_name     = local.stage_catalog_contracts[name].floe_credentials_secret_name
+          floe_client_id_key               = local.stage_catalog_contracts[name].floe_client_id_key
+          floe_client_secret_key           = local.stage_catalog_contracts[name].floe_client_secret_key
+          deployer_credentials_secret_name = local.stage_catalog_contracts[name].deployer_credentials_secret_name
+          deployer_client_id_key           = local.stage_catalog_contracts[name].deployer_client_id_key
+          deployer_client_secret_key       = local.stage_catalog_contracts[name].deployer_client_secret_key
+        }
+        query = {
+          service_ref          = "shared/query"
+          catalog_ref          = "stage/${name}/catalog"
+          catalog_name         = local.stage_catalog_contracts[name].catalog_name
+          endpoint             = local.query_contract.endpoint
+          runtime_identity_ref = "stage/${name}/runtime_identity"
+        }
+        orchestration = {
+          service_ref  = "stage/${name}/orchestration"
+          endpoint_ref = "stage/${name}/endpoints/orchestration"
+        }
+        activation = {
+          ops_storage_ref = "shared/ops_storage"
+          prefix          = "activations/${name}"
+        }
+        endpoints = {
+          catalog       = "shared/catalog_service"
+          query         = "shared/query"
+          orchestration = "stage/${name}/endpoints/orchestration"
+        }
+        runtime_identity = {
+          ref       = "stage/${name}/runtime_identity"
+          principal = local.stage_service_accounts[name]
+        }
+        }, stage.analytics ? {
+        reporting = {
+          service_ref  = "stage/${name}/reporting"
+          endpoint_ref = "stage/${name}/endpoints/reporting"
+        }
+        endpoints = {
+          catalog       = "shared/catalog_service"
+          query         = "shared/query"
+          orchestration = "stage/${name}/endpoints/orchestration"
+          reporting     = "stage/${name}/endpoints/reporting"
+        }
+      } : {})
+    }
   }
 }
 

@@ -87,6 +87,12 @@ variable "catalog_contract" {
   })
 }
 
+variable "stage_catalog_contracts" {
+  description = "Stage-indexed catalog bindings. When present, Trino renders one catalog properties file per stage instead of a single compatibility catalog."
+  type        = map(any)
+  default     = {}
+}
+
 variable "catalog_bootstrap_revision" {
   description = "Content revision used to force Trino pod rollouts when Polaris bootstrap credentials or grants change."
   type        = string

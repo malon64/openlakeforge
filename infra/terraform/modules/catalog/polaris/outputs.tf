@@ -42,3 +42,27 @@ output "root_client_secret" {
   value       = random_password.root_client_secret.result
   sensitive   = true
 }
+
+output "stage_contracts" {
+  description = "Stage-owned catalog bindings written by the shared Polaris bootstrap job."
+  value = {
+    for stage, binding in local.stage_catalogs : stage => {
+      catalog_name                     = binding.catalog_name
+      trino_catalog_name               = binding.catalog_name
+      warehouse                        = binding.catalog_name
+      rest_uri                         = local.rest_uri
+      token_uri                        = local.token_uri
+      oauth_scope                      = local.oauth_scope
+      trino_credentials_secret_name    = binding.trino_credentials_secret_name
+      trino_client_id_key              = "POLARIS_TRINO_CLIENT_ID"
+      trino_client_secret_key          = "POLARIS_TRINO_CLIENT_SECRET"
+      floe_credentials_secret_name     = binding.floe_credentials_secret_name
+      floe_client_id_key               = "POLARIS_FLOE_CLIENT_ID"
+      floe_client_secret_key           = "POLARIS_FLOE_CLIENT_SECRET"
+      deployer_credentials_secret_name = binding.deployer_credentials_secret_name
+      deployer_client_id_key           = "POLARIS_DEPLOYER_CLIENT_ID"
+      deployer_client_secret_key       = "POLARIS_DEPLOYER_CLIENT_SECRET"
+      bootstrap_run_id                 = kubernetes_job_v1.bootstrap.metadata[0].name
+    }
+  }
+}

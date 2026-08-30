@@ -28,7 +28,7 @@ The tracked/approved version for each provider. Individual Terraform roots can l
 
 | Provider | Tracked version |
 | --- | --- |
-| hashicorp/aws | 5.100.0 |
+| hashicorp/aws | 6.62.0 |
 | hashicorp/azurerm | 4.77.0 |
 | hashicorp/helm | 3.2.0 |
 | hashicorp/kubernetes | 2.38.0 |
@@ -41,7 +41,7 @@ The exact version `.terraform.lock.hcl` pins for each root -- what a consumer of
 
 | Provider | infra/terraform/environments/aws-poc/.terraform.lock.hcl | infra/terraform/environments/azure-poc/.terraform.lock.hcl | infra/terraform/environments/local/.terraform.lock.hcl | infra/terraform/foundations/aws-eks/.terraform.lock.hcl | infra/terraform/foundations/azure-aks/.terraform.lock.hcl |
 | --- | --- | --- | --- | --- | --- |
-| hashicorp/aws | 5.100.0 |  |  | 5.100.0 |  |
+| hashicorp/aws | 6.62.0 |  |  | 6.62.0 |  |
 | hashicorp/azurerm |  |  |  |  | 4.77.0 |
 | hashicorp/helm | 3.2.0 | 3.2.0 | 3.1.1 |  |  |
 | hashicorp/kubernetes | 2.38.0 | 2.38.0 | 2.38.0 |  |  |

@@ -38,6 +38,30 @@ variable "workload_namespaces" {
   default     = []
 }
 
+variable "replicate_credentials" {
+  description = "Whether every principal Secret is copied to every workload namespace. Stage isolation uses direct stage-targeted Secrets instead."
+  type        = bool
+  default     = true
+}
+
+variable "stage_catalogs" {
+  description = "Stage-owned Polaris catalogs, principals, and target namespaces. Empty keeps the legacy single-catalog interface for v0.2 migration."
+  type = map(object({
+    namespace                        = string
+    catalog_name                     = string
+    bronze_bucket_name               = string
+    silver_bucket_name               = string
+    gold_bucket_name                 = string
+    trino_principal_name             = string
+    trino_credentials_secret_name    = string
+    floe_principal_name              = string
+    floe_credentials_secret_name     = string
+    deployer_principal_name          = string
+    deployer_credentials_secret_name = string
+  }))
+  default = {}
+}
+
 variable "catalog_name" {
   description = "Polaris catalog name."
   type        = string

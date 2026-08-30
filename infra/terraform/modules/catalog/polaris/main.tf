@@ -27,31 +27,37 @@ locals {
     ? var.storage_contract.gold_bucket_name
     : var.storage_contract.bucket_name
   )
+  stage_catalogs = length(var.stage_catalogs) > 0 ? var.stage_catalogs : {
+    dev = {
+      namespace                        = var.namespace
+      catalog_name                     = var.catalog_name
+      bronze_bucket_name               = local.bronze_bucket_name
+      silver_bucket_name               = local.silver_bucket_name
+      gold_bucket_name                 = local.gold_bucket_name
+      trino_principal_name             = var.principal_name
+      trino_credentials_secret_name    = var.trino_credentials_secret_name
+      floe_principal_name              = var.floe_principal_name
+      floe_credentials_secret_name     = var.floe_credentials_secret_name
+      deployer_principal_name          = var.deployer_principal_name
+      deployer_credentials_secret_name = var.deployer_credentials_secret_name
+    }
+  }
   # The Job template is immutable, so a changed workload-namespace set has to
   # produce a new Job name for the credential replicas to be created.
   bootstrap_script = templatefile("${path.module}/templates/bootstrap.sh.tftpl", {
-    release_name                     = var.release_name
-    oauth_scope                      = local.oauth_scope
-    bronze_bucket_name               = local.bronze_bucket_name
-    silver_bucket_name               = local.silver_bucket_name
-    gold_bucket_name                 = local.gold_bucket_name
-    catalog_name                     = var.catalog_name
-    principal_name                   = var.principal_name
-    trino_credentials_secret_name    = var.trino_credentials_secret_name
-    principal_role                   = var.principal_role
-    catalog_role                     = var.catalog_role
-    floe_principal_name              = var.floe_principal_name
-    floe_credentials_secret_name     = var.floe_credentials_secret_name
-    floe_principal_role              = var.floe_principal_role
-    floe_catalog_role                = var.floe_catalog_role
-    om_principal_name                = var.om_principal_name
-    om_credentials_secret_name       = var.om_credentials_secret_name
-    om_principal_role                = var.om_principal_role
-    om_catalog_role                  = var.om_catalog_role
-    deployer_principal_name          = var.deployer_principal_name
-    deployer_credentials_secret_name = var.deployer_credentials_secret_name
-    deployer_principal_role          = var.deployer_principal_role
-    deployer_catalog_role            = var.deployer_catalog_role
+    release_name               = var.release_name
+    oauth_scope                = local.oauth_scope
+    stage_catalogs             = local.stage_catalogs
+    principal_role             = var.principal_role
+    catalog_role               = var.catalog_role
+    floe_principal_role        = var.floe_principal_role
+    floe_catalog_role          = var.floe_catalog_role
+    om_principal_name          = var.om_principal_name
+    om_credentials_secret_name = var.om_credentials_secret_name
+    om_principal_role          = var.om_principal_role
+    om_catalog_role            = var.om_catalog_role
+    deployer_principal_role    = var.deployer_principal_role
+    deployer_catalog_role      = var.deployer_catalog_role
   })
 
   bootstrap_job_name = "polaris-bootstrap-${helm_release.polaris.metadata.revision}"
