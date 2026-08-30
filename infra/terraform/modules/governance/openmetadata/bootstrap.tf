@@ -26,33 +26,7 @@ resource "kubernetes_job_v1" "bootstrap" {
           image = var.bootstrap_job_image
 
           command = ["/bin/sh", "-ec"]
-          args = [templatefile("${path.module}/templates/bootstrap.sh.tftpl", {
-            om_url                        = local.om_url
-            admin_email                   = var.admin_email
-            admin_password                = var.admin_password
-            catalog_type                  = local.catalog_type
-            catalog_service_name          = local.catalog_service_name
-            catalog_service_display_name  = local.catalog_service_display_name
-            catalog_uri                   = coalesce(try(var.catalog_contract.rest_uri, null), try(var.catalog_contract.glue_rest_uri, null), "")
-            catalog_warehouse             = coalesce(try(var.catalog_contract.warehouse, null), try(var.catalog_contract.glue_rest_warehouse, null), var.catalog_database_name)
-            token_uri                     = (try(var.catalog_contract.token_uri, null) == null ? "" : try(var.catalog_contract.token_uri, null))
-            oauth_scope                   = (try(var.catalog_contract.oauth_scope, null) == null ? "" : try(var.catalog_contract.oauth_scope, null))
-            ingestion_bot_secret_name     = var.ingestion_bot_secret_name
-            trino_lineage_namespace       = var.trino_lineage_namespace
-            ingestion_bot_jwt_key         = var.ingestion_bot_jwt_key
-            storage_region                = var.storage_contract.region
-            storage_endpoint              = (try(var.storage_contract.virtual_host_endpoint, null) == null ? "" : try(var.storage_contract.virtual_host_endpoint, null))
-            catalog_database_name         = var.catalog_database_name
-            catalog_database_fqn          = local.catalog_database_fqn
-            catalog_schema_names_json_b64 = local.catalog_schema_names_json_b64
-            dagster_webserver_url         = var.dagster_webserver_url
-            superset_url                  = var.superset_url
-            register_superset             = var.register_superset
-            superset_username             = var.superset_username
-            superset_password             = var.superset_password
-            superset_auth_provider        = var.superset_auth_provider
-            superset_verify_ssl           = var.superset_verify_ssl
-          })]
+          args    = [local.bootstrap_script]
 
           env {
             name = "NAMESPACE"

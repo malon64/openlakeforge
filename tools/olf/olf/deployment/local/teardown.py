@@ -23,6 +23,33 @@ def owned_namespaces(config: LocalDeploymentConfig) -> tuple[str, ...]:
     return config.context.owned_namespaces
 
 
+def managed_namespaces(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[str, str]) -> tuple[str, ...]:
+    """Namespaces in the cluster labelled as belonging to this deployment.
+
+    The resolved topology only describes the stages that are enabled *now*.
+    A teardown driven by drift recovery has to remove what is actually there,
+    including a stage that was deployed and has since been disabled -- with no
+    Terraform state to destroy it, that namespace would otherwise survive a
+    reset that reports success. The profile label keeps this from touching
+    another deployment sharing the cluster.
+    """
+    result = tools.kubectl.get(
+        "namespace",
+        context=config.kube_context,
+        kubeconfig=config.paths.kubeconfig_path,
+        output="jsonpath={range .items[*]}{.metadata.name}{\"\\n\"}{end}",
+        extra_args=(
+            "-l",
+            f"openlakeforge.io/managed-by=openlakeforge,openlakeforge.io/profile={config.context.topology.profile_name}",
+        ),
+        env=env,
+        check=False,
+    )
+    if not result.ok:
+        return ()
+    return tuple(name.strip() for name in result.stdout.splitlines() if name.strip())
+
+
 def cleanup_legacy_helm_releases(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[str, str]) -> list[str]:
     """Remove unmanaged Helm releases from stacks predating Terraform ownership."""
     removed: list[str] = []
@@ -85,7 +112,9 @@ def platform_down(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping
     log.step("Removing legacy unmanaged Helm releases if present...")
     cleanup_legacy_helm_releases(config, tools, env=env)
 
-    for namespace in owned_namespaces(config):
+    # Union: the topology's namespaces plus whatever is still labelled as
+    # ours, so a stage removed from the profile is not left behind.
+    for namespace in dict.fromkeys((*owned_namespaces(config), *managed_namespaces(config, tools, env=env))):
         log.step(f"Deleting namespace '{namespace}' if it still exists...")
         tools.kubectl.delete(
             "namespace",

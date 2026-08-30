@@ -182,3 +182,30 @@ def test_platform_down_deletes_every_namespace_the_deployment_owns(tmp_path: Pat
         if "namespace" in call.argv and "delete" in call.argv
     ]
     assert deleted == ["olf-system", "olf-dev"]
+
+
+def test_platform_down_also_removes_a_stage_the_profile_no_longer_enables(tmp_path: Path) -> None:
+    """Drift recovery tears down what is in the cluster, not only what the
+    current topology names: a stage deployed and since disabled has no state
+    left to destroy it, so it would survive a reset that reports success."""
+    config = _config(tmp_path)
+
+    class _Runner(_TeardownScriptedRunner):
+        def run(self, command, **kwargs):  # type: ignore[override]
+            argv = list(command.argv) if hasattr(command, "argv") else [str(part) for part in command]
+            if "get" in argv and "namespace" in argv and any(a.startswith("openlakeforge.io/") for a in argv):
+                self.calls.append(RecordedCall(argv=argv, kwargs=kwargs))
+                return CommandResult(
+                    argv=(), returncode=0, stdout="olf-system\nolf-dev\nolf-prod\n", stderr="", duration_seconds=0.0
+                )
+            return super().run(command, **kwargs)
+
+    runner = _Runner()
+    teardown.platform_down(config, _toolkit(runner), env={})
+
+    deleted = [
+        call.argv[call.argv.index("namespace") + 1]
+        for call in runner.calls
+        if "namespace" in call.argv and "delete" in call.argv
+    ]
+    assert deleted == ["olf-system", "olf-dev", "olf-prod"]

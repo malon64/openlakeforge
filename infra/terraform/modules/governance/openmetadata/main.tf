@@ -40,13 +40,47 @@ locals {
   bootstrap_secret_env = concat(local.storage_secret_env, local.polaris_secret_env)
   # See the Polaris module: an immutable Job template needs a new name for
   # the ingestion-bot Secret replicas to be created for a newly added stage.
+  bootstrap_script = templatefile("${path.module}/templates/bootstrap.sh.tftpl", {
+    om_url                        = local.om_url
+    admin_email                   = var.admin_email
+    admin_password                = var.admin_password
+    catalog_type                  = local.catalog_type
+    catalog_service_name          = local.catalog_service_name
+    catalog_service_display_name  = local.catalog_service_display_name
+    catalog_uri                   = coalesce(try(var.catalog_contract.rest_uri, null), try(var.catalog_contract.glue_rest_uri, null), "")
+    catalog_warehouse             = coalesce(try(var.catalog_contract.warehouse, null), try(var.catalog_contract.glue_rest_warehouse, null), var.catalog_database_name)
+    token_uri                     = (try(var.catalog_contract.token_uri, null) == null ? "" : try(var.catalog_contract.token_uri, null))
+    oauth_scope                   = (try(var.catalog_contract.oauth_scope, null) == null ? "" : try(var.catalog_contract.oauth_scope, null))
+    ingestion_bot_secret_name     = var.ingestion_bot_secret_name
+    trino_lineage_namespace       = var.trino_lineage_namespace
+    ingestion_bot_jwt_key         = var.ingestion_bot_jwt_key
+    storage_region                = var.storage_contract.region
+    storage_endpoint              = (try(var.storage_contract.virtual_host_endpoint, null) == null ? "" : try(var.storage_contract.virtual_host_endpoint, null))
+    catalog_database_name         = var.catalog_database_name
+    catalog_database_fqn          = local.catalog_database_fqn
+    catalog_schema_names_json_b64 = local.catalog_schema_names_json_b64
+    dagster_webserver_url         = var.dagster_webserver_url
+    superset_url                  = var.superset_url
+    register_superset             = var.register_superset
+    superset_username             = var.superset_username
+    superset_password             = var.superset_password
+    superset_auth_provider        = var.superset_auth_provider
+    superset_verify_ssl           = var.superset_verify_ssl
+  })
+
   bootstrap_job_name = "openmetadata-bootstrap-${helm_release.openmetadata.metadata.revision}"
 
-  # Keyed on the bootstrap job as well as the namespace set: that job
-  # mints the credentials being copied, so when it re-runs and replaces
-  # them, the replicas have to be rewritten or every stage namespace
-  # keeps a token the service no longer accepts.
-  workload_revision = substr(sha256(join(",", concat(sort(var.workload_namespaces), [local.bootstrap_job_name]))), 0, 8)
+  # Keyed on the whole bootstrap job -- its name and its rendered script --
+  # as well as the namespace set. That job mints the credentials being
+  # copied, and a Job spec is immutable, so any change to the script
+  # replaces it and re-mints them. Keying on the name alone would miss every
+  # replacement that keeps the Helm revision, leaving each namespace with a
+  # token the service no longer accepts.
+  workload_revision = substr(
+    sha256(join(",", concat(sort(var.workload_namespaces), [local.bootstrap_job_name, sha256(local.bootstrap_script)]))),
+    0,
+    8,
+  )
 
   bootstrap_annotations = {
     "openlakeforge.io/openmetadata-release-revision" = tostring(helm_release.openmetadata.metadata.revision)

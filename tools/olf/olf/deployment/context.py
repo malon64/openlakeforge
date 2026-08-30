@@ -57,11 +57,21 @@ def _resolve_foundation_state_path(foundation_terraform_dir: Path) -> Path:
     return foundation_terraform_dir / "terraform.tfstate"
 
 
-def _default_namespace(shared_namespace: str, stage: StageName) -> str:
-    """A stage-aware root puts each stage in its own namespace; the
-    single-namespace cloud POC roots keep serving the stage from the shared
-    one until #114 splits them too."""
-    return stage_namespace(stage) if shared_namespace == SHARED_NAMESPACE else shared_namespace
+def _resolved_namespaces(
+    *, override: str, stage_aware: bool, stage: StageName
+) -> tuple[str, str]:
+    """The (stage, shared) namespaces for one run.
+
+    A stage-aware root derives both from the topology and takes no override.
+    The single-namespace cloud POC roots put shared and stage services in one
+    namespace, so an override has to move both -- moving only the stage one
+    would send the artifacts phase looking for OpenMetadata in a namespace
+    that was never created. #114 makes those roots stage-aware too.
+    """
+    if stage_aware:
+        return stage_namespace(stage), SHARED_NAMESPACE
+    resolved = override or CLOUD_POC_NAMESPACE
+    return resolved, resolved
 
 
 class Provider(StrEnum):
@@ -170,10 +180,15 @@ class DeploymentContext:
         )
 
     def namespace_for(self, stage: StageName | str) -> str:
-        """The namespace owning one stage's services on this provider."""
+        """The namespace owning one stage's services on this provider.
+
+        Only a stage-aware root gives each stage its own; the cloud POC roots
+        serve every stage from the one namespace they were given."""
         from olf.profile import StageName
 
-        return _default_namespace(self.shared_namespace, StageName(stage))
+        if self.shared_namespace != SHARED_NAMESPACE:
+            return self.shared_namespace
+        return stage_namespace(StageName(stage))
 
     @classmethod
     def for_provider(cls, provider: Provider | str, *, repo_root: Path, **kwargs: object) -> DeploymentContext:
@@ -224,7 +239,7 @@ class DeploymentContext:
             topology=topology,
             stage=stage,
             allow_stage_removal=allow_stage_removal,
-            shared_namespace=SHARED_NAMESPACE,
+            stage_aware_namespaces=True,
             kube_context=f"kind-{cluster_name}",
             foundation_terraform_dir=Path("infra/terraform/foundations/local-kind"),
             platform_terraform_dir=Path("infra/terraform/environments/local"),
@@ -271,7 +286,7 @@ class DeploymentContext:
             topology=topology,
             stage=stage,
             allow_stage_removal=allow_stage_removal,
-            shared_namespace=CLOUD_POC_NAMESPACE,
+            stage_aware_namespaces=False,
             kube_context=kube_context,
             foundation_terraform_dir=Path("infra/terraform/foundations/aws-eks"),
             platform_terraform_dir=Path("infra/terraform/environments/aws-poc"),
@@ -315,7 +330,7 @@ class DeploymentContext:
             topology=topology,
             stage=stage,
             allow_stage_removal=allow_stage_removal,
-            shared_namespace=CLOUD_POC_NAMESPACE,
+            stage_aware_namespaces=False,
             kube_context=kube_context,
             foundation_terraform_dir=Path("infra/terraform/foundations/azure-aks"),
             platform_terraform_dir=Path("infra/terraform/environments/azure-poc"),
@@ -340,7 +355,7 @@ class DeploymentContext:
         topology: DeploymentTopology | None,
         stage: StageName | str | None,
         allow_stage_removal: bool,
-        shared_namespace: str,
+        stage_aware_namespaces: bool,
         kube_context: str,
         foundation_terraform_dir: Path,
         platform_terraform_dir: Path,
@@ -406,17 +421,20 @@ class DeploymentContext:
             port_forward_log_prefix=Path(f"/tmp/openlakeforge-{scope}"),
             installed=state_root is not None,
         )
+        resolved_namespace, resolved_shared_namespace = _resolved_namespaces(
+            override=namespace, stage_aware=stage_aware_namespaces, stage=resolved_stage
+        )
         return cls(
             provider=provider,
             profile=profile,
-            namespace=namespace or _default_namespace(shared_namespace, resolved_stage),
+            namespace=resolved_namespace,
             kube_context=kube_context,
             paths=paths,
             features=DeploymentFeatures.for_stage(resolved_topology, resolved_stage),
             topology=resolved_topology,
             stage=resolved_stage,
             allow_stage_removal=allow_stage_removal,
-            shared_namespace=shared_namespace,
+            shared_namespace=resolved_shared_namespace,
         )
 
     def command_env(
