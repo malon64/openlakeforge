@@ -1,6 +1,6 @@
 resource "kubernetes_job_v1" "bootstrap" {
   metadata {
-    name      = "openmetadata-bootstrap-${helm_release.openmetadata.metadata.revision}"
+    name      = local.bootstrap_job_name
     namespace = var.namespace
     labels    = local.labels
   }

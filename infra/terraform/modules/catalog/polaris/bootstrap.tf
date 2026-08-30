@@ -125,7 +125,7 @@ resource "kubernetes_job_v1" "metastore_bootstrap" {
 
 resource "kubernetes_job_v1" "bootstrap" {
   metadata {
-    name      = "polaris-bootstrap-${helm_release.polaris.metadata.revision}"
+    name      = local.bootstrap_job_name
     namespace = var.namespace
     labels    = local.labels
   }

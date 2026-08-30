@@ -465,6 +465,16 @@ def build_contract_env(
     if contracts is not None:
         parsed = parse_provider_contracts(contracts, topology)
         native_v3 = not parsed.compatibility_v2
+        if parsed.compatibility_v2 and stage is not None and StageName(stage) != StageName.DEV:
+            # The v2 payload carries one stage's bindings with no stage index,
+            # so there is nothing to select: returning it for another stage
+            # would hand that stage DEV's namespace, catalog, and capability
+            # flags while reporting success. #114 emits v3, which can answer
+            # this properly.
+            raise ProviderContractError(
+                f"provider contract v2 describes only the DEV stage; it cannot serve {StageName(stage).value!r} "
+                "(#114 switches the roots to v3)"
+            )
         resolved_contract = (
             dict(contracts) if parsed.compatibility_v2 else parsed.for_stage(stage).as_v2_environment_contract()
         )

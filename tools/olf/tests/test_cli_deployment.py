@@ -275,3 +275,30 @@ def test_local_rejects_a_namespace_override(tmp_path: Path) -> None:
 
     assert result.exit_code == 1
     assert "--namespace is not supported for the local provider" in result.output
+
+
+def test_a_multi_stage_profile_is_refused_on_the_single_stage_cloud_roots(tmp_path: Path) -> None:
+    """The cloud roots create one namespace and one Dagster, so deploying them
+    from a two-stage profile would exit 0 having skipped a stage."""
+    _write_profile(
+        tmp_path, provider="aws", stages="    dev:\n      enabled: true\n    prod:\n      enabled: true\n"
+    )
+
+    result = runner.invoke(app, ["deploy", "--provider", "aws", "--project-root", str(tmp_path)])
+
+    assert result.exit_code == 1
+    assert "still single-stage" in result.output
+
+
+def test_the_single_dev_shorthand_still_works_on_cloud(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _write_profile(
+        tmp_path, provider="aws", stages="    dev:\n      enabled: true\n    prod:\n      enabled: true\n"
+    )
+    monkeypatch.setattr("olf.commands.deployment._build_engine", lambda *a, **k: _FakeEngine())
+
+    result = runner.invoke(
+        app,
+        ["deploy", "--provider", "aws", "--profile", "slim", "--phase", "foundation", "--project-root", str(tmp_path)],
+    )
+
+    assert result.exit_code == 0, result.output

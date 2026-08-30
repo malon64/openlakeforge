@@ -29,7 +29,13 @@ locals {
   )
   # The Job template is immutable, so a changed workload-namespace set has to
   # produce a new Job name for the credential replicas to be created.
-  workload_revision = substr(sha256(join(",", sort(var.workload_namespaces))), 0, 8)
+  bootstrap_job_name = "polaris-bootstrap-${helm_release.polaris.metadata.revision}"
+
+  # Keyed on the bootstrap job as well as the namespace set: that job
+  # mints the credentials being copied, so when it re-runs and replaces
+  # them, the replicas have to be rewritten or every stage namespace
+  # keeps a token the service no longer accepts.
+  workload_revision = substr(sha256(join(",", concat(sort(var.workload_namespaces), [local.bootstrap_job_name]))), 0, 8)
 
   bootstrap_annotations = {
     "openlakeforge.io/polaris-release-revision" = tostring(helm_release.polaris.metadata.revision)

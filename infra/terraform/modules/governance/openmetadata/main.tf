@@ -40,7 +40,13 @@ locals {
   bootstrap_secret_env = concat(local.storage_secret_env, local.polaris_secret_env)
   # See the Polaris module: an immutable Job template needs a new name for
   # the ingestion-bot Secret replicas to be created for a newly added stage.
-  workload_revision = substr(sha256(join(",", sort(var.workload_namespaces))), 0, 8)
+  bootstrap_job_name = "openmetadata-bootstrap-${helm_release.openmetadata.metadata.revision}"
+
+  # Keyed on the bootstrap job as well as the namespace set: that job
+  # mints the credentials being copied, so when it re-runs and replaces
+  # them, the replicas have to be rewritten or every stage namespace
+  # keeps a token the service no longer accepts.
+  workload_revision = substr(sha256(join(",", concat(sort(var.workload_namespaces), [local.bootstrap_job_name]))), 0, 8)
 
   bootstrap_annotations = {
     "openlakeforge.io/openmetadata-release-revision" = tostring(helm_release.openmetadata.metadata.revision)

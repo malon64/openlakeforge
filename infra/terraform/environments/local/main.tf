@@ -76,11 +76,16 @@ locals {
   selected_stage           = contains(keys(local.enabled_stages), "dev") ? "dev" : sort(keys(local.enabled_stages))[0]
   selected_stage_namespace = local.stage_namespaces[local.selected_stage]
 
-  # OpenMetadata registers one Superset dashboard service. With no analytics
-  # stage there is nothing to register, but the payload still needs a
-  # well-formed URL, so it names where that stage's Superset would run.
-  governance_superset_url = local.selected_stage_analytics ? local.reporting_contract.endpoint : "http://superset.${local.stage_namespaces[local.selected_stage]}:8088"
-  stage_service_accounts  = { for name in keys(local.enabled_stages) : name => "olf-${name}-runtime" }
+  # OpenMetadata registers one Superset dashboard service, so it must name a
+  # stage that actually has one -- the selected stage need not be the stage
+  # with analytics enabled. With no analytics stage at all there is nothing to
+  # register, but the payload still needs a well-formed URL.
+  governance_superset_stage = local.selected_stage_analytics ? local.selected_stage : try(sort(keys(local.analytics_stages))[0], local.selected_stage)
+  governance_superset_url = try(
+    "http://${module.superset[local.governance_superset_stage].contract.service_name}.${local.stage_namespaces[local.governance_superset_stage]}:${module.superset[local.governance_superset_stage].contract.http_port}",
+    "http://superset.${local.stage_namespaces[local.governance_superset_stage]}:8088",
+  )
+  stage_service_accounts = { for name in keys(local.enabled_stages) : name => "olf-${name}-runtime" }
   stage_labels = { for name in keys(local.enabled_stages) : name => {
     "openlakeforge.io/stage"      = name
     "openlakeforge.io/managed-by" = "openlakeforge"
