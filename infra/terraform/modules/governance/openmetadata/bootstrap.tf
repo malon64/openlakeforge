@@ -47,6 +47,7 @@ resource "kubernetes_job_v1" "bootstrap" {
             catalog_schema_names_json_b64 = local.catalog_schema_names_json_b64
             dagster_webserver_url         = var.dagster_webserver_url
             superset_url                  = var.superset_url
+            register_superset             = var.register_superset
             superset_username             = var.superset_username
             superset_password             = var.superset_password
             superset_auth_provider        = var.superset_auth_provider

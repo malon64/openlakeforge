@@ -63,6 +63,7 @@ locals {
   # capability gate below. Nothing here re-reads the Deployment Profile.
   enabled_stages   = { for name, stage in var.stages : name => stage if stage.enabled }
   analytics_stages = { for name, stage in local.enabled_stages : name => stage if stage.analytics }
+  governed_stages  = { for name, stage in local.enabled_stages : name => stage if stage.governance }
   # Shared services are provisioned once for the whole deployment, so
   # governance follows any enabled stage asking for it.
   governance_enabled = length([for stage in values(local.enabled_stages) : true if stage.governance]) > 0
@@ -246,7 +247,15 @@ module "openmetadata" {
   # come into existence in Phase 2. `olf openmetadata deploy-metadata` creates
   # each databaseSchema entity right before it seeds that schema's tables.
   catalog_schema_names = []
-  workload_namespaces  = values(local.stage_namespaces)
+  # Only governed stages: the ingestion-bot JWT is a live credential, and a
+  # stage that did not enable governance should not have one sitting in its
+  # namespace even though its Dagster never mounts it.
+  workload_namespaces = [for name in keys(local.governed_stages) : local.stage_namespaces[name]]
+  # The orchestration endpoint is namespace-qualified; OpenMetadata stores it
+  # in the Dagster pipeline-service connection and would otherwise resolve a
+  # bare name from `olf-system`, where no Dagster runs.
+  dagster_webserver_url = local.orchestration_contract.endpoint
+  register_superset     = length(local.analytics_stages) > 0
   # Superset is stage-scoped, so the shared governance service has to be told
   # which stage's instance it registers as a dashboard service.
   superset_url            = local.governance_superset_url

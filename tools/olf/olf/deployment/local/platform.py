@@ -160,17 +160,21 @@ def require_no_stage_removal(config: LocalDeploymentConfig, tools: Toolkit, *, e
     """Refuse an ordinary apply that would drop an already-applied stage.
 
     Disabling a stage in the Deployment Profile is a destructive operation:
-    the apply that follows removes that stage's namespace and every service
-    and metadata database inside it. Terraform's own `prevent_destroy`
-    cannot be made conditional, so the opt-in lives here instead.
+    the apply that follows deletes that stage's namespace, the services in it,
+    and their credentials. Its databases on the shared PostgreSQL server are
+    deliberately left behind -- dropping a stage's run and report history as a
+    side effect of a profile edit is not something an apply should do -- so
+    re-enabling the stage reconnects to that existing state. Terraform's own
+    `prevent_destroy` cannot be made conditional, so the opt-in lives here.
     """
     enabled = {stage.value for stage in config.context.enabled_stages}
     removed = [stage for stage in applied_stage_names(config, tools, env=env) if stage not in enabled]
     if not removed or config.context.allow_stage_removal:
         return
     raise DeploymentPreconditionError(
-        f"applying would remove already-deployed stage(s) {', '.join(sorted(removed))}, destroying their "
-        "namespaces, services, and metadata state. Re-run with --allow-stage-removal to proceed."
+        f"applying would remove already-deployed stage(s) {', '.join(sorted(removed))}, deleting their "
+        "namespaces, services, and credentials. Their databases stay on the shared PostgreSQL server, so "
+        "re-enabling a stage reuses its existing run history. Re-run with --allow-stage-removal to proceed."
     )
 
 

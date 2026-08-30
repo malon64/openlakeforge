@@ -299,6 +299,7 @@
     -H "Authorization: Bearer $ADMIN_JWT" || true
   echo "Dagster pipeline service registered (ingestion deferred — see ADR 0007)."
 
+%{ if register_superset ~}
   # Register Superset as a Dashboard Service and create metadata ingestion.
   superset_payload="$(jq -n \
     --arg host_port "${superset_url}" \
@@ -388,6 +389,9 @@
     "$om_url/api/v1/services/ingestionPipelines/deploy/$superset_pipeline_id" \
     -H "Authorization: Bearer $ADMIN_JWT" || true
   echo "Superset dashboard service registered (ingestion deferred — see ADR 0007)."
+%{ else ~}
+  echo "No analytics stage is enabled; skipping Superset dashboard-service registration."
+%{ endif ~}
 
   # Create or reuse the Iceberg metadata ingestion pipeline.
   pipeline_fqn="$catalog_service.$catalog_service-metadata-ingestion"

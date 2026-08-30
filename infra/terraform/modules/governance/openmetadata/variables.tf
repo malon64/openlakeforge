@@ -198,6 +198,12 @@ variable "dagster_webserver_url" {
   default     = "http://dagster-dagster-webserver:80"
 }
 
+variable "register_superset" {
+  description = "Whether any enabled stage runs Superset. With none, registering a dashboard service would point governance at an endpoint that was never provisioned."
+  type        = bool
+  default     = true
+}
+
 variable "superset_url" {
   description = "Cluster-internal URL of the Superset instance for OM dashboard metadata ingestion."
   type        = string

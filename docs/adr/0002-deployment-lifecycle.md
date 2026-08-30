@@ -54,10 +54,16 @@ Dagster and, where analytics is enabled, its Superset. Stage-scoped services
 are `for_each` instances over the enabled stages, never copied module blocks,
 and each owns its own metadata database on the shared PostgreSQL server.
 
-Because a stage's namespace holds its services and metadata state, disabling a
-stage is destructive. `olf deploy` compares the resolved topology against the
-root's applied `stage_names` output and refuses an apply that would drop a
-stage unless `--allow-stage-removal` says so.
+Because a stage's namespace holds its services, disabling a stage is
+destructive. `olf deploy` compares the resolved topology against the root's
+applied `stage_names` output and refuses an apply that would drop a stage
+unless `--allow-stage-removal` says so.
+
+Removal deletes the stage's namespace, its services, and their credentials.
+Its databases on the shared PostgreSQL server are retained: dropping a stage's
+run and report history as a side effect of a profile edit is not an apply's
+decision to make, so re-enabling a stage reconnects to the state it had. A
+deployment that wants that history gone drops those databases deliberately.
 
 ### Two lifecycle categories
 

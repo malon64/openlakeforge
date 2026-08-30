@@ -25,8 +25,10 @@ for how a release is cut and verified.
   one Terraform owner (#133, ADR 0002).
 - `olf deploy`/`plan`/`status`/`forward`/`e2e run` take `--stage` (default
   `dev`), and `olf deploy`/`plan` take `--allow-stage-removal`: an apply that
-  would drop an already-deployed stage — destroying its namespace, services,
-  and metadata state — now fails closed without it (#133).
+  would drop an already-deployed stage — deleting its namespace, services, and
+  credentials — now fails closed without it. A removed stage's databases stay
+  on the shared PostgreSQL server, so re-enabling it reuses its existing run
+  history (#133).
 
 - `olf project build --project P --image REF` computes and publishes an
   immutable, content-addressed `ProjectRevision` covering descriptors, Floe
