@@ -390,7 +390,56 @@
     -H "Authorization: Bearer $ADMIN_JWT" || true
   echo "Superset dashboard service registered (ingestion deferred — see ADR 0007)."
 %{ else ~}
-  echo "No analytics stage is enabled; skipping Superset dashboard-service registration."
+  # No analytics stage is enabled. Skipping registration is not enough when
+  # analytics was turned off rather than never enabled: Superset itself is
+  # destroyed by the same apply, and a dashboard service left registered
+  # points governance at a service that no longer exists. Reconcile by
+  # removing what a previous run registered.
+  #
+  # Each entity is looked up by name first and deleted by id, so the common
+  # path -- analytics never enabled, nothing registered -- issues no delete at
+  # all, and the pipeline goes before the service that owns it.
+  superset_stale_pipeline_code="$(curl -sS -o /tmp/om-superset-stale-pipeline -w '%%{http_code}'     "$om_url/api/v1/services/ingestionPipelines/name/superset.superset-metadata-ingestion"     -H "Authorization: Bearer $ADMIN_JWT")"
+  if [ "$superset_stale_pipeline_code" = "200" ]; then
+    superset_stale_pipeline_id="$(jq -r '.id // empty' /tmp/om-superset-stale-pipeline)"
+    if [ -n "$superset_stale_pipeline_id" ]; then
+      superset_pipeline_delete_code="$(curl -sS -o /tmp/om-superset-pipeline-delete -w '%%{http_code}'         -X DELETE "$om_url/api/v1/services/ingestionPipelines/$superset_stale_pipeline_id?hardDelete=true"         -H "Authorization: Bearer $ADMIN_JWT")"
+      case " 200 404 " in
+        *" $superset_pipeline_delete_code "*) ;;
+        *)
+          echo "Failed to remove the stale Superset ingestion pipeline (HTTP $superset_pipeline_delete_code)" >&2
+          cat /tmp/om-superset-pipeline-delete >&2
+          exit 1
+          ;;
+      esac
+    fi
+  elif [ "$superset_stale_pipeline_code" != "404" ]; then
+    echo "Failed to inspect the Superset ingestion pipeline (HTTP $superset_stale_pipeline_code)" >&2
+    exit 1
+  fi
+
+  superset_stale_svc_code="$(curl -sS -o /tmp/om-superset-stale-svc -w '%%{http_code}'     "$om_url/api/v1/services/dashboardServices/name/superset"     -H "Authorization: Bearer $ADMIN_JWT")"
+  if [ "$superset_stale_svc_code" = "200" ]; then
+    superset_stale_svc_id="$(jq -r '.id // empty' /tmp/om-superset-stale-svc)"
+    if [ -n "$superset_stale_svc_id" ]; then
+      superset_svc_delete_code="$(curl -sS -o /tmp/om-superset-svc-delete -w '%%{http_code}'         -X DELETE "$om_url/api/v1/services/dashboardServices/$superset_stale_svc_id?hardDelete=true&recursive=true"         -H "Authorization: Bearer $ADMIN_JWT")"
+      case " 200 404 " in
+        *" $superset_svc_delete_code "*)
+          echo "Removed the Superset dashboard service registered by an earlier analytics stage."
+          ;;
+        *)
+          echo "Failed to remove the stale Superset dashboard service (HTTP $superset_svc_delete_code)" >&2
+          cat /tmp/om-superset-svc-delete >&2
+          exit 1
+          ;;
+      esac
+    fi
+  elif [ "$superset_stale_svc_code" = "404" ]; then
+    echo "No analytics stage is enabled; no Superset dashboard service to register or remove."
+  else
+    echo "Failed to inspect the Superset dashboard service (HTTP $superset_stale_svc_code)" >&2
+    exit 1
+  fi
 %{ endif ~}
 
   # Create or reuse the Iceberg metadata ingestion pipeline.

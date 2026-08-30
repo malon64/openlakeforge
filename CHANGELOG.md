@@ -56,6 +56,17 @@ for how a release is cut and verified.
   already-applied POC stack needs the same destroy-then-redeploy as local
   rather than an in-place upgrade: a `moved` block cannot name an address
   whose key comes from a variable (#133).
+- Turning a capability off is now reconciled, not just skipped. A stage that
+  drops `governance` has its replicated `openmetadata-ingestion-bot` Secret
+  deleted rather than merely no longer refreshed -- the copy already there
+  stays a valid credential otherwise -- and turning off the last `analytics`
+  stage removes the Superset dashboard service and its ingestion pipeline from
+  OpenMetadata instead of leaving governance pointed at a service the same
+  apply destroyed (#133).
+- `olf destroy --provider local --phase foundation` discovers namespaces by
+  the `openlakeforge.io/profile` label as well as from the topology, so a
+  stage disabled in the profile but still deployed blocks the cluster
+  deletion. `--force` remains the way past it (#133).
 - A Deployment Profile's `metadata.name` must now be a valid Kubernetes label
   value: at most 63 characters and ending in an alphanumeric character. It
   becomes the `openlakeforge.io/profile` label on every namespace the

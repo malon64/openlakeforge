@@ -213,6 +213,7 @@ def test_foundation_down_destroys_when_no_platform_resources_remain(tmp_path: Pa
         rules=[
             (lambda argv: "state" in argv, _ok()),
             (lambda argv: argv[:2] == ["kind", "get"], _ok("openlakeforge-local\n")),
+            (lambda argv: "namespace" in argv and "get" in argv and "-l" in argv, _ok("")),
             (lambda argv: "namespace" in argv and "get" in argv, _fail()),
         ],
         default=_ok(),
@@ -245,3 +246,62 @@ def test_foundation_down_refuses_while_only_the_shared_namespace_remains(tmp_pat
 
     with pytest.raises(DeploymentPreconditionError, match="olf-system"):
         foundation.foundation_down(config, tools, env={})
+
+
+def test_foundation_down_refuses_while_a_retired_stage_namespace_remains(tmp_path: Path) -> None:
+    """A stage disabled in the profile drops out of the topology but keeps its
+    namespace and its workloads. Checking only what the profile names now
+    would let this delete the cluster out from under it."""
+    config = _config(tmp_path)
+    runner = _ScriptedRunner(
+        rules=[
+            (lambda argv: "state" in argv, _ok()),
+            (lambda argv: argv[:2] == ["kind", "get"], _ok("openlakeforge-local\n")),
+            (lambda argv: "namespace" in argv and "get" in argv and "-l" in argv, _ok("olf-prod\n")),
+            (lambda argv: "namespace" in argv and "get" in argv, _fail()),
+        ],
+        default=_ok(),
+    )
+    tools = _toolkit_with_runner(runner)
+
+    with pytest.raises(DeploymentPreconditionError, match="olf-prod"):
+        foundation.foundation_down(config, tools, env={})
+
+
+def test_foundation_down_fails_closed_when_namespace_discovery_errors(tmp_path: Path) -> None:
+    """A label query matching nothing succeeds, so a failure means the cluster
+    cannot be inspected -- and destroying it would be irreversible. `--force`
+    stays the way past a cluster whose API server is gone."""
+    config = _config(tmp_path)
+    runner = _ScriptedRunner(
+        rules=[
+            (lambda argv: "state" in argv, _ok()),
+            (lambda argv: argv[:2] == ["kind", "get"], _ok("openlakeforge-local\n")),
+            (lambda argv: "namespace" in argv and "get" in argv and "-l" in argv, _fail("connection refused")),
+            (lambda argv: "namespace" in argv and "get" in argv, _fail()),
+        ],
+        default=_ok(),
+    )
+    tools = _toolkit_with_runner(runner)
+
+    with pytest.raises(DeploymentPreconditionError, match="connection refused"):
+        foundation.foundation_down(config, tools, env={})
+
+    assert not any(c.argv[0] == "terraform" and "destroy" in c.argv for c in runner.calls)
+
+
+def test_foundation_down_force_skips_namespace_discovery_entirely(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    runner = _ScriptedRunner(
+        rules=[
+            (lambda argv: "state" in argv, _ok()),
+            (lambda argv: argv[:2] == ["kind", "get"], _ok("openlakeforge-local\n")),
+            (lambda argv: "namespace" in argv and "get" in argv and "-l" in argv, _fail("connection refused")),
+        ],
+        default=_ok(),
+    )
+    tools = _toolkit_with_runner(runner)
+
+    foundation.foundation_down(config, tools, env={}, force=True)
+
+    assert any(c.argv[2:3] == ["destroy"] for c in runner.calls if c.argv[0] == "terraform")

@@ -1,5 +1,5 @@
 resource "kubernetes_job_v1" "credential_replication" {
-  count = length(var.workload_namespaces) > 0 ? 1 : 0
+  count = length(var.workload_namespaces) + length(var.revoked_namespaces) > 0 ? 1 : 0
 
   metadata {
     name      = "openmetadata-credential-replication-${local.workload_revision}"
@@ -43,6 +43,11 @@ resource "kubernetes_job_v1" "credential_replication" {
           env {
             name  = "WORKLOAD_NAMESPACES"
             value = join(" ", var.workload_namespaces)
+          }
+
+          env {
+            name  = "REVOKED_NAMESPACES"
+            value = join(" ", var.revoked_namespaces)
           }
         }
       }

@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from olf import log
+from olf.deployment import kube_ops
 from olf.deployment.engine import Toolkit
 from olf.deployment.errors import DeploymentPreconditionError, ExecutableNotFoundError
 from olf.deployment.local.config import LocalDeploymentConfig
@@ -24,42 +25,16 @@ def owned_namespaces(config: LocalDeploymentConfig) -> tuple[str, ...]:
 
 
 def managed_namespaces(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[str, str]) -> tuple[str, ...]:
-    """Namespaces in the cluster labelled as belonging to this deployment.
-
-    The resolved topology only describes the stages that are enabled *now*.
-    A teardown driven by drift recovery has to remove what is actually there,
-    including a stage that was deployed and has since been disabled -- with no
-    Terraform state to destroy it, that namespace would otherwise survive a
-    reset that reports success. The profile label keeps this from touching
-    another deployment sharing the cluster.
-
-    A label query that matches nothing succeeds and returns no names, so any
-    failure here is a real one -- an unreachable API server, a denied list --
-    and propagates. Reading it as "none found" would silently reduce teardown
-    to the current topology's namespaces and then report success, which is the
-    outcome this function exists to prevent.
-    """
-    result = tools.kubectl.get(
-        "namespace",
+    """Namespaces labelled as belonging to this deployment, including a stage
+    that was deployed and has since been disabled. See
+    `kube_ops.managed_namespaces`, which the foundation guard shares."""
+    return kube_ops.managed_namespaces(
+        tools.kubectl,
+        profile_name=config.context.topology.profile_name,
         context=config.kube_context,
         kubeconfig=config.paths.kubeconfig_path,
-        output="jsonpath={range .items[*]}{.metadata.name}{\"\\n\"}{end}",
-        extra_args=(
-            "-l",
-            f"openlakeforge.io/managed-by=openlakeforge,openlakeforge.io/profile={config.context.topology.profile_name}",
-        ),
         env=env,
-        check=False,
     )
-    if not result.ok:
-        detail = (result.stderr or result.stdout).strip()
-        raise DeploymentPreconditionError(
-            "could not list the namespaces labelled as belonging to profile "
-            f"'{config.context.topology.profile_name}': {detail or 'kubectl returned a non-zero status'}. "
-            "Teardown cannot tell whether a stage that is no longer in the profile is still deployed; "
-            "restore access to the cluster and re-run."
-        )
-    return tuple(name.strip() for name in result.stdout.splitlines() if name.strip())
 
 
 def cleanup_legacy_helm_releases(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[str, str]) -> list[str]:

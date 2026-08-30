@@ -10,8 +10,50 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 from olf import log
+from olf.deployment.errors import DeploymentPreconditionError
 from olf.tooling.kubectl import Kubectl
 from olf.tooling.terraform import Terraform
+
+
+def managed_namespaces(
+    kubectl: Kubectl,
+    *,
+    profile_name: str,
+    context: str,
+    kubeconfig: Path,
+    env: Mapping[str, str] | None = None,
+) -> tuple[str, ...]:
+    """Namespaces in the cluster labelled as belonging to this deployment.
+
+    A resolved topology only describes the stages that are enabled *now*, so
+    it cannot see a stage that was deployed and has since been disabled: its
+    namespace is still there, with no Terraform state left to remove it. Both
+    teardown and the foundation guard need what is actually in the cluster,
+    not what the profile currently names. The profile label keeps this from
+    reaching another deployment sharing the cluster.
+
+    A label query that matches nothing succeeds and returns no names, so any
+    failure here is a real one -- an unreachable API server, a denied list --
+    and propagates. Reading it as "none found" would let both callers act on
+    the current topology alone and report success.
+    """
+    result = kubectl.get(
+        "namespace",
+        context=context,
+        kubeconfig=kubeconfig,
+        output='jsonpath={range .items[*]}{.metadata.name}{"\n"}{end}',
+        extra_args=("-l", f"openlakeforge.io/managed-by=openlakeforge,openlakeforge.io/profile={profile_name}"),
+        env=env,
+        check=False,
+    )
+    if not result.ok:
+        detail = (result.stderr or result.stdout).strip()
+        raise DeploymentPreconditionError(
+            f"could not list the namespaces labelled as belonging to profile '{profile_name}': "
+            f"{detail or 'kubectl returned a non-zero status'}. Whether a stage that is no longer in the "
+            "profile is still deployed cannot be determined; restore access to the cluster and re-run."
+        )
+    return tuple(name.strip() for name in result.stdout.splitlines() if name.strip())
 
 
 def namespace_exists(

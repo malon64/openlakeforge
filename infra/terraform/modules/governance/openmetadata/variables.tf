@@ -102,6 +102,12 @@ variable "workload_namespaces" {
   default     = []
 }
 
+variable "revoked_namespaces" {
+  description = "Namespaces that must not keep a copy of the ingestion-bot Secret. A stage that turns governance off keeps its namespace, so ending replication is not enough: the already-replicated JWT stays valid until the bootstrap job next rotates it, which a topology change does not do."
+  type        = list(string)
+  default     = []
+}
+
 variable "trino_lineage_namespace" {
   description = "OpenLineage namespace the query engine reports itself as. Must match the host:port runtime clients actually connect to, or lineage events land under an unmapped namespace."
   type        = string

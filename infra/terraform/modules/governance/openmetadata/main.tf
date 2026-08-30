@@ -77,7 +77,12 @@ locals {
   # replacement that keeps the Helm revision, leaving each namespace with a
   # token the service no longer accepts.
   workload_revision = substr(
-    sha256(join(",", concat(sort(var.workload_namespaces), [local.bootstrap_job_name, sha256(local.bootstrap_script)]))),
+    sha256(join(",", concat(
+      sort(var.workload_namespaces),
+      ["revoked"],
+      sort(var.revoked_namespaces),
+      [local.bootstrap_job_name, sha256(local.bootstrap_script)],
+    ))),
     0,
     8,
   )

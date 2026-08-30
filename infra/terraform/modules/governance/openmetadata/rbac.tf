@@ -43,9 +43,11 @@ resource "kubernetes_role_binding_v1" "bootstrap" {
 }
 
 # A Role only grants access inside its own namespace, so replicating the
-# ingestion-bot Secret into a stage namespace needs one there too.
+# ingestion-bot Secret into a stage namespace needs one there too -- and so
+# does revoking it from a stage that has since turned governance off, which is
+# why the set spans both.
 resource "kubernetes_role_v1" "bootstrap_workload" {
-  for_each = toset([for namespace in var.workload_namespaces : namespace if namespace != var.namespace])
+  for_each = toset([for namespace in concat(var.workload_namespaces, var.revoked_namespaces) : namespace if namespace != var.namespace])
 
   metadata {
     name      = "openmetadata-bootstrap"

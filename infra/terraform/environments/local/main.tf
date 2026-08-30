@@ -258,6 +258,13 @@ module "openmetadata" {
   # stage that did not enable governance should not have one sitting in its
   # namespace even though its Dagster never mounts it.
   workload_namespaces = [for name in keys(local.governed_stages) : local.stage_namespaces[name]]
+  # The complement, for stages that are still deployed but no longer governed.
+  # Their namespace survives the topology change, so the ingestion-bot Secret
+  # already copied there has to be deleted rather than merely not refreshed.
+  revoked_namespaces = [
+    for name in keys(local.enabled_stages) : local.stage_namespaces[name]
+    if !contains(keys(local.governed_stages), name)
+  ]
   # OpenMetadata stores this in its Dagster pipeline-service connection, so it
   # must name a governed stage's instance and be namespace-qualified: a bare
   # name resolves in `olf-system`, where no Dagster runs.
