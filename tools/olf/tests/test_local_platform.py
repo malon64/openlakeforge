@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 from _tooling_support import RecordedCall, RecordingRunner
 
+from olf.deployment.charts import TERRAFORM_VARIABLE_KEY
 from olf.deployment.context import DeploymentContext, Profile, Provider
 from olf.deployment.engine import Toolkit
 from olf.deployment.errors import CommandExecutionError, DeploymentPreconditionError
@@ -191,6 +192,30 @@ def test_platform_destroy_variables_are_the_four_var_subset(tmp_path: Path) -> N
         "helm_repository_config_path",
         "foundation_state_path",
     }
+
+
+def test_destroy_reuses_cached_chart_archives(tmp_path: Path) -> None:
+    """Destroy must not need the chart repositories: a `helm_release` whose
+    chart is a repository name makes the provider fetch that repo's index even
+    to remove the release."""
+    config = _config(tmp_path)
+    cached = next(iter(config.charts.values()))
+    cached.package_path.parent.mkdir(parents=True, exist_ok=True)
+    cached.package_path.write_bytes(b"chart archive")
+
+    variables = platform.platform_destroy_variables(config)
+
+    assert variables[TERRAFORM_VARIABLE_KEY[cached.name]] == str(cached.package_path)
+
+
+def test_destroy_omits_chart_archives_that_are_not_cached(tmp_path: Path) -> None:
+    """A path the provider cannot open is worse than none: it rejects the
+    missing file outright instead of falling back to the repository."""
+    config = _config(tmp_path)
+
+    variables = platform.platform_destroy_variables(config)
+
+    assert not any(key.endswith("_chart_package_path") for key in variables)
 
 
 def test_platform_var_files_are_only_ever_the_user_s_own(tmp_path: Path) -> None:

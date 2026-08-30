@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
+from pathlib import Path
 
 from olf import log
 from olf.deployment import kube_ops
@@ -94,14 +95,35 @@ def platform_apply_variables(config: LocalDeploymentConfig) -> dict[str, str]:
     } | {TERRAFORM_VARIABLE_KEY[setting.name]: str(setting.package_path) for setting in config.charts.values()}
 
 
-def platform_destroy_variables(config: LocalDeploymentConfig) -> dict[str, str]:
-    return topology_variables(config) | {
-        "kube_context": config.kube_context,
-        "kubeconfig_path": str(config.paths.kubeconfig_path),
-        "helm_repository_cache_path": str(config.paths.helm_repository_cache),
-        "helm_repository_config_path": str(config.paths.helm_repository_config),
-        "foundation_state_path": str(config.paths.foundation_state_path),
+def cached_chart_variables(config: LocalDeploymentConfig) -> dict[str, str]:
+    """Chart archives already in the local cache.
+
+    A `helm_release` whose `chart` is a repository name makes the Terraform
+    helm provider fetch that repository's index -- on destroy as well as on
+    apply -- so a teardown would need the chart repos to be reachable to
+    remove a release. Pointing it back at the archive the apply used keeps
+    destroy working offline. Archives that are not cached are omitted rather
+    than passed as missing paths, which the provider would reject outright.
+    """
+    return {
+        TERRAFORM_VARIABLE_KEY[setting.name]: str(setting.package_path)
+        for setting in config.charts.values()
+        if setting.package_path is not None and Path(setting.package_path).is_file()
     }
+
+
+def platform_destroy_variables(config: LocalDeploymentConfig) -> dict[str, str]:
+    return (
+        topology_variables(config)
+        | {
+            "kube_context": config.kube_context,
+            "kubeconfig_path": str(config.paths.kubeconfig_path),
+            "helm_repository_cache_path": str(config.paths.helm_repository_cache),
+            "helm_repository_config_path": str(config.paths.helm_repository_config),
+            "foundation_state_path": str(config.paths.foundation_state_path),
+        }
+        | cached_chart_variables(config)
+    )
 
 
 def applied_stage_names(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[str, str]) -> tuple[str, ...]:
