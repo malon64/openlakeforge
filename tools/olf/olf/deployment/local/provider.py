@@ -109,7 +109,10 @@ class LocalProvider:
 
         return collect_status(
             self.tools.kubectl,
-            namespace=self.config.namespace,
+            namespaces=(
+                self.context.shared_namespace,
+                *(self.context.namespace_for(stage) for stage in self.context.enabled_stages),
+            ),
             context=self.config.kube_context,
             kubeconfig=self.config.paths.kubeconfig_path,
             env=self.env,

@@ -196,6 +196,30 @@ locals {
     },
   ] : []
 
+  # dbt and every other Trino client resolve the query service from here.
+  # `profiles.yml` falls back to a bare service name, which only resolves
+  # inside the query service's own namespace - never from a stage namespace.
+  query_host = (
+    try(var.query_contract.service_namespace, null) == null
+    ? var.query_contract.service_name
+    : "${var.query_contract.service_name}.${var.query_contract.service_namespace}"
+  )
+
+  query_env = [
+    {
+      name  = "OPENLAKEFORGE_QUERY_TRINO_HOST"
+      value = local.query_host
+    },
+    {
+      name  = "OPENLAKEFORGE_QUERY_TRINO_PORT"
+      value = tostring(var.query_contract.http_port)
+    },
+    {
+      name  = "OPENLAKEFORGE_QUERY_TRINO_CATALOG"
+      value = var.query_contract.catalog_name
+    },
+  ]
+
   dbt_env = concat([
     {
       name  = "OPENLAKEFORGE_DBT_PROFILE_ENV"
@@ -219,8 +243,13 @@ locals {
     },
     ], local.governance_enabled ? [
     {
-      name  = "OPENLINEAGE_URL"
-      value = "http://openmetadata:${try(var.governance_contract.http_port, 8585)}"
+      name = "OPENLINEAGE_URL"
+      # The contract's endpoint, not a bare service name: governance is a
+      # shared service and Dagster no longer runs beside it.
+      value = coalesce(
+        try(var.governance_contract.endpoint, null),
+        "http://${try(var.governance_contract.service_name, "openmetadata")}:${try(var.governance_contract.http_port, 8585)}",
+      )
     },
     {
       name  = "OPENLINEAGE_ENDPOINT"
@@ -244,7 +273,7 @@ locals {
     },
   ] : []
 
-  runtime_env = concat(local.storage_env, local.artifact_env, local.generic_catalog_env, local.glue_catalog_env, local.polaris_catalog_env, local.dbt_env, local.dbt_secret_env)
+  runtime_env = concat(local.storage_env, local.artifact_env, local.generic_catalog_env, local.glue_catalog_env, local.polaris_catalog_env, local.query_env, local.dbt_env, local.dbt_secret_env)
 
   log_archive_env = concat(
     local.storage_env,

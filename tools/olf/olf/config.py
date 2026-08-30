@@ -9,7 +9,18 @@ from olf.project import ProjectSpec
 
 
 def namespace() -> str:
-    return os.environ.get("NAMESPACE") or os.environ.get("OPENLAKEFORGE_KUBE_NAMESPACE") or "lakehouse"
+    """The selected stage's namespace, where Dagster and Superset run."""
+    return os.environ.get("NAMESPACE") or os.environ.get("OPENLAKEFORGE_KUBE_NAMESPACE") or "olf-dev"
+
+
+def shared_namespace() -> str:
+    """The namespace owning the shared platform services.
+
+    Trino, Polaris, SeaweedFS, PostgreSQL, and OpenMetadata are deployed once
+    per cluster; only the stage-scoped services live in `namespace()`. The
+    single-namespace cloud POC roots export the stage namespace for both.
+    """
+    return os.environ.get("OPENLAKEFORGE_SHARED_NAMESPACE") or namespace()
 
 
 def env(name: str, default: str = "") -> str:

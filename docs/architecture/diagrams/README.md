@@ -43,7 +43,7 @@ complement the product chart in
 
 ## Chart 1 — Cluster Pod Census
 
-*Every pod in the namespace, grouped by service — verified with `helm template` against
+*Every pod across the deployment's namespaces, grouped by service — verified with `helm template` against
 this repo's own values.*
 
 Fifteen pods run at steady state: Dagster runs three (webserver, daemon, and the merged
@@ -142,7 +142,7 @@ sequenceDiagram
     Note over Run: Job 1 TTL-collected — no run pods remain (Trino stays up)
 ```
 
-> Observe it live: `kubectl -n lakehouse get jobs -w` — the run Job appears, then one
+> Observe it live: `kubectl -n olf-dev get jobs -w` — the run Job appears, then one
 > Floe Job per entity while it is still Running, then all of them vanish an hour later.
 
 Full detail — the per-engine execution table and the Job state machine — is in

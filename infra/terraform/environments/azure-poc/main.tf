@@ -72,9 +72,8 @@ resource "kubernetes_namespace_v1" "lakehouse" {
 module "postgresql" {
   source = "../../modules/storage/postgresql"
 
-  namespace           = kubernetes_namespace_v1.lakehouse.metadata[0].name
-  enable_openmetadata = var.enable_governance
-  enable_superset     = var.enable_analytics
+  namespace = kubernetes_namespace_v1.lakehouse.metadata[0].name
+  databases = local.metadata_databases
 }
 
 module "seaweedfs" {
@@ -191,6 +190,7 @@ module "dagster" {
   storage_contract               = local.storage_contract
   catalog_contract               = local.catalog_contract
   governance_contract            = local.governance_contract
+  query_contract                 = local.query_contract
   postgresql_contract            = local.metadata_database_contract
   code_locations                 = local.orchestration_contract.code_locations
   floe_manifest_base_uri         = local.artifact_bucket_contract.base_uri

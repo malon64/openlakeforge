@@ -107,3 +107,24 @@ def test_check_polaris_restart_recovery_requires_a_pod(monkeypatch: pytest.Monke
 def test_assert_scalar_equals_reports_mismatch() -> None:
     with pytest.raises(E2EError, match="expected Gold mart count 9, got 8"):
         _trino.assert_scalar_equals("8", "9", "Gold mart count")
+
+
+def test_shared_services_are_queried_in_the_shared_namespace(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Trino and Polaris are deployed once per cluster, in a namespace of their
+    own; only Dagster and Superset live in the stage namespace."""
+    from dataclasses import replace
+
+    commands: list[list[str]] = []
+
+    def _fake_kubectl(_cfg, args, **_kwargs):  # noqa: ANN001, ANN202
+        commands.append(args)
+        return "trino-coordinator-1\n"
+
+    monkeypatch.setattr(_trino, "kubectl", _fake_kubectl)
+    cfg = replace(e2e_cfg(tmp_path), namespace="olf-dev", shared_namespace="olf-system")
+
+    _trino.trino_query(cfg, "SELECT 1")
+
+    assert commands[0][:3] == ["exec", "-n", "olf-system"]

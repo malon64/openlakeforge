@@ -34,6 +34,12 @@ class ForwardTarget:
     resource: str
     local_port: int
     remote_port: int
+    namespace: str = ""
+    """The namespace this one service lives in, when it is not the spec's.
+
+    Shared platform services and stage-scoped services occupy different
+    namespaces on a stage-aware cluster (ADR 0011), so one `ForwardSpec` can
+    no longer carry a single namespace for every target."""
 
     @property
     def ports(self) -> str:
@@ -114,7 +120,7 @@ class PortForwardSupervisor:
 
     def _kubectl_argv(self, target: ForwardTarget, spec: ForwardSpec) -> list[str]:
         argv = self._kubectl.port_forward_argv(
-            target.resource, [target.ports], namespace=spec.namespace, context=spec.context
+            target.resource, [target.ports], namespace=target.namespace or spec.namespace, context=spec.context
         )
         return argv
 

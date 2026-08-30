@@ -16,6 +16,23 @@ for how a release is cut and verified.
 
 ### Added
 
+- The local platform Terraform root is stage-aware: it takes the resolved
+  `DeploymentTopology` as typed inputs and provisions one shared `olf-system`
+  namespace plus one `olf-<stage>` namespace, runtime service account, and
+  isolated metadata database per enabled stage. Dagster and Superset are
+  `for_each` instances over the enabled stages instead of single module
+  blocks; PostgreSQL, SeaweedFS, Polaris, Trino, and OpenMetadata keep exactly
+  one Terraform owner (#133, ADR 0002).
+- `olf deploy`/`plan`/`status`/`forward`/`e2e run` take `--stage` (default
+  `dev`), and `olf deploy`/`plan` take `--allow-stage-removal`: an apply that
+  would drop an already-deployed stage — deleting its namespace, services, and
+  credentials — now fails closed without it. The guard reads both the applied
+  `stage_names` output and the namespaces still labelled as this deployment's,
+  so it holds when Terraform state is missing and the drift reset would
+  otherwise tear the stage down by label. A removed stage's databases stay
+  on the shared PostgreSQL server, so re-enabling it reuses its existing run
+  history (#133).
+
 - `olf project build --project P --image REF` computes and publishes an
   immutable, content-addressed `ProjectRevision` covering descriptors, Floe
   contracts, dbt, Dagster orchestration code, report assets when present,
@@ -25,6 +42,47 @@ for how a release is cut and verified.
 
 ### Changed
 
+- The local stack no longer runs in one `lakehouse` namespace. Shared services
+  move to `olf-system` and stage services to `olf-<stage>`, and every service
+  endpoint in the provider contract is namespace-qualified. Upgrading a v0.2
+  local deployment means `olf destroy --provider local` followed by a fresh
+  deploy -- destroying first is what releases the cluster-scoped objects a
+  chart owns (SeaweedFS' ClusterRole among them), which a new release in
+  another namespace cannot adopt; the `--namespace` option now only
+  overrides the stage namespace on the cloud POC roots (it is rejected for
+  local, where namespaces are derived), and
+  the `aws-poc`/`azure-poc` roots keep their single `lakehouse` namespace
+  until #114 (#133).
+- The `azure-poc` root's PostgreSQL databases moved to the same typed
+  `databases` list the local root uses. Their names, users, and Secret names
+  are unchanged, but the Terraform addresses are keyed now, so an
+  already-applied POC stack needs the same destroy-then-redeploy as local
+  rather than an in-place upgrade: a `moved` block cannot name an address
+  whose key comes from a variable (#133).
+- Turning a capability off is now reconciled, not just skipped. A stage that
+  drops `governance` has its replicated `openmetadata-ingestion-bot` Secret
+  deleted rather than merely no longer refreshed -- the copy already there
+  stays a valid credential otherwise -- and turning off the last `analytics`
+  stage removes the Superset dashboard service and its ingestion pipeline from
+  OpenMetadata instead of leaving governance pointed at a service the same
+  apply destroyed (#133).
+- `olf destroy --provider local --phase foundation` discovers namespaces by
+  the `openlakeforge.io/profile` label as well as from the topology, so a
+  stage disabled in the profile but still deployed blocks the cluster
+  deletion. `--force` remains the way past it (#133).
+- A Deployment Profile's `metadata.name` must now be a valid Kubernetes label
+  value: at most 63 characters and ending in an alphanumeric character. It
+  becomes the `openlakeforge.io/profile` label on every namespace the
+  deployment owns, so a name like `acme-` used to validate and then fail the
+  apply that creates them (#133).
+- `--profile slim|full` is now an explicit, deprecated single-DEV shorthand.
+  With no `--profile`, the project-root `openlakeforge.yaml` Deployment
+  Profile decides which stages and capabilities are deployed; a project with
+  no profile file falls back to the same single-DEV shorthand, and an invalid
+  profile fails closed (#133, ADR 0011).
+- `olf.contracts.load_provider_contracts` returns a provider-contract v3
+  payload instead of refusing it; `build_contract_env` resolves it against a
+  `DeploymentTopology` and an explicit stage (#133, ADR 0003).
 - `olf revision compute|publish|activate|verify` (the v0.2 Floe
   runtime-artifact revision) moved to `olf floe revision ...`, freeing the
   top-level `revision` name for the new project revision.

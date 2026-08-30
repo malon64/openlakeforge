@@ -16,7 +16,7 @@ app = typer.Typer(help="OpenMetadata governance metadata helpers.")
 @app.command("deploy-metadata")
 def openmetadata_deploy_metadata(
     provider: str = typer.Option("local", "--provider", help="Provider owning the deployed contracts."),
-    profile: str = typer.Option("full", "--profile", help="full or slim."),
+    profile: str = typer.Option("", "--profile", help="Deprecated single-DEV preset shorthand: 'full' or 'slim'."),
     namespace: str = typer.Option("", "--namespace", help="Kubernetes namespace override."),
     cluster_name: str = typer.Option("", "--cluster-name", help="Local kind cluster name override."),
     kubeconfig_path: str = typer.Option("", "--kubeconfig-path", help="Kubeconfig file path override."),
@@ -44,7 +44,9 @@ def deploy_openmetadata_metadata() -> None:
     from olf import openmetadata as om
 
     project = ProjectSpec(root=config.project_root(), distribution_root=config.distribution_root())
-    namespace = config.namespace()
+    # OpenMetadata is deployed once per cluster, in the shared namespace -
+    # `config.namespace()` is the selected stage's.
+    namespace = config.shared_namespace()
     service = config.env("OPENMETADATA_SERVICE", "openmetadata")
     remote_port = int(config.env("OPENMETADATA_SERVICE_PORT", "8585"))
 

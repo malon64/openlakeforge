@@ -103,10 +103,12 @@ def test_platform_down_orders_superset_job_delete_before_destroy_and_namespace_d
             kinds.append("terraform-destroy")
         elif "namespace" in call.argv and "delete" in call.argv:
             kinds.append("namespace-delete")
-    assert kinds == ["superset-job-delete", "terraform-destroy", "namespace-delete"]
+    # One Superset job per enabled stage, then destroy, then every namespace
+    # this deployment owns: the shared one plus one per stage.
+    assert kinds == ["superset-job-delete", "terraform-destroy", "namespace-delete", "namespace-delete"]
 
 
-def test_platform_down_destroy_uses_four_var_subset(tmp_path: Path) -> None:
+def test_platform_down_destroy_uses_the_topology_var_subset(tmp_path: Path) -> None:
     config = _config(tmp_path)
     runner = _TeardownScriptedRunner()
     tools = _toolkit(runner)
@@ -114,7 +116,7 @@ def test_platform_down_destroy_uses_four_var_subset(tmp_path: Path) -> None:
     teardown.platform_down(config, tools, env={})
 
     destroy_call = next(c for c in runner.calls if c.argv[0] == "terraform" and "destroy" in c.argv)
-    assert "-var=namespace=lakehouse" in destroy_call.argv
+    assert "-var=shared_namespace=olf-system" in destroy_call.argv
     assert not any("project_code_image" in arg for arg in destroy_call.argv)
     assert not any("trino_chart_package_path" in arg for arg in destroy_call.argv)
 
@@ -163,3 +165,89 @@ def test_cleanup_legacy_helm_releases_skips_when_helm_missing(tmp_path: Path) ->
     removed = teardown.cleanup_legacy_helm_releases(config, tools, env={})
 
     assert removed == []
+
+
+def test_platform_down_deletes_every_namespace_the_deployment_owns(tmp_path: Path) -> None:
+    """Teardown that only removed the selected stage's namespace would leave
+    the shared services and every other stage behind."""
+    config = _config(tmp_path)
+    runner = _TeardownScriptedRunner()
+    tools = _toolkit(runner)
+
+    teardown.platform_down(config, tools, env={})
+
+    deleted = [
+        call.argv[call.argv.index("namespace") + 1]
+        for call in runner.calls
+        if "namespace" in call.argv and "delete" in call.argv
+    ]
+    assert deleted == ["olf-system", "olf-dev"]
+
+
+def test_platform_down_also_removes_a_stage_the_profile_no_longer_enables(tmp_path: Path) -> None:
+    """Drift recovery tears down what is in the cluster, not only what the
+    current topology names: a stage deployed and since disabled has no state
+    left to destroy it, so it would survive a reset that reports success."""
+    config = _config(tmp_path)
+
+    class _Runner(_TeardownScriptedRunner):
+        def run(self, command, **kwargs):  # type: ignore[override]
+            argv = list(command.argv) if hasattr(command, "argv") else [str(part) for part in command]
+            if "get" in argv and "namespace" in argv and any(a.startswith("openlakeforge.io/") for a in argv):
+                self.calls.append(RecordedCall(argv=argv, kwargs=kwargs))
+                return CommandResult(
+                    argv=(), returncode=0, stdout="olf-system\nolf-dev\nolf-prod\n", stderr="", duration_seconds=0.0
+                )
+            return super().run(command, **kwargs)
+
+    runner = _Runner()
+    teardown.platform_down(config, _toolkit(runner), env={})
+
+    deleted = [
+        call.argv[call.argv.index("namespace") + 1]
+        for call in runner.calls
+        if "namespace" in call.argv and "delete" in call.argv
+    ]
+    assert deleted == ["olf-system", "olf-dev", "olf-prod"]
+
+
+def test_platform_down_fails_closed_when_namespace_discovery_errors(tmp_path: Path) -> None:
+    """A label query that matches nothing succeeds and returns no names, so a
+    failure is a real one. Reading it as "none found" would quietly reduce
+    teardown to the current topology and then report success -- the outcome
+    the discovery exists to prevent."""
+    config = _config(tmp_path)
+
+    class _Runner(_TeardownScriptedRunner):
+        def run(self, command, **kwargs):  # type: ignore[override]
+            argv = list(command.argv) if hasattr(command, "argv") else [str(part) for part in command]
+            if "get" in argv and "namespace" in argv and any(a.startswith("openlakeforge.io/") for a in argv):
+                self.calls.append(RecordedCall(argv=argv, kwargs=kwargs))
+                return CommandResult(
+                    argv=(),
+                    returncode=1,
+                    stdout="",
+                    stderr='namespaces is forbidden: User cannot list resource "namespaces"',
+                    duration_seconds=0.0,
+                )
+            return super().run(command, **kwargs)
+
+    runner = _Runner()
+
+    with pytest.raises(DeploymentPreconditionError, match="cannot list resource"):
+        teardown.platform_down(config, _toolkit(runner), env={})
+
+
+def test_namespace_discovery_asks_kubectl_for_a_newline_separated_list(tmp_path: Path) -> None:
+    """kubectl's jsonpath takes the escape as two characters. A real newline
+    in the expression makes it an unterminated quoted string, and every caller
+    of this then fails closed on a query that never ran."""
+    config = _config(tmp_path)
+    runner = _TeardownScriptedRunner()
+
+    teardown.managed_namespaces(config, _toolkit(runner), env={})
+
+    call = next(c for c in runner.calls if "namespace" in c.argv and "-l" in c.argv)
+    expression = call.argv[call.argv.index("-o") + 1]
+    assert expression == 'jsonpath={range .items[*]}{.metadata.name}{"\\n"}{end}'
+    assert "\n" not in expression

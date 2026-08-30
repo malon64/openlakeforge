@@ -178,7 +178,7 @@ def test_applied_contract_environment_uses_facts_kube_context(tmp_path: Path, mo
     backend = FakeCloudBackend(scope="aws")
     monkeypatch.setattr(contracts_module, "load_provider_contracts", lambda terraform_dir: None)
     monkeypatch.setattr(
-        contracts_module, "build_contract_env", lambda base, contracts_value, *, repo_root: ({}, [])
+        contracts_module, "build_contract_env", lambda base, contracts_value, *, repo_root, **_: ({}, [])
     )
     monkeypatch.setattr(artifacts, "sync_catalog_namespaces", lambda: None)
     monkeypatch.setattr(artifacts, "activate_runtime_revision", lambda root, *, via: "sha256:abc")

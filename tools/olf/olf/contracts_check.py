@@ -60,6 +60,29 @@ _REQUIRED_CONTRACT_LOCALS = (
     "provider_contracts",
 )
 
+# Locals only the stage-aware local root declares. The cloud POC roots are
+# still single-stage; #114 carries the split to them.
+_REQUIRED_CONTRACT_LOCALS_BY_ENV = {
+    "local": (
+        "stage_metadata_database_contracts",
+        "selected_stage_analytics",
+    ),
+}
+
+# Stage-topology locals the stage-aware root derives in `main.tf` rather than
+# in its contract surface.
+_REQUIRED_TOPOLOGY_LOCALS_BY_ENV = {
+    "local": (
+        "enabled_stages",
+        "analytics_stages",
+        "governance_enabled",
+        "stage_namespaces",
+        "stage_service_accounts",
+        "stage_databases",
+        "selected_stage",
+    ),
+}
+
 # Cross-field invariants each environment's `contracts.tf` must declare as a
 # native Terraform `check` block (ADR-defined; these only evaluate under
 # `terraform plan`/`apply`, so this tier only confirms they are declared).
@@ -71,6 +94,9 @@ _REQUIRED_CONTRACT_CHECKS_BY_ENV = {
         "local_contract_adapters_are_explicit",
         "catalog_contract_consumer_support",
         "openmetadata_catalog_fqn_uses_lakehouse_database",
+        "stage_namespaces_are_distinct",
+        "stage_services_stay_in_their_own_stage",
+        "stage_metadata_state_is_not_shared",
     ),
     "azure-poc": (
         "foundation_contract_matches_platform_context",
@@ -296,7 +322,7 @@ def _check_hcl_structured_contracts(repo_root: Path) -> CheckResult:
         document = _parse_hcl(contracts_path)
         locals_map = _merged_locals(document)
 
-        for required_local in _REQUIRED_CONTRACT_LOCALS:
+        for required_local in (*_REQUIRED_CONTRACT_LOCALS, *_REQUIRED_CONTRACT_LOCALS_BY_ENV.get(env, ())):
             if required_local not in locals_map:
                 errors.append(f"{env}/contracts.tf: missing required local {required_local!r}")
 
@@ -324,6 +350,9 @@ def _check_hcl_structured_contracts(repo_root: Path) -> CheckResult:
         main_locals = _merged_locals(main_document)
         if main_locals.get("catalog_namespace_model") != "medallion-owner":
             errors.append(f"{env}/main.tf: local.catalog_namespace_model must be 'medallion-owner'")
+        for required_local in _REQUIRED_TOPOLOGY_LOCALS_BY_ENV.get(env, ()):
+            if required_local not in main_locals:
+                errors.append(f"{env}/main.tf: missing required topology local {required_local!r}")
         for forbidden_field in _FORBIDDEN_PHASE_TWO_FIELDS:
             if forbidden_field in main_locals:
                 errors.append(f"{env}/main.tf: locals must not declare Phase-2-owned field {forbidden_field!r}")
@@ -428,16 +457,26 @@ def _check_hcl_phase_two_invariants(repo_root: Path) -> CheckResult:
             skipped_environments.append(env)
             continue
         checked_environments.append(env)
-        catalog = contracts.get("catalog")
-        if not isinstance(catalog, dict):
-            errors.append(f"{env}: applied provider_contracts is missing a 'catalog' entry")
-            continue
-        for forbidden_field in _FORBIDDEN_PHASE_TWO_FIELDS:
-            if forbidden_field in catalog:
-                errors.append(
-                    f"{env}: applied provider_contracts.catalog resolves Phase-2-owned field "
-                    f"{forbidden_field!r} (ADR 0002 violation)"
-                )
+        # v2 exposes one catalog binding; v3 one per enabled stage. Both are
+        # subject to the same Phase-2 ownership rule.
+        stages = contracts.get("stages")
+        catalogs = (
+            {stage_name: stage.get("catalog") for stage_name, stage in stages.items()}
+            if isinstance(stages, dict)
+            else {"": contracts.get("catalog")}
+        )
+        for stage_name, catalog in catalogs.items():
+            if not isinstance(catalog, dict):
+                located = f"stages.{stage_name}." if stage_name else ""
+                errors.append(f"{env}: applied provider_contracts is missing a '{located}catalog' entry")
+                continue
+            for forbidden_field in _FORBIDDEN_PHASE_TWO_FIELDS:
+                if forbidden_field in catalog:
+                    located = f"stages.{stage_name}.catalog" if stage_name else "catalog"
+                    errors.append(
+                        f"{env}: applied provider_contracts.{located} resolves Phase-2-owned field "
+                        f"{forbidden_field!r} (ADR 0002 violation)"
+                    )
 
     if errors:
         return CheckResult(name, ok=False, detail="; ".join(errors))

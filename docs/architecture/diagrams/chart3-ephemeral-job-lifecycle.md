@@ -118,7 +118,7 @@ stateDiagram-v2
 ## Observing it live
 
 ```sh
-kubectl --context kind-openlakeforge-local -n lakehouse get jobs -w
+kubectl --context kind-openlakeforge-local -n olf-dev get jobs -w
 ```
 
 A `dagster-run-<id>` Job appears first, then one Floe runner Job per entity while the

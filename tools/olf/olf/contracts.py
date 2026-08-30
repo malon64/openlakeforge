@@ -9,6 +9,8 @@ values must stay byte-identical for every provider.
 
 Semantics preserved from the shell implementation:
 - Defaults apply where a variable is unset OR empty (bash ``${VAR:-default}``).
+- Every shared-service default names the namespace it runs in: a stage-scoped
+  pod cannot resolve a bare service name in another namespace (ADR 0011).
 - Terraform contract values override inherited environment values.
 - After contract application, defaults run again to fill remaining gaps.
 - Four variables honor a caller-set value even when contracts disagree:
@@ -33,7 +35,6 @@ from olf.profile import DeploymentTopology, StageName
 from olf.provider_contracts import (
     SUPPORTED_SCHEMA_VERSIONS,
     V2_SCHEMA_VERSION,
-    V3_SCHEMA_VERSION,
     ProviderContractError,
     parse_provider_contracts,
 )
@@ -44,6 +45,12 @@ PROVIDER_CONTRACT_SCHEMA_VERSION = V2_SCHEMA_VERSION
 
 def load_provider_contracts(terraform_dir: str, *, environ: Mapping[str, str] | None = None) -> dict[str, Any] | None:
     """Read the Terraform provider_contracts output, or None before apply.
+
+    Returns the raw v2 or v3 payload; version dispatch belongs to
+    `parse_provider_contracts`, and a v3 payload only resolves once its
+    caller supplies a `DeploymentTopology` and selects a stage
+    (`build_contract_env`). The local platform root still exports v2 -- #114
+    switches it to v3 once every stage owns its storage and catalog.
 
     Only a missing executable (`ExecutableNotFoundError`) is treated as
     "not applied yet" - matching this function's pre-#127 behaviour, where
@@ -101,18 +108,6 @@ def load_provider_contracts(terraform_dir: str, *, environ: Mapping[str, str] | 
         raise ProviderContractError(
             f"provider_contracts.schema_version {schema_version!r} is unsupported; "
             f"expected one of {sorted(SUPPORTED_SCHEMA_VERSIONS)!r}"
-        )
-    if schema_version == V3_SCHEMA_VERSION:
-        # Every caller of this loader (olf.e2e._shell.load_provider_contracts_or_raise
-        # and its consumers, olf.deployment.contract_env, olf.commands.contracts) still
-        # indexes the flat v2 shape and has no DeploymentTopology/stage to select with.
-        # Handing back a v3 payload here would make those callers silently read missing
-        # keys as absent-and-therefore-enabled (see olf.e2e._layers) instead of failing
-        # closed. #133 must update this loader alongside the stage-aware callers before
-        # a v3 payload can flow past this point.
-        raise ProviderContractError(
-            "provider_contracts.schema_version '3.0.0' has no stage-aware consumer yet; "
-            "#133 must resolve a DeploymentTopology and select a stage before this loader can serve it"
         )
     return contracts
 
@@ -192,14 +187,15 @@ def _apply_default_contract_env(env: _Env, base: Mapping[str, str], repo_root: P
     env.default("OPENLAKEFORGE_STORAGE_GOLD_BUCKET", "lakehouse-gold")
     env.default("OPENLAKEFORGE_STORAGE_BUCKET", env.get("OPENLAKEFORGE_STORAGE_BRONZE_BUCKET"))
     env.default("OPENLAKEFORGE_STORAGE_REGION", "us-east-1")
-    env.default("OPENLAKEFORGE_STORAGE_ENDPOINT", "http://seaweedfs-s3:8333")
-    env.default("OPENLAKEFORGE_STORAGE_VIRTUAL_HOST_ENDPOINT", "http://lakehouse.svc.cluster.local:8333")
+    env.default("OPENLAKEFORGE_STORAGE_ENDPOINT", "http://seaweedfs-s3.olf-system:8333")
+    env.default("OPENLAKEFORGE_STORAGE_VIRTUAL_HOST_ENDPOINT", "http://olf-system.svc.cluster.local:8333")
     env.default("OPENLAKEFORGE_STORAGE_PATH_STYLE_ACCESS", "true")
     env.default("OPENLAKEFORGE_STORAGE_SSL_MODE", "disabled")
     env.default("OPENLAKEFORGE_STORAGE_CREDENTIALS_SECRET_NAME", "seaweedfs-s3-creds")
     env.default("OPENLAKEFORGE_STORAGE_ACCESS_KEY_ID_KEY", "AWS_ACCESS_KEY_ID")
     env.default("OPENLAKEFORGE_STORAGE_SECRET_ACCESS_KEY_KEY", "AWS_SECRET_ACCESS_KEY")
     env.default("OPENLAKEFORGE_STORAGE_S3_SERVICE_NAME", "seaweedfs-s3")
+    env.default("OPENLAKEFORGE_STORAGE_S3_SERVICE_NAMESPACE", "olf-system")
     env.default("OPENLAKEFORGE_STORAGE_S3_SERVICE_PORT", "8333")
 
     env.default("OPENLAKEFORGE_CATALOG_LOGICAL_NAME", "iceberg_catalog")
@@ -208,8 +204,8 @@ def _apply_default_contract_env(env: _Env, base: Mapping[str, str], repo_root: P
     env.default("OPENLAKEFORGE_CATALOG_PROVIDER", "polaris")
     env.default("OPENLAKEFORGE_CATALOG_NAME", "lakehouse_dev")
     env.default("OPENLAKEFORGE_CATALOG_RUNTIME_PROFILE", "polaris-rest")
-    env.default("OPENLAKEFORGE_CATALOG_REST_URI", "http://polaris:8181/api/catalog")
-    env.default("OPENLAKEFORGE_CATALOG_TOKEN_URI", "http://polaris:8181/api/catalog/v1/oauth/tokens")
+    env.default("OPENLAKEFORGE_CATALOG_REST_URI", "http://polaris.olf-system:8181/api/catalog")
+    env.default("OPENLAKEFORGE_CATALOG_TOKEN_URI", "http://polaris.olf-system:8181/api/catalog/v1/oauth/tokens")
     env.default("OPENLAKEFORGE_CATALOG_OAUTH_SCOPE", "PRINCIPAL_ROLE:ALL")
     env.default("OPENLAKEFORGE_CATALOG_WAREHOUSE", "lakehouse_dev")
     env.default("OPENLAKEFORGE_CATALOG_GLUE_REGION", "")
@@ -258,11 +254,11 @@ def _apply_default_contract_env(env: _Env, base: Mapping[str, str], repo_root: P
         f"{env.get('OPENLAKEFORGE_ARTIFACT_BASE_URI')}/run-artifacts",
     )
     env.default("OPENLAKEFORGE_ARTIFACT_LOCAL_UPLOAD_ACCESS_MODE", "kubectl-port-forward")
-    env.default("OPENLAKEFORGE_QUERY_TRINO_HOST", "trino")
+    env.default("OPENLAKEFORGE_QUERY_TRINO_HOST", "trino.olf-system")
     env.default("OPENLAKEFORGE_QUERY_TRINO_PORT", "8080")
     env.default("OPENLAKEFORGE_QUERY_TRINO_CATALOG", "iceberg")
 
-    env.default("OPENLAKEFORGE_KUBE_NAMESPACE", env.get("NAMESPACE", "lakehouse"))
+    env.default("OPENLAKEFORGE_KUBE_NAMESPACE", env.get("NAMESPACE", "olf-dev"))
 
     env.default("AWS_REGION", env.get("OPENLAKEFORGE_STORAGE_REGION"))
     env.default("AWS_DEFAULT_REGION", env.get("AWS_REGION"))
@@ -285,7 +281,7 @@ def _apply_default_contract_env(env: _Env, base: Mapping[str, str], repo_root: P
     env.default("OPENLAKEFORGE_GOVERNANCE_ENABLED", "true")
     env.default("OPENLAKEFORGE_ANALYTICS_ENABLED", "true")
     if env.get("OPENLAKEFORGE_GOVERNANCE_ENABLED") == "true":
-        env.default("OPENLINEAGE_URL", "http://openmetadata:8585")
+        env.default("OPENLINEAGE_URL", "http://openmetadata.olf-system:8585")
         env.default("OPENLINEAGE_ENDPOINT", "api/v1/openlineage/lineage")
         env.default("OPENLINEAGE_NAMESPACE", "dagster")
         env.default(
@@ -347,6 +343,7 @@ def _apply_provider_contracts(env: _Env, contracts: dict[str, Any]) -> None:
     emit("OPENLAKEFORGE_STORAGE_ACCESS_KEY_ID_KEY", storage.get("access_key_id_key"))
     emit("OPENLAKEFORGE_STORAGE_SECRET_ACCESS_KEY_KEY", storage.get("secret_access_key_key"))
     emit("OPENLAKEFORGE_STORAGE_S3_SERVICE_NAME", storage.get("s3_service_name"))
+    emit("OPENLAKEFORGE_STORAGE_S3_SERVICE_NAMESPACE", storage.get("s3_service_namespace"))
     emit("OPENLAKEFORGE_STORAGE_S3_SERVICE_PORT", storage.get("s3_service_port"))
 
     emit("OPENLAKEFORGE_CATALOG_LOGICAL_NAME", catalog.get("logical_name"))
@@ -468,6 +465,16 @@ def build_contract_env(
     if contracts is not None:
         parsed = parse_provider_contracts(contracts, topology)
         native_v3 = not parsed.compatibility_v2
+        if parsed.compatibility_v2 and stage is not None and StageName(stage) != StageName.DEV:
+            # The v2 payload carries one stage's bindings with no stage index,
+            # so there is nothing to select: returning it for another stage
+            # would hand that stage DEV's namespace, catalog, and capability
+            # flags while reporting success. #114 emits v3, which can answer
+            # this properly.
+            raise ProviderContractError(
+                f"provider contract v2 describes only the DEV stage; it cannot serve {StageName(stage).value!r} "
+                "(#114 switches the roots to v3)"
+            )
         resolved_contract = (
             dict(contracts) if parsed.compatibility_v2 else parsed.for_stage(stage).as_v2_environment_contract()
         )
@@ -481,6 +488,7 @@ def build_contract_env(
         env.set("OPENLAKEFORGE_STORAGE_ACCESS_KEY_ID_KEY", "")
         env.set("OPENLAKEFORGE_STORAGE_SECRET_ACCESS_KEY_KEY", "")
         env.set("OPENLAKEFORGE_STORAGE_S3_SERVICE_NAME", "")
+        env.set("OPENLAKEFORGE_STORAGE_S3_SERVICE_NAMESPACE", "")
         env.set("OPENLAKEFORGE_STORAGE_S3_SERVICE_PORT", "")
         env.unset("AWS_ENDPOINT_URL_S3")
         env.default("AWS_S3_FORCE_PATH_STYLE", "false")

@@ -12,7 +12,8 @@ def test_local_defaults(tmp_path: Path) -> None:
     ctx = DeploymentContext.local(repo_root=tmp_path)
 
     assert ctx.provider == Provider.LOCAL
-    assert ctx.namespace == "lakehouse"
+    assert ctx.namespace == "olf-dev"
+    assert ctx.shared_namespace == "olf-system"
     assert ctx.kube_context == "kind-openlakeforge-local"
     assert ctx.paths.kubeconfig_path == tmp_path / ".tmp" / "kubeconfigs" / "local.yaml"
     assert ctx.paths.platform_terraform_dir == tmp_path / "infra" / "terraform" / "environments" / "local"

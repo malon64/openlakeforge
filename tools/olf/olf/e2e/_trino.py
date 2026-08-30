@@ -103,7 +103,7 @@ def check_polaris_restart_recovery(cfg: E2EConfig) -> None:
             "get",
             "pods",
             "-n",
-            cfg.namespace,
+            cfg.platform_namespace,
             "-l",
             POLARIS_POD_SELECTOR,
             "-o",
@@ -114,7 +114,7 @@ def check_polaris_restart_recovery(cfg: E2EConfig) -> None:
     if not pod_name:
         raise E2EError("could not find the Polaris pod to restart.")
 
-    kubectl(cfg, ["delete", "pod", pod_name, "-n", cfg.namespace])
+    kubectl(cfg, ["delete", "pod", pod_name, "-n", cfg.platform_namespace])
     kubectl(
         cfg,
         [
@@ -122,7 +122,7 @@ def check_polaris_restart_recovery(cfg: E2EConfig) -> None:
             "--for=condition=Ready",
             "pod",
             "-n",
-            cfg.namespace,
+            cfg.platform_namespace,
             "-l",
             POLARIS_POD_SELECTOR,
             f"--timeout={POLARIS_RESTART_TIMEOUT_SECONDS}s",
@@ -141,7 +141,7 @@ def trino_query(cfg: E2EConfig, sql: str) -> str:
         [
             "exec",
             "-n",
-            cfg.namespace,
+            cfg.platform_namespace,
             "deploy/trino-coordinator",
             "--",
             "trino",

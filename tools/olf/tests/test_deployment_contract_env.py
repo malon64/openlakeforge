@@ -29,7 +29,7 @@ def test_applies_contract_exports_and_restores_previous_environment(
     monkeypatch.setattr(
         contracts_module,
         "build_contract_env",
-        lambda base, contracts_value, *, repo_root: (
+        lambda base, contracts_value, *, repo_root, **_: (
             {"OPENLAKEFORGE_CATALOG_NAME": "lakehouse_dev"},
             ["SOME_STALE_VAR"],
         ),
@@ -53,7 +53,7 @@ def test_extra_variables_override_contract_exports(monkeypatch: pytest.MonkeyPat
     monkeypatch.setattr(
         contracts_module,
         "build_contract_env",
-        lambda base, contracts_value, *, repo_root: ({"NAMESPACE": "from-contract"}, []),
+        lambda base, contracts_value, *, repo_root, **_: ({"NAMESPACE": "from-contract"}, []),
     )
 
     with contract_env.applied_contract_environment(**_kwargs(tmp_path, namespace="lakehouse-slim")):
@@ -65,7 +65,7 @@ def test_restores_environment_even_when_the_block_raises(monkeypatch: pytest.Mon
     monkeypatch.setattr(
         contracts_module,
         "build_contract_env",
-        lambda base, contracts_value, *, repo_root: ({"OPENLAKEFORGE_CATALOG_NAME": "lakehouse_dev"}, []),
+        lambda base, contracts_value, *, repo_root, **_: ({"OPENLAKEFORGE_CATALOG_NAME": "lakehouse_dev"}, []),
     )
     monkeypatch.delenv("OPENLAKEFORGE_CATALOG_NAME", raising=False)
 

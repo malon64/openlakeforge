@@ -32,7 +32,7 @@ computeLogManager:
       prefix: logs/dagster/compute
       useSsl: false
       verify: false
-      endpointUrl: http://seaweedfs-s3:8333
+      endpointUrl: http://seaweedfs-s3.olf-system:8333
       region: us-east-1
       skipEmptyFiles: true
 

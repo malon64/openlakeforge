@@ -21,8 +21,59 @@ def fail(message: str) -> int:
     return 1
 
 
+def resolve_topology(project_root: Path, *, provider, preset: str = ""):  # noqa: ANN001, ANN202
+    """Resolve the run's effective `DeploymentTopology`.
+
+    An explicit `--profile slim|full` selects the deprecated v0.2 shorthand
+    (ADR 0011): one enabled DEV stage using that preset's capability
+    defaults. With no `--profile`, the project-root Deployment Profile is
+    authoritative.
+
+    Two cases fall back to that same single-DEV shorthand rather than to a
+    guess: no profile file at all (a directory that is not an OpenLakeForge
+    project yet -- `olf check contracts` is what requires one), and a profile
+    that targets a different provider than the one requested, which cannot
+    describe this deployment. A profile file that exists but is invalid fails
+    closed instead: it was written to be used.
+    """
+    from olf.profile import (
+        DeploymentProfileError,
+        Preset,
+        legacy_single_stage_topology,
+        load_deployment_profile,
+    )
+    from olf.profile import (
+        resolve_topology as resolve,
+    )
+
+    if preset:
+        return legacy_single_stage_topology(provider=provider, preset=Preset(preset))
+    profile_path = project_root / "openlakeforge.yaml"
+    if not profile_path.is_file():
+        return legacy_single_stage_topology(provider=provider, preset=Preset.FULL)
+    try:
+        profile = load_deployment_profile(profile_path)
+    except (DeploymentProfileError, OSError) as exc:
+        raise typer.Exit(code=fail(f"{profile_path}: {exc}")) from exc
+    if profile.provider.type != provider:
+        log.warn(
+            f"{profile_path} targets provider {profile.provider.type.value!r}; "
+            f"--provider {provider.value!r} resolves a single DEV stage instead."
+        )
+        return legacy_single_stage_topology(provider=provider, preset=profile.preset)
+    return resolve(profile)
+
+
 def deployment_context(
-    provider: str, *, profile: str, namespace: str, cluster_name: str, kubeconfig_path: str = "", project_root: str = ""
+    provider: str,
+    *,
+    profile: str,
+    namespace: str,
+    cluster_name: str,
+    kubeconfig_path: str = "",
+    project_root: str = "",
+    stage: str = "",
+    allow_stage_removal: bool = False,
 ):  # noqa: ANN202
     """Resolve the installed-vs-source runtime layout into a `DeploymentContext`.
 
@@ -35,16 +86,38 @@ def deployment_context(
     just created.
     """
     from olf.deployment.context import DeploymentContext, Profile, Provider
+    from olf.deployment.errors import DeploymentPreconditionError
     from olf.distribution import DistributionError, runtime_layout
+    from olf.profile import StageName
 
     try:
         resolved_provider = Provider(provider)
     except ValueError as exc:
         raise typer.Exit(code=fail(f"unknown --provider: {provider!r}")) from exc
-    try:
-        resolved_profile = Profile(profile)
-    except ValueError as exc:
-        raise typer.Exit(code=fail(f"unknown --profile: {profile!r} (expected 'full' or 'slim')")) from exc
+    if profile:
+        try:
+            Profile(profile)
+        except ValueError as exc:
+            raise typer.Exit(code=fail(f"unknown --profile: {profile!r} (expected 'full' or 'slim')")) from exc
+    if namespace and resolved_provider == Provider.LOCAL:
+        # The stage-aware root derives `olf-system` and `olf-<stage>` from the
+        # resolved topology, so an override here would only rename what the
+        # artifacts and forwarding paths look for -- never what Terraform
+        # creates. Rejecting it beats a platform that applies cleanly while
+        # every later phase points at a namespace nobody made.
+        raise typer.Exit(
+            code=fail(
+                "--namespace is not supported for the local provider: namespaces are derived from the "
+                "Deployment Profile (olf-system plus olf-<stage>). Use --stage to select a stage."
+            )
+        )
+    if stage:
+        try:
+            StageName(stage)
+        except ValueError as exc:
+            raise typer.Exit(
+                code=fail(f"unknown --stage: {stage!r} (expected one of {[s.value for s in StageName]})")
+            ) from exc
 
     layout_env = dict(os.environ)
     if project_root:
@@ -53,18 +126,43 @@ def deployment_context(
         layout = runtime_layout(layout_env)
     except DistributionError as exc:
         raise typer.Exit(code=fail(str(exc))) from exc
+
+    topology = resolve_topology(layout.project_root, provider=resolved_provider, preset=profile)
+    enabled_stages = [stage.name.value for stage in topology.stages if stage.enabled]
+    if resolved_provider != Provider.LOCAL and len(enabled_stages) > 1:
+        # Only the local root consumes the topology today; the cloud POC roots
+        # still create one namespace and one Dagster. Deploying them from a
+        # multi-stage profile would exit successfully having provisioned one
+        # stage and silently skipped the rest.
+        raise typer.Exit(
+            code=fail(
+                f"the {resolved_provider.value} platform root is still single-stage, but the Deployment Profile "
+                f"enables {', '.join(enabled_stages)}. Enable one stage, or use --profile for the single-DEV "
+                "shorthand (#114 makes the cloud roots stage-aware)."
+            )
+        )
     kwargs: dict[str, object] = {
         "repo_root": layout.project_root,
         "distribution_root": layout.distribution_root,
         "state_root": None if layout.is_source else layout.state_root,
         "work_root": None if layout.is_source else layout.work_root,
         "cache_root": None if layout.is_source else layout.cache_root,
-        "profile": resolved_profile,
+        # `--profile` names a preset, not a stage set: the resolved topology
+        # is what selects capabilities, and this only still picks the
+        # platform tfvars file (`TerraformSettings.from_environment`).
+        "profile": Profile(topology.preset.value),
+        "topology": topology,
+        "allow_stage_removal": allow_stage_removal,
     }
+    if stage:
+        kwargs["stage"] = stage
     if namespace:
         kwargs["namespace"] = namespace
     if resolved_provider == Provider.LOCAL and cluster_name:
         kwargs["cluster_name"] = cluster_name
     if kubeconfig_path:
         kwargs["kubeconfig_path"] = Path(kubeconfig_path)
-    return DeploymentContext.for_provider(resolved_provider, **kwargs)
+    try:
+        return DeploymentContext.for_provider(resolved_provider, **kwargs)
+    except DeploymentPreconditionError as exc:
+        raise typer.Exit(code=fail(str(exc))) from exc

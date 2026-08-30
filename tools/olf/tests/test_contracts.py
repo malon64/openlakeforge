@@ -16,7 +16,7 @@ def load_fixture(name: str) -> dict:
 def test_defaults_without_contracts_match_local_profile() -> None:
     exports, unsets = build_contract_env({}, None, repo_root=REPO_ROOT)
     assert exports["OPENLAKEFORGE_STORAGE_IMPLEMENTATION"] == "storage.s3_compatible.seaweedfs"
-    assert exports["OPENLAKEFORGE_STORAGE_ENDPOINT"] == "http://seaweedfs-s3:8333"
+    assert exports["OPENLAKEFORGE_STORAGE_ENDPOINT"] == "http://seaweedfs-s3.olf-system:8333"
     assert exports["OPENLAKEFORGE_CATALOG_PROVIDER"] == "polaris"
     assert exports["OPENLAKEFORGE_CATALOG_WAREHOUSE"] == "lakehouse_dev"
     assert exports["OPENLAKEFORGE_ARTIFACT_BASE_URI"] == "s3://openlakeforge-ops"
@@ -33,11 +33,11 @@ def test_defaults_without_contracts_match_local_profile() -> None:
     assert exports["OPENMETADATA_CATALOG_SERVICE"] == "polaris"
     assert exports["OPENLAKEFORGE_STORAGE_OM_SERVICE"] == "seaweedfs"
     assert exports["OPENLAKEFORGE_STORAGE_DISPLAY_NAME"] == "SeaweedFS S3"
-    assert exports["AWS_ENDPOINT_URL_S3"] == "http://seaweedfs-s3:8333"
+    assert exports["AWS_ENDPOINT_URL_S3"] == "http://seaweedfs-s3.olf-system:8333"
     assert exports["AWS_ALLOW_HTTP"] == "true"
     assert exports["CODE_BUCKET_NAME"] == "openlakeforge-ops"
     assert (
-        exports["OPENLAKEFORGE_QUERY_SQLALCHEMY_URI"] == "trino://superset@trino:8080/iceberg"
+        exports["OPENLAKEFORGE_QUERY_SQLALCHEMY_URI"] == "trino://superset@trino.olf-system:8080/iceberg"
     )
     assert unsets == []
 
@@ -223,3 +223,22 @@ def test_render_shell_exports_are_evaluable_lines(fixture: str) -> None:
     output = render_shell_exports(exports, unsets)
     for line in output.splitlines():
         assert line.startswith("export ") or line.startswith("unset ")
+
+
+def test_a_v2_contract_refuses_to_answer_for_another_stage() -> None:
+    """v2 carries one stage's bindings with no stage index. Serving it for
+    another stage would hand that stage DEV's namespace, catalog, and
+    capability flags while reporting success."""
+    from olf.contracts import ProviderContractError
+    from olf.deployment.context import Provider
+    from olf.profile import Preset, StageName, legacy_single_stage_topology
+
+    contracts = load_fixture("local-provider-contracts.json")
+    topology = legacy_single_stage_topology(provider=Provider.LOCAL, preset=Preset.SLIM)
+
+    with pytest.raises(ProviderContractError, match="describes only the DEV stage"):
+        build_contract_env({}, contracts, repo_root=REPO_ROOT, topology=topology, stage=StageName.PROD)
+
+    # The DEV stage still resolves, as does the unselected default.
+    build_contract_env({}, contracts, repo_root=REPO_ROOT, topology=topology, stage=StageName.DEV)
+    build_contract_env({}, contracts, repo_root=REPO_ROOT)

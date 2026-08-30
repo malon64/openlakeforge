@@ -1,3 +1,8 @@
+output "namespace" {
+  description = "Namespace this Superset instance is deployed in."
+  value       = var.namespace
+}
+
 output "contract" {
   description = "Superset reporting contract consumed by local scripts and future modules."
   value = {

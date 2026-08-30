@@ -47,17 +47,21 @@ def _resolve_phase(phase: str, *, valid: tuple[str, ...]):  # noqa: ANN202
 
 def deploy(
     provider: str = typer.Option("local", "--provider", help="Target deployment provider."),
-    profile: str = typer.Option("full", "--profile", help="'full' or 'slim'."),
+    profile: str = typer.Option("", "--profile", help="Deprecated single-DEV preset shorthand: 'full' or 'slim'."),
     phase: str = typer.Option(
         "all", "--phase", help="'all', 'foundation', 'prefetch', 'platform', or 'artifacts'."
     ),
     namespace: str = typer.Option("", "--namespace", help="Kubernetes namespace override."),
+    stage: str = typer.Option("", "--stage", help="Stage to select: dev, uat, or prod. Defaults to dev."),
     cluster_name: str = typer.Option("", "--cluster-name", help="Local kind cluster name override."),
     kubeconfig_path: str = typer.Option("", "--kubeconfig-path", help="Local kubeconfig file path override."),
     project_root: str = typer.Option(
         "", "--project-root", help="Writable project root; defaults to the current directory."
     ),
     var_file: str = typer.Option("", "--var-file", help="Terraform tfvars file override."),
+    allow_stage_removal: bool = typer.Option(
+        False, "--allow-stage-removal", help="Permit an apply that removes an already-applied stage."
+    ),
 ) -> None:
     """Deploy a provider's lifecycle, or a single phase of it."""
     from olf.deployment.errors import DeploymentError
@@ -66,9 +70,11 @@ def deploy(
         provider,
         profile=profile,
         namespace=namespace,
+        stage=stage,
         cluster_name=cluster_name,
         kubeconfig_path=kubeconfig_path,
         project_root=project_root,
+        allow_stage_removal=allow_stage_removal,
     )
     engine = _build_engine(context, var_file=var_file)
     resolved_phase = _resolve_phase(phase, valid=("all", "foundation", "prefetch", "platform", "artifacts"))
@@ -80,15 +86,19 @@ def deploy(
 
 def plan(
     provider: str = typer.Option("local", "--provider", help="Target deployment provider."),
-    profile: str = typer.Option("full", "--profile", help="'full' or 'slim'."),
+    profile: str = typer.Option("", "--profile", help="Deprecated single-DEV preset shorthand: 'full' or 'slim'."),
     phase: str = typer.Option("all", "--phase", help="'all', 'foundation', or 'platform'."),
     namespace: str = typer.Option("", "--namespace", help="Kubernetes namespace override."),
+    stage: str = typer.Option("", "--stage", help="Stage to select: dev, uat, or prod. Defaults to dev."),
     cluster_name: str = typer.Option("", "--cluster-name", help="Local kind cluster name override."),
     kubeconfig_path: str = typer.Option("", "--kubeconfig-path", help="Kubeconfig file path override."),
     project_root: str = typer.Option(
         "", "--project-root", help="Writable project root; defaults to the current directory."
     ),
     var_file: str = typer.Option("", "--var-file", help="Terraform tfvars file override."),
+    allow_stage_removal: bool = typer.Option(
+        False, "--allow-stage-removal", help="Permit an apply that removes an already-applied stage."
+    ),
     detailed_exitcode: bool = typer.Option(False, "--detailed-exitcode", help="Return 2 when changes are pending."),
 ) -> None:
     """Plan Terraform-managed deployment phases without applying them."""
@@ -98,9 +108,11 @@ def plan(
         provider,
         profile=profile,
         namespace=namespace,
+        stage=stage,
         cluster_name=cluster_name,
         kubeconfig_path=kubeconfig_path,
         project_root=project_root,
+        allow_stage_removal=allow_stage_removal,
     )
     engine = _build_engine(context, var_file=var_file)
     resolved_phase = _resolve_phase(phase, valid=("all", "foundation", "platform"))
@@ -115,9 +127,10 @@ def plan(
 
 def doctor(
     provider: str = typer.Option("local", "--provider", help="Target deployment provider."),
-    profile: str = typer.Option("full", "--profile", help="'full' or 'slim'."),
+    profile: str = typer.Option("", "--profile", help="Deprecated single-DEV preset shorthand: 'full' or 'slim'."),
     phase: str = typer.Option("all", "--phase", help="'all', 'foundation', 'platform', or 'artifacts'."),
     namespace: str = typer.Option("", "--namespace", help="Kubernetes namespace override."),
+    stage: str = typer.Option("", "--stage", help="Stage to select: dev, uat, or prod. Defaults to dev."),
     cluster_name: str = typer.Option("", "--cluster-name", help="Local kind cluster name override."),
     kubeconfig_path: str = typer.Option("", "--kubeconfig-path", help="Kubeconfig file path override."),
     project_root: str = typer.Option(
@@ -132,6 +145,7 @@ def doctor(
         provider,
         profile=profile,
         namespace=namespace,
+        stage=stage,
         cluster_name=cluster_name,
         kubeconfig_path=kubeconfig_path,
         project_root=project_root,
@@ -149,9 +163,10 @@ def doctor(
 
 def destroy(
     provider: str = typer.Option("local", "--provider", help="Target deployment provider."),
-    profile: str = typer.Option("full", "--profile", help="'full' or 'slim'."),
+    profile: str = typer.Option("", "--profile", help="Deprecated single-DEV preset shorthand: 'full' or 'slim'."),
     phase: str = typer.Option("all", "--phase", help="'all', 'platform', or 'foundation'."),
     namespace: str = typer.Option("", "--namespace", help="Kubernetes namespace override."),
+    stage: str = typer.Option("", "--stage", help="Stage to select: dev, uat, or prod. Defaults to dev."),
     cluster_name: str = typer.Option("", "--cluster-name", help="Local kind cluster name override."),
     kubeconfig_path: str = typer.Option("", "--kubeconfig-path", help="Local kubeconfig file path override."),
     project_root: str = typer.Option(
@@ -169,6 +184,7 @@ def destroy(
         provider,
         profile=profile,
         namespace=namespace,
+        stage=stage,
         cluster_name=cluster_name,
         kubeconfig_path=kubeconfig_path,
         project_root=project_root,
@@ -184,6 +200,7 @@ def destroy(
 def status(
     provider: str = typer.Option("local", "--provider", help="Target deployment provider."),
     namespace: str = typer.Option("", "--namespace", help="Kubernetes namespace override."),
+    stage: str = typer.Option("", "--stage", help="Stage to select: dev, uat, or prod. Defaults to dev."),
     cluster_name: str = typer.Option("", "--cluster-name", help="Local kind cluster name override."),
     kubeconfig_path: str = typer.Option("", "--kubeconfig-path", help="Local kubeconfig file path override."),
     project_root: str = typer.Option(
@@ -195,8 +212,9 @@ def status(
 
     context = _build_context(
         provider,
-        profile="full",
+        profile="",
         namespace=namespace,
+        stage=stage,
         cluster_name=cluster_name,
         kubeconfig_path=kubeconfig_path,
         project_root=project_root,
@@ -211,8 +229,9 @@ def status(
 
 def forward(
     provider: str = typer.Option("local", "--provider", help="Target deployment provider."),
-    profile: str = typer.Option("full", "--profile", help="'full' or 'slim'."),
+    profile: str = typer.Option("", "--profile", help="Deprecated single-DEV preset shorthand: 'full' or 'slim'."),
     namespace: str = typer.Option("", "--namespace", help="Kubernetes namespace override."),
+    stage: str = typer.Option("", "--stage", help="Stage to select: dev, uat, or prod. Defaults to dev."),
     cluster_name: str = typer.Option("", "--cluster-name", help="Local kind cluster name override."),
     kubeconfig_path: str = typer.Option("", "--kubeconfig-path", help="Local kubeconfig file path override."),
     project_root: str = typer.Option(
@@ -226,6 +245,7 @@ def forward(
         provider,
         profile=profile,
         namespace=namespace,
+        stage=stage,
         cluster_name=cluster_name,
         kubeconfig_path=kubeconfig_path,
         project_root=project_root,

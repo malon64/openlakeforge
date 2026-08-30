@@ -48,6 +48,12 @@ variable "region" {
   type        = string
 }
 
+variable "workload_namespaces" {
+  description = "Extra namespaces the S3 credentials Secret is materialized in, for workloads that run outside this module's namespace."
+  type        = list(string)
+  default     = []
+}
+
 variable "credentials_secret_name" {
   description = "Kubernetes Secret name containing S3 credentials for downstream clients."
   type        = string

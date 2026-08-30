@@ -125,7 +125,7 @@ resource "kubernetes_job_v1" "metastore_bootstrap" {
 
 resource "kubernetes_job_v1" "bootstrap" {
   metadata {
-    name      = "polaris-bootstrap-${helm_release.polaris.metadata.revision}"
+    name      = local.bootstrap_job_name
     namespace = var.namespace
     labels    = local.labels
   }
@@ -151,30 +151,7 @@ resource "kubernetes_job_v1" "bootstrap" {
           image = var.bootstrap_job_image
 
           command = ["/bin/sh", "-ec"]
-          args = [templatefile("${path.module}/templates/bootstrap.sh.tftpl", {
-            release_name                     = var.release_name
-            oauth_scope                      = local.oauth_scope
-            bronze_bucket_name               = local.bronze_bucket_name
-            silver_bucket_name               = local.silver_bucket_name
-            gold_bucket_name                 = local.gold_bucket_name
-            catalog_name                     = var.catalog_name
-            principal_name                   = var.principal_name
-            trino_credentials_secret_name    = var.trino_credentials_secret_name
-            principal_role                   = var.principal_role
-            catalog_role                     = var.catalog_role
-            floe_principal_name              = var.floe_principal_name
-            floe_credentials_secret_name     = var.floe_credentials_secret_name
-            floe_principal_role              = var.floe_principal_role
-            floe_catalog_role                = var.floe_catalog_role
-            om_principal_name                = var.om_principal_name
-            om_credentials_secret_name       = var.om_credentials_secret_name
-            om_principal_role                = var.om_principal_role
-            om_catalog_role                  = var.om_catalog_role
-            deployer_principal_name          = var.deployer_principal_name
-            deployer_credentials_secret_name = var.deployer_credentials_secret_name
-            deployer_principal_role          = var.deployer_principal_role
-            deployer_catalog_role            = var.deployer_catalog_role
-          })]
+          args    = [local.bootstrap_script]
 
           env {
             name = "NAMESPACE"

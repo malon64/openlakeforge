@@ -158,7 +158,10 @@ def test_e2e_delegates_forward_deployment_scope() -> None:
 
     for provider, variables in scopes.items():
         expanded = _dry_run(f"{provider}-e2e", *variables)
-        assert 'NAMESPACE="custom-namespace"' in expanded
+        # The local stack derives its stage namespaces from the resolved
+        # topology; only the single-namespace cloud POC roots still take one.
+        if provider != "local":
+            assert 'NAMESPACE="custom-namespace"' in expanded
         assert f"OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR={expected_contract_dirs[provider]}" in expanded
 
     for target in ("local-e2e", "local-slim-e2e"):

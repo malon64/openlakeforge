@@ -22,10 +22,16 @@ locals {
   })
 
   kubernetes_platform_contract = {
-    provider             = local.local_provider_name
-    implementation       = "kubernetes.kind"
-    adapter              = "platform.kubernetes.kind"
-    namespace            = var.namespace
+    provider       = local.local_provider_name
+    implementation = "kubernetes.kind"
+    adapter        = "platform.kubernetes.kind"
+    # The stage a runtime consumer resolves. Shared services live in
+    # `shared_namespace`; #114 replaces this single-stage view with the
+    # provider-contract v3 stage index.
+    namespace            = local.selected_stage_namespace
+    shared_namespace     = var.shared_namespace
+    stage                = local.selected_stage
+    stage_namespaces     = local.stage_namespaces
     kube_context         = coalesce(try(local.foundation_contract.kube_context, null), var.kube_context)
     kubeconfig_path      = coalesce(try(local.foundation_contract.kubeconfig_path, null), local.kubeconfig_path)
     cluster_name         = try(local.foundation_contract.cluster_name, "openlakeforge-local")
@@ -51,7 +57,32 @@ locals {
     gold_bucket_name      = var.gold_bucket_name
   })
 
+  # One contract per stage-scoped service instance: the shared PostgreSQL
+  # server with that stage's own database, user, and credentials Secret.
+  stage_metadata_database_contracts = { for name in keys(local.enabled_stages) : name => merge(
+    local.metadata_database_contract,
+    {
+      dagster_db_name                 = local.stage_databases["dagster_${name}"].db_name
+      dagster_db_user                 = local.stage_databases["dagster_${name}"].db_user
+      dagster_credentials_secret_name = local.stage_databases["dagster_${name}"].credentials_secret_name
+    },
+    contains(keys(local.analytics_stages), name) ? {
+      superset_db_name                 = local.stage_databases["superset_${name}"].db_name
+      superset_db_user                 = local.stage_databases["superset_${name}"].db_user
+      superset_credentials_secret_name = local.stage_databases["superset_${name}"].credentials_secret_name
+    } : {},
+  ) }
+
+  # The shared OpenMetadata database, flattened onto the contract the
+  # governance module's typed input expects. Stage-scoped services take their
+  # own database through `stage_metadata_database_contracts` instead.
+  governance_database = local.governance_enabled ? local.stage_databases["openmetadata"] : null
+
   metadata_database_contract = merge(module.postgresql.contract, {
+    openmetadata_db_name                 = try(local.governance_database.db_name, null)
+    openmetadata_db_user                 = try(local.governance_database.db_user, null)
+    openmetadata_credentials_secret_name = try(local.governance_database.credentials_secret_name, null)
+
     provider              = local.local_provider_name
     implementation        = "metadata_database.postgresql.in_cluster"
     adapter               = "metadata_database.postgresql.in_cluster"
@@ -97,38 +128,48 @@ locals {
     # derives both from the same inventory when the contract omits them.
   })
 
-  governance_contract = merge(var.enable_governance ? module.openmetadata[0].contract : {}, {
-    enabled        = var.enable_governance
+  governance_contract = merge(local.governance_enabled ? module.openmetadata[0].contract : {}, {
+    enabled        = local.governance_enabled
     provider       = local.local_provider_name
     implementation = "governance.openmetadata"
     adapter        = "governance.openmetadata"
     logical_name   = "governance_catalog"
     auth_mode      = "local-development"
-    endpoint       = var.enable_governance ? "http://${module.openmetadata[0].contract.service_name}:${module.openmetadata[0].contract.http_port}" : null
+    endpoint       = local.governance_enabled ? "http://${module.openmetadata[0].contract.service_name}.${module.openmetadata[0].contract.service_namespace}:${module.openmetadata[0].contract.http_port}" : null
     ingress_mode   = "cluster-internal"
     local_only     = true
   })
 
-  reporting_contract = merge(var.enable_analytics ? module.superset[0].contract : {}, {
-    enabled        = var.enable_analytics
+  selected_stage_analytics = contains(keys(local.analytics_stages), local.selected_stage)
+
+  # `try`, not a conditional: indexing a for_each module with a key it does
+  # not have is an error even on the unselected branch of a ternary.
+  reporting_contract = merge(try(module.superset[local.selected_stage].contract, {}), {
+    enabled        = local.selected_stage_analytics
     provider       = local.local_provider_name
     implementation = "reporting.superset"
     adapter        = "reporting.superset"
     logical_name   = "bi_reporting"
     auth_mode      = "local-development"
-    endpoint       = var.enable_analytics ? "http://${module.superset[0].contract.service_name}:${module.superset[0].contract.http_port}" : null
-    ingress_mode   = "cluster-internal"
-    local_only     = true
+    endpoint = try(
+      "http://${module.superset[local.selected_stage].contract.service_name}.${local.selected_stage_namespace}:${module.superset[local.selected_stage].contract.http_port}",
+      null,
+    )
+    ingress_mode = "cluster-internal"
+    local_only   = true
   })
 
   query_contract = {
-    provider            = local.local_provider_name
-    implementation      = "query.trino"
-    adapter             = "query.trino"
-    logical_name        = "sql_query"
-    service_name        = "trino"
-    http_port           = 8080
-    endpoint            = "http://trino:8080"
+    provider          = local.local_provider_name
+    implementation    = "query.trino"
+    adapter           = "query.trino"
+    logical_name      = "sql_query"
+    service_name      = "trino"
+    service_namespace = var.shared_namespace
+    http_port         = 8080
+    # Namespace-qualified: stage-scoped Dagster and Superset resolve this
+    # from their own namespace, where a bare service name would not resolve.
+    endpoint            = "http://trino.${var.shared_namespace}:8080"
     catalog_name        = local.catalog_contract.trino_catalog_name
     supported_catalogs  = ["rest", "glue"]
     active_catalog_type = local.catalog_contract.catalog_type
@@ -141,13 +182,14 @@ locals {
   }
 
   orchestration_contract = {
-    provider       = local.local_provider_name
-    implementation = "orchestration.dagster"
-    adapter        = "orchestration.dagster"
-    logical_name   = "orchestration"
-    service_name   = "dagster-dagster-webserver"
-    http_port      = 80
-    endpoint       = "http://dagster-dagster-webserver:80"
+    provider          = local.local_provider_name
+    implementation    = "orchestration.dagster"
+    adapter           = "orchestration.dagster"
+    logical_name      = "orchestration"
+    service_name      = "dagster-dagster-webserver"
+    service_namespace = local.selected_stage_namespace
+    http_port         = 80
+    endpoint          = "http://dagster-dagster-webserver.${local.selected_stage_namespace}:80"
     code_locations = [
       {
         name               = "openlakeforge-dagster"
@@ -343,5 +385,32 @@ check "openmetadata_catalog_fqn_uses_lakehouse_database" {
   assert {
     condition     = local.catalog_contract.catalog_database_fqn == "polaris.${var.catalog_name}" && local.catalog_contract.catalog_name != "default"
     error_message = "OpenMetadata catalog assets must resolve under polaris.<catalog_name>, not polaris.default."
+  }
+}
+
+check "stage_namespaces_are_distinct" {
+  assert {
+    condition = alltrue([
+      length(distinct(values(local.stage_namespaces))) == length(local.stage_namespaces),
+      !contains(values(local.stage_namespaces), var.shared_namespace),
+    ])
+    error_message = "Every enabled stage must own a namespace of its own, distinct from the shared platform namespace."
+  }
+}
+
+check "stage_services_stay_in_their_own_stage" {
+  assert {
+    condition = alltrue(concat(
+      [for name, instance in module.dagster : instance.namespace == local.stage_namespaces[name]],
+      [for name, instance in module.superset : instance.namespace == local.stage_namespaces[name]],
+    ))
+    error_message = "Each stage-scoped service instance must be deployed in its own stage namespace."
+  }
+}
+
+check "stage_metadata_state_is_not_shared" {
+  assert {
+    condition     = length(distinct([for database in values(local.stage_databases) : database.db_name])) == length(local.stage_databases)
+    error_message = "Every stage-scoped service instance must own its metadata database; sharing one mixes stage state."
   }
 }

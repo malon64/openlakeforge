@@ -89,17 +89,15 @@ def test_external_state_root_is_translated_into_terraform_state_and_data_dir(
     assert captured["env"]["TF_DATA_DIR"] == str(tmp_path / "terraform-data" / "platform")
 
 
-def test_a_native_v3_terraform_output_is_rejected_until_a_stage_aware_caller_exists(
+def test_a_native_v3_terraform_output_is_returned_for_a_stage_aware_caller(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
-    """Every current consumer of this loader (olf.e2e._shell and its
-    callers, olf.deployment.contract_env, olf.commands.contracts) indexes
-    the flat v2 shape and has no DeploymentTopology/stage to select with. A
-    v3 payload must not reach them - olf.e2e._layers, for one, would read a
-    missing "governance" key as enabled=True for what could be a slim
-    deployment instead of failing closed."""
+    """The loader hands back whatever version the root exports; selecting a
+    stage is `build_contract_env`'s job. A v3 payload without a resolved
+    topology still fails closed there rather than here."""
     import subprocess
 
+    from olf.contracts import build_contract_env
     from olf.tooling.resolver import ExecutableResolver
 
     class _Resolver(ExecutableResolver):
@@ -115,8 +113,11 @@ def test_a_native_v3_terraform_output_is_rejected_until_a_stage_aware_caller_exi
     terraform_dir = tmp_path / "environments" / "local"
     environ = {"PATH": "/usr/bin"}
 
-    with pytest.raises(ProviderContractError, match="no stage-aware consumer yet"):
-        load_provider_contracts(str(terraform_dir), environ=environ)
+    contracts = load_provider_contracts(str(terraform_dir), environ=environ)
+
+    assert contracts == {"schema_version": "3.0.0"}
+    with pytest.raises(ProviderContractError, match="requires a resolved DeploymentTopology"):
+        build_contract_env({}, contracts, repo_root=Path(__file__).resolve().parents[3])
 
 
 def test_without_external_state_root_behaviour_is_unchanged(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:

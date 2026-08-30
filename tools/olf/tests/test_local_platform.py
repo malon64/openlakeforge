@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 import io
+import json
 import tarfile
 from pathlib import Path
 
 import pytest
 from _tooling_support import RecordedCall, RecordingRunner
 
-from olf.deployment.context import DeploymentContext, Profile
+from olf.deployment.charts import TERRAFORM_VARIABLE_KEY
+from olf.deployment.context import DeploymentContext, Profile, Provider
 from olf.deployment.engine import Toolkit
-from olf.deployment.errors import DeploymentPreconditionError
+from olf.deployment.errors import CommandExecutionError, DeploymentPreconditionError
 from olf.deployment.local import platform
 from olf.deployment.local.config import LocalDeploymentConfig
 from olf.tooling.process import CommandResult
@@ -18,8 +20,42 @@ from olf.tooling.resolver import PathExecutableResolver
 _TOOLS = ("terraform", "docker", "kind", "kubectl", "helm")
 
 
-def _config(tmp_path: Path, *, profile: Profile = Profile.FULL) -> LocalDeploymentConfig:
-    context = DeploymentContext.local(repo_root=tmp_path, profile=profile)
+def _topology(*, dev: bool = True, uat: bool = False, prod: bool = False, analytics: bool = True):  # noqa: ANN202
+    from olf.profile import (
+        DeploymentProfile,
+        Preset,
+        ProviderSpec,
+        StageCapabilities,
+        StageName,
+        StageSpec,
+        resolve_topology,
+    )
+
+    capabilities = StageCapabilities(analytics=analytics, governance=analytics)
+    enabled = {StageName.DEV: dev, StageName.UAT: uat, StageName.PROD: prod}
+    return resolve_topology(
+        DeploymentProfile(
+            name="acme-data",
+            provider=ProviderSpec(type=Provider.LOCAL),
+            preset=Preset.FULL,
+            stages=tuple(
+                StageSpec(name=name, enabled=is_enabled, capabilities=capabilities)
+                for name, is_enabled in enabled.items()
+            ),
+        )
+    )
+
+
+def _config(
+    tmp_path: Path,
+    *,
+    profile: Profile = Profile.FULL,
+    topology=None,  # noqa: ANN001 - DeploymentTopology
+    allow_stage_removal: bool = False,
+) -> LocalDeploymentConfig:
+    context = DeploymentContext.local(
+        repo_root=tmp_path, profile=profile, topology=topology, allow_stage_removal=allow_stage_removal
+    )
     return LocalDeploymentConfig.from_environment({}, context=context)
 
 
@@ -71,13 +107,15 @@ def _fake_dagster_archive_bytes() -> bytes:
     return buffer.getvalue()
 
 
-def test_platform_apply_variables_exact_order(tmp_path: Path) -> None:
+def test_platform_apply_variables_cover_every_root_input(tmp_path: Path) -> None:
     config = _config(tmp_path)
 
     variables = platform.platform_apply_variables(config)
 
-    assert list(variables.keys()) == [
-        "namespace",
+    assert set(variables) == {
+        "profile_name",
+        "shared_namespace",
+        "stages",
         "kube_context",
         "kubeconfig_path",
         "helm_repository_cache_path",
@@ -87,8 +125,6 @@ def test_platform_apply_variables_exact_order(tmp_path: Path) -> None:
         "project_code_image_tag",
         "project_code_image_pull_policy",
         "project_code_image_revision",
-        "enable_governance",
-        "enable_analytics",
         "superset_image_repository",
         "superset_image_tag",
         "superset_image_pull_policy",
@@ -99,16 +135,42 @@ def test_platform_apply_variables_exact_order(tmp_path: Path) -> None:
         "openmetadata_chart_package_path",
         "openmetadata_deps_chart_package_path",
         "superset_chart_package_path",
-    ]
-    assert variables["enable_governance"] == "true"
-    assert variables["enable_analytics"] == "true"
+    }
+
+
+def test_platform_apply_variables_carry_the_resolved_topology(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+
+    variables = platform.platform_apply_variables(config)
+
+    assert variables["shared_namespace"] == "olf-system"
+    assert json.loads(variables["stages"]) == {
+        "dev": {"analytics": True, "enabled": True, "governance": True},
+        "prod": {"analytics": False, "enabled": False, "governance": False},
+        "uat": {"analytics": False, "enabled": False, "governance": False},
+    }
+
+
+def test_a_disabled_stage_is_still_reported_so_removal_is_visible(tmp_path: Path) -> None:
+    """A stage the user turned off must stay in the map with `enabled: false`
+    rather than disappearing: the root and the removal guard both need to see
+    the difference between "never existed" and "was switched off"."""
+    config = _config(tmp_path, topology=_topology(dev=True, prod=True))
+
+    stages = json.loads(platform.platform_apply_variables(config)["stages"])
+
+    assert stages["prod"]["enabled"] is True
+    assert stages["uat"]["enabled"] is False
 
 
 def test_platform_apply_variables_slim_profile_omits_disabled_layer_charts(tmp_path: Path) -> None:
+    """Nothing fetches a chart a disabled layer will never install, and with
+    no archive in the cache there is no path to pass for one either."""
     config = _config(tmp_path, profile=Profile.SLIM)
 
     variables = platform.platform_apply_variables(config)
 
+    assert [setting.name for setting in config.charts.values()] == ["trino", "dagster", "seaweedfs", "polaris"]
     assert "openmetadata_chart_package_path" not in variables
     assert "openmetadata_deps_chart_package_path" not in variables
     assert "superset_chart_package_path" not in variables
@@ -118,27 +180,74 @@ def test_platform_apply_variables_slim_profile_omits_disabled_layer_charts(tmp_p
     assert "polaris_chart_package_path" in variables
 
 
+def test_apply_passes_cached_archives_for_optional_releases_the_topology_disabled(tmp_path: Path) -> None:
+    """Turning off the last analytics stage is the apply that destroys
+    Superset, and the capability gate no longer selects its chart. Without the
+    cached archive the provider would fetch the repository index to remove the
+    release, so stage removal would need the network."""
+    config = _config(tmp_path, profile=Profile.SLIM)
+    superset = config.charts["superset"]
+    superset.package_path.parent.mkdir(parents=True, exist_ok=True)
+    superset.package_path.write_bytes(b"chart archive")
+
+    variables = platform.platform_apply_variables(config)
+
+    assert variables["superset_chart_package_path"] == str(superset.package_path)
+
+
 def test_platform_destroy_variables_are_the_four_var_subset(tmp_path: Path) -> None:
     config = _config(tmp_path)
 
     variables = platform.platform_destroy_variables(config)
 
-    assert list(variables.keys()) == [
-        "namespace",
+    assert set(variables) == {
+        "profile_name",
+        "shared_namespace",
+        "stages",
         "kube_context",
         "kubeconfig_path",
         "helm_repository_cache_path",
         "helm_repository_config_path",
         "foundation_state_path",
-    ]
+    }
 
 
-def test_platform_var_files_empty_for_full_present_for_slim(tmp_path: Path) -> None:
+def test_destroy_reuses_cached_chart_archives(tmp_path: Path) -> None:
+    """Destroy must not need the chart repositories: a `helm_release` whose
+    chart is a repository name makes the provider fetch that repo's index even
+    to remove the release."""
+    config = _config(tmp_path)
+    cached = next(iter(config.charts.values()))
+    cached.package_path.parent.mkdir(parents=True, exist_ok=True)
+    cached.package_path.write_bytes(b"chart archive")
+
+    variables = platform.platform_destroy_variables(config)
+
+    assert variables[TERRAFORM_VARIABLE_KEY[cached.name]] == str(cached.package_path)
+
+
+def test_destroy_omits_chart_archives_that_are_not_cached(tmp_path: Path) -> None:
+    """A path the provider cannot open is worse than none: it rejects the
+    missing file outright instead of falling back to the repository."""
+    config = _config(tmp_path)
+
+    variables = platform.platform_destroy_variables(config)
+
+    assert not any(key.endswith("_chart_package_path") for key in variables)
+
+
+def test_platform_var_files_are_only_ever_the_user_s_own(tmp_path: Path) -> None:
+    """No preset selects a platform-owned var file any more: capabilities
+    reach the root through the resolved topology."""
     full_config = _config(tmp_path, profile=Profile.FULL)
     slim_config = _config(tmp_path, profile=Profile.SLIM)
+    user_config = LocalDeploymentConfig.from_environment(
+        {"LOCAL_TFVARS_FILE": "custom.tfvars"}, context=DeploymentContext.local(repo_root=tmp_path)
+    )
 
     assert platform.platform_var_files(full_config) == ()
-    assert platform.platform_var_files(slim_config) == (str(slim_config.terraform.var_file),)
+    assert platform.platform_var_files(slim_config) == ()
+    assert platform.platform_var_files(user_config) == (str(tmp_path / "custom.tfvars"),)
 
 
 def test_platform_up_raises_when_foundation_state_missing(tmp_path: Path) -> None:
@@ -168,6 +277,11 @@ class _PlatformScriptedRunner(RecordingRunner):
 
         argv = list(command.argv) if hasattr(command, "argv") else [str(p) for p in command]
         self.calls.append(RecordedCall(argv=argv, kwargs=kwargs))
+
+        if "stage_names" in argv:
+            # An applied root answers with its stage list; the removal guard
+            # only treats an explicit "no such output" as "never applied".
+            return _ok('["dev"]')
 
         if argv[0] == "kubectl" and "get-contexts" in argv:
             return _ok("kind-openlakeforge-local\n")
@@ -236,3 +350,102 @@ def test_platform_up_retries_apply_and_cleans_up_polaris_jobs_each_attempt(tmp_p
 
     apply_calls = [c for c in runner.calls if c.argv[0] == "terraform" and "apply" in c.argv]
     assert len(apply_calls) == 2  # first attempt failed, second succeeded
+
+
+def _stage_names_runner(applied: str | None, *, labelled_namespaces: str = "") -> RecordingRunner:
+    """A runner whose `terraform output -json stage_names` answers `applied`,
+    or fails the way an unapplied root does, and whose namespace label query
+    answers `labelled_namespaces`."""
+
+    class _Runner(RecordingRunner):
+        def run(self, command, **kwargs):  # type: ignore[override]
+            argv = list(command.argv) if hasattr(command, "argv") else [str(part) for part in command]
+            self.calls.append(RecordedCall(argv=argv, kwargs=kwargs))
+            if "stage_names" in argv:
+                if applied is None:
+                    raise CommandExecutionError(argv, 1, stderr="No outputs found")
+                return _ok(applied)
+            if "namespace" in argv and "-l" in argv:
+                return _ok(labelled_namespaces)
+            return _ok()
+
+    return _Runner()
+
+
+def test_removing_an_applied_stage_fails_closed(tmp_path: Path) -> None:
+    config = _config(tmp_path, topology=_topology(dev=True))
+    tools = _toolkit(_stage_names_runner('["dev", "prod"]'))
+
+    with pytest.raises(DeploymentPreconditionError, match="prod"):
+        platform.require_no_stage_removal(config, tools, env={})
+
+
+def test_removing_an_applied_stage_is_allowed_with_the_explicit_opt_in(tmp_path: Path) -> None:
+    config = _config(tmp_path, topology=_topology(dev=True), allow_stage_removal=True)
+    tools = _toolkit(_stage_names_runner('["dev", "prod"]'))
+
+    platform.require_no_stage_removal(config, tools, env={})
+
+
+def test_an_unapplied_root_has_no_stage_to_remove(tmp_path: Path) -> None:
+    config = _config(tmp_path, topology=_topology(dev=True))
+    tools = _toolkit(_stage_names_runner(None))
+
+    platform.require_no_stage_removal(config, tools, env={})
+
+
+def test_adding_a_stage_is_not_a_removal(tmp_path: Path) -> None:
+    config = _config(tmp_path, topology=_topology(dev=True, prod=True))
+    tools = _toolkit(_stage_names_runner('["dev"]'))
+
+    platform.require_no_stage_removal(config, tools, env={})
+
+
+def test_an_unreadable_state_does_not_read_as_no_stages(tmp_path: Path) -> None:
+    """A guard that treats any `terraform output` failure as "no stages
+    applied" waves through the very apply it exists to stop."""
+    config = _config(tmp_path, topology=_topology(dev=True))
+
+    class _Runner(RecordingRunner):
+        def run(self, command, **kwargs):  # type: ignore[override]
+            argv = list(command.argv) if hasattr(command, "argv") else [str(part) for part in command]
+            self.calls.append(RecordedCall(argv=argv, kwargs=kwargs))
+            if "stage_names" in argv:
+                raise CommandExecutionError(argv, 1, stderr="Failed to load state: unable to open statefile")
+            return _ok()
+
+    with pytest.raises(CommandExecutionError):
+        platform.require_no_stage_removal(config, _toolkit(_Runner()), env={})
+
+
+def test_a_dropped_stage_still_in_the_cluster_fails_closed_without_state(tmp_path: Path) -> None:
+    """The drift path: state is missing, so `stage_names` reads as no applied
+    stages, and `platform_up` would go straight to a reset whose teardown
+    deletes by label -- taking a stage the profile dropped with it, under a
+    guard that had nothing to read."""
+    config = _config(tmp_path, topology=_topology(dev=True))
+    tools = _toolkit(_stage_names_runner(None, labelled_namespaces="olf-system\nolf-dev\nolf-prod\n"))
+
+    with pytest.raises(DeploymentPreconditionError, match="prod"):
+        platform.require_no_stage_removal(config, tools, env={})
+
+
+def test_a_dropped_stage_in_the_cluster_is_allowed_with_the_explicit_opt_in(tmp_path: Path) -> None:
+    config = _config(tmp_path, topology=_topology(dev=True), allow_stage_removal=True)
+    tools = _toolkit(_stage_names_runner(None, labelled_namespaces="olf-system\nolf-dev\nolf-prod\n"))
+
+    platform.require_no_stage_removal(config, tools, env={})
+
+
+def test_the_cluster_namespaces_of_enabled_stages_are_not_removals(tmp_path: Path) -> None:
+    config = _config(tmp_path, topology=_topology(dev=True, prod=True))
+    tools = _toolkit(_stage_names_runner('["dev", "prod"]', labelled_namespaces="olf-system\nolf-dev\nolf-prod\n"))
+
+    platform.require_no_stage_removal(config, tools, env={})
+
+
+def test_a_stage_named_by_both_signals_is_reported_once(tmp_path: Path) -> None:
+    config = _config(tmp_path, topology=_topology(dev=True))
+    tools = _toolkit(_stage_names_runner('["dev", "prod"]', labelled_namespaces="olf-system\nolf-dev\nolf-prod\n"))
+
+    assert platform.deployed_stages_the_topology_dropped(config, tools, env={}) == ("prod",)

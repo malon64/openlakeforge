@@ -17,6 +17,8 @@ locals {
   identity_contract               = { provider = "local" }
   access_contract                 = { provider = "local" }
   observability_contract          = { provider = "local" }
+  stage_metadata_database_contracts = {}
+  selected_stage_analytics          = true
   provider_contracts = {
     schema_version = "2.0.0"
   }
@@ -44,6 +46,27 @@ check "catalog_contract_consumer_support" {
 }
 
 check "openmetadata_catalog_fqn_uses_lakehouse_database" {
+  assert {
+    condition     = true
+    error_message = "n/a"
+  }
+}
+
+check "stage_namespaces_are_distinct" {
+  assert {
+    condition     = true
+    error_message = "n/a"
+  }
+}
+
+check "stage_services_stay_in_their_own_stage" {
+  assert {
+    condition     = true
+    error_message = "n/a"
+  }
+}
+
+check "stage_metadata_state_is_not_shared" {
   assert {
     condition     = true
     error_message = "n/a"

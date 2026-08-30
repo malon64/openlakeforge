@@ -51,20 +51,10 @@ create_database_if_missing() {
     -c "ALTER SCHEMA public OWNER TO \"$owner_name\";"
 }
 
-create_or_update_role "$DAGSTER_DB_USER" "$DAGSTER_DB_PASSWORD"
-create_database_if_missing "$DAGSTER_DB_NAME" "$DAGSTER_DB_USER"
+%{ for prefix in database_env_prefixes ~}
+create_or_update_role "$${${prefix}_USER}" "$${${prefix}_PASSWORD}"
+create_database_if_missing "$${${prefix}_NAME}" "$${${prefix}_USER}"
 
-%{ if enable_openmetadata ~}
-create_or_update_role "$OM_DB_USER" "$OM_DB_PASSWORD"
-create_database_if_missing "$OM_DB_NAME" "$OM_DB_USER"
-
-%{ endif ~}
-
-%{ if enable_superset ~}
-create_or_update_role "$SUPERSET_DB_USER" "$SUPERSET_DB_PASSWORD"
-create_database_if_missing "$SUPERSET_DB_NAME" "$SUPERSET_DB_USER"
-
-%{ endif ~}
-
+%{ endfor ~}
 create_or_update_role "$POLARIS_DB_USER" "$POLARIS_DB_PASSWORD"
 create_database_if_missing "$POLARIS_DB_NAME" "$POLARIS_DB_USER"

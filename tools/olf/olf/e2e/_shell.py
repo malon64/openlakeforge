@@ -52,11 +52,23 @@ class E2EConfig:
     foundation_terraform_dir: Path | None
     contract_terraform_dir: Path
     inventory: LakehouseInventory
+    shared_namespace: str = ""
     aws_region: str | None = None
     dagster_local_port: int | None = None
     superset_local_port: int | None = None
     openmetadata_local_port: int | None = None
     seaweedfs_local_port: int | None = None
+
+    @property
+    def platform_namespace(self) -> str:
+        """The namespace owning the shared platform services.
+
+        Trino, Polaris, SeaweedFS, and OpenMetadata are deployed once per
+        cluster (ADR 0011), while Dagster and Superset are stage-scoped and
+        live in `namespace`. The cloud POC roots are still single-namespace,
+        so an unset `shared_namespace` falls back to the stage namespace.
+        """
+        return self.shared_namespace or self.namespace
 
 
 def _kubectl_executable() -> str:

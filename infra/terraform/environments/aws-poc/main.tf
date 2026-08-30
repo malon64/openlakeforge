@@ -331,6 +331,7 @@ module "dagster" {
   storage_contract               = local.storage_contract
   catalog_contract               = local.catalog_contract
   governance_contract            = local.governance_contract
+  query_contract                 = local.query_contract
   postgresql_contract            = local.metadata_database_contract
   postgresql_ssl_mode            = "require"
   code_locations                 = local.orchestration_contract.code_locations

@@ -34,12 +34,12 @@ def run(
     env = dict(environ or os.environ)
     root = config.repo_root()
     cluster_name = env.get("CLUSTER_NAME", "openlakeforge-local")
-    namespace = env.get("NAMESPACE") or env.get("OPENLAKEFORGE_KUBE_NAMESPACE") or "lakehouse"
     kubeconfig_path = Path(env.get("LOCAL_KUBECONFIG_PATH", root / ".tmp/kubeconfigs/local.yaml"))
+    # No namespace override: the local root derives its namespaces from the
+    # resolved topology, and the smoke suite must target what it deployed.
     context = DeploymentContext.local(
         repo_root=root,
         profile=Profile.SLIM,
-        namespace=namespace,
         cluster_name=cluster_name,
         kubeconfig_path=kubeconfig_path,
     )
@@ -57,6 +57,7 @@ def run(
                     "local",
                     suite="smoke",
                     namespace=context.namespace,
+                    shared_namespace=context.shared_namespace,
                     kube_context=context.kube_context,
                     repo_root=root,
                 )

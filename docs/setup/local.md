@@ -145,17 +145,22 @@ checkout, an installed (pip) project writes it under `OLF_HOME`:
 
 ```bash
 KUBECONFIG=.tmp/kubeconfigs/local.yaml \
-kubectl --context kind-openlakeforge-local get pods -n lakehouse
+kubectl --context kind-openlakeforge-local get pods -n olf-system
 ```
 
 The local deployment uses:
 
 ```text
-Cluster:    openlakeforge-local
-Context:    kind-openlakeforge-local
-Namespace:  lakehouse
-Kubeconfig: .tmp/kubeconfigs/local.yaml (checkout) or ~/.openlakeforge/state/local/kubeconfig.yaml (installed)
+Cluster:     openlakeforge-local
+Context:     kind-openlakeforge-local
+Namespaces:  olf-system (shared services) plus olf-<stage> per enabled stage
+Kubeconfig:  .tmp/kubeconfigs/local.yaml (checkout) or ~/.openlakeforge/state/local/kubeconfig.yaml (installed)
 ```
+
+Shared PostgreSQL, SeaweedFS, Polaris, Trino, and OpenMetadata run once in
+`olf-system`. Each stage the Deployment Profile enables gets its own
+namespace -- `olf-dev`, optional `olf-uat`, `olf-prod` -- holding that
+stage's Dagster and, when analytics is enabled, its Superset (ADR 0011).
 
 The generated kubeconfig is intentionally separate from your normal `~/.kube/config`.
 
@@ -476,9 +481,10 @@ The most commonly configurable values are exposed as `olf` options.
 Default local configuration:
 
 ```text
-Cluster name: openlakeforge-local
-Namespace:    lakehouse
-Kube context: kind-openlakeforge-local
+Cluster name:     openlakeforge-local
+Shared namespace: olf-system
+Stage namespaces: olf-<stage>, one per enabled stage
+Kube context:     kind-openlakeforge-local
 Kubeconfig:   .tmp/kubeconfigs/local.yaml (checkout) or ~/.openlakeforge/state/local/kubeconfig.yaml (installed)
 ```
 
@@ -488,11 +494,18 @@ For example, to use another cluster name:
 olf deploy --provider local --cluster-name my-openlakeforge
 ```
 
-Or another namespace:
+Or deploy and inspect a specific stage:
 
 ```bash
-olf deploy --provider local --namespace my-lakehouse
+olf deploy --provider local --stage prod --phase platform
 ```
+
+`--phase platform` is required for any stage other than `dev`. The local root
+still exports a provider-contract v2 payload, which describes one stage's data
+plane; the artifacts phase refuses to resolve a non-DEV stage from it rather
+than deploying PROD artifacts against DEV storage and catalogs. Per-stage
+storage and catalogs, the v3 payload, and full non-DEV deployment arrive with
+[#114](https://github.com/malon64/openlakeforge/issues/114).
 
 The local kubeconfig path can also be overridden:
 
@@ -583,7 +596,7 @@ installed from PyPI:
 ```bash
 KUBECONFIG=.tmp/kubeconfigs/local.yaml \
 kubectl --context kind-openlakeforge-local \
-describe pod <pod-name> -n lakehouse
+describe pod <pod-name> -n olf-system
 ```
 
 Check its logs:
@@ -591,7 +604,7 @@ Check its logs:
 ```bash
 KUBECONFIG=.tmp/kubeconfigs/local.yaml \
 kubectl --context kind-openlakeforge-local \
-logs <pod-name> -n lakehouse
+logs <pod-name> -n olf-system
 ```
 
 If the pod contains multiple containers:
@@ -599,7 +612,7 @@ If the pod contains multiple containers:
 ```bash
 KUBECONFIG=.tmp/kubeconfigs/local.yaml \
 kubectl --context kind-openlakeforge-local \
-logs <pod-name> -c <container-name> -n lakehouse
+logs <pod-name> -c <container-name> -n olf-system
 ```
 
 ## Image pulls are slow or timing out

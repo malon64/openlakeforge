@@ -33,7 +33,7 @@ with `--phase`.
 | Phase | Creates | Engine |
 | --- | --- | --- |
 | `foundation` | Kubernetes cluster and container registry — kind locally, EKS + ECR on AWS, AKS + ACR on Azure | Terraform |
-| `platform` | Long-lived platform services: SeaweedFS, PostgreSQL, Polaris, Trino, Dagster, and (Full profile) OpenMetadata and Superset | Terraform + Helm |
+| `platform` | Kubernetes namespaces plus the long-lived platform services: SeaweedFS, PostgreSQL, Polaris, Trino, Dagster, and (analytics/governance enabled) Superset and OpenMetadata | Terraform + Helm |
 | `artifacts` | Everything derived from `lakehouse_code/`: the project-code image, catalog namespaces, Floe manifests, Superset report bundles, OpenMetadata metadata, and the Dagster rollout that picks the new image up | `olf` |
 
 `DeploymentPhase` (`tools/olf/olf/deployment/engine.py`) also carries a
@@ -43,6 +43,27 @@ kind nodes so the Helm releases do not each wait on a cold pull. On cloud
 providers it is a deliberate no-op (`deployment/cloud/provider.py`). It is an
 optimization inside the foundation→platform transition, not a fourth phase, and
 is named here only so a reader counting `DeploymentPhase` members is not misled.
+
+### The platform phase owns namespaces, and which services repeat
+
+The resolved `DeploymentTopology` (ADR 0011) is a typed input to the platform
+root, which derives every namespace from it: one shared `olf-system` holding
+the services a deployment runs once -- PostgreSQL, SeaweedFS, Polaris, Trino,
+OpenMetadata -- and one `olf-<stage>` per enabled stage holding that stage's
+Dagster and, where analytics is enabled, its Superset. Stage-scoped services
+are `for_each` instances over the enabled stages, never copied module blocks,
+and each owns its own metadata database on the shared PostgreSQL server.
+
+Because a stage's namespace holds its services, disabling a stage is
+destructive. `olf deploy` compares the resolved topology against the root's
+applied `stage_names` output and refuses an apply that would drop a stage
+unless `--allow-stage-removal` says so.
+
+Removal deletes the stage's namespace, its services, and their credentials.
+Its databases on the shared PostgreSQL server are retained: dropping a stage's
+run and report history as a side effect of a profile edit is not an apply's
+decision to make, so re-enabling a stage reconnects to the state it had. A
+deployment that wants that history gone drops those databases deliberately.
 
 ### Two lifecycle categories
 
@@ -93,6 +114,10 @@ deprecated single-DEV-stage shorthand for the general profile/stage model; ADR
 0011 defines the typed resolver it is a special case of.
 
 ## History
+
+2026-08-29: Recorded that the platform phase owns the shared and stage
+namespaces derived from the resolved topology, and that removing a stage needs
+an explicit opt-in (#133). The three phases and their ordering are unchanged.
 
 Merges the decisions previously recorded as ADR 0008 (two-phase deploy), 0017
 (shell/Python split), 0022 (Phase 2 catalog namespace reconciliation), 0025

@@ -30,9 +30,11 @@ from typing import Protocol
 
 from olf import floe as floe_module
 from olf import log
+from olf.deployment.context import stage_namespace
 from olf.deployment.engine import Toolkit
 from olf.deployment.env_settings import env as _env
 from olf.deployment.errors import DeploymentPreconditionError
+from olf.profile import StageName
 
 _PROFILE_FILENAME = "local-k8s.yml"
 _CHECKED_IN_PROFILE_RELATIVE_PATH = Path("libs/floe/profiles") / _PROFILE_FILENAME
@@ -207,7 +209,10 @@ def _resolve_base_profile(
     governance_enabled: bool,
     environ: Mapping[str, str],
 ) -> Path:
-    if namespace == "lakehouse" and governance_enabled:
+    if namespace == stage_namespace(StageName.DEV) and governance_enabled:
+        # The canonical DEV namespace with governance on is the shape the
+        # checked-in profile was written for; any other namespace is a
+        # customized deployment whose profile has to be rendered.
         # The checked-in profile is distribution-owned (tracked under
         # libs/), not project-owned - a writable --project-root only
         # supplies lakehouse_code (see project_code_build_context's build

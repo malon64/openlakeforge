@@ -20,7 +20,7 @@ def _no_real_contract_resolution(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(contracts_module, "load_provider_contracts", lambda terraform_dir, *, environ=None: None)
     monkeypatch.setattr(
-        contracts_module, "build_contract_env", lambda base, contracts_value, *, repo_root: ({}, [])
+        contracts_module, "build_contract_env", lambda base, contracts_value, *, repo_root, **_: ({}, [])
     )
 
 
@@ -43,7 +43,7 @@ def test_e2e_run_is_self_sufficient_no_shell_wrapper_needed(
 ) -> None:
     calls: list[dict] = []
 
-    def _fake_run(env, *, suite, namespace, kube_context, repo_root, distribution_root):  # noqa: ANN001
+    def _fake_run(env, *, suite, namespace, shared_namespace, kube_context, repo_root, distribution_root):  # noqa: ANN001
         calls.append(
             {"env": env, "suite": suite, "namespace": namespace, "kube_context": kube_context, "repo_root": repo_root}
         )
@@ -58,7 +58,7 @@ def test_e2e_run_is_self_sufficient_no_shell_wrapper_needed(
         {
             "env": "local",
             "suite": None,
-            "namespace": "lakehouse",
+            "namespace": "olf-dev",
             "kube_context": "kind-openlakeforge-local",
             "repo_root": tmp_path,
         }
@@ -76,7 +76,7 @@ def test_e2e_run_falls_back_to_provider_cluster_name_when_kube_context_unset(
     """
     calls: list[dict] = []
 
-    def _fake_run(env, *, suite, namespace, kube_context, repo_root, distribution_root):  # noqa: ANN001
+    def _fake_run(env, *, suite, namespace, shared_namespace, kube_context, repo_root, distribution_root):  # noqa: ANN001
         calls.append({"kube_context": kube_context})
 
     monkeypatch.setenv("OPENLAKEFORGE_REPO_ROOT", str(tmp_path))
@@ -101,7 +101,7 @@ def test_e2e_run_honors_provider_kubeconfig_path_override(monkeypatch: pytest.Mo
     override = tmp_path / "custom/aws-kubeconfig.yaml"
     seen: dict = {}
 
-    def _fake_run(env, *, suite, namespace, kube_context, repo_root, distribution_root):  # noqa: ANN001, ARG001
+    def _fake_run(env, *, suite, namespace, shared_namespace, kube_context, repo_root, distribution_root):  # noqa: ANN001, ARG001
         seen["kubeconfig"] = os.environ.get("KUBECONFIG")
 
     monkeypatch.setenv("OPENLAKEFORGE_REPO_ROOT", str(tmp_path))
@@ -141,7 +141,7 @@ def test_e2e_run_resolves_installed_layout_via_deployment_context(
 
     captured_context_call: dict = {}
 
-    def _fake_deployment_context(env_arg, *, profile, namespace, cluster_name, project_root):  # noqa: ANN001
+    def _fake_deployment_context(env_arg, *, profile, namespace, cluster_name, project_root, stage):  # noqa: ANN001
         captured_context_call.update(
             env=env_arg, profile=profile, namespace=namespace, cluster_name=cluster_name, project_root=project_root
         )
@@ -158,7 +158,7 @@ def test_e2e_run_resolves_installed_layout_via_deployment_context(
 
     calls: list[dict] = []
 
-    def _fake_run(env, *, suite, namespace, kube_context, repo_root, distribution_root):  # noqa: ANN001
+    def _fake_run(env, *, suite, namespace, shared_namespace, kube_context, repo_root, distribution_root):  # noqa: ANN001
         calls.append(
             {
                 "repo_root": repo_root,

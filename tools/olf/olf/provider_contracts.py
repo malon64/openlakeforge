@@ -379,6 +379,7 @@ def _parse_stage(
             "access_key_id_key",
             "secret_access_key_key",
             "s3_service_name",
+            "s3_service_namespace",
             "s3_service_port",
         },
     )

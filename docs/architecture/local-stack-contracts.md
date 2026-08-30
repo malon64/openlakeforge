@@ -10,6 +10,13 @@ contract is read from the local kind foundation Terraform state, and runtime
 scripts load contract-derived defaults through
 provider contract hydration inside `olf`.
 
+The root is stage-aware: it takes the resolved `DeploymentTopology` (ADR 0011)
+as typed variables and derives every namespace from it. Shared services run
+once in `olf-system`; each enabled stage owns `olf-<stage>` with its own
+Dagster and, where analytics is enabled, its own Superset. Every service
+endpoint below is namespace-qualified, because a stage-scoped pod cannot
+resolve a bare service name in another namespace.
+
 Local remains the only runnable environment today. Its credentials, basic app
 auth, and port-forwarded access are development-only choices, not production
 controls.
@@ -29,7 +36,7 @@ networking and a managed Kubernetes cluster before the platform phase runs.
 SeaweedFS exposes the local S3-compatible API at:
 
 ```text
-http://seaweedfs-s3:8333
+http://seaweedfs-s3.olf-system:8333
 ```
 
 The storage module owns:
@@ -78,7 +85,7 @@ database if it exposes the same contract.
 Polaris exposes the Iceberg REST catalog at:
 
 ```text
-http://polaris:8181/api/catalog
+http://polaris.olf-system:8181/api/catalog
 ```
 
 The catalog module owns:
@@ -115,7 +122,7 @@ runtime variable names.
 Trino exposes SQL over HTTP at:
 
 ```text
-http://trino:8080
+http://trino.olf-system:8080
 ```
 
 The Trino Iceberg catalog uses environment-variable secret substitution for all
@@ -127,7 +134,7 @@ credentials. The mounted catalog file must contain placeholders such as
 Superset exposes the local BI UI over HTTP at:
 
 ```text
-http://superset:8088
+http://superset.olf-<stage>:8088
 ```
 
 Superset uses the shared PostgreSQL service for metadata and chart-managed Redis
@@ -152,7 +159,7 @@ than changing report artifact ownership.
 Dagster exposes the local UI and GraphQL API over HTTP at:
 
 ```text
-http://dagster-dagster-webserver:80
+http://dagster-dagster-webserver.olf-<stage>:80
 ```
 
 The orchestration module owns:

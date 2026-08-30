@@ -25,7 +25,7 @@ def floe_render_profile() -> None:
 @app.command("generate-manifests")
 def generate_manifests(
     provider: str = typer.Option("local", "--provider", help="local, aws, or azure."),
-    profile: str = typer.Option("full", "--profile", help="full or slim."),
+    profile: str = typer.Option("", "--profile", help="Deprecated single-DEV preset shorthand: 'full' or 'slim'."),
     namespace: str = typer.Option("", "--namespace", help="Kubernetes namespace override."),
     cluster_name: str = typer.Option("", "--cluster-name", help="Local kind cluster name override."),
     kubeconfig_path: str = typer.Option("", "--kubeconfig-path", help="Kubeconfig file path override."),

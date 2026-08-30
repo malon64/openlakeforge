@@ -96,6 +96,24 @@ variable "om_http_port" {
   default     = 8585
 }
 
+variable "workload_namespaces" {
+  description = "Namespaces the bootstrap job replicates the ingestion-bot Secret into, for workloads that run outside this module's namespace."
+  type        = list(string)
+  default     = []
+}
+
+variable "revoked_namespaces" {
+  description = "Namespaces that must not keep a copy of the ingestion-bot Secret. A stage that turns governance off keeps its namespace, so ending replication is not enough: the already-replicated JWT stays valid until the bootstrap job next rotates it, which a topology change does not do."
+  type        = list(string)
+  default     = []
+}
+
+variable "trino_lineage_namespace" {
+  description = "OpenLineage namespace the query engine reports itself as. Must match the host:port runtime clients actually connect to, or lineage events land under an unmapped namespace."
+  type        = string
+  default     = "trino://trino:8080"
+}
+
 variable "ingestion_bot_secret_name" {
   description = "Kubernetes Secret written by the bootstrap job containing the ingestion-bot JWT."
   type        = string
@@ -184,6 +202,12 @@ variable "dagster_webserver_url" {
   description = "Cluster-internal URL of the Dagster webserver for OM pipeline metadata ingestion."
   type        = string
   default     = "http://dagster-dagster-webserver:80"
+}
+
+variable "register_superset" {
+  description = "Whether any enabled stage runs Superset. With none, registering a dashboard service would point governance at an endpoint that was never provisioned."
+  type        = bool
+  default     = true
 }
 
 variable "superset_url" {

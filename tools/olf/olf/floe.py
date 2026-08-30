@@ -29,7 +29,7 @@ def render_profile(environ: Mapping[str, str]) -> str:
     def env(name: str, default: str) -> str:
         return environ.get(name, default)
 
-    namespace = env("NAMESPACE", env("OPENLAKEFORGE_KUBE_NAMESPACE", "lakehouse"))
+    namespace = env("NAMESPACE", env("OPENLAKEFORGE_KUBE_NAMESPACE", "olf-dev"))
     catalog_name = env("OPENLAKEFORGE_CATALOG_LOGICAL_NAME", "iceberg_catalog")
     storage_bronze_bucket = env(
         "OPENLAKEFORGE_STORAGE_BRONZE_BUCKET", env("OPENLAKEFORGE_STORAGE_BUCKET", "lakehouse-bronze")
@@ -39,7 +39,7 @@ def render_profile(environ: Mapping[str, str]) -> str:
     storage_region = env("OPENLAKEFORGE_STORAGE_REGION", "us-east-1")
     storage_implementation = env("OPENLAKEFORGE_STORAGE_IMPLEMENTATION", "storage.s3_compatible.seaweedfs")
     is_aws_s3 = storage_implementation == "storage.aws_s3"
-    storage_endpoint = env("OPENLAKEFORGE_STORAGE_ENDPOINT", "" if is_aws_s3 else "http://seaweedfs-s3:8333")
+    storage_endpoint = env("OPENLAKEFORGE_STORAGE_ENDPOINT", "" if is_aws_s3 else "http://seaweedfs-s3.olf-system:8333")
     storage_virtual_endpoint = env(
         "OPENLAKEFORGE_STORAGE_VIRTUAL_HOST_ENDPOINT",
         "" if is_aws_s3 else f"http://{namespace}.svc.cluster.local:8333",
@@ -55,11 +55,11 @@ def render_profile(environ: Mapping[str, str]) -> str:
         if is_aws_glue and is_aws_s3
         else "Contract-rendered local Kubernetes runner profile for OpenLakeForge Floe assets.",
     )
-    catalog_rest_uri = env("OPENLAKEFORGE_CATALOG_REST_URI", "http://polaris:8181/api/catalog")
+    catalog_rest_uri = env("OPENLAKEFORGE_CATALOG_REST_URI", "http://polaris.olf-system:8181/api/catalog")
     catalog_glue_region = env("OPENLAKEFORGE_CATALOG_GLUE_REGION", storage_region)
     catalog_token_uri = env(
         "OPENLAKEFORGE_CATALOG_TOKEN_URI",
-        "http://polaris:8181/api/catalog/v1/oauth/tokens",
+        "http://polaris.olf-system:8181/api/catalog/v1/oauth/tokens",
     )
     catalog_warehouse = env("OPENLAKEFORGE_CATALOG_WAREHOUSE", env("OPENLAKEFORGE_CATALOG_NAME", "lakehouse_dev"))
     catalog_warehouse_prefix = env("OPENLAKEFORGE_CATALOG_WAREHOUSE_PREFIX", "")
@@ -137,7 +137,7 @@ def render_profile(environ: Mapping[str, str]) -> str:
     lineage_secret_yaml = ""
     lineage_block = ""
     if governance_enabled:
-        lineage_url = env("OPENLINEAGE_URL", "http://openmetadata:8585")
+        lineage_url = env("OPENLINEAGE_URL", "http://openmetadata.olf-system:8585")
         lineage_endpoint = env("OPENLINEAGE_ENDPOINT", "api/v1/openlineage/lineage")
         lineage_namespace = env("OPENLINEAGE_NAMESPACE", "dagster")
         lineage_dataset_namespace = env(

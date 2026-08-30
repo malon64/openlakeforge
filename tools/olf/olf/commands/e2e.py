@@ -58,6 +58,7 @@ def _default_kube_context(env: str) -> str:
 def e2e_run(
     env: str = typer.Option(..., "--env", help="Environment to validate: local, azure, or aws."),
     suite: str = typer.Option("", "--suite", help="Suite to run: full or smoke. Defaults to full."),
+    stage: str = typer.Option("", "--stage", help="Stage to validate: dev, uat, or prod. Defaults to dev."),
     project_root: str = typer.Option(
         "", "--project-root", help="Writable project root; defaults to the current directory."
     ),
@@ -86,7 +87,9 @@ def e2e_run(
     if suite not in valid_suites:
         raise typer.Exit(code=fail(f"unknown --suite {suite!r}; expected 'full' or 'smoke'."))
 
-    context = deployment_context(env, profile="full", namespace="", cluster_name="", project_root=project_root)
+    context = deployment_context(
+        env, profile="", namespace="", cluster_name="", project_root=project_root, stage=stage
+    )
     repo_root = context.paths.repo_root
     distribution_root = context.paths.distribution_root
     contract_dir = Path(
@@ -109,16 +112,19 @@ def e2e_run(
         with contract_env.applied_contract_environment(
             contract_terraform_dir=contract_dir,
             repo_root=repo_root,
-            namespace=config.namespace(),
+            namespace=context.namespace,
             kube_context=kube_context,
             kubeconfig_path=kubeconfig_path,
             port_forward_log_prefix=port_forward_log_prefix,
             environ=environ,
+            topology=context.topology,
+            stage=context.stage,
         ):
             e2e.run(
                 env,  # type: ignore[arg-type]
                 suite=suite or None,  # type: ignore[arg-type]
-                namespace=config.namespace(),
+                namespace=context.namespace,
+                shared_namespace=context.shared_namespace,
                 kube_context=kube_context,
                 repo_root=repo_root,
                 distribution_root=distribution_root,

@@ -1,3 +1,8 @@
+output "namespace" {
+  description = "Namespace this Dagster instance is deployed in."
+  value       = var.namespace
+}
+
 output "webserver_service_name" {
   description = "Dagster webserver service name."
   value       = "${var.release_name}-dagster-webserver"

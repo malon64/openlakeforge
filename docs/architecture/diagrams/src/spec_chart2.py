@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Chart 2 — Namespace Runtime Topology. What talks to what, with the real
-service DNS names from the provider contracts on the wires."""
+service DNS names from the provider contracts on the wires. Dagster and
+Superset are stage-scoped (one instance per enabled stage in `olf-<stage>`);
+everything else runs once in `olf-system`."""
 from pathlib import Path
 from k8ssvg import Chart, C
 
 c = Chart(1180, 990, "Namespace Runtime Topology",
-          "namespace: lakehouse · service DNS from the provider contracts · dashed purple = per-run")
+          "olf-system shared · olf-<stage> per stage · service DNS from the provider contracts · dashed purple = per-run")
 
 
 def svc_tag(x, y, w, dns):
@@ -16,7 +18,7 @@ def svc_tag(x, y, w, dns):
 
 # ---------- Row A ----------
 c.box(52, 150, 400, 240, "Dagster", color="platform", fill="#FFFFFF")
-svc_tag(52, 150, 400, "dagster-dagster-webserver:80")
+svc_tag(52, 150, 400, "dagster-dagster-webserver.olf-<stage>:80")
 c.icon(130, 210, "deploy", "webserver", size=46)
 c.icon(240, 210, "deploy", "daemon", size=46, label2="K8sRunLauncher")
 c.icon(185, 300, "deploy", "code server", size=46, label2="lakehouse_code.definitions")
@@ -27,34 +29,34 @@ c.icon(685, 225, "job", "floe runner", size=50, variant="ephemeral", label2="flo
 c.edge([(572, 250), (658, 250)], color="ephemeral", dashed=True, label="creates")
 
 c.box(772, 150, 370, 240, "OpenMetadata", color="platform", fill="#FFFFFF")
-svc_tag(772, 150, 370, "openmetadata:8585")
+svc_tag(772, 150, 370, "openmetadata.olf-system:8585")
 c.icon(880, 230, "deploy", "server", size=46)
 c.icon(1010, 230, "sts", "opensearch", size=46, label2="single node")
 
 # ---------- Row B ----------
 c.box(52, 470, 250, 170, "Superset", color="platform", fill="#FFFFFF")
-svc_tag(52, 470, 250, "superset:8088")
+svc_tag(52, 470, 250, "superset.olf-<stage>:8088")
 c.icon(105, 530, "deploy", "node", size=42)
 c.icon(177, 530, "deploy", "worker", size=42)
 c.icon(249, 530, "sts", "redis", size=42)
 
 c.box(322, 470, 250, 170, "Trino", color="platform", fill="#FFFFFF")
-svc_tag(322, 470, 250, "trino:8080")
+svc_tag(322, 470, 250, "trino.olf-system:8080")
 c.icon(447, 525, "deploy", "coordinator", size=48, label2="workers: 0")
 
 c.box(592, 470, 250, 170, "Polaris", color="platform", fill="#FFFFFF")
-svc_tag(592, 470, 250, "polaris:8181")
+svc_tag(592, 470, 250, "polaris.olf-system:8181")
 c.icon(668, 525, "deploy", "catalog", size=48, label2="relational JDBC")
 c.icon(782, 525, "secret", "creds ×4", size=48, label2="no dbt principal")
 
 c.box(862, 470, 280, 170, "PostgreSQL", color="platform", fill="#FFFFFF")
-svc_tag(862, 470, 280, "postgresql:5432")
+svc_tag(862, 470, 280, "postgresql.olf-system:5432")
 c.icon(1000, 525, "sts", "shared metadata db", size=48,
-       label2="metadata + catalog")
+       label2="one database per stage service")
 
 # ---------- Row C ----------
 c.box(52, 710, 700, 230, "SeaweedFS — object storage", color="platform", fill="#FFFFFF")
-svc_tag(52, 710, 700, "seaweedfs-s3:8333")
+svc_tag(52, 710, 700, "seaweedfs-s3.olf-system:8333")
 c.icon(150, 790, "sts", "master", size=46, label2=":9333")
 c.icon(310, 790, "sts", "volume", size=46, label2="32 slots")
 c.icon(470, 790, "sts", "filer", size=46, label2=":8888")

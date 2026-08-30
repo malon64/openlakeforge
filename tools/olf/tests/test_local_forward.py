@@ -101,3 +101,20 @@ def test_resolve_dagster_webserver_pod_picks_first_matching_line() -> None:
     )
 
     assert pod == "dagster-dagster-webserver-abc"
+
+
+def test_shared_and_stage_targets_forward_from_their_own_namespaces(tmp_path: Path) -> None:
+    """Shared services and stage services are in different namespaces, so one
+    spec-wide namespace can no longer address every target."""
+    config = _config(tmp_path)
+    tools = _toolkit("dagster-dagster-webserver-abc\n")
+
+    spec = forward.local_forward_spec(config, tools, env={})
+
+    namespaces = {target.label: target.namespace or spec.namespace for target in spec.targets}
+    assert namespaces["trino"] == "olf-system"
+    assert namespaces["polaris"] == "olf-system"
+    assert namespaces["seaweedfs-s3"] == "olf-system"
+    assert namespaces["openmetadata"] == "olf-system"
+    assert namespaces["superset"] == "olf-dev"
+    assert namespaces["dagster"] == "olf-dev"

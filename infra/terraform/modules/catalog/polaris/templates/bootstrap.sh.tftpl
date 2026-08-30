@@ -127,6 +127,25 @@
     kubectl delete configmap "$pending_name" -n "$NAMESPACE" --ignore-not-found
   }
 
+  # Polaris answers a repeated role assignment or grant with HTTP 500 and a
+  # `grant_records_pkey` constraint violation rather than the 409 the create
+  # endpoints return, so re-running this job against an already-bootstrapped
+  # catalog cannot rely on tolerating a conflict code. Read the current state
+  # and only write what is missing; a real 500 still fails the job.
+  already_present() {
+    path="$1"
+    field="$2"
+    value="$3"
+
+    # 404 means the collection does not exist yet, which is "not present"
+    # rather than a failure. Any other unexpected code still exits the job.
+    request GET "$path" "200 404"
+    if [ "$POLARIS_RESPONSE_CODE" != "200" ]; then
+      return 1
+    fi
+    grep -qE "\"$field\" *: *\"$value\"" /tmp/polaris-body
+  }
+
   grant_catalog_access() {
     principal_name="$1"
     principal_role="$2"
@@ -134,10 +153,18 @@
     catalog_privilege="$4"
 
     request POST "/principal-roles" "201 409" "{\"principalRole\": {\"name\": \"$principal_role\"}}"
-    request PUT "/principals/$principal_name/principal-roles" "201 409" "{\"principalRole\": {\"name\": \"$principal_role\"}}"
+    if ! already_present "/principals/$principal_name/principal-roles" "name" "$principal_role"; then
+      request PUT "/principals/$principal_name/principal-roles" "201 409" "{\"principalRole\": {\"name\": \"$principal_role\"}}"
+    fi
+
     request POST "/catalogs/${catalog_name}/catalog-roles" "201 409" "{\"catalogRole\": {\"name\": \"$catalog_role\"}}"
-    request PUT "/catalogs/${catalog_name}/catalog-roles/$catalog_role/grants" "201 409" "{\"grant\": {\"type\": \"catalog\", \"privilege\": \"$catalog_privilege\"}}"
-    request PUT "/principal-roles/$principal_role/catalog-roles/${catalog_name}" "201 409" "{\"catalogRole\": {\"name\": \"$catalog_role\"}}"
+    if ! already_present "/catalogs/${catalog_name}/catalog-roles/$catalog_role/grants" "privilege" "$catalog_privilege"; then
+      request PUT "/catalogs/${catalog_name}/catalog-roles/$catalog_role/grants" "201 409" "{\"grant\": {\"type\": \"catalog\", \"privilege\": \"$catalog_privilege\"}}"
+    fi
+
+    if ! already_present "/principal-roles/$principal_role/catalog-roles/${catalog_name}" "name" "$catalog_role"; then
+      request PUT "/principal-roles/$principal_role/catalog-roles/${catalog_name}" "201 409" "{\"catalogRole\": {\"name\": \"$catalog_role\"}}"
+    fi
   }
 
   create_principal_secret "${principal_name}" "${trino_credentials_secret_name}" "POLARIS_TRINO_CLIENT_ID" "POLARIS_TRINO_CLIENT_SECRET"

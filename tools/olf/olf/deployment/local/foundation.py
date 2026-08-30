@@ -12,6 +12,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from olf import log
+from olf.deployment import kube_ops
 from olf.deployment.engine import Toolkit
 from olf.deployment.errors import CommandExecutionError, DeploymentPreconditionError, ExecutableNotFoundError
 from olf.deployment.local.config import LocalDeploymentConfig
@@ -116,17 +117,35 @@ def foundation_down(
         return
 
     if not force and cluster_exists:
-        namespace_result = tools.kubectl.get(
-            "namespace",
-            name=config.namespace,
+        # Every namespace the deployment owns, not just the selected stage's:
+        # the shared namespace holds PostgreSQL and its PVC, so a partially
+        # torn-down platform would otherwise let this delete the cluster and
+        # the metadata with it. Unioned with what the cluster still has
+        # labelled as ours, because a stage disabled in the profile keeps its
+        # namespace and its workloads while dropping out of the topology --
+        # the same discovery teardown does, for the same namespaces.
+        owned = [
+            namespace
+            for namespace in config.context.owned_namespaces
+            if kube_ops.namespace_exists(
+                tools.kubectl,
+                namespace,
+                context=config.kube_context,
+                kubeconfig=config.paths.kubeconfig_path,
+                env=env,
+            )
+        ]
+        discovered = kube_ops.managed_namespaces(
+            tools.kubectl,
+            profile_name=config.context.topology.profile_name,
             context=config.kube_context,
             kubeconfig=config.paths.kubeconfig_path,
             env=env,
-            check=False,
         )
-        if namespace_result.ok:
+        remaining = list(dict.fromkeys((*owned, *discovered)))
+        if remaining:
             raise DeploymentPreconditionError(
-                f"namespace '{config.namespace}' still exists on '{config.kube_context}'. Run "
+                f"namespace(s) {', '.join(remaining)} still exist on '{config.kube_context}'. Run "
                 "'olf destroy --provider local --phase platform' before destroying the local foundation. "
                 "Pass --force only if you intentionally want to delete the cluster with platform resources "
                 "still present."

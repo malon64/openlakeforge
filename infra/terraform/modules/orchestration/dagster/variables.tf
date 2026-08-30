@@ -176,6 +176,17 @@ variable "catalog_contract" {
   })
 }
 
+variable "query_contract" {
+  description = "Query-engine contract consumed by dbt and the runtime. `service_namespace` is where the shared query service runs, which is not this instance's namespace on a stage-aware cluster."
+  type = object({
+    service_name      = string
+    http_port         = number
+    catalog_name      = string
+    service_namespace = optional(string)
+    endpoint          = optional(string)
+  })
+}
+
 variable "postgresql_contract" {
   description = "Metadata PostgreSQL contract consumed by Dagster."
   type = object({

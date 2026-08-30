@@ -18,14 +18,21 @@ def test_collect_status_queries_pods_services_and_pvcs_in_order() -> None:
 
     report = collect_status(
         kubectl,
-        namespace="lakehouse",
+        namespaces=("olf-system", "olf-dev"),
         context="kind-openlakeforge-local",
         kubeconfig=Path("/repo/.tmp/kubeconfigs/local.yaml"),
     )
 
     resources = [call.argv[call.argv.index("get") + 1] for call in runner.calls]
-    assert resources == ["pods", "svc", "pvc"]
-    assert [section.title for section in report.sections] == ["Pods", "Services", "PVCs"]
+    assert resources == ["pods", "svc", "pvc", "pods", "svc", "pvc"]
+    assert [section.title for section in report.sections] == [
+        "Pods (olf-system)",
+        "Services (olf-system)",
+        "PVCs (olf-system)",
+        "Pods (olf-dev)",
+        "Services (olf-dev)",
+        "PVCs (olf-dev)",
+    ]
     assert all(call.kwargs["check"] is False for call in runner.calls)
 
 
@@ -36,15 +43,15 @@ def test_render_joins_sections_with_headers() -> None:
 
     report = collect_status(
         kubectl,
-        namespace="lakehouse",
+        namespaces=("olf-system", "olf-dev"),
         context="kind-openlakeforge-local",
         kubeconfig=Path("/repo/.tmp/kubeconfigs/local.yaml"),
     )
 
     rendered = report.render()
-    assert "=== Pods ===" in rendered
-    assert "=== Services ===" in rendered
-    assert "=== PVCs ===" in rendered
+    assert "=== Pods (olf-system) ===" in rendered
+    assert "=== Services (olf-dev) ===" in rendered
+    assert "=== PVCs (olf-system) ===" in rendered
 
 
 def test_collect_status_raises_when_a_query_fails() -> None:
@@ -62,7 +69,7 @@ def test_collect_status_raises_when_a_query_fails() -> None:
     with pytest.raises(DeploymentPreconditionError, match="Services.*Unauthorized"):
         collect_status(
             kubectl,
-            namespace="lakehouse",
+            namespaces=("olf-system", "olf-dev"),
             context="kind-openlakeforge-local",
             kubeconfig=Path("/repo/.tmp/kubeconfigs/local.yaml"),
         )

@@ -16,19 +16,30 @@ DIAGNOSTIC_LOG_LINES = 80
 REQUIRED_READINESS_LABEL = "required"
 
 
-def _bounded_pod_diagnostics(cfg: E2EConfig, names: list[str]) -> str:
+def health_namespaces(cfg: E2EConfig) -> tuple[str, ...]:
+    """Every namespace a deployment's required workloads can live in.
+
+    Shared services and the selected stage's services are separate
+    namespaces since #133; the cloud POC roots still collapse both into one,
+    which `dict.fromkeys` deduplicates.
+    """
+    return tuple(dict.fromkeys((cfg.platform_namespace, cfg.namespace)))
+
+
+def _bounded_pod_diagnostics(cfg: E2EConfig, names: list[str], namespaces: Mapping[str, str] | None = None) -> str:
     lines: list[str] = []
     for name in names[:10]:
+        namespace = (namespaces or {}).get(name, cfg.namespace)
         try:
             output = kubectl(
                 cfg,
-                ["logs", "-n", cfg.namespace, f"pod/{name}", "--all-containers", f"--tail={DIAGNOSTIC_LOG_LINES}"],
+                ["logs", "-n", namespace, f"pod/{name}", "--all-containers", f"--tail={DIAGNOSTIC_LOG_LINES}"],
                 capture=True,
             )
         except E2EError as exc:
             output = f"unable to collect logs: {exc}"
             try:
-                description = kubectl(cfg, ["describe", "pod", "-n", cfg.namespace, name], capture=True)
+                description = kubectl(cfg, ["describe", "pod", "-n", namespace, name], capture=True)
             except E2EError as describe_exc:
                 output += f"\nunable to describe pod: {describe_exc}"
             else:
@@ -37,14 +48,15 @@ def _bounded_pod_diagnostics(cfg: E2EConfig, names: list[str]) -> str:
     return "\n".join(lines)
 
 
-def _bounded_job_diagnostics(cfg: E2EConfig, names: list[str]) -> str:
+def _bounded_job_diagnostics(cfg: E2EConfig, names: list[str], namespaces: Mapping[str, str] | None = None) -> str:
     """Collect only a small tail from the named Jobs."""
     diagnostics: list[str] = []
     for job_name in names[:10]:
+        namespace = (namespaces or {}).get(job_name, cfg.namespace)
         try:
             output = kubectl(
                 cfg,
-                ["logs", "-n", cfg.namespace, f"job/{job_name}", f"--tail={DIAGNOSTIC_LOG_LINES}"],
+                ["logs", "-n", namespace, f"job/{job_name}", f"--tail={DIAGNOSTIC_LOG_LINES}"],
                 capture=True,
             )
         except E2EError as exc:
@@ -53,16 +65,36 @@ def _bounded_job_diagnostics(cfg: E2EConfig, names: list[str]) -> str:
     return "\n".join(diagnostics)
 
 
+def _collect(cfg: E2EConfig, resource: str, namespaces: dict[str, str]) -> dict[str, Any]:
+    """Merge one resource kind across every namespace, recording each item's own.
+
+    Required workloads are split across the shared and stage namespaces, and
+    the health classifiers below take one flat payload; `namespaces` keeps
+    the name -> namespace mapping the failure diagnostics need to read logs
+    back from the right place.
+    """
+    items: list[Any] = []
+    for namespace in health_namespaces(cfg):
+        payload = json.loads(kubectl(cfg, ["get", resource, "-n", namespace, "-o", "json"], capture=True))
+        for item in payload.get("items", []):
+            name = str(item.get("metadata", {}).get("name", ""))
+            namespaces[name] = str(item.get("metadata", {}).get("namespace", namespace))
+            items.append(item)
+    return {"items": items}
+
+
 def check_pods_ready(cfg: E2EConfig) -> None:
     log.step("Checking pod health...")
     service_bad: list[str] = []
     job_bad: list[str] = []
     last_error: E2EError | None = None
     reported_warnings: set[str] = set()
+    pod_namespaces: dict[str, str] = {}
+    job_namespaces: dict[str, str] = {}
     for _ in range(READINESS_ATTEMPTS):
         try:
-            pod_payload = json.loads(kubectl(cfg, ["get", "pods", "-n", cfg.namespace, "-o", "json"], capture=True))
-            job_payload = json.loads(kubectl(cfg, ["get", "jobs", "-n", cfg.namespace, "-o", "json"], capture=True))
+            pod_payload = _collect(cfg, "pods", pod_namespaces)
+            job_payload = _collect(cfg, "jobs", job_namespaces)
         except E2EError as exc:
             last_error = exc
             time.sleep(5)
@@ -75,7 +107,7 @@ def check_pods_ready(cfg: E2EConfig) -> None:
             log.warn(message)
         if new_warnings:
             warning_job_names = [message.split(":", 1)[0] for message in new_warnings]
-            diagnostics = _bounded_job_diagnostics(cfg, warning_job_names)
+            diagnostics = _bounded_job_diagnostics(cfg, warning_job_names, job_namespaces)
             if diagnostics:
                 log.warn(f"non-blocking Job diagnostics:\n{diagnostics}")
         if not service_bad and not job_bad:
@@ -85,9 +117,13 @@ def check_pods_ready(cfg: E2EConfig) -> None:
         raise last_error
     diagnostics: list[str] = []
     if service_bad:
-        diagnostics.append(_bounded_pod_diagnostics(cfg, [message.split(":", 1)[0] for message in service_bad]))
+        diagnostics.append(
+            _bounded_pod_diagnostics(cfg, [message.split(":", 1)[0] for message in service_bad], pod_namespaces)
+        )
     if job_bad:
-        diagnostics.append(_bounded_job_diagnostics(cfg, [message.split(":", 1)[0] for message in job_bad]))
+        diagnostics.append(
+            _bounded_job_diagnostics(cfg, [message.split(":", 1)[0] for message in job_bad], job_namespaces)
+        )
     raise E2EError(
         "unhealthy required services:\n"
         + "\n".join([*service_bad, *job_bad])

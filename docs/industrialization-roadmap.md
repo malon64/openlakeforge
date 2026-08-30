@@ -265,7 +265,9 @@ Dependency order within the milestone, not release priority:
 - Parse and resolve the minimal Deployment Profile v1 — provider, stage, and
   preset as distinct typed concepts (#113, ADR 0011).
 - Define provider-contract v3 and prove AWS Glue stage isolation (#153).
-- Make the shared-cluster platform root stage-aware (#133).
+- Make the shared-cluster platform root stage-aware (#133): one shared
+  `olf-system` namespace, one `olf-<stage>` namespace per enabled stage, and
+  stage-scoped Dagster/Superset derived from the resolved topology.
 - Provision stage data-plane isolation through provider adapters (#114).
 - Build and verify a complete immutable project revision, independent of any
   target stage (#154, ADR 0012).
@@ -376,8 +378,9 @@ private networking, ingress/TLS, and restore validation.
 - Add explicit preflight, conformance, backup, restore, and release-check
   targets as those capabilities are delivered.
 - `provider_contracts` v3 separates shared platform bindings from explicit
-  DEV/UAT/PROD stage bindings. The deployed v2 surface adapts to one DEV stage
-  until the stage-aware Terraform work lands; unknown versions fail closed.
+  DEV/UAT/PROD stage bindings. The local platform root is stage-aware (#133)
+  but still exports the v2 surface, which adapts to one DEV stage until #114
+  gives every stage its own storage and catalog; unknown versions fail closed.
   Minor releases may add compatible fields; removal or rename requires a major
   release.
 - Version the lakehouse descriptor schemas (`lakehouse.yaml` / `source.yaml`)

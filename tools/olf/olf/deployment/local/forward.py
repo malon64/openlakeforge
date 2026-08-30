@@ -39,10 +39,11 @@ def resolve_dagster_webserver_pod(
 
 
 def local_forward_spec(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[str, str]) -> ForwardSpec:
+    shared = config.context.shared_namespace
     targets: list[ForwardTarget] = [
-        ForwardTarget("seaweedfs-s3", "svc/seaweedfs-s3", 9000, 8333),
-        ForwardTarget("polaris", "svc/polaris", 8181, 8181),
-        ForwardTarget("trino", "svc/trino", 8080, 8080),
+        ForwardTarget("seaweedfs-s3", "svc/seaweedfs-s3", 9000, 8333, namespace=shared),
+        ForwardTarget("polaris", "svc/polaris", 8181, 8181, namespace=shared),
+        ForwardTarget("trino", "svc/trino", 8080, 8080, namespace=shared),
     ]
 
     dagster_pod = resolve_dagster_webserver_pod(
@@ -60,14 +61,14 @@ def local_forward_spec(config: LocalDeploymentConfig, tools: Toolkit, *, env: Ma
     if config.features.analytics_enabled:
         targets.append(ForwardTarget("superset", "svc/superset", 8088, 8088))
     if config.features.governance_enabled:
-        targets.append(ForwardTarget("openmetadata", "svc/openmetadata", 8585, 8585))
+        targets.append(ForwardTarget("openmetadata", "svc/openmetadata", 8585, 8585, namespace=shared))
 
     targets += [
-        ForwardTarget("seaweedfs-filer", "svc/seaweedfs-filer-client", 8888, 8888),
-        ForwardTarget("seaweedfs-master", "svc/seaweedfs-master", 9333, 9333),
+        ForwardTarget("seaweedfs-filer", "svc/seaweedfs-filer-client", 8888, 8888, namespace=shared),
+        ForwardTarget("seaweedfs-master", "svc/seaweedfs-master", 9333, 9333, namespace=shared),
     ]
 
-    banner = ["Starting port-forwards (Ctrl-C to stop all)..."]
+    banner = [f"Starting port-forwards for stage '{config.context.stage.value}' (Ctrl-C to stop all)..."]
     if dagster_pod is not None:
         banner.append("  Dagster UI:       http://localhost:3000")
     if config.features.analytics_enabled:
