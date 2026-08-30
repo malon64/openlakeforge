@@ -209,3 +209,30 @@ def test_platform_down_also_removes_a_stage_the_profile_no_longer_enables(tmp_pa
         if "namespace" in call.argv and "delete" in call.argv
     ]
     assert deleted == ["olf-system", "olf-dev", "olf-prod"]
+
+
+def test_platform_down_fails_closed_when_namespace_discovery_errors(tmp_path: Path) -> None:
+    """A label query that matches nothing succeeds and returns no names, so a
+    failure is a real one. Reading it as "none found" would quietly reduce
+    teardown to the current topology and then report success -- the outcome
+    the discovery exists to prevent."""
+    config = _config(tmp_path)
+
+    class _Runner(_TeardownScriptedRunner):
+        def run(self, command, **kwargs):  # type: ignore[override]
+            argv = list(command.argv) if hasattr(command, "argv") else [str(part) for part in command]
+            if "get" in argv and "namespace" in argv and any(a.startswith("openlakeforge.io/") for a in argv):
+                self.calls.append(RecordedCall(argv=argv, kwargs=kwargs))
+                return CommandResult(
+                    argv=(),
+                    returncode=1,
+                    stdout="",
+                    stderr='namespaces is forbidden: User cannot list resource "namespaces"',
+                    duration_seconds=0.0,
+                )
+            return super().run(command, **kwargs)
+
+    runner = _Runner()
+
+    with pytest.raises(DeploymentPreconditionError, match="cannot list resource"):
+        teardown.platform_down(config, _toolkit(runner), env={})

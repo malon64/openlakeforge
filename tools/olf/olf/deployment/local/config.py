@@ -99,12 +99,13 @@ class ImageSettings:
 _ALWAYS_CHARTS = ("trino", "dagster", "seaweedfs", "polaris")
 _GOVERNANCE_CHARTS = ("openmetadata", "openmetadata-dependencies")
 _ANALYTICS_CHARTS = ("superset",)
+_ALL_CHARTS = _ALWAYS_CHARTS + _GOVERNANCE_CHARTS + _ANALYTICS_CHARTS
 
 
 def _local_chart_names(features: DeploymentFeatures) -> tuple[str, ...]:
-    """Every chart the local provider ever deploys, minus the ones a
-    disabled optional layer will never install - a slim-profile run must
-    not spend time downloading and verifying charts it cannot use.
+    """The charts this topology deploys, minus the ones a disabled optional
+    layer will never install - a slim-profile run must not spend time
+    downloading and verifying charts it cannot use.
     """
     names = list(_ALWAYS_CHARTS)
     if features.governance_enabled:
@@ -116,14 +117,25 @@ def _local_chart_names(features: DeploymentFeatures) -> tuple[str, ...]:
 
 @dataclass(frozen=True)
 class ChartSettings:
-    """A resolved `ChartSetting` per chart the local provider deploys.
+    """A resolved `ChartSetting` per chart the local provider knows about.
 
     Generalizes what used to be five Trino-only fields on this class - see
     `olf.deployment.charts.resolve_chart_settings`, which both this and
     `cloud.config.CloudChartSettings` now share.
+
+    `required` names the subset this topology actually deploys, and is what
+    `values()` walks: the deploy path must not fetch a chart no enabled stage
+    asked for. Settings are resolved for every chart regardless, because
+    turning off the last analytics or governance stage does not remove that
+    release from Terraform state - the apply that follows still has to destroy
+    it, and a `helm_release` pointed at a repository name makes the provider
+    fetch that repository's index to do so. Keeping the setting lets
+    `platform.cached_chart_variables` hand the destroy the archive already in
+    the cache, which is what keeps stage removal working offline.
     """
 
     settings: Mapping[str, ChartSetting]
+    required: frozenset[str]
 
     def __getitem__(self, name: str) -> ChartSetting:
         return self.settings[name]
@@ -132,6 +144,11 @@ class ChartSettings:
         return self.settings.get(name)
 
     def values(self) -> Iterable[ChartSetting]:
+        """The charts this topology deploys."""
+        return tuple(setting for name, setting in self.settings.items() if name in self.required)
+
+    def all_values(self) -> Iterable[ChartSetting]:
+        """Every known chart, including optional ones this topology disables."""
         return self.settings.values()
 
     @classmethod
@@ -147,13 +164,14 @@ class ChartSettings:
     ) -> ChartSettings:
         return cls(
             settings=resolve_chart_settings(
-                _local_chart_names(features),
+                _ALL_CHARTS,
                 environ,
                 helm_cache_dir=helm_cache_dir,
                 cache_root=cache_root,
                 catalog_path=catalog_path,
                 installed=installed,
-            )
+            ),
+            required=frozenset(_local_chart_names(features)),
         )
 
 

@@ -173,3 +173,27 @@ def test_legacy_single_stage_topology_matches_the_v02_full_shorthand() -> None:
     dev = topology.stage(StageName.DEV)
     assert dev.capabilities.analytics is True
     assert dev.capabilities.governance is True
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["acme-", "acme_data", "-acme", "1acme", "a" * 64],
+)
+def test_validate_deployment_profile_rejects_names_kubernetes_cannot_label_with(name: str) -> None:
+    """The profile name becomes the `openlakeforge.io/profile` label value on
+    every namespace the deployment owns, and teardown selects on it. A name a
+    label value cannot hold would validate here and fail the apply that
+    creates the namespaces."""
+    document = _load_fixture("valid_slim_local.yaml")
+    document["metadata"]["name"] = name
+
+    with pytest.raises(DeploymentProfileError, match="metadata.name must match"):
+        validate_deployment_profile(document)
+
+
+@pytest.mark.parametrize("name", ["a", "acme-data", "acme2", "a" + "b" * 62])
+def test_validate_deployment_profile_accepts_label_safe_names(name: str) -> None:
+    document = _load_fixture("valid_slim_local.yaml")
+    document["metadata"]["name"] = name
+
+    assert validate_deployment_profile(document).name == name

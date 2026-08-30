@@ -164,10 +164,13 @@ def test_a_disabled_stage_is_still_reported_so_removal_is_visible(tmp_path: Path
 
 
 def test_platform_apply_variables_slim_profile_omits_disabled_layer_charts(tmp_path: Path) -> None:
+    """Nothing fetches a chart a disabled layer will never install, and with
+    no archive in the cache there is no path to pass for one either."""
     config = _config(tmp_path, profile=Profile.SLIM)
 
     variables = platform.platform_apply_variables(config)
 
+    assert [setting.name for setting in config.charts.values()] == ["trino", "dagster", "seaweedfs", "polaris"]
     assert "openmetadata_chart_package_path" not in variables
     assert "openmetadata_deps_chart_package_path" not in variables
     assert "superset_chart_package_path" not in variables
@@ -175,6 +178,21 @@ def test_platform_apply_variables_slim_profile_omits_disabled_layer_charts(tmp_p
     assert "dagster_chart_package_path" in variables
     assert "seaweedfs_chart_package_path" in variables
     assert "polaris_chart_package_path" in variables
+
+
+def test_apply_passes_cached_archives_for_optional_releases_the_topology_disabled(tmp_path: Path) -> None:
+    """Turning off the last analytics stage is the apply that destroys
+    Superset, and the capability gate no longer selects its chart. Without the
+    cached archive the provider would fetch the repository index to remove the
+    release, so stage removal would need the network."""
+    config = _config(tmp_path, profile=Profile.SLIM)
+    superset = config.charts["superset"]
+    superset.package_path.parent.mkdir(parents=True, exist_ok=True)
+    superset.package_path.write_bytes(b"chart archive")
+
+    variables = platform.platform_apply_variables(config)
+
+    assert variables["superset_chart_package_path"] == str(superset.package_path)
 
 
 def test_platform_destroy_variables_are_the_four_var_subset(tmp_path: Path) -> None:

@@ -56,6 +56,11 @@ for how a release is cut and verified.
   already-applied POC stack needs the same destroy-then-redeploy as local
   rather than an in-place upgrade: a `moved` block cannot name an address
   whose key comes from a variable (#133).
+- A Deployment Profile's `metadata.name` must now be a valid Kubernetes label
+  value: at most 63 characters and ending in an alphanumeric character. It
+  becomes the `openlakeforge.io/profile` label on every namespace the
+  deployment owns, so a name like `acme-` used to validate and then fail the
+  apply that creates them (#133).
 - `--profile slim|full` is now an explicit, deprecated single-DEV shorthand.
   With no `--profile`, the project-root `openlakeforge.yaml` Deployment
   Profile decides which stages and capabilities are deployed; a project with

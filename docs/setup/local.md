@@ -497,8 +497,15 @@ olf deploy --provider local --cluster-name my-openlakeforge
 Or deploy and inspect a specific stage:
 
 ```bash
-olf deploy --provider local --stage prod
+olf deploy --provider local --stage prod --phase platform
 ```
+
+`--phase platform` is required for any stage other than `dev`. The local root
+still exports a provider-contract v2 payload, which describes one stage's data
+plane; the artifacts phase refuses to resolve a non-DEV stage from it rather
+than deploying PROD artifacts against DEV storage and catalogs. Per-stage
+storage and catalogs, the v3 payload, and full non-DEV deployment arrive with
+[#114](https://github.com/malon64/openlakeforge/issues/114).
 
 The local kubeconfig path can also be overridden:
 

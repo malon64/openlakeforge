@@ -25,7 +25,14 @@ from olf.deployment.context import Provider
 
 PROFILE_API_VERSION = "openlakeforge.io/v1alpha1"
 PROFILE_KIND = "DeploymentProfile"
-_IDENTIFIER_PATTERN = re.compile(r"^[a-z][a-z0-9-]*$")
+# A profile name reaches Kubernetes as the `openlakeforge.io/profile` label
+# value on every namespace this deployment owns, and teardown discovers those
+# namespaces by selecting on it. Label values must end in an alphanumeric
+# character and cannot exceed 63 characters, so a name that only satisfies the
+# looser identifier shape would be accepted here and then fail the apply that
+# creates the namespaces.
+_IDENTIFIER_PATTERN_SOURCE = r"^[a-z]([a-z0-9-]{0,61}[a-z0-9])?$"
+_IDENTIFIER_PATTERN = re.compile(_IDENTIFIER_PATTERN_SOURCE)
 
 _ENVELOPE_FIELDS = {"apiVersion", "kind", "metadata", "spec"}
 _METADATA_FIELDS = {"name"}
@@ -138,7 +145,7 @@ class DeploymentTopology:
 
 def _identifier(value: object, *, field: str, source: str) -> str:
     if not isinstance(value, str) or not _IDENTIFIER_PATTERN.fullmatch(value):
-        raise DeploymentProfileError(f"{source}: {field} must match '^[a-z][a-z0-9-]*$'")
+        raise DeploymentProfileError(f"{source}: {field} must match '{_IDENTIFIER_PATTERN_SOURCE}'")
     return value
 
 

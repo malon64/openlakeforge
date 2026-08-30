@@ -92,7 +92,9 @@ def platform_apply_variables(config: LocalDeploymentConfig) -> dict[str, str]:
         "superset_image_repository": images.superset_repository,
         "superset_image_tag": images.superset_tag,
         "superset_image_pull_policy": images.superset_pull_policy,
-    } | {TERRAFORM_VARIABLE_KEY[setting.name]: str(setting.package_path) for setting in config.charts.values()}
+    } | cached_chart_variables(config) | {
+        TERRAFORM_VARIABLE_KEY[setting.name]: str(setting.package_path) for setting in config.charts.values()
+    }
 
 
 def cached_chart_variables(config: LocalDeploymentConfig) -> dict[str, str]:
@@ -104,10 +106,16 @@ def cached_chart_variables(config: LocalDeploymentConfig) -> dict[str, str]:
     remove a release. Pointing it back at the archive the apply used keeps
     destroy working offline. Archives that are not cached are omitted rather
     than passed as missing paths, which the provider would reject outright.
+
+    This walks every known chart, not only the ones this topology deploys.
+    Disabling the last analytics or governance stage is exactly the apply that
+    has to destroy that release, and by then the capability gate no longer
+    selects its chart -- so an apply, too, is given the cached archives for the
+    optional releases that may still be in state.
     """
     return {
         TERRAFORM_VARIABLE_KEY[setting.name]: str(setting.package_path)
-        for setting in config.charts.values()
+        for setting in config.charts.all_values()
         if setting.package_path is not None and Path(setting.package_path).is_file()
     }
 
