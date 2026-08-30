@@ -14,6 +14,7 @@ from pathlib import Path
 from olf import log
 from olf.deployment import kube_ops
 from olf.deployment.charts import TERRAFORM_VARIABLE_KEY, prepare_chart
+from olf.deployment.context import stage_namespace
 from olf.deployment.engine import Toolkit
 from olf.deployment.errors import CommandExecutionError, DeploymentPreconditionError
 from olf.deployment.local.config import LocalDeploymentConfig
@@ -164,8 +165,48 @@ def applied_stage_names(config: LocalDeploymentConfig, tools: Toolkit, *, env: M
     return tuple(str(name) for name in applied)
 
 
+def deployed_stages_the_topology_dropped(
+    config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[str, str]
+) -> tuple[str, ...]:
+    """Stages that are deployed but no longer in the resolved topology.
+
+    Two independent signals, because either one alone has a blind spot. The
+    `stage_names` output is authoritative while Terraform state is intact, and
+    names stages whose namespace may already be gone. Namespaces still
+    labelled as this deployment's cover the case the output cannot see at all:
+    state missing or drifted, which is exactly when `platform_up` reaches for
+    the destructive reset.
+
+    A namespace is reported under its stage name where it has one, so the
+    caller's message reads the same whichever signal found it.
+    """
+    enabled = {stage.value for stage in config.context.enabled_stages}
+    owned = set(config.context.owned_namespaces)
+    dropped = {stage for stage in applied_stage_names(config, tools, env=env) if stage not in enabled}
+    for namespace in kube_ops.managed_namespaces(
+        tools.kubectl,
+        profile_name=config.context.topology.profile_name,
+        context=config.kube_context,
+        kubeconfig=config.paths.kubeconfig_path,
+        env=env,
+    ):
+        if namespace in owned:
+            continue
+        dropped.add(_stage_for_namespace(config, namespace) or namespace)
+    return tuple(sorted(dropped))
+
+
+def _stage_for_namespace(config: LocalDeploymentConfig, namespace: str) -> str | None:
+    """The stage a namespace belongs to, from the resolved topology -- which
+    carries every stage the resolver knows, disabled ones included."""
+    return next(
+        (stage.name.value for stage in config.context.topology.stages if stage_namespace(stage.name) == namespace),
+        None,
+    )
+
+
 def require_no_stage_removal(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[str, str]) -> None:
-    """Refuse an ordinary apply that would drop an already-applied stage.
+    """Refuse an ordinary apply that would drop an already-deployed stage.
 
     Disabling a stage in the Deployment Profile is a destructive operation:
     the apply that follows deletes that stage's namespace, the services in it,
@@ -174,13 +215,17 @@ def require_no_stage_removal(config: LocalDeploymentConfig, tools: Toolkit, *, e
     side effect of a profile edit is not something an apply should do -- so
     re-enabling the stage reconnects to that existing state. Terraform's own
     `prevent_destroy` cannot be made conditional, so the opt-in lives here.
+
+    This runs before the drift reset, and deliberately covers what is in the
+    cluster as well as what is in state: the reset tears the platform down by
+    label, so with state missing it would otherwise delete a dropped stage's
+    namespace under a guard that had nothing to read.
     """
-    enabled = {stage.value for stage in config.context.enabled_stages}
-    removed = [stage for stage in applied_stage_names(config, tools, env=env) if stage not in enabled]
+    removed = deployed_stages_the_topology_dropped(config, tools, env=env)
     if not removed or config.context.allow_stage_removal:
         return
     raise DeploymentPreconditionError(
-        f"applying would remove already-deployed stage(s) {', '.join(sorted(removed))}, deleting their "
+        f"applying would remove already-deployed stage(s) {', '.join(removed)}, deleting their "
         "namespaces, services, and credentials. Their databases stay on the shared PostgreSQL server, so "
         "re-enabling a stage reuses its existing run history. Re-run with --allow-stage-removal to proceed."
     )

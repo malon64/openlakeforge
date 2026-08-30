@@ -41,7 +41,7 @@ def managed_namespaces(
         "namespace",
         context=context,
         kubeconfig=kubeconfig,
-        output='jsonpath={range .items[*]}{.metadata.name}{"\n"}{end}',
+        output=r'jsonpath={range .items[*]}{.metadata.name}{"\n"}{end}',
         extra_args=("-l", f"openlakeforge.io/managed-by=openlakeforge,openlakeforge.io/profile={profile_name}"),
         env=env,
         check=False,

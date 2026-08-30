@@ -26,7 +26,10 @@ for how a release is cut and verified.
 - `olf deploy`/`plan`/`status`/`forward`/`e2e run` take `--stage` (default
   `dev`), and `olf deploy`/`plan` take `--allow-stage-removal`: an apply that
   would drop an already-deployed stage — deleting its namespace, services, and
-  credentials — now fails closed without it. A removed stage's databases stay
+  credentials — now fails closed without it. The guard reads both the applied
+  `stage_names` output and the namespaces still labelled as this deployment's,
+  so it holds when Terraform state is missing and the drift reset would
+  otherwise tear the stage down by label. A removed stage's databases stay
   on the shared PostgreSQL server, so re-enabling it reuses its existing run
   history (#133).
 

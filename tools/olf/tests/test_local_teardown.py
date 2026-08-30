@@ -236,3 +236,18 @@ def test_platform_down_fails_closed_when_namespace_discovery_errors(tmp_path: Pa
 
     with pytest.raises(DeploymentPreconditionError, match="cannot list resource"):
         teardown.platform_down(config, _toolkit(runner), env={})
+
+
+def test_namespace_discovery_asks_kubectl_for_a_newline_separated_list(tmp_path: Path) -> None:
+    """kubectl's jsonpath takes the escape as two characters. A real newline
+    in the expression makes it an unterminated quoted string, and every caller
+    of this then fails closed on a query that never ran."""
+    config = _config(tmp_path)
+    runner = _TeardownScriptedRunner()
+
+    teardown.managed_namespaces(config, _toolkit(runner), env={})
+
+    call = next(c for c in runner.calls if "namespace" in c.argv and "-l" in c.argv)
+    expression = call.argv[call.argv.index("-o") + 1]
+    assert expression == 'jsonpath={range .items[*]}{.metadata.name}{"\\n"}{end}'
+    assert "\n" not in expression

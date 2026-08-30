@@ -352,9 +352,10 @@ def test_platform_up_retries_apply_and_cleans_up_polaris_jobs_each_attempt(tmp_p
     assert len(apply_calls) == 2  # first attempt failed, second succeeded
 
 
-def _stage_names_runner(applied: str | None) -> RecordingRunner:
+def _stage_names_runner(applied: str | None, *, labelled_namespaces: str = "") -> RecordingRunner:
     """A runner whose `terraform output -json stage_names` answers `applied`,
-    or fails the way an unapplied root does."""
+    or fails the way an unapplied root does, and whose namespace label query
+    answers `labelled_namespaces`."""
 
     class _Runner(RecordingRunner):
         def run(self, command, **kwargs):  # type: ignore[override]
@@ -364,6 +365,8 @@ def _stage_names_runner(applied: str | None) -> RecordingRunner:
                 if applied is None:
                     raise CommandExecutionError(argv, 1, stderr="No outputs found")
                 return _ok(applied)
+            if "namespace" in argv and "-l" in argv:
+                return _ok(labelled_namespaces)
             return _ok()
 
     return _Runner()
@@ -413,3 +416,36 @@ def test_an_unreadable_state_does_not_read_as_no_stages(tmp_path: Path) -> None:
 
     with pytest.raises(CommandExecutionError):
         platform.require_no_stage_removal(config, _toolkit(_Runner()), env={})
+
+
+def test_a_dropped_stage_still_in_the_cluster_fails_closed_without_state(tmp_path: Path) -> None:
+    """The drift path: state is missing, so `stage_names` reads as no applied
+    stages, and `platform_up` would go straight to a reset whose teardown
+    deletes by label -- taking a stage the profile dropped with it, under a
+    guard that had nothing to read."""
+    config = _config(tmp_path, topology=_topology(dev=True))
+    tools = _toolkit(_stage_names_runner(None, labelled_namespaces="olf-system\nolf-dev\nolf-prod\n"))
+
+    with pytest.raises(DeploymentPreconditionError, match="prod"):
+        platform.require_no_stage_removal(config, tools, env={})
+
+
+def test_a_dropped_stage_in_the_cluster_is_allowed_with_the_explicit_opt_in(tmp_path: Path) -> None:
+    config = _config(tmp_path, topology=_topology(dev=True), allow_stage_removal=True)
+    tools = _toolkit(_stage_names_runner(None, labelled_namespaces="olf-system\nolf-dev\nolf-prod\n"))
+
+    platform.require_no_stage_removal(config, tools, env={})
+
+
+def test_the_cluster_namespaces_of_enabled_stages_are_not_removals(tmp_path: Path) -> None:
+    config = _config(tmp_path, topology=_topology(dev=True, prod=True))
+    tools = _toolkit(_stage_names_runner('["dev", "prod"]', labelled_namespaces="olf-system\nolf-dev\nolf-prod\n"))
+
+    platform.require_no_stage_removal(config, tools, env={})
+
+
+def test_a_stage_named_by_both_signals_is_reported_once(tmp_path: Path) -> None:
+    config = _config(tmp_path, topology=_topology(dev=True))
+    tools = _toolkit(_stage_names_runner('["dev", "prod"]', labelled_namespaces="olf-system\nolf-dev\nolf-prod\n"))
+
+    assert platform.deployed_stages_the_topology_dropped(config, tools, env={}) == ("prod",)
