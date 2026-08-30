@@ -186,7 +186,7 @@ def test_foundation_down_refuses_when_namespace_still_present(tmp_path: Path) ->
     )
     tools = _toolkit_with_runner(runner)
 
-    with pytest.raises(DeploymentPreconditionError, match="still exists"):
+    with pytest.raises(DeploymentPreconditionError, match="still exist"):
         foundation.foundation_down(config, tools, env={})
 
 
@@ -225,3 +225,23 @@ def test_foundation_down_destroys_when_no_platform_resources_remain(tmp_path: Pa
     assert len(destroy_calls) == 1
     assert "-var=cluster_name=openlakeforge-local" in destroy_calls[0].argv
     assert not any("kind_wait_timeout" in arg for arg in destroy_calls[0].argv)
+
+
+def test_foundation_down_refuses_while_only_the_shared_namespace_remains(tmp_path: Path) -> None:
+    """The shared namespace holds PostgreSQL and its PVC. Checking only the
+    selected stage would let a partially torn-down platform take the cluster
+    and the metadata with it."""
+    config = _config(tmp_path)
+    runner = _ScriptedRunner(
+        rules=[
+            (lambda argv: "state" in argv, _ok()),
+            (lambda argv: argv[:2] == ["kind", "get"], _ok("openlakeforge-local\n")),
+            (lambda argv: "namespace" in argv and "olf-system" in argv, _ok()),
+            (lambda argv: "namespace" in argv and "olf-dev" in argv, _fail()),
+        ],
+        default=_ok(),
+    )
+    tools = _toolkit_with_runner(runner)
+
+    with pytest.raises(DeploymentPreconditionError, match="olf-system"):
+        foundation.foundation_down(config, tools, env={})

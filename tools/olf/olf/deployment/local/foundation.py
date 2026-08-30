@@ -116,17 +116,25 @@ def foundation_down(
         return
 
     if not force and cluster_exists:
-        namespace_result = tools.kubectl.get(
-            "namespace",
-            name=config.namespace,
-            context=config.kube_context,
-            kubeconfig=config.paths.kubeconfig_path,
-            env=env,
-            check=False,
-        )
-        if namespace_result.ok:
+        # Every namespace the deployment owns, not just the selected stage's:
+        # the shared namespace holds PostgreSQL and its PVC, so a partially
+        # torn-down platform would otherwise let this delete the cluster and
+        # the metadata with it.
+        remaining = [
+            namespace
+            for namespace in config.context.owned_namespaces
+            if tools.kubectl.get(
+                "namespace",
+                name=namespace,
+                context=config.kube_context,
+                kubeconfig=config.paths.kubeconfig_path,
+                env=env,
+                check=False,
+            ).ok
+        ]
+        if remaining:
             raise DeploymentPreconditionError(
-                f"namespace '{config.namespace}' still exists on '{config.kube_context}'. Run "
+                f"namespace(s) {', '.join(remaining)} still exist on '{config.kube_context}'. Run "
                 "'olf destroy --provider local --phase platform' before destroying the local foundation. "
                 "Pass --force only if you intentionally want to delete the cluster with platform resources "
                 "still present."

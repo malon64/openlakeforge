@@ -160,6 +160,15 @@ class DeploymentContext:
     def enabled_stages(self) -> tuple[StageName, ...]:
         return tuple(stage.name for stage in self.topology.stages if stage.enabled)
 
+    @property
+    def owned_namespaces(self) -> tuple[str, ...]:
+        """Every namespace this deployment created: the shared platform one
+        plus one per enabled stage. The single-namespace cloud roots collapse
+        to one entry."""
+        return tuple(
+            dict.fromkeys((self.shared_namespace, *(self.namespace_for(stage) for stage in self.enabled_stages)))
+        )
+
     def namespace_for(self, stage: StageName | str) -> str:
         """The namespace owning one stage's services on this provider."""
         from olf.profile import StageName

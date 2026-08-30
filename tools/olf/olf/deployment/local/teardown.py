@@ -19,12 +19,8 @@ LEGACY_HELM_RELEASES = ("trino", "polaris", "seaweedfs", "garage")
 
 
 def owned_namespaces(config: LocalDeploymentConfig) -> tuple[str, ...]:
-    """Every namespace this deployment created: the shared platform one plus
-    one per enabled stage."""
-    return (
-        config.context.shared_namespace,
-        *(config.context.namespace_for(stage) for stage in config.context.enabled_stages),
-    )
+    """Every namespace this deployment created. See `DeploymentContext`."""
+    return config.context.owned_namespaces
 
 
 def cleanup_legacy_helm_releases(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[str, str]) -> list[str]:
