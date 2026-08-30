@@ -57,6 +57,7 @@ def run(
                     "local",
                     suite="smoke",
                     namespace=context.namespace,
+                    shared_namespace=context.shared_namespace,
                     kube_context=context.kube_context,
                     repo_root=root,
                 )
