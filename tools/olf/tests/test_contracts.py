@@ -16,7 +16,7 @@ def load_fixture(name: str) -> dict:
 def test_defaults_without_contracts_match_local_profile() -> None:
     exports, unsets = build_contract_env({}, None, repo_root=REPO_ROOT)
     assert exports["OPENLAKEFORGE_STORAGE_IMPLEMENTATION"] == "storage.s3_compatible.seaweedfs"
-    assert exports["OPENLAKEFORGE_STORAGE_ENDPOINT"] == "http://seaweedfs-s3:8333"
+    assert exports["OPENLAKEFORGE_STORAGE_ENDPOINT"] == "http://seaweedfs-s3.olf-system:8333"
     assert exports["OPENLAKEFORGE_CATALOG_PROVIDER"] == "polaris"
     assert exports["OPENLAKEFORGE_CATALOG_WAREHOUSE"] == "lakehouse_dev"
     assert exports["OPENLAKEFORGE_ARTIFACT_BASE_URI"] == "s3://openlakeforge-ops"
@@ -33,11 +33,11 @@ def test_defaults_without_contracts_match_local_profile() -> None:
     assert exports["OPENMETADATA_CATALOG_SERVICE"] == "polaris"
     assert exports["OPENLAKEFORGE_STORAGE_OM_SERVICE"] == "seaweedfs"
     assert exports["OPENLAKEFORGE_STORAGE_DISPLAY_NAME"] == "SeaweedFS S3"
-    assert exports["AWS_ENDPOINT_URL_S3"] == "http://seaweedfs-s3:8333"
+    assert exports["AWS_ENDPOINT_URL_S3"] == "http://seaweedfs-s3.olf-system:8333"
     assert exports["AWS_ALLOW_HTTP"] == "true"
     assert exports["CODE_BUCKET_NAME"] == "openlakeforge-ops"
     assert (
-        exports["OPENLAKEFORGE_QUERY_SQLALCHEMY_URI"] == "trino://superset@trino:8080/iceberg"
+        exports["OPENLAKEFORGE_QUERY_SQLALCHEMY_URI"] == "trino://superset@trino.olf-system:8080/iceberg"
     )
     assert unsets == []
 

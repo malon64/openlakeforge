@@ -9,6 +9,8 @@ values must stay byte-identical for every provider.
 
 Semantics preserved from the shell implementation:
 - Defaults apply where a variable is unset OR empty (bash ``${VAR:-default}``).
+- Every shared-service default names the namespace it runs in: a stage-scoped
+  pod cannot resolve a bare service name in another namespace (ADR 0011).
 - Terraform contract values override inherited environment values.
 - After contract application, defaults run again to fill remaining gaps.
 - Four variables honor a caller-set value even when contracts disagree:
@@ -185,8 +187,8 @@ def _apply_default_contract_env(env: _Env, base: Mapping[str, str], repo_root: P
     env.default("OPENLAKEFORGE_STORAGE_GOLD_BUCKET", "lakehouse-gold")
     env.default("OPENLAKEFORGE_STORAGE_BUCKET", env.get("OPENLAKEFORGE_STORAGE_BRONZE_BUCKET"))
     env.default("OPENLAKEFORGE_STORAGE_REGION", "us-east-1")
-    env.default("OPENLAKEFORGE_STORAGE_ENDPOINT", "http://seaweedfs-s3:8333")
-    env.default("OPENLAKEFORGE_STORAGE_VIRTUAL_HOST_ENDPOINT", "http://lakehouse.svc.cluster.local:8333")
+    env.default("OPENLAKEFORGE_STORAGE_ENDPOINT", "http://seaweedfs-s3.olf-system:8333")
+    env.default("OPENLAKEFORGE_STORAGE_VIRTUAL_HOST_ENDPOINT", "http://olf-system.svc.cluster.local:8333")
     env.default("OPENLAKEFORGE_STORAGE_PATH_STYLE_ACCESS", "true")
     env.default("OPENLAKEFORGE_STORAGE_SSL_MODE", "disabled")
     env.default("OPENLAKEFORGE_STORAGE_CREDENTIALS_SECRET_NAME", "seaweedfs-s3-creds")
@@ -202,8 +204,8 @@ def _apply_default_contract_env(env: _Env, base: Mapping[str, str], repo_root: P
     env.default("OPENLAKEFORGE_CATALOG_PROVIDER", "polaris")
     env.default("OPENLAKEFORGE_CATALOG_NAME", "lakehouse_dev")
     env.default("OPENLAKEFORGE_CATALOG_RUNTIME_PROFILE", "polaris-rest")
-    env.default("OPENLAKEFORGE_CATALOG_REST_URI", "http://polaris:8181/api/catalog")
-    env.default("OPENLAKEFORGE_CATALOG_TOKEN_URI", "http://polaris:8181/api/catalog/v1/oauth/tokens")
+    env.default("OPENLAKEFORGE_CATALOG_REST_URI", "http://polaris.olf-system:8181/api/catalog")
+    env.default("OPENLAKEFORGE_CATALOG_TOKEN_URI", "http://polaris.olf-system:8181/api/catalog/v1/oauth/tokens")
     env.default("OPENLAKEFORGE_CATALOG_OAUTH_SCOPE", "PRINCIPAL_ROLE:ALL")
     env.default("OPENLAKEFORGE_CATALOG_WAREHOUSE", "lakehouse_dev")
     env.default("OPENLAKEFORGE_CATALOG_GLUE_REGION", "")
@@ -252,7 +254,7 @@ def _apply_default_contract_env(env: _Env, base: Mapping[str, str], repo_root: P
         f"{env.get('OPENLAKEFORGE_ARTIFACT_BASE_URI')}/run-artifacts",
     )
     env.default("OPENLAKEFORGE_ARTIFACT_LOCAL_UPLOAD_ACCESS_MODE", "kubectl-port-forward")
-    env.default("OPENLAKEFORGE_QUERY_TRINO_HOST", "trino")
+    env.default("OPENLAKEFORGE_QUERY_TRINO_HOST", "trino.olf-system")
     env.default("OPENLAKEFORGE_QUERY_TRINO_PORT", "8080")
     env.default("OPENLAKEFORGE_QUERY_TRINO_CATALOG", "iceberg")
 
@@ -279,7 +281,7 @@ def _apply_default_contract_env(env: _Env, base: Mapping[str, str], repo_root: P
     env.default("OPENLAKEFORGE_GOVERNANCE_ENABLED", "true")
     env.default("OPENLAKEFORGE_ANALYTICS_ENABLED", "true")
     if env.get("OPENLAKEFORGE_GOVERNANCE_ENABLED") == "true":
-        env.default("OPENLINEAGE_URL", "http://openmetadata:8585")
+        env.default("OPENLINEAGE_URL", "http://openmetadata.olf-system:8585")
         env.default("OPENLINEAGE_ENDPOINT", "api/v1/openlineage/lineage")
         env.default("OPENLINEAGE_NAMESPACE", "dagster")
         env.default(

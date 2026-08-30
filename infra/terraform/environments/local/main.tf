@@ -292,6 +292,7 @@ module "dagster" {
   storage_contract               = local.storage_contract
   catalog_contract               = local.catalog_contract
   governance_contract            = local.governance_contract
+  query_contract                 = local.query_contract
   postgresql_contract            = local.stage_metadata_database_contracts[each.key]
   code_locations                 = local.orchestration_contract.code_locations
   floe_manifest_base_uri         = local.artifact_bucket_contract.base_uri

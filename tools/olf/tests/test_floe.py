@@ -32,13 +32,13 @@ def test_local_profile_uses_polaris_rest_catalog_and_secrets() -> None:
     assert "secret_name: polaris-floe-creds" in profile
     assert "secret_name: openmetadata-ingestion-bot" in profile
     assert "name: OPENLINEAGE_API_KEY" in profile
-    assert 'url: "http://openmetadata:8585"' in profile
+    assert 'url: "http://openmetadata.olf-system:8585"' in profile
     assert 'endpoint: "api/v1/openlineage/lineage"' in profile
     assert 'dataset_namespace: "polaris"' in profile
     assert "api_key:" not in profile
     assert 'AWS_ALLOW_HTTP: "true"' in profile
-    assert 'AWS_ENDPOINT_URL: "http://seaweedfs-s3:8333"' in profile
-    assert 'AWS_ENDPOINT_URL_S3: "http://seaweedfs-s3:8333"' in profile
+    assert 'AWS_ENDPOINT_URL: "http://seaweedfs-s3.olf-system:8333"' in profile
+    assert 'AWS_ENDPOINT_URL_S3: "http://seaweedfs-s3.olf-system:8333"' in profile
     assert "\nstorages:" not in profile
 
 

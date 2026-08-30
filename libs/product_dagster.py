@@ -295,7 +295,7 @@ def _ensure_dbt_manifest(spec: ProductDefinitionSpec) -> Path:
     env.setdefault("AWS_DEFAULT_REGION", env["AWS_REGION"])
     env.setdefault("OPENLAKEFORGE_STORAGE_ENDPOINT", "http://seaweedfs-s3.olf-system:8333")
     env.setdefault("AWS_ENDPOINT_URL_S3", env["OPENLAKEFORGE_STORAGE_ENDPOINT"])
-    env.setdefault("OPENLAKEFORGE_QUERY_TRINO_HOST", "trino")
+    env.setdefault("OPENLAKEFORGE_QUERY_TRINO_HOST", "trino.olf-system")
     env.setdefault("OPENLAKEFORGE_QUERY_TRINO_PORT", "8080")
     env.setdefault("OPENLAKEFORGE_QUERY_TRINO_CATALOG", "iceberg")
     env.setdefault("OPENLAKEFORGE_CATALOG_NAME", "lakehouse_dev")
