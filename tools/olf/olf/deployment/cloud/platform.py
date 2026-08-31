@@ -78,7 +78,7 @@ def platform_up(
         tools.kubectl,
         terraform_dir=platform_dir,
         resource_addr=_NAMESPACE_RESOURCE_ADDR,
-        namespace=config.namespace,
+        namespace=config.context.shared_namespace,
         var_files=var_files,
         variables=variables,
         context=facts.kube_context,
@@ -92,7 +92,7 @@ def platform_up(
                 kube_ops.cleanup_failed_jobs_by_prefix(
                     tools.kubectl,
                     prefix,
-                    namespace=config.namespace,
+                    namespace=config.context.shared_namespace,
                     context=facts.kube_context,
                     kubeconfig=config.paths.kubeconfig_path,
                     env=env,

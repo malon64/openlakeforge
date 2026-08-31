@@ -252,10 +252,43 @@ def test_expected_repository_location_names_rejects_invalid_terraform_output(
         _dagster.expected_repository_location_names(e2e_cfg(tmp_path))
 
 
+def test_dagster_webserver_service_name_selects_the_stage_under_test(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A multi-stage deployment provisions one Dagster release per stage
+    (release_name = "dagster-<stage>" on the cloud POC roots) - reading a
+    single "selected stage" Terraform output would silently port-forward the
+    wrong stage's service for any --stage other than Terraform's own default."""
+    monkeypatch.setattr(_dagster, "stage_catalog_name", lambda _cfg: "lakehouse_prod")
+    monkeypatch.setattr(
+        _dagster,
+        "terraform_output_json",
+        lambda _dir, _name: {"dev": "dagster-dev-dagster-webserver", "prod": "dagster-prod-dagster-webserver"},
+    )
+
+    assert _dagster.dagster_webserver_service_name(e2e_cfg(tmp_path)) == "dagster-prod-dagster-webserver"
+    assert _dagster.dagster_release_name(e2e_cfg(tmp_path)) == "dagster-prod"
+
+
+def test_dagster_webserver_service_name_rejects_a_stage_missing_from_the_output(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(_dagster, "stage_catalog_name", lambda _cfg: "lakehouse_uat")
+    monkeypatch.setattr(
+        _dagster, "terraform_output_json", lambda _dir, _name: {"dev": "dagster-dev-dagster-webserver"}
+    )
+
+    with pytest.raises(E2EError, match="no entry for stage 'uat'"):
+        _dagster.dagster_webserver_service_name(e2e_cfg(tmp_path))
+
+
 def test_expected_user_code_pods_filters_to_configured_locations(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    monkeypatch.setattr(_dagster, "terraform_output", lambda _dir, _name: "dagster-dagster-webserver")
+    monkeypatch.setattr(_dagster, "stage_catalog_name", lambda _cfg: "lakehouse_dev")
+    monkeypatch.setattr(
+        _dagster, "terraform_output_json", lambda _dir, _name: {"dev": "dagster-dagster-webserver"}
+    )
     monkeypatch.setattr(
         _dagster,
         "kubectl",
@@ -445,7 +478,10 @@ def test_launch_and_poll_dagster_jobs_defaults_to_previous_shell_timeout(
     monkeypatch.delenv("DAGSTER_JOB_TIMEOUT_SECONDS", raising=False)
     monkeypatch.setattr(_dagster, "DagsterClient", Client)
     monkeypatch.setattr(_dagster, "expected_repository_location_names", lambda _cfg: ["openlakeforge-dagster"])
-    monkeypatch.setattr(_dagster, "terraform_output", lambda _dir, _name: "dagster-dagster-webserver")
+    monkeypatch.setattr(_dagster, "stage_catalog_name", lambda _cfg: "lakehouse_dev")
+    monkeypatch.setattr(
+        _dagster, "terraform_output_json", lambda _dir, _name: {"dev": "dagster-dagster-webserver"}
+    )
     monkeypatch.setattr(_dagster.k8s, "http_wait", lambda *_args, **_kwargs: True)
     monkeypatch.setattr(
         _dagster.k8s,

@@ -43,9 +43,9 @@ output "metadata_database_contract" {
   value       = local.metadata_database_contract
 }
 
-output "dagster_webserver_service_name" {
-  description = "Dagster webserver service name in the stage the provider contract resolves."
-  value       = module.dagster[local.selected_stage].webserver_service_name
+output "dagster_webserver_service_names" {
+  description = "Dagster webserver service name for every enabled stage, keyed by stage name."
+  value       = { for name, mod in module.dagster : name => mod.webserver_service_name }
 }
 
 output "dagster_code_location_name" {

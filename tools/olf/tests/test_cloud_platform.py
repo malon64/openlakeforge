@@ -160,4 +160,9 @@ def test_platform_up_cleans_up_polaris_jobs_only_when_backend_requests_it(tmp_pa
     backend_cleanup = FakeCloudBackend(scope="azure", cleanup_polaris=True)
     tools2 = _toolkit(_PlatformScriptedRunner())
     platform.platform_up(config, tools2, backend_cleanup, _FACTS, env={})
-    assert any("get" in c.argv and "jobs" in c.argv for c in tools2.runner.calls)
+    jobs_calls = [c for c in tools2.runner.calls if "get" in c.argv and "jobs" in c.argv]
+    assert jobs_calls
+    # Polaris runs in the shared namespace ("olf-system"), not the selected
+    # stage's ("olf-dev") - scanning the stage namespace here never finds a
+    # failed Polaris bootstrap job to clean up before retrying.
+    assert all("-n" in c.argv and c.argv[c.argv.index("-n") + 1] == "olf-system" for c in jobs_calls)
