@@ -9,6 +9,7 @@ assembly, and command execution stays owned by `olf.tooling`.
 
 from __future__ import annotations
 
+import json
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
@@ -23,9 +24,6 @@ if TYPE_CHECKING:
     from olf.profile import DeploymentTopology, StageName
 
 SHARED_NAMESPACE = "olf-system"
-# The cloud POC roots are still single-namespace: #133 made only the local
-# platform root stage-aware, and #114 carries the same split to AWS/Azure.
-CLOUD_POC_NAMESPACE = "lakehouse"
 DEFAULT_LOCAL_CLUSTER_NAME = "openlakeforge-local"
 
 
@@ -39,6 +37,33 @@ def stage_namespace(stage: StageName | str) -> str:
     from olf.profile import StageName
 
     return f"olf-{StageName(stage).value}"
+
+
+def topology_variables(context: DeploymentContext) -> dict[str, str]:
+    """The resolved topology, as every stage-aware root's typed Terraform inputs.
+
+    Every provider's root derives its stage namespaces (or, for the
+    single-namespace cloud POC roots, per-stage releases and physical
+    resource names), service multiplicity, and capability gates from
+    `stages`; nothing downstream re-reads the Deployment Profile. Every
+    stage the resolver knows about is passed with its own `enabled` flag
+    rather than only the enabled subset, so what the root receives is the
+    resolved topology itself and not a filtered view of it.
+    """
+    topology = context.topology
+    stages = {
+        stage.name.value: {
+            "enabled": stage.enabled,
+            "analytics": stage.capabilities.analytics,
+            "governance": stage.capabilities.governance,
+        }
+        for stage in topology.stages
+    }
+    return {
+        "profile_name": topology.profile_name,
+        "shared_namespace": context.shared_namespace,
+        "stages": json.dumps(stages, sort_keys=True, separators=(",", ":")),
+    }
 
 
 def _resolve_foundation_state_path(foundation_terraform_dir: Path) -> Path:
@@ -57,21 +82,14 @@ def _resolve_foundation_state_path(foundation_terraform_dir: Path) -> Path:
     return foundation_terraform_dir / "terraform.tfstate"
 
 
-def _resolved_namespaces(
-    *, override: str, stage_aware: bool, stage: StageName
-) -> tuple[str, str]:
+def _resolved_namespaces(*, stage: StageName) -> tuple[str, str]:
     """The (stage, shared) namespaces for one run.
 
-    A stage-aware root derives both from the topology and takes no override.
-    The single-namespace cloud POC roots put shared and stage services in one
-    namespace, so an override has to move both -- moving only the stage one
-    would send the artifacts phase looking for OpenMetadata in a namespace
-    that was never created. #114 makes those roots stage-aware too.
+    Every root (local, aws, azure - #114) is stage-aware and derives both
+    from the resolved topology; neither is overridable (`_shared.py` rejects
+    `--namespace` for exactly this reason).
     """
-    if stage_aware:
-        return stage_namespace(stage), SHARED_NAMESPACE
-    resolved = override or CLOUD_POC_NAMESPACE
-    return resolved, resolved
+    return stage_namespace(stage), SHARED_NAMESPACE
 
 
 class Provider(StrEnum):
@@ -286,7 +304,7 @@ class DeploymentContext:
             topology=topology,
             stage=stage,
             allow_stage_removal=allow_stage_removal,
-            stage_aware_namespaces=False,
+            stage_aware_namespaces=True,
             kube_context=kube_context,
             foundation_terraform_dir=Path("infra/terraform/foundations/aws-eks"),
             platform_terraform_dir=Path("infra/terraform/environments/aws-poc"),
@@ -330,7 +348,7 @@ class DeploymentContext:
             topology=topology,
             stage=stage,
             allow_stage_removal=allow_stage_removal,
-            stage_aware_namespaces=False,
+            stage_aware_namespaces=True,
             kube_context=kube_context,
             foundation_terraform_dir=Path("infra/terraform/foundations/azure-aks"),
             platform_terraform_dir=Path("infra/terraform/environments/azure-poc"),
@@ -421,9 +439,7 @@ class DeploymentContext:
             port_forward_log_prefix=Path(f"/tmp/openlakeforge-{scope}"),
             installed=state_root is not None,
         )
-        resolved_namespace, resolved_shared_namespace = _resolved_namespaces(
-            override=namespace, stage_aware=stage_aware_namespaces, stage=resolved_stage
-        )
+        resolved_namespace, resolved_shared_namespace = _resolved_namespaces(stage=resolved_stage)
         return cls(
             provider=provider,
             profile=profile,

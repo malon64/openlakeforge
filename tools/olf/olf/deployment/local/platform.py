@@ -7,7 +7,6 @@ semantics of the shell script.
 
 from __future__ import annotations
 
-import json
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -15,6 +14,7 @@ from olf import log
 from olf.deployment import kube_ops
 from olf.deployment.charts import TERRAFORM_VARIABLE_KEY, prepare_chart
 from olf.deployment.context import stage_namespace
+from olf.deployment.context import topology_variables as _topology_variables
 from olf.deployment.engine import Toolkit
 from olf.deployment.errors import CommandExecutionError, DeploymentPreconditionError
 from olf.deployment.local.config import LocalDeploymentConfig
@@ -50,27 +50,10 @@ def prepare_charts(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mappin
 def topology_variables(config: LocalDeploymentConfig) -> dict[str, str]:
     """The resolved topology, as the platform root's typed Terraform inputs.
 
-    The root derives every stage namespace, service multiplicity, and
-    capability gate from `stages`; nothing downstream re-reads the
-    Deployment Profile. Every stage the resolver knows about is passed with
-    its own `enabled` flag rather than only the enabled subset, so what the
-    root receives is the resolved topology itself and not a filtered view of
-    it.
+    See `olf.deployment.context.topology_variables` - shared with the AWS
+    and Azure roots (#114), which took on the same `stages` input.
     """
-    topology = config.context.topology
-    stages = {
-        stage.name.value: {
-            "enabled": stage.enabled,
-            "analytics": stage.capabilities.analytics,
-            "governance": stage.capabilities.governance,
-        }
-        for stage in topology.stages
-    }
-    return {
-        "profile_name": topology.profile_name,
-        "shared_namespace": config.context.shared_namespace,
-        "stages": json.dumps(stages, sort_keys=True, separators=(",", ":")),
-    }
+    return _topology_variables(config.context)
 
 
 def platform_apply_variables(config: LocalDeploymentConfig) -> dict[str, str]:

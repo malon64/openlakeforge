@@ -83,6 +83,8 @@ def artifacts_deploy(
         kubeconfig_path=config.paths.kubeconfig_path,
         port_forward_log_prefix=config.paths.port_forward_log_prefix,
         environ=env,
+        topology=config.context.topology,
+        stage=config.context.stage,
     ) as contract_environ:
         log.step(f"Reconciling catalog namespaces from the domain descriptors for {backend.scope}...")
         sync_catalog_namespaces()

@@ -99,16 +99,17 @@ def deployment_context(
             Profile(profile)
         except ValueError as exc:
             raise typer.Exit(code=fail(f"unknown --profile: {profile!r} (expected 'full' or 'slim')")) from exc
-    if namespace and resolved_provider == Provider.LOCAL:
-        # The stage-aware root derives `olf-system` and `olf-<stage>` from the
-        # resolved topology, so an override here would only rename what the
-        # artifacts and forwarding paths look for -- never what Terraform
-        # creates. Rejecting it beats a platform that applies cleanly while
-        # every later phase points at a namespace nobody made.
+    if namespace:
+        # Every stage-aware root (local, azure, aws - #114) derives
+        # `olf-system` and `olf-<stage>` from the resolved topology, so an
+        # override here would only rename what the artifacts and forwarding
+        # paths look for -- never what Terraform creates. Rejecting it beats
+        # a platform that applies cleanly while every later phase points at
+        # a namespace nobody made.
         raise typer.Exit(
             code=fail(
-                "--namespace is not supported for the local provider: namespaces are derived from the "
-                "Deployment Profile (olf-system plus olf-<stage>). Use --stage to select a stage."
+                f"--namespace is not supported for the {resolved_provider.value} provider: namespaces are "
+                "derived from the Deployment Profile (olf-system plus olf-<stage>). Use --stage to select a stage."
             )
         )
     if stage:
@@ -128,19 +129,6 @@ def deployment_context(
         raise typer.Exit(code=fail(str(exc))) from exc
 
     topology = resolve_topology(layout.project_root, provider=resolved_provider, preset=profile)
-    enabled_stages = [stage.name.value for stage in topology.stages if stage.enabled]
-    if resolved_provider != Provider.LOCAL and len(enabled_stages) > 1:
-        # Only the local root consumes the topology today; the cloud POC roots
-        # still create one namespace and one Dagster. Deploying them from a
-        # multi-stage profile would exit successfully having provisioned one
-        # stage and silently skipped the rest.
-        raise typer.Exit(
-            code=fail(
-                f"the {resolved_provider.value} platform root is still single-stage, but the Deployment Profile "
-                f"enables {', '.join(enabled_stages)}. Enable one stage, or use --profile for the single-DEV "
-                "shorthand (#114 makes the cloud roots stage-aware)."
-            )
-        )
     kwargs: dict[str, object] = {
         "repo_root": layout.project_root,
         "distribution_root": layout.distribution_root,
@@ -156,8 +144,6 @@ def deployment_context(
     }
     if stage:
         kwargs["stage"] = stage
-    if namespace:
-        kwargs["namespace"] = namespace
     if resolved_provider == Provider.LOCAL and cluster_name:
         kwargs["cluster_name"] = cluster_name
     if kubeconfig_path:

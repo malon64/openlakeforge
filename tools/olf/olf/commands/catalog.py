@@ -114,11 +114,20 @@ def sync_namespaces(*, dry_run: bool, prune: bool | None) -> None:
     provider = config.env("OPENLAKEFORGE_CATALOG_PROVIDER", "polaris")
     if prune is None:
         prune = config.truthy(config.env("OPENLAKEFORGE_CATALOG_PRUNE_NAMESPACES", "false"))
+    catalog_name = config.env("OPENLAKEFORGE_CATALOG_NAME", "lakehouse_dev")
+    # AWS Glue has no per-stage catalog (this account's Glue service refuses
+    # to create custom/"native" catalogs) - every stage shares the account's
+    # one default catalog, so its physical database names need a per-stage
+    # prefix to stay collision-free, matching olf.contracts.build_contract_env's
+    # own namespace_prefix. Every other provider still gets a per-stage
+    # catalog, so the catalog boundary alone is enough there.
+    namespace_prefix = f"{catalog_name}_" if provider == "aws-glue" else ""
     desired = catalog_module.desired_namespaces(
         config.project_spec().root,
         bronze_bucket=config.env("OPENLAKEFORGE_STORAGE_BRONZE_BUCKET", "lakehouse-bronze"),
         silver_bucket=config.env("OPENLAKEFORGE_STORAGE_SILVER_BUCKET", "lakehouse-silver"),
         gold_bucket=config.env("OPENLAKEFORGE_STORAGE_GOLD_BUCKET", "lakehouse-gold"),
+        namespace_prefix=namespace_prefix,
     )
 
     if provider == "polaris":

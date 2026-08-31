@@ -469,17 +469,27 @@ def _validate_local_floe_manifest_access(
         )
 
 
+def _artifact_bucket_uri() -> str:
+    bucket = os.environ.get("OPENLAKEFORGE_ARTIFACT_BUCKET_NAME")
+    if not bucket:
+        raise ArtifactRevisionError(
+            "a Floe manifest revision is configured, but "
+            "OPENLAKEFORGE_ARTIFACT_BUCKET_NAME is not configured."
+        )
+    return f"s3://{bucket}"
+
+
 def _remote_manifest_uri(spec: DomainDefinitionSpec) -> str | None:
     revision = built_manifest_revision()
     if revision is not None:
-        artifact_base_uri = os.environ.get("OPENLAKEFORGE_ARTIFACT_BASE_URI")
-        if not artifact_base_uri:
-            raise ArtifactRevisionError(
-                "a Floe manifest revision is configured, but "
-                "OPENLAKEFORGE_ARTIFACT_BASE_URI is not configured."
-            )
+        # olf.revision publishes a revision beneath the bucket root
+        # (`floe/revisions/sha256/<digest>/...`), independent of any
+        # stage's own `activations/<stage>` prefix - a revision is not an
+        # activation. Resolving against OPENLAKEFORGE_ARTIFACT_BASE_URI
+        # (stage-scoped) would look inside that stage's activation prefix,
+        # where the revision was never published.
         return (
-            f"{artifact_base_uri.rstrip('/')}/floe/revisions/sha256/{_revision_digest(revision)}/"
+            f"{_artifact_bucket_uri()}/floe/revisions/sha256/{_revision_digest(revision)}/"
             f"floe/manifests/{spec.domain}/{spec.domain}.manifest.json"
         )
 
@@ -497,14 +507,8 @@ def _remote_manifest_uri(spec: DomainDefinitionSpec) -> str | None:
 def _verify_revision_manifest(
     spec: DomainDefinitionSpec, revision: str, manifest_content: str
 ) -> None:
-    artifact_base_uri = os.environ.get("OPENLAKEFORGE_ARTIFACT_BASE_URI")
-    if not artifact_base_uri:
-        raise ArtifactRevisionError(
-            "a Floe manifest revision is configured, but "
-            "OPENLAKEFORGE_ARTIFACT_BASE_URI is not configured."
-        )
     sidecar_uri = (
-        f"{artifact_base_uri.rstrip('/')}/floe/revisions/sha256/{_revision_digest(revision)}/"
+        f"{_artifact_bucket_uri()}/floe/revisions/sha256/{_revision_digest(revision)}/"
         "REVISION.json"
     )
     try:

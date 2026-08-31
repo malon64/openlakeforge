@@ -376,7 +376,7 @@ locals {
       provider     = local.local_provider_name
       region       = null
     }
-    shared = {
+    shared = merge({
       foundation          = { ref = "shared/foundation", implementation = local.foundation_contract.implementation }
       kubernetes_platform = { ref = "shared/kubernetes_platform", implementation = local.kubernetes_platform_contract.implementation }
       metadata_database   = { ref = "shared/metadata_database", implementation = local.metadata_database_contract.implementation }
@@ -398,12 +398,30 @@ locals {
         artifact_base_uri        = local.artifact_bucket_contract.artifact_base_uri
         access_mode              = local.artifact_bucket_contract.access_mode
         local_upload_access_mode = local.artifact_bucket_contract.local_upload_access_mode
+        # The shared admin identity: olf's own revision-publish/manifest-
+        # upload tooling writes outside any stage's activations/<stage>
+        # prefix (floe/revisions/...), so it cannot use a stage's own
+        # narrower storage identity.
+        credentials_secret_name = local.artifact_bucket_contract.credentials_secret_name
+        access_key_id_key       = local.artifact_bucket_contract.access_key_id_key
+        secret_access_key_key   = local.artifact_bucket_contract.secret_access_key_key
       }
       secrets       = { ref = "shared/secrets", implementation = local.secrets_contract.implementation }
       identity      = { ref = "shared/identity", implementation = local.identity_contract.implementation }
       access        = { ref = "shared/access", implementation = local.access_contract.implementation }
       observability = { ref = "shared/observability", implementation = local.observability_contract.implementation }
-    }
+      }, local.governance_enabled ? {
+      # OpenMetadata is one shared instance across every governed stage, so
+      # its binding lives here rather than being duplicated per stage - a
+      # stage merely references it (see stages[*].governance.service_ref).
+      # Only present when governance is enabled anywhere: with no OM instance
+      # deployed there is nothing to reference.
+      governance_service = {
+        ref            = "shared/governance_service"
+        implementation = local.governance_contract.implementation
+        endpoint       = local.governance_contract.endpoint
+      }
+    } : {})
     stages = {
       for name, stage in local.enabled_stages : name => merge({
         namespace = local.stage_namespaces[name]
@@ -474,26 +492,31 @@ locals {
           ops_storage_ref = "shared/ops_storage"
           prefix          = "activations/${name}"
         }
-        endpoints = {
-          catalog       = "shared/catalog_service"
-          query         = "shared/query"
-          orchestration = "stage/${name}/endpoints/orchestration"
-        }
         runtime_identity = {
           ref       = "stage/${name}/runtime_identity"
           principal = local.stage_service_accounts[name]
         }
-        }, stage.analytics ? {
-        reporting = {
-          service_ref  = "stage/${name}/reporting"
-          endpoint_ref = "stage/${name}/endpoints/reporting"
-        }
-        endpoints = {
-          catalog       = "shared/catalog_service"
-          query         = "shared/query"
-          orchestration = "stage/${name}/endpoints/orchestration"
-          reporting     = "stage/${name}/endpoints/reporting"
-        }
+        endpoints = merge(
+          {
+            catalog       = "shared/catalog_service"
+            query         = "shared/query"
+            orchestration = "stage/${name}/endpoints/orchestration"
+          },
+          stage.analytics ? { reporting = "stage/${name}/endpoints/reporting" } : {},
+          stage.governance ? { governance = "stage/${name}/endpoints/governance" } : {},
+        )
+        },
+        stage.analytics ? {
+          reporting = {
+            service_ref  = "stage/${name}/reporting"
+            endpoint_ref = "stage/${name}/endpoints/reporting"
+          }
+        } : {},
+        stage.governance ? {
+          governance = {
+            service_ref  = "shared/governance_service"
+            endpoint_ref = "stage/${name}/endpoints/governance"
+          }
       } : {})
     }
   }

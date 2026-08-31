@@ -131,9 +131,9 @@ def test_local_smoke_runs_only_the_descriptor_default_product(monkeypatch: pytes
 @pytest.mark.parametrize(
     ("env", "expected"),
     [
-        ("local", ["namespaces", "jobs", "tables", "recovery", "superset", "openmetadata", "artifacts"]),
-        ("azure", ["namespaces", "jobs", "tables", "superset", "openmetadata", "artifacts"]),
-        ("aws", ["namespaces", "jobs", "tables", "superset", "openmetadata", "artifacts"]),
+        ("local", ["namespaces", "jobs", "tables", "recovery", "superset", "openmetadata", "artifacts", "isolation"]),
+        ("azure", ["namespaces", "jobs", "tables", "superset", "openmetadata", "artifacts", "isolation"]),
+        ("aws", ["namespaces", "jobs", "tables", "superset", "openmetadata", "artifacts", "isolation"]),
     ],
 )
 def test_run_full_only_restarts_polaris_for_local(
@@ -148,6 +148,7 @@ def test_run_full_only_restarts_polaris_for_local(
     monkeypatch.setattr(_runner, "check_superset_dashboards", lambda _cfg: calls.append("superset"))
     monkeypatch.setattr(_runner, "check_openmetadata_assets", lambda _cfg: calls.append("openmetadata"))
     monkeypatch.setattr(_runner, "check_ops_artifacts", lambda _cfg: calls.append("artifacts"))
+    monkeypatch.setattr(_runner, "check_stage_isolation", lambda _cfg: calls.append("isolation"))
     monkeypatch.setattr(_runner, "configured_layers", lambda _cfg: {"governance": True, "analytics": True})
 
     _runner.run_full(e2e_cfg(tmp_path, env=env))
@@ -168,12 +169,13 @@ def test_run_full_skips_disabled_layer_assertions_and_reports_them(
     monkeypatch.setattr(_runner, "check_superset_dashboards", lambda _cfg: calls.append("superset"))
     monkeypatch.setattr(_runner, "check_openmetadata_assets", lambda _cfg: calls.append("openmetadata"))
     monkeypatch.setattr(_runner, "check_ops_artifacts", lambda _cfg: calls.append("artifacts"))
+    monkeypatch.setattr(_runner, "check_stage_isolation", lambda _cfg: calls.append("isolation"))
     monkeypatch.setattr(_runner, "configured_layers", lambda _cfg: {"governance": False, "analytics": False})
     monkeypatch.setattr(_runner.log, "info", messages.append)
 
     _runner.run_full(e2e_cfg(tmp_path))
 
-    assert calls == ["namespaces", "jobs", "tables", "recovery", "artifacts"]
+    assert calls == ["namespaces", "jobs", "tables", "recovery", "artifacts", "isolation"]
     assert "Skipped e2e assertions: Superset dashboards, OpenMetadata governance assets" in messages
 
 

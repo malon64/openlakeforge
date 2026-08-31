@@ -110,7 +110,7 @@ def plan_namespace_sync(
 
 
 def desired_namespaces(
-    repo_root: Path, *, bronze_bucket: str, silver_bucket: str, gold_bucket: str
+    repo_root: Path, *, bronze_bucket: str, silver_bucket: str, gold_bucket: str, namespace_prefix: str = ""
 ) -> tuple[CatalogNamespace, ...]:
     physical = inventory_for(repo_root).resolve_physical_names(
         catalog_database_fqn="",
@@ -118,6 +118,7 @@ def desired_namespaces(
         silver_bucket=silver_bucket,
         gold_bucket=gold_bucket,
         manifest_base_uri="",
+        namespace_prefix=namespace_prefix,
     )
     return physical.catalog_namespaces
 

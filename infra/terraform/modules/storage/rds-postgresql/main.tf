@@ -7,6 +7,35 @@ locals {
 
   host = aws_db_instance.this.address
   port = aws_db_instance.this.port
+
+  databases_by_key = { for database in var.databases : database.key => database }
+
+  # One env-var prefix per database, so the bootstrap script can address each
+  # without the module knowing which services exist.
+  database_env_prefixes = { for database in var.databases : database.key => "OLF_DB_${upper(replace(database.key, "-", "_"))}" }
+
+  # The credentials Secret always exists in this module's own namespace - the
+  # bootstrap Job mounts it - plus wherever the consuming workload runs, since
+  # a Secret cannot be read across namespaces.
+  database_secrets = merge(concat([{}], [
+    for database in var.databases : {
+      for target in toset(concat([var.namespace], database.namespaces)) :
+      "${database.key}/${target}" => {
+        key       = database.key
+        namespace = target
+        name      = database.credentials_secret_name
+      }
+    }
+  ])...)
+
+  bootstrap_script = templatefile("${path.module}/templates/init.sh.tftpl", {
+    database_env_prefixes = [for database in var.databases : local.database_env_prefixes[database.key]]
+  })
+
+  bootstrap_hash = substr(sha256(jsonencode({
+    script    = local.bootstrap_script
+    databases = var.databases
+  })), 0, 12)
 }
 
 resource "random_password" "master" {
@@ -14,20 +43,8 @@ resource "random_password" "master" {
   special = false
 }
 
-resource "random_password" "dagster" {
-  length  = 32
-  special = false
-}
-
-resource "random_password" "openmetadata" {
-  count = var.enable_openmetadata ? 1 : 0
-
-  length  = 32
-  special = false
-}
-
-resource "random_password" "superset" {
-  count = var.enable_superset ? 1 : 0
+resource "random_password" "database" {
+  for_each = local.databases_by_key
 
   length  = 32
   special = false
@@ -92,44 +109,22 @@ resource "aws_db_instance" "this" {
   }
 }
 
-resource "kubernetes_secret_v1" "dagster" {
+# Key 'postgresql-password' is the Dagster and Superset Helm charts' own
+# convention; every database uses it so consumers stay interchangeable.
+resource "kubernetes_secret_v1" "database_credentials" {
+  for_each = local.database_secrets
+
   metadata {
-    name      = var.dagster_credentials_secret_name
-    namespace = var.namespace
+    name      = each.value.name
+    namespace = each.value.namespace
     labels    = local.labels
   }
 
   data = {
-    postgresql-password = random_password.dagster.result
-  }
-}
-
-resource "kubernetes_secret_v1" "openmetadata" {
-  count = var.enable_openmetadata ? 1 : 0
-
-  metadata {
-    name      = var.openmetadata_credentials_secret_name
-    namespace = var.namespace
-    labels    = local.labels
+    "postgresql-password" = random_password.database[each.value.key].result
   }
 
-  data = {
-    postgresql-password = random_password.openmetadata[0].result
-  }
-}
-
-resource "kubernetes_secret_v1" "superset" {
-  count = var.enable_superset ? 1 : 0
-
-  metadata {
-    name      = var.superset_credentials_secret_name
-    namespace = var.namespace
-    labels    = local.labels
-  }
-
-  data = {
-    postgresql-password = random_password.superset[0].result
-  }
+  type = "Opaque"
 }
 
 resource "kubernetes_secret_v1" "master" {
@@ -147,7 +142,7 @@ resource "kubernetes_secret_v1" "master" {
 
 resource "kubernetes_job_v1" "bootstrap" {
   metadata {
-    name      = "${var.name_prefix}-rds-bootstrap"
+    name      = "${var.name_prefix}-rds-bootstrap-${local.bootstrap_hash}"
     namespace = var.namespace
     labels    = local.labels
   }
@@ -171,44 +166,7 @@ resource "kubernetes_job_v1" "bootstrap" {
           image = "postgres:16-alpine@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777"
 
           command = ["/bin/sh", "-ec"]
-          args = [<<-SCRIPT
-            set -eu
-
-            until PGPASSWORD="$MASTER_PASSWORD" psql \
-              --host="${local.host}" \
-              --port="${local.port}" \
-              --username="$MASTER_USERNAME" \
-              --dbname=postgres \
-              -c "select 1" >/dev/null 2>&1; do
-              sleep 5
-            done
-
-            create_role_and_db() {
-              db_name="$1"
-              db_user="$2"
-              db_password="$3"
-
-              PGPASSWORD="$MASTER_PASSWORD" psql \
-                --host="${local.host}" \
-                --port="${local.port}" \
-                --username="$MASTER_USERNAME" \
-                --dbname=postgres \
-                --set=db_name="$db_name" \
-                --set=db_user="$db_user" \
-                --set=db_password="$db_password" <<'SQL'
-            SELECT format('CREATE ROLE %I LOGIN PASSWORD %L', :'db_user', :'db_password')
-            WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'db_user')\gexec
-            SELECT format('ALTER ROLE %I WITH LOGIN PASSWORD %L', :'db_user', :'db_password')\gexec
-            SELECT format('CREATE DATABASE %I OWNER %I', :'db_name', :'db_user')
-            WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = :'db_name')\gexec
-            SQL
-            }
-
-            create_role_and_db "${var.dagster_db_name}" "${var.dagster_db_user}" "$DAGSTER_PASSWORD"
-            ${var.enable_openmetadata ? "create_role_and_db \"${var.openmetadata_db_name}\" \"${var.openmetadata_db_user}\" \"$OPENMETADATA_PASSWORD\"" : ""}
-            ${var.enable_superset ? "create_role_and_db \"${var.superset_db_name}\" \"${var.superset_db_user}\" \"$SUPERSET_PASSWORD\"" : ""}
-          SCRIPT
-          ]
+          args    = [local.bootstrap_script]
 
           env {
             name  = "PGSSLMODE"
@@ -216,7 +174,17 @@ resource "kubernetes_job_v1" "bootstrap" {
           }
 
           env {
-            name = "MASTER_USERNAME"
+            name  = "PGHOST"
+            value = local.host
+          }
+
+          env {
+            name  = "PGPORT"
+            value = tostring(local.port)
+          }
+
+          env {
+            name = "POSTGRES_USER"
             value_from {
               secret_key_ref {
                 name = kubernetes_secret_v1.master.metadata[0].name
@@ -226,7 +194,7 @@ resource "kubernetes_job_v1" "bootstrap" {
           }
 
           env {
-            name = "MASTER_PASSWORD"
+            name = "PGPASSWORD"
             value_from {
               secret_key_ref {
                 name = kubernetes_secret_v1.master.metadata[0].name
@@ -235,36 +203,29 @@ resource "kubernetes_job_v1" "bootstrap" {
             }
           }
 
-          env {
-            name = "DAGSTER_PASSWORD"
-            value_from {
-              secret_key_ref {
-                name = kubernetes_secret_v1.dagster.metadata[0].name
-                key  = "postgresql-password"
-              }
+          dynamic "env" {
+            for_each = local.databases_by_key
+            content {
+              name  = "${local.database_env_prefixes[env.key]}_USER"
+              value = env.value.db_user
             }
           }
 
           dynamic "env" {
-            for_each = var.enable_openmetadata ? [true] : []
+            for_each = local.databases_by_key
             content {
-              name = "OPENMETADATA_PASSWORD"
-              value_from {
-                secret_key_ref {
-                  name = kubernetes_secret_v1.openmetadata[0].metadata[0].name
-                  key  = "postgresql-password"
-                }
-              }
+              name  = "${local.database_env_prefixes[env.key]}_NAME"
+              value = env.value.db_name
             }
           }
 
           dynamic "env" {
-            for_each = var.enable_superset ? [true] : []
+            for_each = local.databases_by_key
             content {
-              name = "SUPERSET_PASSWORD"
+              name = "${local.database_env_prefixes[env.key]}_PASSWORD"
               value_from {
                 secret_key_ref {
-                  name = kubernetes_secret_v1.superset[0].metadata[0].name
+                  name = kubernetes_secret_v1.database_credentials["${env.key}/${var.namespace}"].metadata[0].name
                   key  = "postgresql-password"
                 }
               }
@@ -285,24 +246,4 @@ resource "kubernetes_job_v1" "bootstrap" {
   depends_on = [
     aws_db_instance.this,
   ]
-}
-
-moved {
-  from = random_password.openmetadata
-  to   = random_password.openmetadata[0]
-}
-
-moved {
-  from = random_password.superset
-  to   = random_password.superset[0]
-}
-
-moved {
-  from = kubernetes_secret_v1.openmetadata
-  to   = kubernetes_secret_v1.openmetadata[0]
-}
-
-moved {
-  from = kubernetes_secret_v1.superset
-  to   = kubernetes_secret_v1.superset[0]
 }

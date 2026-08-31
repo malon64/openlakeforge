@@ -167,6 +167,17 @@ locals {
       value = coalesce(try(var.catalog_contract.glue_warehouse_prefix, null), "warehouse/iceberg")
     },
     {
+      # This account's shared default Glue catalog has no per-stage catalog
+      # (#114 AWS fallback), so physical Gold schema names carry this same
+      # stage prefix as Silver's databases. dbt's Gold profile template
+      # (libs/dbt/profiles/aws.yml) is baked into the project-code image at
+      # BUILD time, provider/stage-agnostic ("one image digest deploys to
+      # every stage"), and reads this at dbt-invoke time via `env_var(...)`
+      # to prefix its build-time-baked bare schema name.
+      name  = "OPENLAKEFORGE_CATALOG_SCHEMA_PREFIX"
+      value = "${local.catalog_name}_"
+    },
+    {
       name  = "OPENLAKEFORGE_DBT_TARGET"
       value = "aws_runtime"
     },
@@ -273,7 +284,24 @@ locals {
     },
   ] : []
 
-  runtime_env = concat(local.storage_env, local.artifact_env, local.generic_catalog_env, local.glue_catalog_env, local.polaris_catalog_env, local.query_env, local.dbt_env, local.dbt_secret_env)
+  # Floe's Kubernetes job runner (floe_dagster.kubernetes_runner) submits
+  # its ephemeral Jobs into this namespace, defaulting to "lakehouse" -
+  # OpenLakeForge's own pre-#133 single-stage namespace - when unset. That
+  # coincidence masked this gap until stage namespaces became "olf-<stage>"
+  # (#133/#114): without it, every stage's Floe run fails RBAC-denied
+  # trying to create Jobs in a namespace that no longer exists.
+  namespace_env = [
+    {
+      name  = "NAMESPACE"
+      value = var.namespace
+    },
+    {
+      name  = "OPENLAKEFORGE_KUBE_NAMESPACE"
+      value = var.namespace
+    },
+  ]
+
+  runtime_env = concat(local.storage_env, local.artifact_env, local.generic_catalog_env, local.glue_catalog_env, local.polaris_catalog_env, local.query_env, local.dbt_env, local.dbt_secret_env, local.namespace_env)
 
   log_archive_env = concat(
     local.storage_env,

@@ -13,8 +13,10 @@ from olf import k8s, log, revision
 from olf.e2e._dagster import expected_repository_location_names, expected_user_code_pods
 from olf.e2e._shell import E2EConfig, E2EError, aws_stack_region, kubectl, load_provider_contracts_or_raise
 
-# The one artifact prefix that is genuinely platform-level, not owner-scoped:
-# Dagster's own compute-log archive path.
+# Dagster's own compute-log archive path, relative to this stage's own
+# activations/<stage> prefix (modules/orchestration/dagster/release.tf
+# derives the compute-log-manager prefix from the stage-scoped
+# log_base_uri, matching the SeaweedFS grant scoped to that same prefix).
 ARTIFACT_PREFIXES = ("logs/dagster/compute/",)
 
 
@@ -23,7 +25,7 @@ def check_ops_artifacts(cfg: E2EConfig) -> None:
     trigger_log_archive_job(cfg)
     deployed_revision = deployed_floe_manifest_revision(cfg)
     provider_contracts = load_provider_contracts_or_raise(cfg)
-    bucket = provider_contracts["artifact_bucket"]["bucket_name"]
+    bucket = provider_contracts["shared"]["ops_storage"]["bucket_name"]
     if cfg.env == "aws":
         client = boto3.client("s3", region_name=aws_stack_region(cfg))
         assert_ops_artifacts(client, bucket, cfg.namespace, cfg.inventory, deployed_revision)
@@ -33,13 +35,13 @@ def check_ops_artifacts(cfg: E2EConfig) -> None:
     access_key_id = k8s.secret_value(
         "seaweedfs-s3-creds",
         "AWS_ACCESS_KEY_ID",
-        cfg.namespace,
+        cfg.platform_namespace,
         kube_context=cfg.kube_context,
     )
     secret_access_key = k8s.secret_value(
         "seaweedfs-s3-creds",
         "AWS_SECRET_ACCESS_KEY",
-        cfg.namespace,
+        cfg.platform_namespace,
         kube_context=cfg.kube_context,
     )
     log_path = f"/tmp/openlakeforge-{cfg.env}-seaweedfs-s3-port-forward.log"
@@ -140,8 +142,20 @@ def assert_ops_artifacts(
     floe_prefixes = tuple(
         domain.artifact_prefixes.floe_report_prefix for domain in inventory.domains if domain.products
     )
-    dbt_prefixes = tuple(product.dbt_artifact_prefix for product in inventory.products)
-    for prefix in (*floe_prefixes, *dbt_prefixes, *ARTIFACT_PREFIXES, f"logs/k8s/namespace={namespace}/"):
+    # run-artifacts, Dagster compute logs, and k8s logs are all written
+    # beneath this stage's own activations/<stage> prefix (see
+    # OPENLAKEFORGE_RUN_ARTIFACT_BASE_URI / OPENLAKEFORGE_LOG_BASE_URI) -
+    # unlike the Floe report/revision paths above, which are deliberately
+    # bucket-root.
+    activation_prefix = f"activations/{namespace.removeprefix('olf-')}"
+    dbt_prefixes = tuple(f"{activation_prefix}/{product.dbt_artifact_prefix}" for product in inventory.products)
+    scoped_artifact_prefixes = tuple(f"{activation_prefix}/{prefix}" for prefix in ARTIFACT_PREFIXES)
+    for prefix in (
+        *floe_prefixes,
+        *dbt_prefixes,
+        *scoped_artifact_prefixes,
+        f"{activation_prefix}/logs/k8s/namespace={namespace}/",
+    ):
         require_s3_prefix(client, bucket, prefix)
 
 

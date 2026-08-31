@@ -254,6 +254,13 @@ def _apply_default_contract_env(env: _Env, base: Mapping[str, str], repo_root: P
         f"{env.get('OPENLAKEFORGE_ARTIFACT_BASE_URI')}/run-artifacts",
     )
     env.default("OPENLAKEFORGE_ARTIFACT_LOCAL_UPLOAD_ACCESS_MODE", "kubectl-port-forward")
+    # The shared admin storage identity used by olf's own revision-publish/
+    # manifest-upload tooling (see the matching OPENLAKEFORGE_STORAGE_*
+    # defaults above) - distinct from a stage's own storage identity once a
+    # native v3 contract applies.
+    env.default("OPENLAKEFORGE_OPS_STORAGE_CREDENTIALS_SECRET_NAME", "seaweedfs-s3-creds")
+    env.default("OPENLAKEFORGE_OPS_STORAGE_ACCESS_KEY_ID_KEY", "AWS_ACCESS_KEY_ID")
+    env.default("OPENLAKEFORGE_OPS_STORAGE_SECRET_ACCESS_KEY_KEY", "AWS_SECRET_ACCESS_KEY")
     env.default("OPENLAKEFORGE_QUERY_TRINO_HOST", "trino.olf-system")
     env.default("OPENLAKEFORGE_QUERY_TRINO_PORT", "8080")
     env.default("OPENLAKEFORGE_QUERY_TRINO_CATALOG", "iceberg")
@@ -406,6 +413,16 @@ def _apply_provider_contracts(env: _Env, contracts: dict[str, Any]) -> None:
         "OPENLAKEFORGE_ARTIFACT_LOCAL_UPLOAD_ACCESS_MODE",
         artifact_bucket.get("local_upload_access_mode"),
     )
+    # The shared admin storage identity - distinct from
+    # OPENLAKEFORGE_STORAGE_* (that stage's own, narrower identity): olf's
+    # own revision-publish/manifest-upload tooling writes to
+    # floe/revisions/... at the ops bucket root, outside any stage's
+    # activations/<stage> prefix, so it needs the admin identity's own
+    # Secret, read from the shared namespace (see
+    # artifact_store.artifact_storage_client).
+    emit("OPENLAKEFORGE_OPS_STORAGE_CREDENTIALS_SECRET_NAME", artifact_bucket.get("credentials_secret_name"))
+    emit("OPENLAKEFORGE_OPS_STORAGE_ACCESS_KEY_ID_KEY", artifact_bucket.get("access_key_id_key"))
+    emit("OPENLAKEFORGE_OPS_STORAGE_SECRET_ACCESS_KEY_KEY", artifact_bucket.get("secret_access_key_key"))
     emit("OPENLAKEFORGE_KUBE_NAMESPACE", platform.get("namespace"))
     emit("OPENLAKEFORGE_QUERY_TRINO_CATALOG", query.get("catalog_name"))
     emit("OPENLAKEFORGE_DBT_TRINO_USER", query.get("runtime_identity_principal"))
@@ -488,6 +505,12 @@ def build_contract_env(
         env.set("OPENLAKEFORGE_STORAGE_CREDENTIALS_SECRET_NAME", "")
         env.set("OPENLAKEFORGE_STORAGE_ACCESS_KEY_ID_KEY", "")
         env.set("OPENLAKEFORGE_STORAGE_SECRET_ACCESS_KEY_KEY", "")
+        # AWS S3 authenticates through Pod Identity, not a static Secret -
+        # olf's own admin upload path (direct via boto3, never port-forward)
+        # needs none either.
+        env.set("OPENLAKEFORGE_OPS_STORAGE_CREDENTIALS_SECRET_NAME", "")
+        env.set("OPENLAKEFORGE_OPS_STORAGE_ACCESS_KEY_ID_KEY", "")
+        env.set("OPENLAKEFORGE_OPS_STORAGE_SECRET_ACCESS_KEY_KEY", "")
         env.set("OPENLAKEFORGE_STORAGE_S3_SERVICE_NAME", "")
         env.set("OPENLAKEFORGE_STORAGE_S3_SERVICE_NAMESPACE", "")
         env.set("OPENLAKEFORGE_STORAGE_S3_SERVICE_PORT", "")
@@ -548,12 +571,18 @@ def build_contract_env(
     catalog_om_service_name = "aws_glue" if is_glue else "polaris"
     catalog_name = env.get("OPENLAKEFORGE_CATALOG_NAME")
     database_fqn = f"{catalog_om_service_name}.{catalog_name}"
+    # AWS Glue has no per-stage catalog (this account's Glue service refuses
+    # to create custom/"native" catalogs) - every stage shares the account's
+    # one default catalog, so its physical database names need a per-stage
+    # prefix to stay collision-free. Every other provider still gets a
+    # per-stage catalog, so the catalog boundary alone is enough there.
     schema_fqn_physical = inventory_for(repo_root).resolve_physical_names(
         catalog_database_fqn=database_fqn,
         bronze_bucket=env.get("OPENLAKEFORGE_STORAGE_BRONZE_BUCKET"),
         silver_bucket=env.get("OPENLAKEFORGE_STORAGE_SILVER_BUCKET"),
         gold_bucket=env.get("OPENLAKEFORGE_STORAGE_GOLD_BUCKET"),
         manifest_base_uri=env.get("OPENLAKEFORGE_FLOE_MANIFEST_BASE_URI"),
+        namespace_prefix=f"{catalog_name}_" if is_glue else "",
     )
     default_silver_fqns = json.dumps(schema_fqn_physical.silver_schema_fqns, separators=(",", ":"))
     default_gold_fqns = json.dumps(schema_fqn_physical.gold_schema_fqns, separators=(",", ":"))
@@ -563,6 +592,47 @@ def build_contract_env(
         env.set("OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON", default_silver_fqns)
     if env.get("OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON") == "":
         env.set("OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON", default_gold_fqns)
+    # The Terraform contract's own namespace JSON fields (emitted above, from
+    # `catalog.{catalog,silver,gold}_namespaces`) describe *logical*
+    # namespaces and carry no namespace_prefix - Terraform has no notion of
+    # this account's shared-default-catalog workaround. They are therefore
+    # never actually empty by this point (unlike `_apply_default_contract_
+    # env`'s early bootstrap defaults), so an empty-check here would never
+    # fire and the bare, unprefixed names would reach Floe's AWS profile
+    # rendering and `olf catalog sync-namespaces`, colliding a Glue stage's
+    # database with every other Glue stage's identically-named one (and
+    # Glue would deny access to the physical, prefixed database that
+    # actually exists). Override unconditionally for Glue; keep the
+    # empty-check as a fallback default for every other provider.
+    if is_glue or env.get("OPENLAKEFORGE_CATALOG_NAMESPACES_JSON") == "":
+        env.set(
+            "OPENLAKEFORGE_CATALOG_NAMESPACES_JSON",
+            json.dumps(
+                [
+                    {"name": namespace.name, "location": namespace.location}
+                    for namespace in schema_fqn_physical.catalog_namespaces
+                ],
+                separators=(",", ":"),
+            ),
+        )
+    if is_glue or env.get("OPENLAKEFORGE_CATALOG_SILVER_NAMESPACES_JSON") == "":
+        env.set(
+            "OPENLAKEFORGE_CATALOG_SILVER_NAMESPACES_JSON",
+            json.dumps(schema_fqn_physical.silver_namespaces, separators=(",", ":")),
+        )
+    if is_glue or env.get("OPENLAKEFORGE_CATALOG_GOLD_NAMESPACES_JSON") == "":
+        env.set(
+            "OPENLAKEFORGE_CATALOG_GOLD_NAMESPACES_JSON",
+            json.dumps(schema_fqn_physical.gold_namespaces, separators=(",", ":")),
+        )
+    # dbt's per-product Gold profile template (libs/dbt/profiles/aws.yml)
+    # bakes its bare `{{GOLD_SCHEMA}}` (e.g. "order_revenue_gold") at
+    # project-code image BUILD time - the image is provider/stage-agnostic
+    # ("one image digest deploys to every stage"), so it cannot know this
+    # account's shared-catalog namespace_prefix. Prepend it at dbt-invoke
+    # time instead, via this runtime-only env var the template reads with
+    # `env_var(...)` alongside its build-time-baked schema name.
+    env.set("OPENLAKEFORGE_CATALOG_SCHEMA_PREFIX", f"{catalog_name}_" if is_glue else "")
     if not om_catalog_service_user_set:
         env.set("OPENMETADATA_CATALOG_SERVICE", catalog_om_service_name)
     if env.get("OPENLAKEFORGE_STORAGE_IMPLEMENTATION") == "storage.aws_s3":

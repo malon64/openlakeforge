@@ -27,7 +27,13 @@ locals {
     ? var.storage_contract.gold_bucket_name
     : var.storage_contract.bucket_name
   )
-  stage_catalogs = length(var.stage_catalogs) > 0 ? var.stage_catalogs : {
+  # `tomap(...)`, not a bare object literal: an unwrapped `{ dev = {...} }`
+  # infers as object({dev = object({...})}), which does not reliably unify
+  # with var.stage_catalogs's map(object(...)) type once the branch values
+  # are known-after-apply (module.seaweedfs.contract, etc.) - this fails at
+  # `terraform apply` with "Inconsistent conditional result types" even
+  # though `terraform validate` accepts it against unknown placeholder values.
+  stage_catalogs = length(var.stage_catalogs) > 0 ? var.stage_catalogs : tomap({
     dev = {
       namespace                        = var.namespace
       catalog_name                     = var.catalog_name
@@ -41,7 +47,7 @@ locals {
       deployer_principal_name          = var.deployer_principal_name
       deployer_credentials_secret_name = var.deployer_credentials_secret_name
     }
-  }
+  })
   # The Job template is immutable, so a changed workload-namespace set has to
   # produce a new Job name for the credential replicas to be created.
   bootstrap_script = templatefile("${path.module}/templates/bootstrap.sh.tftpl", {

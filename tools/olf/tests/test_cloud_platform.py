@@ -118,7 +118,7 @@ def test_platform_up_uses_backend_apply_variables_and_var_file(tmp_path: Path) -
 
     assert "platform_apply_variables" in backend.calls
     apply_call = next(c for c in runner.calls if c.argv[0] == "terraform" and c.argv[2:3] == ["apply"])
-    assert "-var=namespace=lakehouse" in apply_call.argv
+    assert "-var=namespace=olf-dev" in apply_call.argv
 
 
 def test_platform_up_never_passes_var_file_to_azure_apply_even_with_explicit_override(tmp_path: Path) -> None:

@@ -255,6 +255,7 @@ def test_expected_repository_location_names_rejects_invalid_terraform_output(
 def test_expected_user_code_pods_filters_to_configured_locations(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    monkeypatch.setattr(_dagster, "terraform_output", lambda _dir, _name: "dagster-dagster-webserver")
     monkeypatch.setattr(
         _dagster,
         "kubectl",
@@ -444,6 +445,7 @@ def test_launch_and_poll_dagster_jobs_defaults_to_previous_shell_timeout(
     monkeypatch.delenv("DAGSTER_JOB_TIMEOUT_SECONDS", raising=False)
     monkeypatch.setattr(_dagster, "DagsterClient", Client)
     monkeypatch.setattr(_dagster, "expected_repository_location_names", lambda _cfg: ["openlakeforge-dagster"])
+    monkeypatch.setattr(_dagster, "terraform_output", lambda _dir, _name: "dagster-dagster-webserver")
     monkeypatch.setattr(_dagster.k8s, "http_wait", lambda *_args, **_kwargs: True)
     monkeypatch.setattr(
         _dagster.k8s,

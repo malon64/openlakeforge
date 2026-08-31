@@ -363,44 +363,52 @@ class LakehouseInventory:
         silver_bucket: str,
         gold_bucket: str,
         manifest_base_uri: str,
+        namespace_prefix: str = "",
     ) -> PhysicalInventory:
-        """Resolve physical names from provider-contract values."""
+        """Resolve physical names from provider-contract values.
+
+        `namespace_prefix` (default: none) is prepended to every physical
+        database name. Every provider with its own catalog per stage (local/
+        Polaris, AWS/Azure custom Glue catalogs) leaves this empty - the
+        catalog boundary alone makes two stages' `sales_silver` collision-
+        free. It exists for a provider whose catalog is *not* per-stage (AWS
+        Glue's shared default catalog, the only kind this account's Glue
+        service allows creating): there, two stages' otherwise-identical
+        database names would collide in the one shared catalog without it.
+        """
         namespaces: list[CatalogNamespace] = []
         products: list[PhysicalProductNames] = []
         domains: list[PhysicalDomainNames] = []
         sources: list[PhysicalSourceNames] = []
         for domain in self.domains:
-            namespaces.append(
-                CatalogNamespace(domain.silver_namespace, f"s3://{silver_bucket}/{domain.silver_namespace}/")
-            )
+            physical_name = f"{namespace_prefix}{domain.silver_namespace}"
+            namespaces.append(CatalogNamespace(physical_name, f"s3://{silver_bucket}/{domain.silver_namespace}/"))
             domains.append(
                 PhysicalDomainNames(
                     domain=domain.name,
-                    silver_namespace=domain.silver_namespace,
-                    silver_schema_fqn=f"{catalog_database_fqn}.{domain.silver_namespace}",
+                    silver_namespace=physical_name,
+                    silver_schema_fqn=f"{catalog_database_fqn}.{physical_name}",
                     manifest_uri=f"{manifest_base_uri.rstrip('/')}/{domain.name}/{domain.name}.manifest.json",
                 )
             )
         for product in self.products:
-            namespaces.append(
-                CatalogNamespace(product.gold_namespace, f"s3://{gold_bucket}/{product.gold_namespace}/")
-            )
+            physical_name = f"{namespace_prefix}{product.gold_namespace}"
+            namespaces.append(CatalogNamespace(physical_name, f"s3://{gold_bucket}/{product.gold_namespace}/"))
             products.append(
                 PhysicalProductNames(
                     product=product.name,
-                    gold_namespace=product.gold_namespace,
-                    gold_schema_fqn=f"{catalog_database_fqn}.{product.gold_namespace}",
+                    gold_namespace=physical_name,
+                    gold_schema_fqn=f"{catalog_database_fqn}.{physical_name}",
                 )
             )
         for source in self.sources:
-            namespaces.append(
-                CatalogNamespace(source.bronze_namespace, f"s3://{bronze_bucket}/{source.bronze_namespace}/")
-            )
+            physical_name = f"{namespace_prefix}{source.bronze_namespace}"
+            namespaces.append(CatalogNamespace(physical_name, f"s3://{bronze_bucket}/{source.bronze_namespace}/"))
             sources.append(
                 PhysicalSourceNames(
                     source=source.name,
-                    bronze_namespace=source.bronze_namespace,
-                    bronze_schema_fqn=f"{catalog_database_fqn}.{source.bronze_namespace}",
+                    bronze_namespace=physical_name,
+                    bronze_schema_fqn=f"{catalog_database_fqn}.{physical_name}",
                 )
             )
         return PhysicalInventory(

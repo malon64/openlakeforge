@@ -77,7 +77,11 @@ def upload_manifests(
     from olf import s3
 
     project = config.project_spec()
-    namespace = config.namespace()
+    # This upload writes outside any stage's own activations/<stage> prefix
+    # (see olf.artifact_store.artifact_storage_client), so it needs the
+    # shared admin identity, read from the shared namespace, not
+    # config.namespace()'s stage-selected one.
+    namespace = config.shared_namespace()
     bucket = config.env("OPENLAKEFORGE_OPS_BUCKET_NAME") or config.env("OPENLAKEFORGE_ARTIFACT_BUCKET_NAME")
     if not bucket:
         raise typer.Exit(code=fail("no ops/artifact bucket resolved from the contract environment."))
@@ -101,7 +105,7 @@ def upload_manifests(
             raise typer.Exit(
                 code=fail("no generated domain Floe artifacts found. Run 'olf floe generate-manifests' first.")
             )
-        secret_name = config.env("OPENLAKEFORGE_STORAGE_CREDENTIALS_SECRET_NAME")
+        secret_name = config.env("OPENLAKEFORGE_OPS_STORAGE_CREDENTIALS_SECRET_NAME")
         service = config.env("OPENLAKEFORGE_STORAGE_S3_SERVICE_NAME", "seaweedfs-s3")
         remote_port = int(config.env("OPENLAKEFORGE_STORAGE_S3_SERVICE_PORT", "8333"))
         service_namespace = config.env("OPENLAKEFORGE_STORAGE_S3_SERVICE_NAMESPACE") or namespace
@@ -114,11 +118,11 @@ def upload_manifests(
             remote_port=remote_port,
             namespace=service_namespace,
             access_key_id=k8s.secret_value(
-                secret_name, config.env("OPENLAKEFORGE_STORAGE_ACCESS_KEY_ID_KEY", "AWS_ACCESS_KEY_ID"), namespace
+                secret_name, config.env("OPENLAKEFORGE_OPS_STORAGE_ACCESS_KEY_ID_KEY", "AWS_ACCESS_KEY_ID"), namespace
             ),
             secret_access_key=k8s.secret_value(
                 secret_name,
-                config.env("OPENLAKEFORGE_STORAGE_SECRET_ACCESS_KEY_KEY", "AWS_SECRET_ACCESS_KEY"),
+                config.env("OPENLAKEFORGE_OPS_STORAGE_SECRET_ACCESS_KEY_KEY", "AWS_SECRET_ACCESS_KEY"),
                 namespace,
             ),
             region=config.env("OPENLAKEFORGE_STORAGE_REGION", "us-east-1"),

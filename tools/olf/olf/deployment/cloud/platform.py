@@ -20,7 +20,7 @@ from olf.deployment.engine import Toolkit
 from olf.deployment.errors import CommandExecutionError
 from olf.deployment.retry import RetryPolicy, run_with_retry
 
-_NAMESPACE_RESOURCE_ADDR = "kubernetes_namespace_v1.lakehouse"
+_NAMESPACE_RESOURCE_ADDR = "kubernetes_namespace_v1.shared"
 _POLARIS_JOB_PREFIXES = ("polaris-bootstrap-", "polaris-metastore-bootstrap-")
 
 

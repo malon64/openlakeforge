@@ -33,6 +33,18 @@ def stage_catalog_name(cfg: E2EConfig) -> str:
     return os.environ.get("OPENLAKEFORGE_QUERY_TRINO_CATALOG") or "iceberg"
 
 
+def _glue_namespace_prefix(cfg: E2EConfig) -> str:
+    """Physical-namespace prefix for AWS's shared default Glue catalog (#114).
+
+    This account cannot create a custom Glue catalog per stage, so every
+    stage's databases live in the one default catalog and are kept
+    collision-free with a `<stage catalog name>_` prefix (contracts.py,
+    catalog.py). Local's Polaris deployment gives each stage its own
+    catalog, so descriptor namespace names stay bare there.
+    """
+    return f"{stage_catalog_name(cfg)}_" if cfg.env == "aws" else ""
+
+
 def check_trino_catalog(cfg: E2EConfig) -> None:
     log.step("Checking Trino catalogs...")
     catalog = stage_catalog_name(cfg)
@@ -45,12 +57,16 @@ def check_catalog_namespaces(cfg: E2EConfig) -> None:
     """Verify Polaris exposes every descriptor-derived namespace through Trino."""
     log.step("Checking Polaris namespaces through Trino...")
     catalog = stage_catalog_name(cfg)
+    prefix = _glue_namespace_prefix(cfg)
     namespaces = set(trino_query(cfg, f"SHOW SCHEMAS FROM {catalog}").splitlines())
-    expected = (
-        cfg.inventory.bronze_namespace_names
-        | cfg.inventory.silver_namespace_names
-        | cfg.inventory.gold_namespace_names
-    )
+    expected = {
+        f"{prefix}{name}"
+        for name in (
+            cfg.inventory.bronze_namespace_names
+            | cfg.inventory.silver_namespace_names
+            | cfg.inventory.gold_namespace_names
+        )
+    }
     missing = sorted(expected - namespaces)
     if missing:
         raise E2EError("Polaris is missing descriptor-derived namespaces: " + ", ".join(missing))
@@ -64,20 +80,22 @@ def check_trino_tables_and_marts(cfg: E2EConfig) -> None:
     check_trino_catalog(cfg)
     log.step("Checking Silver and Gold table counts...")
     catalog = stage_catalog_name(cfg)
+    prefix = _glue_namespace_prefix(cfg)
     silver_count = trino_scalar(
         cfg,
         f"SELECT count(*) FROM {catalog}.information_schema.tables "
-        f"WHERE table_schema IN ({_schema_in_list(cfg.inventory.silver_namespace_names)})",
+        f"WHERE table_schema IN ({_schema_in_list({f'{prefix}{n}' for n in cfg.inventory.silver_namespace_names})})",
     )
     gold_count = trino_scalar(
         cfg,
         f"SELECT count(*) FROM {catalog}.information_schema.tables "
-        f"WHERE table_schema IN ({_schema_in_list(cfg.inventory.gold_namespace_names)})",
+        f"WHERE table_schema IN ({_schema_in_list({f'{prefix}{n}' for n in cfg.inventory.gold_namespace_names})})",
     )
     assert_scalar_equals(silver_count, str(cfg.inventory.silver_table_count), "Silver table count")
     assert_scalar_equals(gold_count, str(cfg.inventory.gold_table_count), "Gold mart count")
 
     for mart in cfg.inventory.gold_mart_names:
+        mart = f"{prefix}{mart}"
         count = trino_scalar(cfg, f"SELECT count(*) FROM {catalog}.{mart}")
         if int(count) <= 0:
             raise E2EError(f"expected {catalog}.{mart} to contain rows, got {count}")
@@ -93,28 +111,29 @@ def check_trino_product_tables_and_marts(cfg: E2EConfig, product: Product) -> No
     """
     check_trino_catalog(cfg)
     catalog = stage_catalog_name(cfg)
+    prefix = _glue_namespace_prefix(cfg)
+    silver_namespace = f"{prefix}{product.silver_namespace}"
+    gold_namespace = f"{prefix}{product.gold_namespace}"
     log.step(f"Checking Silver and Gold tables for {product.id}...")
     silver_tables = set(
         trino_query(
             cfg,
             f"SELECT table_name FROM {catalog}.information_schema.tables "
-            f"WHERE table_schema = '{product.silver_namespace}'",
+            f"WHERE table_schema = '{silver_namespace}'",
         ).splitlines()
     )
     missing_silver = sorted(
         table.name for table in cfg.inventory.resolved_silver_tables(product) if table.name not in silver_tables
     )
     if missing_silver:
-        raise E2EError(
-            f"{product.id}: missing Silver table(s) in {product.silver_namespace}: {', '.join(missing_silver)}"
-        )
+        raise E2EError(f"{product.id}: missing Silver table(s) in {silver_namespace}: {', '.join(missing_silver)}")
     gold_count = trino_scalar(
         cfg,
-        f"SELECT count(*) FROM {catalog}.information_schema.tables "
-        f"WHERE table_schema = '{product.gold_namespace}'",
+        f"SELECT count(*) FROM {catalog}.information_schema.tables WHERE table_schema = '{gold_namespace}'",
     )
     assert_scalar_equals(gold_count, str(len(product.gold_tables)), f"{product.id} Gold mart count")
     for mart in product.gold_mart_names:
+        mart = f"{prefix}{mart}"
         count = trino_scalar(cfg, f"SELECT count(*) FROM {catalog}.{mart}")
         if int(count) <= 0:
             raise E2EError(f"expected {catalog}.{mart} to contain rows, got {count}")
@@ -173,13 +192,18 @@ def trino_query(cfg: E2EConfig, sql: str) -> str:
             "trino",
             "--output-format",
             "CSV_UNQUOTED",
-            # `cfg.namespace` is the stage namespace (olf-<stage>), which is
-            # exactly the runtime identity Trino's file-based access control
-            # (modules/query/trino/main.tf) grants catalog access to. Without
-            # this, the CLI connects as an unrecognized user and every query
-            # is denied by the default-deny catalog rule.
+            # Trino's file-based access control (modules/query/trino/main.tf)
+            # grants catalog access to "olf-<stage>-runtime", not to
+            # cfg.namespace directly - on local that's the same string
+            # (namespace olf-<stage>), but the cloud POC roots serve every
+            # stage from one shared namespace ("lakehouse"), so cfg.namespace
+            # alone would connect as an unrecognized user there and every
+            # query would be denied by the default-deny catalog rule.
+            # stage_catalog_name resolves to "lakehouse_<stage>" on every
+            # stage-aware root (#114); strip the shared prefix to recover
+            # just the stage.
             "--user",
-            f"{cfg.namespace}-runtime",
+            f"olf-{stage_catalog_name(cfg).removeprefix('lakehouse_')}-runtime",
             "--execute",
             sql,
         ],

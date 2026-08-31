@@ -7,23 +7,32 @@ resource "random_string" "bucket_suffix" {
 }
 
 locals {
-  buckets = {
-    bronze = coalesce(var.bronze_bucket_name, "${var.bucket_name_prefix}-bronze-${random_string.bucket_suffix.result}")
-    silver = coalesce(var.silver_bucket_name, "${var.bucket_name_prefix}-silver-${random_string.bucket_suffix.result}")
-    gold   = coalesce(var.gold_bucket_name, "${var.bucket_name_prefix}-gold-${random_string.bucket_suffix.result}")
-    ops    = coalesce(var.ops_bucket_name, "${var.bucket_name_prefix}-ops-${random_string.bucket_suffix.result}")
+  ops_bucket_name = coalesce(var.ops_bucket_name, "${var.bucket_name_prefix}-ops-${random_string.bucket_suffix.result}")
+
+  # Per-stage bucket names always carry the shared random suffix: S3 bucket
+  # names are unique across all of AWS, not just this account, so the
+  # deterministic `<profile>-<stage>-<layer>` identity alone (correct as the
+  # logical/contract name) is not safe as the physical one.
+  stage_bucket_names = {
+    for stage, binding in var.stage_buckets : stage => {
+      bronze = "${binding.bronze_bucket_name}-${random_string.bucket_suffix.result}"
+      silver = "${binding.silver_bucket_name}-${random_string.bucket_suffix.result}"
+      gold   = "${binding.gold_bucket_name}-${random_string.bucket_suffix.result}"
+    }
   }
 
-  bucket_names = [
-    local.buckets.bronze,
-    local.buckets.silver,
-    local.buckets.gold,
-    local.buckets.ops,
-  ]
+  all_buckets = merge(
+    { for stage, names in local.stage_bucket_names : "${stage}-bronze" => names.bronze },
+    { for stage, names in local.stage_bucket_names : "${stage}-silver" => names.silver },
+    { for stage, names in local.stage_bucket_names : "${stage}-gold" => names.gold },
+    { ops = local.ops_bucket_name },
+  )
+
+  bucket_names = values(local.all_buckets)
 }
 
 resource "aws_s3_bucket" "this" {
-  for_each = local.buckets
+  for_each = local.all_buckets
 
   bucket        = each.value
   force_destroy = var.force_destroy

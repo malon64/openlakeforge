@@ -1,32 +1,36 @@
-output "contract" {
-  description = "S3 storage contract implemented by AWS S3."
+output "stage_contracts" {
+  description = "Stage-owned S3 bucket bindings for provider-contract construction. Each stage's three physical buckets are its own."
   value = {
-    endpoint                = null
-    virtual_host_endpoint   = null
-    region                  = var.region
-    bucket_name             = local.buckets.bronze
-    bucket_names            = local.bucket_names
-    bronze_bucket_name      = local.buckets.bronze
-    silver_bucket_name      = local.buckets.silver
-    gold_bucket_name        = local.buckets.gold
-    ops_bucket_name         = local.buckets.ops
-    path_style_access       = false
-    credentials_secret_name = null
-    access_key_id_key       = null
-    secret_access_key_key   = null
-    s3_service_name         = null
-    s3_service_port         = null
+    for stage, names in local.stage_bucket_names : stage => {
+      bronze_bucket_name = names.bronze
+      silver_bucket_name = names.silver
+      gold_bucket_name   = names.gold
+    }
   }
 }
 
-output "bucket_arns" {
-  description = "Bucket ARNs keyed by medallion/artifact role."
+output "stage_bucket_arns" {
+  description = "Bucket ARNs per stage, keyed by medallion layer. Used to scope each stage's IAM policy to only its own buckets."
   value = {
-    for key, bucket in aws_s3_bucket.this : key => bucket.arn
+    for stage, names in local.stage_bucket_names : stage => {
+      bronze = aws_s3_bucket.this["${stage}-bronze"].arn
+      silver = aws_s3_bucket.this["${stage}-silver"].arn
+      gold   = aws_s3_bucket.this["${stage}-gold"].arn
+    }
   }
+}
+
+output "ops_bucket_name" {
+  description = "Shared operational artifact bucket name."
+  value       = local.ops_bucket_name
+}
+
+output "ops_bucket_arn" {
+  description = "Shared operational artifact bucket ARN."
+  value       = aws_s3_bucket.this["ops"].arn
 }
 
 output "bucket_names" {
-  description = "Bucket names keyed by medallion/artifact role."
-  value       = local.buckets
+  description = "Every physical bucket name this module created."
+  value       = local.bucket_names
 }

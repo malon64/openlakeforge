@@ -89,8 +89,39 @@ variable "catalog_contract" {
 
 variable "stage_catalog_contracts" {
   description = "Stage-indexed catalog bindings. When present, Trino renders one catalog properties file per stage instead of a single compatibility catalog."
-  type        = map(any)
-  default     = {}
+  # Declared with the exact same schema as catalog_contract above (not
+  # map(any)): the fallback branch in locals.stage_catalog_contracts merges
+  # this map with catalog_contract in a single ternary, and Terraform's
+  # implicit object-type conversion at this variable boundary would otherwise
+  # drop catalog_contract's non-declared attributes (e.g. "adapter") while
+  # leaving this map's caller-supplied attributes untouched, producing two
+  # branches with mismatched attribute sets ("Inconsistent conditional result
+  # types") that only surfaces once real values are known at apply time.
+  type = map(object({
+    rest_uri                      = optional(string)
+    token_uri                     = optional(string)
+    warehouse                     = optional(string)
+    oauth_scope                   = optional(string)
+    trino_credentials_secret_name = optional(string)
+    trino_client_id_key           = optional(string)
+    trino_client_secret_key       = optional(string)
+    bootstrap_run_id              = optional(string)
+    catalog_type                  = optional(string)
+    catalog_provider              = optional(string)
+    catalog_name                  = optional(string)
+    runtime_profile               = optional(string)
+    trino_catalog_name            = optional(string)
+    default_warehouse_location    = optional(string)
+    glue_catalog_id               = optional(string)
+    glue_region                   = optional(string)
+    provider                      = optional(string)
+    implementation                = optional(string)
+    auth_mode                     = optional(string)
+    ssl_mode                      = optional(string)
+    endpoint                      = optional(string)
+    ingress_mode                  = optional(string)
+  }))
+  default = {}
 }
 
 variable "catalog_bootstrap_revision" {

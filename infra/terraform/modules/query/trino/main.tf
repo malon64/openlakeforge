@@ -2,9 +2,15 @@ locals {
   chart      = var.chart_package_path != null ? var.chart_package_path : "trino"
   repository = var.chart_package_path != null ? null : var.chart_repository
   version    = var.chart_package_path != null ? null : var.chart_version
-  stage_catalog_contracts = length(var.stage_catalog_contracts) > 0 ? var.stage_catalog_contracts : {
+  # `tomap(...)`, not a bare object literal: `{ dev = var.catalog_contract }`
+  # infers as object({dev=...}), which does not unify with
+  # var.stage_catalog_contracts's map(any) type in the conditional below and
+  # fails at apply time with "Inconsistent conditional result types" even
+  # though `terraform validate` accepts it (validate does not evaluate the
+  # branch not taken with a concrete value).
+  stage_catalog_contracts = length(var.stage_catalog_contracts) > 0 ? var.stage_catalog_contracts : tomap({
     dev = var.catalog_contract
-  }
+  })
 
   storage_secret_env_from = var.storage_contract.credentials_secret_name == null ? [] : [
     {
@@ -94,6 +100,39 @@ locals {
         { catalog = "system", allow = "read-only" },
         { catalog = ".*", allow = "none" },
       ],
+    )
+    # A Glue-provider catalog is only a per-stage catalog by name: every
+    # stage's Trino catalog resolves to the same shared account Glue
+    # catalog ID (this account's Glue service refuses to create a real
+    # per-stage one), so a stage's schemas are physically visible from
+    # every other Glue-provider stage's catalog too. The `catalogs` rule
+    # above only gates which catalog a client can use at all - it does not
+    # stop olf-dev-runtime from reading a schema that belongs to prod once
+    # inside its own catalog. Restrict table privileges to this stage's own
+    # namespace_prefix (olf.contracts.resolve_physical_names) as a second,
+    # schema-level layer on top of the IAM policy that already scopes each
+    # stage's Pod Identity role to its own `database/<prefix>_*` ARNs -
+    # Polaris-backed stages need no such rule: each already has its own
+    # separate Iceberg catalog, a real boundary Trino's catalog rule alone
+    # is enough to enforce.
+    tables = concat(
+      flatten([
+        for stage, contract in local.stage_catalog_contracts : contract.catalog_provider == "aws-glue" ? [
+          {
+            user       = "olf-${stage}-runtime"
+            catalog    = contract.catalog_name
+            schema     = "${contract.catalog_name}_.*"
+            privileges = ["SELECT", "INSERT", "DELETE", "UPDATE", "OWNERSHIP"]
+          },
+          {
+            user       = "olf-${stage}-runtime"
+            catalog    = contract.catalog_name
+            schema     = ".*"
+            privileges = []
+          },
+        ] : []
+      ]),
+      [{ privileges = ["SELECT", "INSERT", "DELETE", "UPDATE", "OWNERSHIP"] }],
     )
   })
   # Create a named service account when one is explicitly requested (EKS Pod Identity

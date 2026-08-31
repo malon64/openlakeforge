@@ -67,11 +67,11 @@ def test_platform_down_deletes_superset_job_destroys_and_deletes_namespace(tmp_p
     job_delete = next(c for c in runner.calls if "superset-init-db" in c.argv)
     assert "--wait=true" in job_delete.argv
     destroy_call = next(c for c in runner.calls if c.argv[0] == "terraform" and c.argv[2:3] == ["destroy"])
-    assert "-var=namespace=lakehouse" in destroy_call.argv
+    assert "-var=namespace=olf-dev" in destroy_call.argv
     namespace_delete = next(
         c for c in runner.calls if c.argv[0] == "kubectl" and "delete" in c.argv and "namespace" in c.argv
     )
-    assert "lakehouse" in namespace_delete.argv
+    assert "olf-dev" in namespace_delete.argv
 
 
 def test_platform_down_uses_facts_kube_context_not_config_kube_context(tmp_path: Path) -> None:

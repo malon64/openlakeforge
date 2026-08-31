@@ -12,7 +12,7 @@ from olf import k8s, log
 from olf.clients.base import ServiceClientError
 from olf.clients.dagster import DagsterClient, DagsterHTTPError, DagsterTransientError  # noqa: F401 - re-exported
 from olf.e2e._health import _bounded_pod_diagnostics
-from olf.e2e._shell import E2EConfig, E2EError, kubectl, terraform_output_json
+from olf.e2e._shell import E2EConfig, E2EError, kubectl, terraform_output, terraform_output_json
 
 DAGSTER_JOB_TIMEOUT_SECONDS = 1800
 
@@ -20,9 +20,10 @@ DAGSTER_JOB_TIMEOUT_SECONDS = 1800
 def launch_and_poll_dagster_jobs(cfg: E2EConfig, *, products: Sequence[Product] | None = None) -> None:
     log.step("Launching and polling Dagster product jobs...")
     assert cfg.dagster_local_port is not None
+    webserver_service_name = terraform_output(cfg.contract_terraform_dir, "dagster_webserver_service_name")
     log_path = f"/tmp/openlakeforge-{cfg.env}-dagster-port-forward.log"
     with k8s.port_forward(
-        "dagster-dagster-webserver",
+        webserver_service_name,
         80,
         cfg.namespace,
         local_port=cfg.dagster_local_port,
@@ -42,7 +43,7 @@ def launch_and_poll_dagster_jobs(cfg: E2EConfig, *, products: Sequence[Product] 
             except ServiceClientError as exc:
                 diagnostics = _bounded_pod_diagnostics(
                     cfg,
-                    ["dagster-dagster-webserver", *expected_user_code_pods(cfg, location_names)],
+                    [webserver_service_name, *expected_user_code_pods(cfg, location_names)],
                 )
                 raise E2EError(f"{exc}\nDagster diagnostics:\n{diagnostics}") from exc
             log.info(f"{job}: launched ({run_id})")
@@ -52,6 +53,19 @@ def launch_and_poll_dagster_jobs(cfg: E2EConfig, *, products: Sequence[Product] 
                 raise E2EError(str(exc)) from exc
 
 
+def dagster_release_name(cfg: E2EConfig) -> str:
+    """This stage's Dagster Helm release name (`app.kubernetes.io/instance`).
+
+    Derived from the webserver service name Terraform already outputs
+    (`{release_name}-dagster-webserver`, modules/orchestration/dagster)
+    rather than assumed as the bare "dagster" local defaults to - the cloud
+    POC roots pass `release_name = "dagster-<stage>"` explicitly.
+    """
+    return terraform_output(cfg.contract_terraform_dir, "dagster_webserver_service_name").removesuffix(
+        "-dagster-webserver"
+    )
+
+
 def expected_user_code_pods(cfg: E2EConfig, location_names: Sequence[str]) -> list[str]:
     """Discover configured user-code deployments for bounded failure diagnostics."""
     try:
@@ -59,11 +73,12 @@ def expected_user_code_pods(cfg: E2EConfig, location_names: Sequence[str]) -> li
         payload = json.loads(raw)
     except (E2EError, json.JSONDecodeError):
         return []
+    release_name = dagster_release_name(cfg)
     return [
         str(item.get("metadata", {}).get("name"))
         for item in payload.get("items", [])
         if item.get("metadata", {}).get("labels", {}).get("app.kubernetes.io/name") == "dagster-user-deployments"
-        and item.get("metadata", {}).get("labels", {}).get("app.kubernetes.io/instance") == "dagster"
+        and item.get("metadata", {}).get("labels", {}).get("app.kubernetes.io/instance") == release_name
         and item.get("metadata", {}).get("labels", {}).get("deployment") in location_names
     ]
 

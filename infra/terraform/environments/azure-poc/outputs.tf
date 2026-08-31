@@ -39,18 +39,18 @@ output "metadata_database_contract" {
 }
 
 output "dagster_webserver_service_name" {
-  description = "Dagster webserver service name."
-  value       = module.dagster.webserver_service_name
+  description = "Dagster webserver service name in the stage the provider contract resolves."
+  value       = module.dagster[local.selected_stage].webserver_service_name
 }
 
 output "dagster_code_location_name" {
   description = "First Dagster code location name. Kept for compatibility with older scripts."
-  value       = module.dagster.code_location_name
+  value       = module.dagster[local.selected_stage].code_location_name
 }
 
 output "dagster_code_location_names" {
   description = "Dagster code location names."
-  value       = module.dagster.code_location_names
+  value       = module.dagster[local.selected_stage].code_location_names
 }
 
 output "superset_contract" {
@@ -86,4 +86,24 @@ output "access_contract" {
 output "provider_contracts" {
   description = "Provider-neutral contract map for the Azure POC implementation."
   value       = local.provider_contracts
+}
+
+output "shared_namespace" {
+  description = "Namespace owning the shared platform services."
+  value       = kubernetes_namespace_v1.shared.metadata[0].name
+}
+
+output "stage_names" {
+  description = "Stages this root has provisioned. `olf deploy` compares it against the resolved topology to refuse an apply that would silently remove one."
+  value       = sort(keys(local.enabled_stages))
+}
+
+output "stage_namespaces" {
+  description = "Namespace owning each enabled stage's services."
+  value       = local.stage_namespaces
+}
+
+output "stage_service_accounts" {
+  description = "Runtime identity per enabled stage, for the storage and catalog permissions bound to it."
+  value       = { for name, account in kubernetes_service_account_v1.stage_runtime : name => account.metadata[0].name }
 }

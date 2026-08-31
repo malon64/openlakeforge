@@ -43,8 +43,14 @@ def artifact_storage_client(via: str, bucket: str) -> Iterator[Any]:
     if via != "port-forward":
         raise ArtifactStoreError(f"unknown --via mode: {via!r} (expected 'port-forward' or 'direct')")
 
-    namespace = config.namespace()
-    secret_name = config.env("OPENLAKEFORGE_STORAGE_CREDENTIALS_SECRET_NAME")
+    # This is the shared admin storage identity (OPENLAKEFORGE_OPS_STORAGE_*),
+    # not a stage's own OPENLAKEFORGE_STORAGE_* one: immutable revision
+    # publishing (olf.revision.REVISION_PREFIX = "floe/revisions") writes
+    # outside any stage's activations/<stage> prefix, so a stage's own
+    # narrower identity cannot reach it, and it lives only in the shared
+    # namespace, not config.namespace()'s stage-selected one.
+    namespace = config.shared_namespace()
+    secret_name = config.env("OPENLAKEFORGE_OPS_STORAGE_CREDENTIALS_SECRET_NAME")
     service = config.env("OPENLAKEFORGE_STORAGE_S3_SERVICE_NAME", "seaweedfs-s3")
     remote_port = int(config.env("OPENLAKEFORGE_STORAGE_S3_SERVICE_PORT", "8333"))
     service_namespace = config.env("OPENLAKEFORGE_STORAGE_S3_SERVICE_NAMESPACE") or namespace
@@ -54,11 +60,11 @@ def artifact_storage_client(via: str, bucket: str) -> Iterator[Any]:
         remote_port=remote_port,
         namespace=service_namespace,
         access_key_id=k8s.secret_value(
-            secret_name, config.env("OPENLAKEFORGE_STORAGE_ACCESS_KEY_ID_KEY", "AWS_ACCESS_KEY_ID"), namespace
+            secret_name, config.env("OPENLAKEFORGE_OPS_STORAGE_ACCESS_KEY_ID_KEY", "AWS_ACCESS_KEY_ID"), namespace
         ),
         secret_access_key=k8s.secret_value(
             secret_name,
-            config.env("OPENLAKEFORGE_STORAGE_SECRET_ACCESS_KEY_KEY", "AWS_SECRET_ACCESS_KEY"),
+            config.env("OPENLAKEFORGE_OPS_STORAGE_SECRET_ACCESS_KEY_KEY", "AWS_SECRET_ACCESS_KEY"),
             namespace,
         ),
         region=config.env("OPENLAKEFORGE_STORAGE_REGION", "us-east-1"),
