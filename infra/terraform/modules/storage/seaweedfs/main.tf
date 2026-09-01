@@ -83,7 +83,10 @@ resource "kubernetes_secret_v1" "s3_auth_config" {
             # a revision is not an activation), so every stage's Floe
             # runtime needs read access to fetch its own manifest, even
             # though it cannot write there.
-            ["Read:${binding.ops_bucket_name}/floe/revisions*"],
+            [
+              "Read:${binding.ops_bucket_name}/floe/manifests*",
+              "Read:${binding.ops_bucket_name}/floe/revisions*",
+            ],
             # Floe run reports are likewise published at the ops bucket
             # root (per-domain, not per-stage - project_code_check.py
             # asserts report_base_uri = s3://<ops>/floe/reports/<domain>),

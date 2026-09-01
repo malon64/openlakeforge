@@ -95,9 +95,12 @@ locals {
   stage_service_accounts = { for name in keys(local.enabled_stages) : name => "olf-${name}-runtime" }
   stage_storage = {
     for name in keys(local.enabled_stages) : name => {
-      bronze_bucket_name      = "${var.profile_name}-${name}-bronze"
-      silver_bucket_name      = "${var.profile_name}-${name}-silver"
-      gold_bucket_name        = "${var.profile_name}-${name}-gold"
+      # The Azure POC retains the same SeaweedFS-backed DEV data plane as
+      # local during the v0.2-to-v3 migration. New stages remain physically
+      # distinct, without relocating existing Iceberg metadata.
+      bronze_bucket_name      = name == "dev" ? var.bronze_bucket_name : "${var.profile_name}-${name}-bronze",
+      silver_bucket_name      = name == "dev" ? var.silver_bucket_name : "${var.profile_name}-${name}-silver",
+      gold_bucket_name        = name == "dev" ? var.gold_bucket_name : "${var.profile_name}-${name}-gold",
       credentials_secret_name = "seaweedfs-${name}-s3-creds"
     }
   }

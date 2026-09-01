@@ -16,11 +16,12 @@ variable "ops_bucket_name" {
 }
 
 variable "stage_buckets" {
-  description = "Stage-owned medallion bucket names, one entry per enabled stage. Each stage's three buckets are wholly its own - no other stage's identity, name, or object key can collide with them."
+  description = "Stage-owned medallion bucket bindings, one entry per enabled stage. DEV may preserve a v0.2 physical bucket name while every later stage gets a suffix-qualified name unique across S3."
   type = map(object({
-    bronze_bucket_name = string
-    silver_bucket_name = string
-    gold_bucket_name   = string
+    bronze_bucket_name    = optional(string)
+    silver_bucket_name    = optional(string)
+    gold_bucket_name      = optional(string)
+    preserve_legacy_names = optional(bool, false)
   }))
   default = {}
 }

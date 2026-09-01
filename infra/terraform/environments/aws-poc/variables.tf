@@ -74,6 +74,24 @@ variable "bucket_name_prefix" {
   default     = "openlakeforge-poc"
 }
 
+variable "bronze_bucket_name" {
+  description = "Optional existing DEV Bronze S3 bucket name from the v0.2 AWS POC. Null retains its generated legacy name."
+  type        = string
+  default     = null
+}
+
+variable "silver_bucket_name" {
+  description = "Optional existing DEV Silver S3 bucket name from the v0.2 AWS POC. Null retains its generated legacy name."
+  type        = string
+  default     = null
+}
+
+variable "gold_bucket_name" {
+  description = "Optional existing DEV Gold S3 bucket name from the v0.2 AWS POC. Null retains its generated legacy name."
+  type        = string
+  default     = null
+}
+
 variable "ops_bucket_name" {
   description = "Optional explicit operational artifact S3 bucket name."
   type        = string

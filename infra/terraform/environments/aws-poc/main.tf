@@ -109,9 +109,14 @@ locals {
   stage_service_accounts = { for name in keys(local.enabled_stages) : name => "olf-${name}-runtime" }
   stage_buckets = {
     for name in keys(local.enabled_stages) : name => {
-      bronze_bucket_name = "${var.profile_name}-${name}-bronze"
-      silver_bucket_name = "${var.profile_name}-${name}-silver"
-      gold_bucket_name   = "${var.profile_name}-${name}-gold"
+      # The old AWS POC owned the unqualified Bronze/Silver/Gold buckets at
+      # the module's `bronze`/`silver`/`gold` addresses. Keep those physical
+      # DEV names (and move the addresses in aws-s3) so this platform upgrade
+      # cannot replace force-destroyable buckets; UAT/PROD get new identities.
+      bronze_bucket_name    = name == "dev" ? var.bronze_bucket_name : "${var.profile_name}-${name}-bronze",
+      silver_bucket_name    = name == "dev" ? var.silver_bucket_name : "${var.profile_name}-${name}-silver",
+      gold_bucket_name      = name == "dev" ? var.gold_bucket_name : "${var.profile_name}-${name}-gold",
+      preserve_legacy_names = name == "dev"
     }
   }
   stage_catalogs_desired = {

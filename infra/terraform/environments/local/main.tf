@@ -96,9 +96,13 @@ locals {
   stage_service_accounts = { for name in keys(local.enabled_stages) : name => "olf-${name}-runtime" }
   stage_storage = {
     for name in keys(local.enabled_stages) : name => {
-      bronze_bucket_name      = "${var.profile_name}-${name}-bronze"
-      silver_bucket_name      = "${var.profile_name}-${name}-silver"
-      gold_bucket_name        = "${var.profile_name}-${name}-gold"
+      # DEV is the v0.2 deployment profile. Retaining its established bucket
+      # identities keeps the existing Polaris warehouse and Iceberg metadata
+      # valid through the platform-first v3 migration; later stages get new,
+      # stage-qualified buckets.
+      bronze_bucket_name      = name == "dev" ? var.bronze_bucket_name : "${var.profile_name}-${name}-bronze",
+      silver_bucket_name      = name == "dev" ? var.silver_bucket_name : "${var.profile_name}-${name}-silver",
+      gold_bucket_name        = name == "dev" ? var.gold_bucket_name : "${var.profile_name}-${name}-gold",
       credentials_secret_name = "seaweedfs-${name}-s3-creds"
     }
   }
