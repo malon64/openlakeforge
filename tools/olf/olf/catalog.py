@@ -73,14 +73,25 @@ def plan_namespace_sync(
     not drift: changing it could redirect someone else's data.
 
     `existing` reflects everything visible in the catalog, which on AWS Glue's
-    shared default catalog (no per-stage custom catalog available) includes
-    every other enabled stage's own namespaces too - each carrying its own
-    `namespace_prefix` (e.g. `lakehouse_prod_sales_silver`). Those are not
-    legacy; they are a sibling stage's canonical names. When `namespace_prefix`
-    is set, the noncanonical-legacy scan is scoped to names sharing it, so a
-    sibling stage's names never appear in this stage's reconciliation plan,
-    including the `--prune` path.
+    shared default catalog includes every enabled stage's own namespaces too.
+    A stage prefix scopes reconciliation so siblings cannot be reported or
+    pruned. Before that scope is applied, matching unprefixed v0.2 namespace
+    names stop the upgrade: creating their prefixed replacements would hide
+    existing Iceberg table registrations behind an empty catalog boundary.
     """
+    legacy_namespace_names = sorted(
+        namespace.name.removeprefix(namespace_prefix)
+        for namespace in desired
+        if namespace_prefix and namespace.name.startswith(namespace_prefix)
+        and namespace.name.removeprefix(namespace_prefix) in existing
+    )
+    if legacy_namespace_names:
+        raise NamespaceSyncError(
+            "Catalog contains unprefixed v0.2 Glue namespace(s) "
+            f"{legacy_namespace_names!r}. Refusing to create parallel {namespace_prefix!r} namespaces because "
+            "their Iceberg table registrations would be lost. Migrate the Glue metadata to the prefixed names "
+            "before running artifacts, or create a fresh environment."
+        )
     live = {
         name: _state(value)
         for name, value in existing.items()

@@ -287,13 +287,22 @@ module "openmetadata" {
   deps_values_file        = "${path.root}/../../../helm/values/local/openmetadata-deps.yaml"
   chart_package_path      = var.openmetadata_chart_package_path
   deps_chart_package_path = var.openmetadata_deps_chart_package_path
-  catalog_contract        = local.catalog_contract
-  storage_contract        = local.storage_contract
+  catalog_contract = merge(
+    local.catalog_contract,
+    local.stage_catalog_contracts[local.governance_dagster_stage],
+  )
+  storage_contract = merge(local.storage_contract, {
+    bucket_name        = local.stage_storage[local.governance_dagster_stage].bronze_bucket_name
+    bronze_bucket_name = local.stage_storage[local.governance_dagster_stage].bronze_bucket_name
+    silver_bucket_name = local.stage_storage[local.governance_dagster_stage].silver_bucket_name
+    gold_bucket_name   = local.stage_storage[local.governance_dagster_stage].gold_bucket_name
+  })
   postgresql_contract     = local.metadata_database_contract
   # Empty by design: the database schemas mirror Polaris namespaces, which now
   # come into existence in Phase 2. `olf openmetadata deploy-metadata` creates
   # each databaseSchema entity right before it seeds that schema's tables.
   catalog_schema_names = []
+  catalog_database_name = local.stage_catalog_contracts[local.governance_dagster_stage].catalog_name
   # Only governed stages: the ingestion-bot JWT is a live credential, and a
   # stage that did not enable governance should not have one sitting in its
   # namespace even though its Dagster never mounts it.
@@ -321,6 +330,13 @@ module "openmetadata" {
     module.seaweedfs,
     kubernetes_namespace_v1.stage,
   ]
+}
+
+check "openmetadata_governance_catalog_is_unambiguous" {
+  assert {
+    condition     = length(local.governed_stages) <= 1
+    error_message = "OpenMetadata currently has one Iceberg connection. Enable governance for one stage only; multi-stage OpenMetadata catalog connections are tracked by #131."
+  }
 }
 
 module "superset" {

@@ -132,6 +132,17 @@ def test_plan_ignores_a_sibling_stages_canonical_silver_namespace() -> None:
     assert plan.delete == ()
 
 
+def test_plan_rejects_unprefixed_v02_glue_namespace_before_creating_a_parallel_stage_namespace() -> None:
+    desired = [ns("lakehouse_dev_sales_silver", "s3://silver/lakehouse_dev_sales_silver/")]
+
+    with pytest.raises(catalog.NamespaceSyncError, match="unprefixed v0.2 Glue.*Iceberg table registrations"):
+        catalog.plan_namespace_sync(
+            {"sales_silver": "s3://silver/sales_silver/"},
+            desired,
+            namespace_prefix="lakehouse_dev_",
+        )
+
+
 def test_plan_still_rejects_a_same_prefix_legacy_silver_namespace() -> None:
     desired = [ns("lakehouse_prod_sales_silver", "s3://silver/lakehouse_prod_sales_silver/")]
 

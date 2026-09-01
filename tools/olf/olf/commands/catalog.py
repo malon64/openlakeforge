@@ -41,6 +41,7 @@ def _reconcile_and_report(
 
 
 def _sync_polaris_namespaces(*, desired: tuple, dry_run: bool, prune: bool) -> None:
+    from olf import catalog as catalog_module
     from olf import k8s
     from olf import polaris as polaris_module
 
@@ -82,11 +83,12 @@ def _sync_polaris_namespaces(*, desired: tuple, dry_run: bool, prune: bool) -> N
             _reconcile_and_report(
                 "Polaris", client, client.list_namespaces(), desired, dry_run=dry_run, prune=prune
             )
-        except polaris_module.PolarisError as exc:
+        except (catalog_module.NamespaceSyncError, polaris_module.PolarisError) as exc:
             raise typer.Exit(code=fail(str(exc))) from exc
 
 
 def _sync_glue_namespaces(*, desired: tuple, dry_run: bool, prune: bool, namespace_prefix: str) -> None:
+    from olf import catalog as catalog_module
     from olf import glue as glue_module
 
     catalog_name = config.env("OPENLAKEFORGE_CATALOG_NAME", "lakehouse_dev")
@@ -107,7 +109,7 @@ def _sync_glue_namespaces(*, desired: tuple, dry_run: bool, prune: bool, namespa
             prune=prune,
             namespace_prefix=namespace_prefix,
         )
-    except glue_module.GlueError as exc:
+    except (catalog_module.NamespaceSyncError, glue_module.GlueError) as exc:
         raise typer.Exit(code=fail(str(exc))) from exc
 
 
