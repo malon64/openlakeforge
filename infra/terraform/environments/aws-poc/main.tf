@@ -563,8 +563,12 @@ module "dagster" {
   source   = "../../modules/orchestration/dagster"
   for_each = local.enabled_stages
 
+  # Bare "dagster" (the module default), same as local/azure-poc - the
+  # release's own namespace already disambiguates stages, and the artifact
+  # pipeline's k8s.set_project_code_image() (olf/k8s.py) only knows how to
+  # patch that fixed set of chart-generated names; a per-stage release name
+  # here made it silently skip every AWS deployment's rollout.
   namespace                      = kubernetes_namespace_v1.stage[each.key].metadata[0].name
-  release_name                   = "dagster-${each.key}"
   chart_package_path             = var.dagster_chart_package_path
   base_values_file               = "${path.root}/../../../helm/values/local/dagster.yaml"
   project_code_image_repository  = var.project_code_image_repository

@@ -75,8 +75,8 @@ def dagster_release_name(cfg: E2EConfig) -> str:
 
     Derived from the webserver service name Terraform already outputs
     (`{release_name}-dagster-webserver`, modules/orchestration/dagster)
-    rather than assumed as the bare "dagster" local defaults to - the cloud
-    POC roots pass `release_name = "dagster-<stage>"` explicitly.
+    rather than assumed as the bare "dagster" every root defaults to - a
+    stage's own namespace, not its release name, is what disambiguates it.
     """
     return dagster_webserver_service_name(cfg).removesuffix("-dagster-webserver")
 

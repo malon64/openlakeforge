@@ -21,10 +21,11 @@ def _reconcile_and_report(
     *,
     dry_run: bool,
     prune: bool,
+    namespace_prefix: str = "",
 ) -> None:
     from olf import catalog as catalog_module
 
-    plan = catalog_module.plan_namespace_sync(existing, desired, prune=prune)
+    plan = catalog_module.plan_namespace_sync(existing, desired, prune=prune, namespace_prefix=namespace_prefix)
     typer.echo(catalog_module.render_plan(plan, prune=prune))
     if dry_run:
         typer.echo("Dry run: the catalog was not changed.")
@@ -85,18 +86,27 @@ def _sync_polaris_namespaces(*, desired: tuple, dry_run: bool, prune: bool) -> N
             raise typer.Exit(code=fail(str(exc))) from exc
 
 
-def _sync_glue_namespaces(*, desired: tuple, dry_run: bool, prune: bool) -> None:
+def _sync_glue_namespaces(*, desired: tuple, dry_run: bool, prune: bool, namespace_prefix: str) -> None:
     from olf import glue as glue_module
 
+    catalog_name = config.env("OPENLAKEFORGE_CATALOG_NAME", "lakehouse_dev")
     client = glue_module.GlueClient(
         glue_module.GlueConfig(
             catalog_id=config.env("OPENLAKEFORGE_CATALOG_GLUE_CATALOG_ID"),
             region=config.env("OPENLAKEFORGE_CATALOG_GLUE_REGION"),
-            catalog_name=config.env("OPENLAKEFORGE_CATALOG_NAME", "lakehouse_dev"),
+            catalog_name=catalog_name,
         )
     )
     try:
-        _reconcile_and_report("Glue", client, client.list_namespaces(), desired, dry_run=dry_run, prune=prune)
+        _reconcile_and_report(
+            "Glue",
+            client,
+            client.list_namespaces(),
+            desired,
+            dry_run=dry_run,
+            prune=prune,
+            namespace_prefix=namespace_prefix,
+        )
     except glue_module.GlueError as exc:
         raise typer.Exit(code=fail(str(exc))) from exc
 
@@ -135,7 +145,7 @@ def sync_namespaces(*, dry_run: bool, prune: bool | None) -> None:
         _sync_polaris_namespaces(desired=desired, dry_run=dry_run, prune=prune)
     elif provider == "aws-glue":
         log_step(f"Reconciling {len(desired)} Glue database(s) from the domain descriptors...")
-        _sync_glue_namespaces(desired=desired, dry_run=dry_run, prune=prune)
+        _sync_glue_namespaces(desired=desired, dry_run=dry_run, prune=prune, namespace_prefix=namespace_prefix)
     else:
         raise typer.Exit(code=fail(f"Catalog provider {provider!r} has no namespace reconciliation backend."))
 

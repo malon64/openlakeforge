@@ -255,19 +255,20 @@ def test_expected_repository_location_names_rejects_invalid_terraform_output(
 def test_dagster_webserver_service_name_selects_the_stage_under_test(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """A multi-stage deployment provisions one Dagster release per stage
-    (release_name = "dagster-<stage>" on the cloud POC roots) - reading a
-    single "selected stage" Terraform output would silently port-forward the
-    wrong stage's service for any --stage other than Terraform's own default."""
+    """Each stage has its own namespace but the same Dagster release name.
+
+    The stage-keyed output still matters: it keeps an E2E run from using the
+    Terraform root's selected-stage output when `--stage` names another one.
+    """
     monkeypatch.setattr(_dagster, "stage_catalog_name", lambda _cfg: "lakehouse_prod")
     monkeypatch.setattr(
         _dagster,
         "terraform_output_json",
-        lambda _dir, _name: {"dev": "dagster-dev-dagster-webserver", "prod": "dagster-prod-dagster-webserver"},
+        lambda _dir, _name: {"dev": "dagster-dagster-webserver", "prod": "dagster-dagster-webserver"},
     )
 
-    assert _dagster.dagster_webserver_service_name(e2e_cfg(tmp_path)) == "dagster-prod-dagster-webserver"
-    assert _dagster.dagster_release_name(e2e_cfg(tmp_path)) == "dagster-prod"
+    assert _dagster.dagster_webserver_service_name(e2e_cfg(tmp_path)) == "dagster-dagster-webserver"
+    assert _dagster.dagster_release_name(e2e_cfg(tmp_path)) == "dagster"
 
 
 def test_dagster_webserver_service_name_rejects_a_stage_missing_from_the_output(

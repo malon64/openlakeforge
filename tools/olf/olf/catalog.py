@@ -60,18 +60,37 @@ def _state(value: str | NamespaceState) -> NamespaceState:
 
 
 def plan_namespace_sync(
-    existing: Mapping[str, str | NamespaceState], desired: Sequence[CatalogNamespace], *, prune: bool = False
+    existing: Mapping[str, str | NamespaceState],
+    desired: Sequence[CatalogNamespace],
+    *,
+    prune: bool = False,
+    namespace_prefix: str = "",
 ) -> NamespaceSyncPlan:
     """Plan reconciliation without ever taking ownership of a foreign object.
 
     A legacy namespace is adopted only when its descriptor-derived location
     already matches. A same-name namespace at another location is a collision,
     not drift: changing it could redirect someone else's data.
+
+    `existing` reflects everything visible in the catalog, which on AWS Glue's
+    shared default catalog (no per-stage custom catalog available) includes
+    every other enabled stage's own namespaces too - each carrying its own
+    `namespace_prefix` (e.g. `lakehouse_prod_sales_silver`). Those are not
+    legacy; they are a sibling stage's canonical names. When `namespace_prefix`
+    is set, the noncanonical-legacy scan is scoped to names sharing it, so a
+    sibling stage's names never appear in this stage's reconciliation plan,
+    including the `--prune` path.
     """
-    live = {name: _state(value) for name, value in existing.items()}
+    live = {
+        name: _state(value)
+        for name, value in existing.items()
+        if not namespace_prefix or name.startswith(namespace_prefix)
+    }
     canonical_silver = {namespace.name for namespace in desired if namespace.name.endswith("_silver")}
     noncanonical_silver = sorted(
-        name for name in live if name.endswith("_silver") and name not in canonical_silver
+        name
+        for name in live
+        if name.endswith("_silver") and name not in canonical_silver
     )
     if noncanonical_silver:
         raise NamespaceSyncError(
