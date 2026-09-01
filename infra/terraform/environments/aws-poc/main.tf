@@ -124,6 +124,20 @@ locals {
       catalog_name = "lakehouse_${name}"
     }
   }
+  legacy_stage_database_identities = {
+    dev = {
+      dagster = {
+        db_name                 = "dagster"
+        db_user                 = "dagster"
+        credentials_secret_name = "dagster-postgresql-secret"
+      }
+      superset = {
+        db_name                 = "superset"
+        db_user                 = "superset"
+        credentials_secret_name = "superset-postgresql"
+      }
+    }
+  }
   stage_labels = { for name in keys(local.enabled_stages) : name => {
     "openlakeforge.io/stage"      = name
     "openlakeforge.io/managed-by" = "openlakeforge"
@@ -133,28 +147,31 @@ locals {
   stage_databases = merge(
     {
       for name in keys(local.enabled_stages) : "dagster_${name}" => {
-        key                     = "dagster_${name}"
-        db_name                 = "dagster_${name}"
-        db_user                 = "dagster_${name}"
-        credentials_secret_name = "postgresql-dagster-${name}-creds"
+        key = "dagster_${name}"
+        # The v0.2 POC used these unqualified DEV identities. Reusing them
+        # lets the new stage contract adopt the existing RDS history instead
+        # of switching Dagster to a blank database during the platform apply.
+        db_name                 = try(local.legacy_stage_database_identities[name].dagster.db_name, "dagster_${name}")
+        db_user                 = try(local.legacy_stage_database_identities[name].dagster.db_user, "dagster_${name}")
+        credentials_secret_name = try(local.legacy_stage_database_identities[name].dagster.credentials_secret_name, "postgresql-dagster-${name}-creds")
         namespaces              = [local.stage_namespaces[name]]
       }
     },
     {
       for name in keys(local.analytics_stages) : "superset_${name}" => {
         key                     = "superset_${name}"
-        db_name                 = "superset_${name}"
-        db_user                 = "superset_${name}"
-        credentials_secret_name = "postgresql-superset-${name}-creds"
+        db_name                 = try(local.legacy_stage_database_identities[name].superset.db_name, "superset_${name}")
+        db_user                 = try(local.legacy_stage_database_identities[name].superset.db_user, "superset_${name}")
+        credentials_secret_name = try(local.legacy_stage_database_identities[name].superset.credentials_secret_name, "postgresql-superset-${name}-creds")
         namespaces              = [local.stage_namespaces[name]]
       }
     },
     local.governance_enabled ? {
       openmetadata = {
         key                     = "openmetadata"
-        db_name                 = "openmetadata_db"
-        db_user                 = "openmetadata_user"
-        credentials_secret_name = "postgresql-openmetadata-creds"
+        db_name                 = "openmetadata"
+        db_user                 = "openmetadata"
+        credentials_secret_name = "openmetadata-postgresql"
         namespaces              = [var.shared_namespace]
       }
     } : {},
@@ -241,6 +258,40 @@ module "rds_postgresql" {
   depends_on = [
     kubernetes_namespace_v1.stage,
   ]
+}
+
+# Preserve the v0.2 passwords while moving their Secrets into the stage/shared
+# namespaces. The bootstrap job then adopts the existing RDS databases and
+# roles instead of resetting credentials or starting DEV services from empty
+# metadata stores.
+moved {
+  from = module.rds_postgresql.random_password.dagster
+  to   = module.rds_postgresql.random_password.database["dagster_dev"]
+}
+
+moved {
+  from = module.rds_postgresql.random_password.superset[0]
+  to   = module.rds_postgresql.random_password.database["superset_dev"]
+}
+
+moved {
+  from = module.rds_postgresql.random_password.openmetadata[0]
+  to   = module.rds_postgresql.random_password.database["openmetadata"]
+}
+
+moved {
+  from = module.rds_postgresql.kubernetes_secret_v1.dagster
+  to   = module.rds_postgresql.kubernetes_secret_v1.database_credentials["dagster_dev/olf-dev"]
+}
+
+moved {
+  from = module.rds_postgresql.kubernetes_secret_v1.superset[0]
+  to   = module.rds_postgresql.kubernetes_secret_v1.database_credentials["superset_dev/olf-dev"]
+}
+
+moved {
+  from = module.rds_postgresql.kubernetes_secret_v1.openmetadata[0]
+  to   = module.rds_postgresql.kubernetes_secret_v1.database_credentials["openmetadata/olf-system"]
 }
 
 # The broad, shared-service IAM role: Trino (every stage's catalog/buckets)

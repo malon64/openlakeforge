@@ -303,11 +303,11 @@ module "openmetadata" {
     silver_bucket_name = local.stage_storage[local.governance_dagster_stage].silver_bucket_name
     gold_bucket_name   = local.stage_storage[local.governance_dagster_stage].gold_bucket_name
   })
-  postgresql_contract     = local.metadata_database_contract
+  postgresql_contract = local.metadata_database_contract
   # Empty by design: the database schemas mirror Polaris namespaces, which now
   # come into existence in Phase 2. `olf openmetadata deploy-metadata` creates
   # each databaseSchema entity right before it seeds that schema's tables.
-  catalog_schema_names = []
+  catalog_schema_names  = []
   catalog_database_name = local.stage_catalog_contracts[local.governance_dagster_stage].catalog_name
   # Only governed stages: the ingestion-bot JWT is a live credential, and a
   # stage that did not enable governance should not have one sitting in its

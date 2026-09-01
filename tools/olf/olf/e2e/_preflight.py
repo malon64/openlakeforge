@@ -7,6 +7,7 @@ import os
 from olf import log
 from olf.auth import aws_session
 from olf.e2e._shell import E2EConfig, E2EError, aws_stack_region, load_provider_contracts_or_raise
+from olf.e2e._trino import stage_catalog_name
 
 
 def check_aws_provider_contracts(cfg: E2EConfig) -> None:
@@ -48,8 +49,11 @@ def check_aws_storage_and_glue(cfg: E2EConfig) -> None:
     # olf.contracts.build_contract_env prefixes each physical database name
     # with the stage's own catalog_name to stay collision-free - the bare
     # inventory names below never exist in Glue on their own.
-    stage_name = next(iter(provider_contracts["stages"]))
-    namespace_prefix = f"{provider_contracts['stages'][stage_name]['catalog']['catalog_name']}_"
+    stage_name = stage_catalog_name(cfg).removeprefix("lakehouse_")
+    stage = provider_contracts["stages"].get(stage_name)
+    if stage is None:
+        raise E2EError(f"provider_contracts.stages has no entry for stage {stage_name!r}.")
+    namespace_prefix = f"{stage['catalog']['catalog_name']}_"
     expected_schemas = {
         f"{namespace_prefix}{name}"
         for name in (

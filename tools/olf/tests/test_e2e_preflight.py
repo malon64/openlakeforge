@@ -43,6 +43,7 @@ def test_aws_storage_and_glue_smoke_check_uses_bucket_and_databases(
         "stages": {"dev": {"catalog": {"catalog_name": "lakehouse_dev"}}},
     }
     calls: list[tuple[str, str]] = []
+    monkeypatch.setenv("OPENLAKEFORGE_QUERY_TRINO_CATALOG", "lakehouse_dev")
     monkeypatch.setattr(_preflight, "load_provider_contracts_or_raise", lambda _cfg: provider_contracts)
     # aws_stack_region (called by check_aws_storage_and_glue) calls terraform_output
     # internally within _shell's own module namespace, not _preflight's.
@@ -62,6 +63,34 @@ def test_aws_storage_and_glue_smoke_check_uses_bucket_and_databases(
     assert {name for kind, name in calls if kind == "database"} == {
         f"lakehouse_dev_{name}" for name in EXPECTED_GLUE_SCHEMAS
     }
+
+
+def test_aws_storage_and_glue_smoke_check_uses_the_requested_stage(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    provider_contracts = {
+        "shared": {"ops_storage": {"bucket_name": "openlakeforge-ops"}},
+        "stages": {
+            "dev": {"catalog": {"catalog_name": "lakehouse_dev"}},
+            "prod": {"catalog": {"catalog_name": "lakehouse_prod"}},
+        },
+    }
+    calls: list[str] = []
+    monkeypatch.setenv("OPENLAKEFORGE_QUERY_TRINO_CATALOG", "lakehouse_prod")
+    monkeypatch.setattr(_preflight, "load_provider_contracts_or_raise", lambda _cfg: provider_contracts)
+    monkeypatch.setattr(_shell, "terraform_output", lambda _dir, name: "eu-central-1" if name == "aws_region" else "")
+
+    class Session:
+        def client(self, name, **_kwargs):  # noqa: ANN001, ANN003, ANN202
+            if name == "s3":
+                return type("S3", (), {"head_bucket": lambda _self, **_kwargs: None})()
+            return type("Glue", (), {"get_database": lambda _self, *, Name: calls.append(Name)})()
+
+    monkeypatch.setattr(_preflight, "aws_session", lambda *_args, **_kwargs: Session())
+
+    _preflight.check_aws_storage_and_glue(e2e_cfg(tmp_path, env="aws", suite="smoke"))
+
+    assert set(calls) == {f"lakehouse_prod_{name}" for name in EXPECTED_GLUE_SCHEMAS}
 
 
 def test_aws_stack_region_prefers_foundation_output(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
