@@ -75,6 +75,15 @@
     client_id_key="$3"
     client_secret_key="$4"
     target_namespace="$5"
+    # Stage-scoped identities (Floe, deployer) live in the stage's own
+    # namespace, which `--allow-stage-removal` deletes outright and a later
+    # re-enable recreates empty - their Polaris principal survives in the
+    # relational metastore either way, so "principal exists, namespace has
+    # neither Secret nor pending marker" is the expected shape of a stage
+    # coming back, not an anomaly. Shared identities (Trino, OpenMetadata)
+    # never lose their namespace this way, so the same shape there still
+    # means someone deleted an active client's Secret by hand.
+    recreatable_on_missing_secret="$${6:-false}"
     pending_name="$secret_name-bootstrap-pending"
 
     request GET "/principals/$principal_name" "200 404"
@@ -88,6 +97,9 @@
         request POST "/principals/$principal_name/rotate" "200"
       elif kubectl get secret "$secret_name" -n "$target_namespace" >/dev/null 2>&1; then
         return
+      elif [ "$recreatable_on_missing_secret" = "true" ]; then
+        echo "Polaris principal '$principal_name' exists but '$target_namespace' has no Secret or pending marker; treating this as a removed-then-re-enabled stage and rotating its credentials." >&2
+        request POST "/principals/$principal_name/rotate" "200"
       else
         echo "Polaris principal '$principal_name' exists but credential Secret '$secret_name' is missing." >&2
         echo "Restore the Secret before rerunning the bootstrap job to avoid rotating active clients." >&2
@@ -171,7 +183,7 @@
   create_principal_secret "${stage.trino_principal_name}" "${stage.trino_credentials_secret_name}" "POLARIS_TRINO_CLIENT_ID" "POLARIS_TRINO_CLIENT_SECRET" "$NAMESPACE"
   grant_catalog_access "${stage.trino_principal_name}" "${principal_role}-${stage_name}" "${catalog_role}" "CATALOG_MANAGE_CONTENT" "${stage.catalog_name}"
 
-  create_principal_secret "${stage.floe_principal_name}" "${stage.floe_credentials_secret_name}" "POLARIS_FLOE_CLIENT_ID" "POLARIS_FLOE_CLIENT_SECRET" "${stage.namespace}"
+  create_principal_secret "${stage.floe_principal_name}" "${stage.floe_credentials_secret_name}" "POLARIS_FLOE_CLIENT_ID" "POLARIS_FLOE_CLIENT_SECRET" "${stage.namespace}" "true"
   grant_catalog_access "${stage.floe_principal_name}" "${floe_principal_role}-${stage_name}" "${floe_catalog_role}" "CATALOG_MANAGE_CONTENT" "${stage.catalog_name}"
 %{ endfor ~}
 
@@ -190,6 +202,6 @@
   # and drop namespaces, so no platform apply ever needs to know which
   # products exist.
 %{ for stage_name, stage in stage_catalogs ~}
-  create_principal_secret "${stage.deployer_principal_name}" "${stage.deployer_credentials_secret_name}" "POLARIS_DEPLOYER_CLIENT_ID" "POLARIS_DEPLOYER_CLIENT_SECRET" "${stage.namespace}"
+  create_principal_secret "${stage.deployer_principal_name}" "${stage.deployer_credentials_secret_name}" "POLARIS_DEPLOYER_CLIENT_ID" "POLARIS_DEPLOYER_CLIENT_SECRET" "${stage.namespace}" "true"
   grant_catalog_access "${stage.deployer_principal_name}" "${deployer_principal_role}-${stage_name}" "${deployer_catalog_role}" "CATALOG_MANAGE_METADATA" "${stage.catalog_name}"
 %{ endfor ~}
