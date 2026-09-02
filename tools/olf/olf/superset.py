@@ -123,8 +123,19 @@ def discover_dashboard_files(report_dir: Path) -> list[Path]:
     )
 
 
-def build_report_bundle(source_dir: Path, bundle_path: Path, bundle_root: str, sqlalchemy_uri: str) -> None:
-    """Zip the report YAML, rewriting the database sqlalchemy_uri in place."""
+def build_report_bundle(
+    source_dir: Path, bundle_path: Path, bundle_root: str, sqlalchemy_uri: str, *, schema_prefix: str = ""
+) -> None:
+    """Zip the report YAML, rewriting the database sqlalchemy_uri and dataset schemas in place.
+
+    AWS Glue's shared default catalog (no per-stage custom catalog available)
+    needs every physical schema prefixed with the stage's own catalog_name to
+    stay collision-free (olf.contracts.build_contract_env's namespace_prefix).
+    The checked-in dataset YAML declares the bare logical schema
+    (e.g. `order_revenue_gold`), so it has to be rewritten the same way the
+    database YAML's sqlalchemy_uri already is - otherwise the dashboard
+    imports fine but queries a schema that does not exist.
+    """
     with ZipFile(bundle_path, "w", ZIP_DEFLATED) as bundle:
         for path in sorted(source_dir.rglob("*")):
             if not path.is_file() or path.suffix.lower() not in {".yaml", ".yml"}:
@@ -136,6 +147,15 @@ def build_report_bundle(source_dir: Path, bundle_path: Path, bundle_root: str, s
                 text = re.sub(
                     r"^sqlalchemy_uri:\s*.+$",
                     f"sqlalchemy_uri: {sqlalchemy_uri}",
+                    text,
+                    flags=re.MULTILINE,
+                )
+                bundle.writestr(archive_name, text)
+            elif schema_prefix and relative.startswith("datasets/"):
+                text = path.read_text(encoding="utf-8")
+                text = re.sub(
+                    r"^schema:\s*(\S+)$",
+                    lambda match: f"schema: {schema_prefix}{match.group(1)}",
                     text,
                     flags=re.MULTILINE,
                 )
@@ -231,6 +251,7 @@ def deploy_reports(
     work_dir: Path,
     reports_mount_path: str,
     admin_username: str,
+    schema_prefix: str = "",
 ) -> None:
     log.step("Waiting for Superset web deployment...")
     k8s.wait_for_rollout("deployment/superset", namespace)
@@ -255,7 +276,7 @@ def deploy_reports(
         identity = bundle_identity(report_dir)
         bundle_path = work_dir / identity.name
         remote_bundle = f"{reports_mount_path}/{identity.name}"
-        build_report_bundle(source_dir, bundle_path, identity.root, sqlalchemy_uri)
+        build_report_bundle(source_dir, bundle_path, identity.root, sqlalchemy_uri, schema_prefix=schema_prefix)
 
         log.step(f"Copying {bundle_path} to {pod}:{remote_bundle}")
         with bundle_path.open("rb") as body:

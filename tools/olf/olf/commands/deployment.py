@@ -60,7 +60,12 @@ def deploy(
     ),
     var_file: str = typer.Option("", "--var-file", help="Terraform tfvars file override."),
     allow_stage_removal: bool = typer.Option(
-        False, "--allow-stage-removal", help="Permit an apply that removes an already-applied stage."
+        False,
+        "--allow-stage-removal",
+        help=(
+            "Permit an apply that removes an already-applied stage, or that replaces the pre-v0.3 shared "
+            "namespace ('lakehouse') with the current one, destroying its SeaweedFS/PostgreSQL/Polaris state."
+        ),
     ),
 ) -> None:
     """Deploy a provider's lifecycle, or a single phase of it."""
@@ -97,7 +102,12 @@ def plan(
     ),
     var_file: str = typer.Option("", "--var-file", help="Terraform tfvars file override."),
     allow_stage_removal: bool = typer.Option(
-        False, "--allow-stage-removal", help="Permit an apply that removes an already-applied stage."
+        False,
+        "--allow-stage-removal",
+        help=(
+            "Permit an apply that removes an already-applied stage, or that replaces the pre-v0.3 shared "
+            "namespace ('lakehouse') with the current one, destroying its SeaweedFS/PostgreSQL/Polaris state."
+        ),
     ),
     detailed_exitcode: bool = typer.Option(False, "--detailed-exitcode", help="Return 2 when changes are pending."),
 ) -> None:

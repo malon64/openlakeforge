@@ -98,9 +98,16 @@ def _fail(stderr: str = "") -> CommandResult:
 class _PlatformScriptedRunner(RecordingRunner):
     """Chart cache hits (`helm show chart` succeeds) so tests exercise orchestration, not chart caching."""
 
-    def __init__(self, *, namespace_exists: bool = False, applied_stages: str | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        namespace_exists: bool = False,
+        legacy_namespace_exists: bool = False,
+        applied_stages: str | None = None,
+    ) -> None:
         super().__init__()
         self._namespace_exists = namespace_exists
+        self._legacy_namespace_exists = legacy_namespace_exists
         self._applied_stages = applied_stages
 
     def run(self, command, **kwargs):  # type: ignore[override]
@@ -115,6 +122,8 @@ class _PlatformScriptedRunner(RecordingRunner):
         if argv[0] == "terraform" and "state" in argv:
             return _ok() if self._namespace_exists else _fail()
         if argv[0] == "kubectl" and "namespace" in argv and "get" in argv:
+            if "lakehouse" in argv:
+                return _ok() if self._legacy_namespace_exists else _fail()
             return _ok() if self._namespace_exists else _fail()
         return _ok()
 
@@ -171,6 +180,18 @@ def test_platform_up_refuses_removing_an_applied_stage(tmp_path: Path, scope: st
     tools = _toolkit(_PlatformScriptedRunner(applied_stages='["dev", "prod"]'))
 
     with pytest.raises(DeploymentPreconditionError, match="prod"):
+        platform.platform_up(config, tools, backend, _FACTS, env={})
+
+
+def test_azure_platform_up_refuses_to_replace_the_legacy_shared_namespace(tmp_path: Path) -> None:
+    config = _config(tmp_path, enable_analytics="false", provider=Provider.AZURE)
+    config.paths.helm_cache_dir.mkdir(parents=True, exist_ok=True)
+    config.charts["trino"].package_path.write_text("cached")
+    config.charts["dagster"].package_path.write_text("cached")
+    backend = FakeCloudBackend(scope="azure")
+    tools = _toolkit(_PlatformScriptedRunner(legacy_namespace_exists=True))
+
+    with pytest.raises(DeploymentPreconditionError, match="lakehouse"):
         platform.platform_up(config, tools, backend, _FACTS, env={})
 
 

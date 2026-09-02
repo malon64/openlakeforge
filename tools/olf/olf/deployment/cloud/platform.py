@@ -18,7 +18,7 @@ from olf.deployment.cloud.backend import CloudBackend, FoundationFacts
 from olf.deployment.cloud.config import CloudDeploymentConfig
 from olf.deployment.engine import Toolkit
 from olf.deployment.errors import CommandExecutionError
-from olf.deployment.local.platform import require_no_stage_removal
+from olf.deployment.local.platform import require_no_shared_namespace_replacement, require_no_stage_removal
 from olf.deployment.retry import RetryPolicy, run_with_retry
 
 _NAMESPACE_RESOURCE_ADDR = "kubernetes_namespace_v1.shared"
@@ -72,6 +72,7 @@ def platform_up(
     tools.terraform.init(platform_dir, env=env)
 
     require_no_stage_removal(config, tools, env=env)
+    require_no_shared_namespace_replacement(config, tools, env=env)
 
     variables = backend.platform_apply_variables(config, facts)
     var_files = (str(config.terraform.var_file),) if config.terraform.var_file is not None else ()

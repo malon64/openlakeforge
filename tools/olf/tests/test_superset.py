@@ -45,6 +45,44 @@ def test_build_report_bundle_rewrites_database_uri(tmp_path: Path) -> None:
         assert "old@host" not in db
 
 
+def test_build_report_bundle_prefixes_dataset_schemas_when_given_a_prefix(tmp_path: Path) -> None:
+    source = tmp_path / "report"
+    (source / "databases").mkdir(parents=True)
+    (source / "datasets" / "OpenLakeForge_Trino").mkdir(parents=True)
+    (source / "dashboards").mkdir()
+    (source / "databases" / "trino.yaml").write_text(
+        "database_name: trino\nsqlalchemy_uri: trino://old@host:8080/iceberg\n"
+    )
+    (source / "datasets" / "OpenLakeForge_Trino" / "mart_x.yaml").write_text(
+        "table_name: mart_x\nschema: order_revenue_gold\nuuid: abc\n"
+    )
+    (source / "dashboards" / "d.yaml").write_text("dashboard_title: X\n")
+
+    bundle_path = tmp_path / "bundle.zip"
+    superset.build_report_bundle(
+        source, bundle_path, "my_bundle", "trino://superset@trino:8080/iceberg", schema_prefix="lakehouse_dev_"
+    )
+
+    with ZipFile(bundle_path) as bundle:
+        dataset = bundle.read("my_bundle/datasets/OpenLakeForge_Trino/mart_x.yaml").decode()
+        assert "schema: lakehouse_dev_order_revenue_gold" in dataset
+
+
+def test_build_report_bundle_leaves_dataset_schemas_alone_without_a_prefix(tmp_path: Path) -> None:
+    source = tmp_path / "report"
+    (source / "datasets" / "OpenLakeForge_Trino").mkdir(parents=True)
+    (source / "datasets" / "OpenLakeForge_Trino" / "mart_x.yaml").write_text(
+        "table_name: mart_x\nschema: order_revenue_gold\nuuid: abc\n"
+    )
+
+    bundle_path = tmp_path / "bundle.zip"
+    superset.build_report_bundle(source, bundle_path, "my_bundle", "trino://superset@trino:8080/iceberg")
+
+    with ZipFile(bundle_path) as bundle:
+        dataset = bundle.read("my_bundle/datasets/OpenLakeForge_Trino/mart_x.yaml").decode()
+        assert "schema: order_revenue_gold" in dataset
+
+
 def test_unpack_export_bundle_replaces_managed_assets(tmp_path: Path) -> None:
     bundle_path = tmp_path / "export.zip"
     with ZipFile(bundle_path, "w") as bundle:

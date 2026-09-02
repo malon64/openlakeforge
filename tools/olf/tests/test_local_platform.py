@@ -263,11 +263,13 @@ class _PlatformScriptedRunner(RecordingRunner):
         self,
         *,
         namespace_exists: bool = False,
+        legacy_namespace_exists: bool = False,
         seaweedfs_in_state: bool = True,
         apply_failures: int = 0,
     ) -> None:
         super().__init__()
         self._namespace_exists = namespace_exists
+        self._legacy_namespace_exists = legacy_namespace_exists
         self._seaweedfs_in_state = seaweedfs_in_state
         self._apply_failures = apply_failures
         self._apply_attempts = 0
@@ -286,6 +288,8 @@ class _PlatformScriptedRunner(RecordingRunner):
         if argv[0] == "kubectl" and "get-contexts" in argv:
             return _ok("kind-openlakeforge-local\n")
         if argv[0] == "kubectl" and "namespace" in argv and "get" in argv and "jsonpath" not in " ".join(argv):
+            if "lakehouse" in argv:
+                return _ok() if self._legacy_namespace_exists else _fail()
             return _ok() if self._namespace_exists else _fail()
         if argv[0] == "terraform" and "state" in argv and "module.seaweedfs.helm_release.seaweedfs" in argv:
             return _ok() if self._seaweedfs_in_state else _fail()
@@ -350,6 +354,42 @@ def test_platform_up_retries_apply_and_cleans_up_polaris_jobs_each_attempt(tmp_p
 
     apply_calls = [c for c in runner.calls if c.argv[0] == "terraform" and "apply" in c.argv]
     assert len(apply_calls) == 2  # first attempt failed, second succeeded
+
+
+def _legacy_namespace_runner(*, legacy_namespace_exists: bool) -> RecordingRunner:
+    """A runner whose `kubectl get namespace lakehouse` answers found/not-found."""
+
+    class _Runner(RecordingRunner):
+        def run(self, command, **kwargs):  # type: ignore[override]
+            argv = list(command.argv) if hasattr(command, "argv") else [str(part) for part in command]
+            self.calls.append(RecordedCall(argv=argv, kwargs=kwargs))
+            if "get" in argv and "namespace" in argv and "lakehouse" in argv:
+                return _ok() if legacy_namespace_exists else _fail()
+            return _ok()
+
+    return _Runner()
+
+
+def test_shared_namespace_replacement_fails_closed_when_the_legacy_namespace_exists(tmp_path: Path) -> None:
+    config = _config(tmp_path, topology=_topology(dev=True))
+    tools = _toolkit(_legacy_namespace_runner(legacy_namespace_exists=True))
+
+    with pytest.raises(DeploymentPreconditionError, match="lakehouse"):
+        platform.require_no_shared_namespace_replacement(config, tools, env={})
+
+
+def test_shared_namespace_replacement_is_allowed_with_the_explicit_opt_in(tmp_path: Path) -> None:
+    config = _config(tmp_path, topology=_topology(dev=True), allow_stage_removal=True)
+    tools = _toolkit(_legacy_namespace_runner(legacy_namespace_exists=True))
+
+    platform.require_no_shared_namespace_replacement(config, tools, env={})
+
+
+def test_shared_namespace_replacement_is_a_no_op_on_a_fresh_cluster(tmp_path: Path) -> None:
+    config = _config(tmp_path, topology=_topology(dev=True))
+    tools = _toolkit(_legacy_namespace_runner(legacy_namespace_exists=False))
+
+    platform.require_no_shared_namespace_replacement(config, tools, env={})
 
 
 def _stage_names_runner(applied: str | None, *, labelled_namespaces: str = "") -> RecordingRunner:
