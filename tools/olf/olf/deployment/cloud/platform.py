@@ -18,6 +18,7 @@ from olf.deployment.cloud.backend import CloudBackend, FoundationFacts
 from olf.deployment.cloud.config import CloudDeploymentConfig
 from olf.deployment.engine import Toolkit
 from olf.deployment.errors import CommandExecutionError
+from olf.deployment.local.platform import require_no_stage_removal
 from olf.deployment.retry import RetryPolicy, run_with_retry
 
 _NAMESPACE_RESOURCE_ADDR = "kubernetes_namespace_v1.shared"
@@ -57,7 +58,7 @@ def platform_up(
 ) -> None:
     platform_dir = config.paths.platform_terraform_dir
 
-    if config.features.analytics_enabled:
+    if config.context.platform_features.analytics_enabled:
         from olf.deployment.cloud import images
 
         images.build_and_push_superset_image(config, tools, backend, facts, env=env)
@@ -69,6 +70,8 @@ def platform_up(
 
     log.step(f"Initializing Terraform {backend.scope} platform...")
     tools.terraform.init(platform_dir, env=env)
+
+    require_no_stage_removal(config, tools, env=env)
 
     variables = backend.platform_apply_variables(config, facts)
     var_files = (str(config.terraform.var_file),) if config.terraform.var_file is not None else ()

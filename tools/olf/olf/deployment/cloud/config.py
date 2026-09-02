@@ -382,7 +382,7 @@ class CloudDeploymentConfig:
                 catalog_path=context.paths.distribution_root / "release/component-catalog.yaml",
                 installed=context.paths.installed,
                 scope=scope,
-                features=context.features,
+                features=context.platform_features,
             ),
             terraform=terraform,
             floe=FloeManifestSettings.from_environment(environ, work_root=context.paths.work_root, scope=scope),

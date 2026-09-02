@@ -573,22 +573,47 @@ module "openmetadata" {
   deps_values_file        = "${path.root}/../../../helm/values/local/openmetadata-deps.yaml"
   chart_package_path      = var.openmetadata_chart_package_path
   deps_chart_package_path = var.openmetadata_deps_chart_package_path
-  catalog_contract        = local.catalog_contract
-  storage_contract        = local.storage_contract
-  postgresql_contract     = local.metadata_database_contract
-  postgresql_ssl_mode     = "require"
+  # OpenMetadata currently has one active Iceberg connection. Its binding
+  # follows the governed stage rather than the selected runtime stage, and the
+  # check below fails closed until #131 can configure multiple connections.
+  catalog_contract = merge(
+    local.catalog_contract,
+    local.stage_catalog_contracts[local.governance_dagster_stage],
+  )
+  storage_contract = merge(
+    local.storage_contract,
+    local.stage_storage_contracts[local.governance_dagster_stage],
+  )
+  postgresql_contract = local.metadata_database_contract
+  postgresql_ssl_mode = "require"
   # Empty by design: the database schemas mirror Glue databases, which now
   # come into existence in Phase 2. `olf openmetadata deploy-metadata` creates
   # each databaseSchema entity right before it seeds that schema's tables.
   catalog_schema_names    = []
-  catalog_database_name   = local.stage_catalogs_desired[local.selected_stage].catalog_name
+  catalog_database_name   = local.stage_catalog_contracts[local.governance_dagster_stage].catalog_name
   catalog_refresh_enabled = false
+  workload_namespaces     = [for name in keys(local.governed_stages) : local.stage_namespaces[name]]
+  revoked_namespaces = [
+    for name in keys(local.enabled_stages) : local.stage_namespaces[name]
+    if !contains(keys(local.governed_stages), name)
+  ]
+  dagster_webserver_url   = local.governance_dagster_url
+  register_superset       = length(local.analytics_stages) > 0
+  superset_url            = local.governance_superset_url
+  trino_lineage_namespace = "trino://${local.query_contract.service_name}.${var.shared_namespace}:${local.query_contract.http_port}"
 
   depends_on = [
     module.glue,
     module.rds_postgresql,
     aws_eks_pod_identity_association.shared_workloads,
   ]
+}
+
+check "openmetadata_governance_catalog_is_unambiguous" {
+  assert {
+    condition     = length(local.governed_stages) <= 1
+    error_message = "OpenMetadata currently has one Iceberg connection. Enable governance for one stage only; multi-stage OpenMetadata catalog connections are tracked by #131."
+  }
 }
 
 module "superset" {

@@ -142,7 +142,7 @@ class CloudProvider:
         facts = self._foundation_facts
         return collect_status(
             self.tools.kubectl,
-            namespaces=(self.config.namespace,),
+            namespaces=self.context.owned_namespaces,
             context=facts.kube_context,
             kubeconfig=self.config.paths.kubeconfig_path,
             env=self.env,
