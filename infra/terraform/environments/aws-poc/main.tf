@@ -429,15 +429,23 @@ resource "aws_iam_policy" "stage_workloads" {
         Action = [
           "s3:GetObject",
           "s3:PutObject",
-          "s3:ListBucket",
         ]
         # Dagster/Floe upload the stage's own activation artifacts (manifests,
         # reports, run logs) into the shared ops bucket under its own prefix
         # only - never another stage's.
         Resource = [
-          module.s3.ops_bucket_arn,
           "${module.s3.ops_bucket_arn}/activations/${each.key}/*",
         ]
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["s3:ListBucket"]
+        Resource = [module.s3.ops_bucket_arn]
+        Condition = {
+          StringLike = {
+            "s3:prefix" = ["activations/${each.key}/*"]
+          }
+        }
       },
       {
         Effect = "Allow"

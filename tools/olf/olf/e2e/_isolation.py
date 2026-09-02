@@ -13,8 +13,10 @@ this module skips cleanly rather than failing.
 
 from __future__ import annotations
 
+from typing import Any
+
 from olf import config, k8s, log
-from olf.e2e._shell import E2EConfig, E2EError
+from olf.e2e._shell import E2EConfig, E2EError, load_provider_contracts_or_raise
 from olf.e2e._trino import trino_query
 
 
@@ -62,6 +64,18 @@ def _s3_client(access_key: str, secret_key: str, *, local_port: int, region: str
     )
 
 
+def _bronze_bucket_for_stage(provider_contracts: dict[str, Any], stage: str) -> str:
+    try:
+        bucket = provider_contracts["stages"][stage]["storage"]["bronze"]["bucket_name"]
+    except (KeyError, TypeError) as exc:
+        raise E2EError(
+            f"provider_contracts.stages.{stage}.storage.bronze.bucket_name is required for isolation."
+        ) from exc
+    if not isinstance(bucket, str) or not bucket:
+        raise E2EError(f"provider_contracts.stages.{stage}.storage.bronze.bucket_name must be a non-empty string.")
+    return bucket
+
+
 def check_stage_isolation(cfg: E2EConfig) -> None:
     """Prove this stage's runtime identity cannot read/write the sibling
     stage's Trino catalog, S3 buckets, or ops-bucket activation prefix -
@@ -75,6 +89,9 @@ def check_stage_isolation(cfg: E2EConfig) -> None:
         return
 
     this_stage = cfg.namespace.removeprefix("olf-")
+    provider_contracts = load_provider_contracts_or_raise(cfg)
+    this_bucket = _bronze_bucket_for_stage(provider_contracts, this_stage)
+    sibling_bucket = _bronze_bucket_for_stage(provider_contracts, sibling)
     runtime_user = f"{cfg.namespace}-runtime"
     log.step(f"Checking Trino cross-stage isolation ({this_stage} -> {sibling})...")
     _expect_trino_denied(
@@ -99,7 +116,6 @@ def check_stage_isolation(cfg: E2EConfig) -> None:
         client = _s3_client(access_key, secret_key, local_port=local_port, region=region)
         from botocore.exceptions import BotoCoreError, ClientError
 
-        sibling_bucket = f"openlakeforge-{sibling}-bronze"
         try:
             client.head_bucket(Bucket=sibling_bucket)
         except (ClientError, BotoCoreError):
@@ -122,5 +138,5 @@ def check_stage_isolation(cfg: E2EConfig) -> None:
 
         # Positive controls: the same identity must still reach its own
         # bucket and its own ops-bucket activation prefix.
-        client.head_bucket(Bucket=f"openlakeforge-{this_stage}-bronze")
+        client.head_bucket(Bucket=this_bucket)
         client.list_objects_v2(Bucket=ops_bucket, Prefix=f"activations/{this_stage}/", MaxKeys=1)
