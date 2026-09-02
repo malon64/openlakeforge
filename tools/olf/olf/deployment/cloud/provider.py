@@ -205,7 +205,7 @@ class CloudProvider:
         if phase in (DeploymentPhase.ALL, DeploymentPhase.PLATFORM):
             required.append("helm")
         needs_docker = phase in (DeploymentPhase.ALL, DeploymentPhase.ARTIFACTS) or (
-            phase == DeploymentPhase.PLATFORM and self.config.features.analytics_enabled
+            phase == DeploymentPhase.PLATFORM and self.context.platform_features.analytics_enabled
         )
         if needs_docker:
             required.append("docker")
