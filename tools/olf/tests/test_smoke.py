@@ -7,6 +7,19 @@ import pytest
 from olf import smoke
 
 
+@pytest.fixture(autouse=True)
+def _no_real_contract_resolution(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`applied_contract_environment` shells out to `terraform output`; every
+    test here mocks the contracts module so no real subprocess runs (mirrors
+    test_cli_e2e.py's `_no_real_contract_resolution`)."""
+    from olf import contracts as contracts_module
+
+    monkeypatch.setattr(contracts_module, "load_provider_contracts", lambda terraform_dir, *, environ=None: None)
+    monkeypatch.setattr(
+        contracts_module, "build_contract_env", lambda base, contracts_value, *, repo_root, **_: ({}, [])
+    )
+
+
 def test_run_uses_deployment_engine_and_e2e_without_make(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:  # noqa: ANN001
     calls: list[object] = []
     monkeypatch.setattr(smoke.config, "repo_root", lambda: tmp_path)
@@ -72,6 +85,38 @@ def test_run_tells_e2e_where_the_shared_services_live(monkeypatch: pytest.Monkey
 
     assert e2e_calls[0]["namespace"] == "olf-dev"
     assert e2e_calls[0]["shared_namespace"] == "olf-system"
+
+
+def test_run_exports_the_provider_contract_environment_before_e2e(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """e2e.run() must see the same contract-derived exports the CLI's own
+    `olf e2e run` applies (e.g. OPENLAKEFORGE_QUERY_TRINO_CATALOG) - without
+    them, Trino catalog lookups silently fall back to the stale "iceberg"
+    default instead of this profile's actual stage catalog name."""
+    from olf import contracts as contracts_module
+
+    monkeypatch.setattr(
+        contracts_module,
+        "build_contract_env",
+        lambda base, contracts_value, *, repo_root, **_: ({"OPENLAKEFORGE_QUERY_TRINO_CATALOG": "lakehouse_dev"}, []),
+    )
+    observed: dict[str, str | None] = {}
+    monkeypatch.setattr(smoke.config, "repo_root", lambda: tmp_path)
+    monkeypatch.setattr(smoke, "build_provider", lambda *args, **kwargs: object())
+    monkeypatch.setattr(smoke.DeploymentEngine, "deploy", lambda *args: None)
+    def _capture_catalog(*args, **kwargs) -> None:  # noqa: ANN002, ANN003
+        observed["catalog"] = os.environ.get("OPENLAKEFORGE_QUERY_TRINO_CATALOG")
+
+    monkeypatch.setattr(smoke.e2e, "run", _capture_catalog)
+
+    smoke.run(
+        timeout_seconds=2700,
+        environ={"OLF_TOOLCHAIN_MODE": "host"},
+        monotonic=iter((0.0, 1.0, 2.0, 3.0)).__next__,
+    )
+
+    assert observed["catalog"] == "lakehouse_dev"
 
 
 def test_run_applies_the_supplied_environment_during_deployment_and_e2e(

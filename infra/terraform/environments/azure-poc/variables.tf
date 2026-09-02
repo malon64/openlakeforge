@@ -1,7 +1,29 @@
-variable "namespace" {
-  description = "Kubernetes namespace for the Azure AKS POC lakehouse stack."
+variable "profile_name" {
+  description = "Deployment Profile name resolved by `olf profile resolve`. Identifies this deployment across its stages."
   type        = string
-  default     = "lakehouse"
+  default     = "openlakeforge"
+}
+
+variable "shared_namespace" {
+  description = "Kubernetes namespace owning the shared platform services: PostgreSQL, SeaweedFS, Polaris, Trino, and OpenMetadata."
+  type        = string
+  default     = "olf-system"
+}
+
+variable "stages" {
+  description = "Resolved deployment topology: one entry per stage the resolver knows about, with its enabled flag and capabilities. Disabled stages stay in the map so the root can report what an apply would remove."
+  type = map(object({
+    enabled    = bool
+    analytics  = bool
+    governance = bool
+  }))
+  default = {
+    dev = {
+      enabled    = true
+      analytics  = true
+      governance = true
+    }
+  }
 }
 
 variable "kubeconfig_path" {
@@ -34,26 +56,20 @@ variable "foundation_state_path" {
   default     = null
 }
 
-variable "catalog_name" {
-  description = "Polaris catalog and Trino Iceberg warehouse name."
-  type        = string
-  default     = "lakehouse_dev"
-}
-
 variable "bronze_bucket_name" {
-  description = "S3-compatible bucket for the Bronze raw landing zone (immutable CSV files)."
+  description = "Existing DEV Bronze bucket retained from the v0.2 Azure POC."
   type        = string
   default     = "lakehouse-bronze"
 }
 
 variable "silver_bucket_name" {
-  description = "S3-compatible bucket for the Silver layer (Floe-validated Iceberg tables)."
+  description = "Existing DEV Silver bucket retained from the v0.2 Azure POC."
   type        = string
   default     = "lakehouse-silver"
 }
 
 variable "gold_bucket_name" {
-  description = "S3-compatible bucket for the Gold layer (dbt business-ready Iceberg marts)."
+  description = "Existing DEV Gold bucket retained from the v0.2 Azure POC."
   type        = string
   default     = "lakehouse-gold"
 }
@@ -92,18 +108,6 @@ variable "project_code_image_revision" {
   description = "Project-code image revision used to force Dagster pod rollouts when the tag is reused."
   type        = string
   default     = "manual"
-}
-
-variable "enable_governance" {
-  description = "Whether to deploy the OpenMetadata governance layer and its supporting credentials."
-  type        = bool
-  default     = true
-}
-
-variable "enable_analytics" {
-  description = "Whether to deploy the Superset analytics layer and its supporting credentials."
-  type        = bool
-  default     = true
 }
 
 variable "superset_image_repository" {

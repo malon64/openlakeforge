@@ -11,7 +11,7 @@ locals {
 }
 
 resource "kubernetes_job_v1" "credential_replication" {
-  count = length(var.workload_namespaces) > 0 ? 1 : 0
+  count = var.replicate_credentials && length(var.workload_namespaces) > 0 ? 1 : 0
 
   metadata {
     name      = "polaris-credential-replication-${local.workload_revision}"

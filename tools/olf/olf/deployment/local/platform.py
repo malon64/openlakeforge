@@ -7,7 +7,6 @@ semantics of the shell script.
 
 from __future__ import annotations
 
-import json
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -15,6 +14,7 @@ from olf import log
 from olf.deployment import kube_ops
 from olf.deployment.charts import TERRAFORM_VARIABLE_KEY, prepare_chart
 from olf.deployment.context import stage_namespace
+from olf.deployment.context import topology_variables as _topology_variables
 from olf.deployment.engine import Toolkit
 from olf.deployment.errors import CommandExecutionError, DeploymentPreconditionError
 from olf.deployment.local.config import LocalDeploymentConfig
@@ -24,6 +24,9 @@ from olf.tooling.kubectl import KubeContextUnreachableError
 _SEAWEEDFS_RESOURCE_ADDR = "module.seaweedfs.helm_release.seaweedfs"
 _SHARED_NAMESPACE_RESOURCE_ADDR = "kubernetes_namespace_v1.shared"
 _POLARIS_JOB_PREFIXES = ("polaris-bootstrap-", "polaris-metastore-bootstrap-")
+# Every root's shared-services namespace was named "lakehouse" and addressed
+# as `kubernetes_namespace_v1.lakehouse` before the stage-aware rewrite.
+_LEGACY_SHARED_NAMESPACE = "lakehouse"
 
 
 def stage_namespace_resource_addr(stage: str) -> str:
@@ -50,27 +53,10 @@ def prepare_charts(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mappin
 def topology_variables(config: LocalDeploymentConfig) -> dict[str, str]:
     """The resolved topology, as the platform root's typed Terraform inputs.
 
-    The root derives every stage namespace, service multiplicity, and
-    capability gate from `stages`; nothing downstream re-reads the
-    Deployment Profile. Every stage the resolver knows about is passed with
-    its own `enabled` flag rather than only the enabled subset, so what the
-    root receives is the resolved topology itself and not a filtered view of
-    it.
+    See `olf.deployment.context.topology_variables` - shared with the AWS
+    and Azure roots (#114), which took on the same `stages` input.
     """
-    topology = config.context.topology
-    stages = {
-        stage.name.value: {
-            "enabled": stage.enabled,
-            "analytics": stage.capabilities.analytics,
-            "governance": stage.capabilities.governance,
-        }
-        for stage in topology.stages
-    }
-    return {
-        "profile_name": topology.profile_name,
-        "shared_namespace": config.context.shared_namespace,
-        "stages": json.dumps(stages, sort_keys=True, separators=(",", ":")),
-    }
+    return _topology_variables(config.context)
 
 
 def platform_apply_variables(config: LocalDeploymentConfig) -> dict[str, str]:
@@ -231,6 +217,43 @@ def require_no_stage_removal(config: LocalDeploymentConfig, tools: Toolkit, *, e
     )
 
 
+def require_no_shared_namespace_replacement(
+    config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[str, str]
+) -> None:
+    """Refuse an apply that would silently replace the pre-v0.3 shared namespace.
+
+    Every root's shared-services namespace was named `lakehouse` and addressed
+    as `kubernetes_namespace_v1.lakehouse` before the stage-aware rewrite; it
+    is now `kubernetes_namespace_v1.shared`, named `config.context.
+    shared_namespace` (`olf-system` by default). A Kubernetes namespace's name
+    is immutable and Terraform's own state still has the old resource
+    address, so an apply against an already-deployed pre-v0.3 cluster plans
+    to destroy `lakehouse` - and everything stateful inside it (SeaweedFS,
+    PostgreSQL, Polaris) - and create an empty `olf-system` in its place.
+    `import_namespace_if_missing_in_state` cannot rescue this on its own: it
+    only imports a namespace already named `shared_namespace`, which does not
+    exist yet on an unmigrated cluster.
+    """
+    shared_namespace = config.context.shared_namespace
+    if shared_namespace == _LEGACY_SHARED_NAMESPACE or config.context.allow_stage_removal:
+        return
+    if not kube_ops.namespace_exists(
+        tools.kubectl,
+        _LEGACY_SHARED_NAMESPACE,
+        context=config.kube_context,
+        kubeconfig=config.paths.kubeconfig_path,
+        env=env,
+    ):
+        return
+    raise DeploymentPreconditionError(
+        f"a '{_LEGACY_SHARED_NAMESPACE}' namespace already exists from a pre-v0.3 deployment, but this "
+        f"apply's shared namespace is now '{shared_namespace}'. Applying would destroy '{_LEGACY_SHARED_NAMESPACE}' "
+        "- and the SeaweedFS, PostgreSQL, and Polaris state inside it - to create an empty "
+        f"'{shared_namespace}' in its place. Migrate the shared services' data manually first, or re-run with "
+        "--allow-stage-removal to accept the loss."
+    )
+
+
 def reset_drifted_platform_if_needed(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[str, str]) -> bool:
     platform_dir = config.paths.platform_terraform_dir
     if not kube_ops.namespace_exists(
@@ -297,6 +320,7 @@ def platform_up(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[s
     tools.terraform.init(platform_dir, env=env)
 
     require_no_stage_removal(config, tools, env=env)
+    require_no_shared_namespace_replacement(config, tools, env=env)
     reset_drifted_platform_if_needed(config, tools, env=env)
 
     variables = platform_apply_variables(config)

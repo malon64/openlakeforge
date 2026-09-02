@@ -500,12 +500,22 @@ Or deploy and inspect a specific stage:
 olf deploy --provider local --stage prod --phase platform
 ```
 
-`--phase platform` is required for any stage other than `dev`. The local root
-still exports a provider-contract v2 payload, which describes one stage's data
-plane; the artifacts phase refuses to resolve a non-DEV stage from it rather
-than deploying PROD artifacts against DEV storage and catalogs. Per-stage
-storage and catalogs, the v3 payload, and full non-DEV deployment arrive with
-[#114](https://github.com/malon64/openlakeforge/issues/114).
+The local root exports a native provider-contract v3 payload. The artifacts
+phase resolves its selected stage's storage, catalog, credentials, and ops
+activation prefix, so deploying PROD artifacts cannot fall back to DEV's data
+plane.
+
+### Upgrading a v0.2 local deployment
+
+The deprecated `--provider local --profile slim|full` command remains a
+single-DEV Deployment Profile. Apply the platform phase before artifacts so
+Terraform retains the existing DEV Bronze, Silver, Gold, ops, and
+`lakehouse_dev` identities while it writes the v3 contract. The platform
+recreates stage services in `olf-dev`; pause active runs during that apply.
+After `olf profile resolve --json` and `olf deploy --provider local --phase
+platform` succeed, deploy artifacts with an explicit `--stage dev`. Enabling
+UAT or PROD then creates new stage-qualified medallion buckets and catalogs;
+it does not copy DEV data.
 
 The local kubeconfig path can also be overridden:
 

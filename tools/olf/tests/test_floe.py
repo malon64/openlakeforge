@@ -1,6 +1,11 @@
+from pathlib import Path
+
 import pytest
+import yaml
 
 from olf.floe import render_profile
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
 
 AWS_ENV = {
     "OPENLAKEFORGE_STORAGE_IMPLEMENTATION": "storage.aws_s3",
@@ -40,6 +45,14 @@ def test_local_profile_uses_polaris_rest_catalog_and_secrets() -> None:
     assert 'AWS_ENDPOINT_URL: "http://seaweedfs-s3.olf-system:8333"' in profile
     assert 'AWS_ENDPOINT_URL_S3: "http://seaweedfs-s3.olf-system:8333"' in profile
     assert "\nstorages:" not in profile
+
+
+def test_checked_in_dev_profile_uses_the_preserved_storage_identities() -> None:
+    profile = yaml.safe_load((REPO_ROOT / "libs/floe/profiles/local-k8s.yml").read_text())
+
+    assert profile["variables"]["OPENLAKEFORGE_STORAGE_BRONZE_BUCKET"] == "lakehouse-bronze"
+    assert profile["variables"]["OPENLAKEFORGE_STORAGE_SILVER_BUCKET"] == "lakehouse-silver"
+    assert profile["catalogs"]["definitions"][0]["warehouse_prefix"] == "s3://lakehouse-silver"
 
 
 def test_aws_profile_uses_glue_catalog_without_secrets() -> None:

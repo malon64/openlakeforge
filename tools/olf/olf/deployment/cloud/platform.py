@@ -18,9 +18,10 @@ from olf.deployment.cloud.backend import CloudBackend, FoundationFacts
 from olf.deployment.cloud.config import CloudDeploymentConfig
 from olf.deployment.engine import Toolkit
 from olf.deployment.errors import CommandExecutionError
+from olf.deployment.local.platform import require_no_shared_namespace_replacement, require_no_stage_removal
 from olf.deployment.retry import RetryPolicy, run_with_retry
 
-_NAMESPACE_RESOURCE_ADDR = "kubernetes_namespace_v1.lakehouse"
+_NAMESPACE_RESOURCE_ADDR = "kubernetes_namespace_v1.shared"
 _POLARIS_JOB_PREFIXES = ("polaris-bootstrap-", "polaris-metastore-bootstrap-")
 
 
@@ -57,7 +58,7 @@ def platform_up(
 ) -> None:
     platform_dir = config.paths.platform_terraform_dir
 
-    if config.features.analytics_enabled:
+    if config.context.platform_features.analytics_enabled:
         from olf.deployment.cloud import images
 
         images.build_and_push_superset_image(config, tools, backend, facts, env=env)
@@ -70,6 +71,9 @@ def platform_up(
     log.step(f"Initializing Terraform {backend.scope} platform...")
     tools.terraform.init(platform_dir, env=env)
 
+    require_no_stage_removal(config, tools, env=env)
+    require_no_shared_namespace_replacement(config, tools, env=env)
+
     variables = backend.platform_apply_variables(config, facts)
     var_files = (str(config.terraform.var_file),) if config.terraform.var_file is not None else ()
 
@@ -78,7 +82,7 @@ def platform_up(
         tools.kubectl,
         terraform_dir=platform_dir,
         resource_addr=_NAMESPACE_RESOURCE_ADDR,
-        namespace=config.namespace,
+        namespace=config.context.shared_namespace,
         var_files=var_files,
         variables=variables,
         context=facts.kube_context,
@@ -92,7 +96,7 @@ def platform_up(
                 kube_ops.cleanup_failed_jobs_by_prefix(
                     tools.kubectl,
                     prefix,
-                    namespace=config.namespace,
+                    namespace=config.context.shared_namespace,
                     context=facts.kube_context,
                     kubeconfig=config.paths.kubeconfig_path,
                     env=env,

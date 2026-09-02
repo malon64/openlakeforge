@@ -12,13 +12,14 @@ reconciliation. Product-owned descriptors contain logical identities only.
 
 ## Versions and deployment phases
 
-The deployed Terraform roots currently export flat `2.0.0` contracts. `olf`
-adapts one to a single DEV-stage v3 view, preserving the v0.2 environment
-exports. Unknown versions fail closed.
+Every Terraform root (local, AWS, Azure) now emits native `3.0.0` contracts.
+`olf` retains a v2 adapter that lifts a flat `2.0.0` contract to a single
+DEV-stage v3 view, but only to keep reading a contract from state a pre-v3
+deploy already produced — no current root's Terraform emits that shape.
+Unknown versions fail closed.
 
-`3.0.0` is the binding stage-aware shape. It is represented by strict schema,
-typed parser, and local, Azure, and AWS fixtures now; #133 and #114 will make
-the Terraform roots emit and provision it. A native v3 runtime must select a
+`3.0.0` is the binding stage-aware shape, represented by strict schema, typed
+parser, and local, Azure, and AWS fixtures. A native v3 runtime must select a
 stage explicitly. No profile or project descriptor receives a bucket, catalog,
 provider adapter, credential, or generated endpoint.
 
@@ -75,31 +76,40 @@ gain a stage prefix.
   distinct SeaweedFS Bronze, Silver, and Gold buckets per stage.
 - Azure: shared Polaris service on AKS, one physical Polaris catalog per
   stage, and distinct SeaweedFS-on-AKS buckets per stage.
-- AWS: one custom Glue catalog per stage, exposed through Trino's native Glue
-  `catalogid`, and distinct S3 buckets per stage.
+- AWS: every stage shares the account's one default Glue catalog (this
+  account's Glue service rejects `CreateCatalog`, confirmed directly against
+  the account — a native catalog per stage is not available), exposed through
+  Trino's native Glue adapter, and distinct S3 buckets per stage.
 
-AWS custom Glue catalog names are lower-case
-`olf_<profile>_<stage>`. If that exceeds the 64-byte limit AWS Glue enforces on
-catalog names ([AWS Glue Iceberg REST catalog
-limitations](https://docs.aws.amazon.com/glue/latest/dg/limitation-glue-iceberg-rest-api.html)),
-the profile portion is truncated and an eight-character hash of the full name
-is appended. The physical ID is `<account-id>:<catalog-name>`, while Trino's
-SQL alias remains `lakehouse_<stage>`. Thus DEV and PROD may both contain the
-physical Glue database `sales_silver` without collision.
+Because every AWS stage shares one Glue catalog, `lakehouse_<stage>` is a
+*logical* alias only there, not a distinct physical catalog: Trino's stage
+catalog ID is the bare 12-digit AWS account ID, identical across stages.
+Physical isolation instead comes from a `namespace_prefix` on every physical
+Glue database/schema name —
+`resolve_physical_names(namespace_prefix=f"{catalog_name}_")` renders
+`sales_silver` as `lakehouse_dev_sales_silver` for DEV and
+`lakehouse_prod_sales_silver` for PROD, so both stages' physical databases
+coexist in the one shared catalog without colliding. Every consumer that
+resolves a physical Glue name (Floe's per-domain profile rendering, `olf
+catalog sync-namespaces`, dbt profile/source schema config) must apply this
+same prefix — IAM scopes each stage's role to `database/<prefix>_*` regardless,
+so an unprefixed name is simply denied rather than silently reading the wrong
+stage's data. Trino's file-based access control adds a second, defense-in-depth
+layer on top of that IAM scoping: a `tables` rule grants a stage's identity
+full privileges only on its own `<prefix>_.*`-matching schemas within the
+shared catalog, since the `catalogs` rule alone only gates which catalog a
+client may use, not which schemas it can see once inside one.
 
 `query.catalog_name` doubles as the name of the Trino catalog properties file
 Terraform renders. v2 kept this separate from the Iceberg catalog name as
-`trino_catalog_name`, deployed today as the fixed value `iceberg`. v3 collapses
-the two into one field, requiring it to equal `lakehouse_<stage>`; #133/#114
-must rename the provisioned Trino catalog from `iceberg` to `lakehouse_<stage>`
-before any root emits v3, or Trino's own catalog name and the SQL alias above
-will disagree.
+`trino_catalog_name`, deployed as the fixed value `iceberg` before #114. v3
+collapses the two into one field, requiring it to equal `lakehouse_<stage>`;
+every root now provisions the Trino catalog as `lakehouse_<stage>` rather than
+`iceberg`.
 
 The AWS adapter keeps native Glue rather than introducing another catalog
-technology. It supplies the stage catalog ID, region, and workload-identity
-reference; it never supplies credentials. #114 must upgrade the AWS Terraform
-provider to a release supporting `aws_glue_catalog` before it provisions these
-catalogs.
+technology. It supplies the (shared) catalog ID, region, and
+workload-identity reference; it never supplies credentials.
 
 ## Validation and migration
 

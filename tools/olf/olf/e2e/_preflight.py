@@ -7,17 +7,22 @@ import os
 from olf import log
 from olf.auth import aws_session
 from olf.e2e._shell import E2EConfig, E2EError, aws_stack_region, load_provider_contracts_or_raise
+from olf.e2e._trino import stage_catalog_name
 
 
 def check_aws_provider_contracts(cfg: E2EConfig) -> None:
     log.step("Checking AWS provider contracts...")
     provider_contracts = load_provider_contracts_or_raise(cfg)
+    # storage/catalog are per-stage in the native v3 contract (#114); pick
+    # any enabled stage - every stage shares the same provider/implementation
+    # strings regardless of which one this check happens to land on.
+    stage_name = next(iter(provider_contracts["stages"]))
     expected = {
-        ("storage", "implementation"): "storage.aws_s3",
-        ("metadata_database", "implementation"): "metadata_database.aws_rds_postgresql",
-        ("catalog", "implementation"): "catalog.aws_glue",
-        ("catalog", "catalog_type"): "glue",
-        ("artifacts", "implementation"): "artifacts.aws_ecr_and_s3",
+        ("stages", stage_name, "storage", "implementation"): "storage.aws_s3",
+        ("shared", "metadata_database", "implementation"): "metadata_database.aws_rds_postgresql",
+        ("stages", stage_name, "catalog", "implementation"): "catalog.aws_glue",
+        ("stages", stage_name, "catalog", "catalog_type"): "glue",
+        ("shared", "ops_storage", "implementation"): "artifacts.aws_s3_bucket",
     }
     for path, expected_value in expected.items():
         value = provider_contracts
@@ -37,13 +42,26 @@ def check_aws_storage_and_glue(cfg: E2EConfig) -> None:
     """
     log.step("Checking S3 artifact bucket and Glue catalog databases...")
     provider_contracts = load_provider_contracts_or_raise(cfg)
-    bucket = provider_contracts["artifact_bucket"]["bucket_name"]
+    bucket = provider_contracts["shared"]["ops_storage"]["bucket_name"]
     region = aws_stack_region(cfg)
-    expected_schemas = (
-        cfg.inventory.bronze_namespace_names
-        | cfg.inventory.silver_namespace_names
-        | cfg.inventory.gold_namespace_names
-    )
+    # This account's Glue service refuses to create a custom catalog per
+    # stage, so every stage shares the account's one default catalog and
+    # olf.contracts.build_contract_env prefixes each physical database name
+    # with the stage's own catalog_name to stay collision-free - the bare
+    # inventory names below never exist in Glue on their own.
+    stage_name = stage_catalog_name(cfg).removeprefix("lakehouse_")
+    stage = provider_contracts["stages"].get(stage_name)
+    if stage is None:
+        raise E2EError(f"provider_contracts.stages has no entry for stage {stage_name!r}.")
+    namespace_prefix = f"{stage['catalog']['catalog_name']}_"
+    expected_schemas = {
+        f"{namespace_prefix}{name}"
+        for name in (
+            cfg.inventory.bronze_namespace_names
+            | cfg.inventory.silver_namespace_names
+            | cfg.inventory.gold_namespace_names
+        )
+    }
     try:
         session = aws_session(os.environ, region=region)
         session.client("s3").head_bucket(Bucket=bucket)

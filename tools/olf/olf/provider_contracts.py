@@ -131,18 +131,20 @@ def _s3_uri_bucket(value: object, *, where: str) -> str:
     return parts.netloc
 
 
-_GLUE_CATALOG_ID_PATTERN = re.compile(r"^\d{12}:[a-z0-9_]+$")
+_GLUE_CATALOG_ID_PATTERN = re.compile(r"^\d{12}(:[a-z0-9_]+)?$")
 
 
-def _glue_catalog_id(value: object, *, where: str) -> str:
-    """Return the catalog-name suffix of a validated <account-id>:<name> Glue
-    catalog ID. A suffix-only check (rsplit on ":") accepts a bare catalog
-    name with no account-id prefix at all - GlueClient then receives that as
-    an unusable CatalogId and only fails at the AWS API instead of here."""
+def _check_glue_catalog_id(value: object, *, where: str) -> None:
+    """A Glue CatalogId is either a bare 12-digit account ID (the shared
+    default catalog - this account's Glue service refuses to create any
+    other kind) or, for a provider whose account can create one, a
+    '<account-id>:<name>' custom catalog. A suffix-only check (rsplit on
+    ":") would accept a bare catalog *name* with no account-id at all -
+    GlueClient then receives that as an unusable CatalogId and only fails at
+    the AWS API instead of here."""
     catalog_id = _string(value, where=where)
     if not _GLUE_CATALOG_ID_PATTERN.match(catalog_id):
-        raise ProviderContractError(f"{where} must be '<12-digit-account-id>:<catalog-name>'")
-    return catalog_id.split(":", 1)[1]
+        raise ProviderContractError(f"{where} must be '<12-digit-account-id>[:<catalog-name>]'")
 
 
 def _absolute_http_uri(value: object, *, where: str) -> str:
@@ -270,9 +272,22 @@ class StageContract:
                 "log_base_uri": f"{stage_uri}/logs",
                 "run_artifact_base_uri": f"{stage_uri}/run-artifacts",
                 "local_upload_access_mode": ops_storage.get("local_upload_access_mode", "direct"),
+                # The shared admin identity, not this stage's own storage
+                # credentials: immutable revision publishing
+                # (olf.revision.REVISION_PREFIX = "floe/revisions") writes
+                # outside any stage's activations/<stage> prefix, so only
+                # the admin identity - scoped to the whole ops bucket - can
+                # reach it.
+                "credentials_secret_name": ops_storage.get("credentials_secret_name"),
+                "access_key_id_key": ops_storage.get("access_key_id_key"),
+                "secret_access_key_key": ops_storage.get("secret_access_key_key"),
             },
             "kubernetes_platform": {"namespace": self.namespace},
-            "query": {"catalog_name": self.query["catalog_name"], "endpoint": self.query["endpoint"]},
+            "query": {
+                "catalog_name": self.query["catalog_name"],
+                "endpoint": self.query["endpoint"],
+                "runtime_identity_principal": self.runtime_identity["principal"],
+            },
             "governance": {"enabled": self.governance is not None},
             "reporting": {"enabled": self.reporting is not None},
         }
@@ -327,6 +342,14 @@ def _parse_shared(value: object) -> SharedPlatformContract:
                 "artifact_base_uri",
                 "access_mode",
                 "local_upload_access_mode",
+                # Only meaningful on shared.ops_storage: the shared admin
+                # identity olf's own revision-publish/manifest-upload
+                # tooling uses. Every stage's own OPENLAKEFORGE_STORAGE_*
+                # (parsed separately, per stage) is deliberately narrower -
+                # see StageContract.as_v2_environment_contract.
+                "credentials_secret_name",
+                "access_key_id_key",
+                "secret_access_key_key",
             },
         )
         _reference(parsed[name]["ref"], where=f"shared.{name}.ref", allowed=("shared/",))
@@ -469,8 +492,8 @@ def _parse_stage(
     if catalog["catalog_name"] != expected_catalog:
         raise ProviderContractError(f"stages.{name.value}.catalog.catalog_name must be canonical {expected_catalog!r}")
     if catalog["catalog_provider"] == "aws-glue":
-        for field in ("glue_region", "glue_catalog_id"):
-            _string(catalog.get(field), where=f"stages.{name.value}.catalog.{field}")
+        _string(catalog.get("glue_region"), where=f"stages.{name.value}.catalog.glue_region")
+        _check_glue_catalog_id(catalog.get("glue_catalog_id"), where=f"stages.{name.value}.catalog.glue_catalog_id")
         if topology.region is not None and catalog["glue_region"] != topology.region:
             raise ProviderContractError(f"stages.{name.value}.catalog.glue_region must match DeploymentTopology.region")
         if catalog["glue_catalog_id"] != catalog["physical_id"]:
@@ -479,14 +502,12 @@ def _parse_stage(
             raise ProviderContractError(
                 f"stages.{name.value}.catalog.glue_rest_warehouse must match its own Glue catalog ID"
             )
-        catalog_name = _glue_catalog_id(
-            catalog["glue_catalog_id"], where=f"stages.{name.value}.catalog.glue_catalog_id"
-        )
-        if catalog_name != aws_catalog_name(topology.profile_name, name):
-            raise ProviderContractError(
-                f"stages.{name.value}.catalog Glue catalog ID must end with "
-                f"{aws_catalog_name(topology.profile_name, name)!r}"
-            )
+        # No per-stage Glue catalog name to validate here: this account's
+        # Glue service refuses to create one (confirmed against the AWS API,
+        # not just this module's config), so every stage's glue_catalog_id
+        # is the account's one shared default catalog - the canonical-name
+        # check just above (catalog_name == "lakehouse_<stage>") is what
+        # keeps each stage's *database* names collision-free within it.
     elif "service_ref" not in catalog:
         raise ProviderContractError(f"stages.{name.value}.catalog.service_ref is required for a Polaris catalog")
     if "service_ref" in catalog:
@@ -727,10 +748,18 @@ def _parse_v3(payload: Mapping[str, Any], topology: DeploymentTopology | None) -
                 raise ProviderContractError(f"storage location {uri!r} is shared between stages")
             if uri:
                 storage_uris.add(uri)
-        physical_id = stage.catalog["physical_id"]
-        if physical_id in catalog_ids:
-            raise ProviderContractError(f"catalog physical identity {physical_id!r} is shared between stages")
-        catalog_ids.add(physical_id)
+        # A Glue-provider catalog's physical_id is the account's one shared
+        # default catalog (this account's Glue service refuses to create a
+        # custom catalog per stage) - every stage's is identical by design,
+        # so uniqueness has to be checked against (physical_id, catalog_name)
+        # instead: two stages genuinely collide only if they'd also share
+        # their database-name prefix. A Polaris catalog's physical_id is
+        # already unique per stage, so this pair is strictly stronger there
+        # too, not a relaxation.
+        catalog_identity = (stage.catalog["physical_id"], stage.catalog["catalog_name"])
+        if catalog_identity in catalog_ids:
+            raise ProviderContractError(f"catalog identity {catalog_identity!r} is shared between stages")
+        catalog_ids.add(catalog_identity)
         principal = stage.runtime_identity["principal"]
         if principal in principals:
             raise ProviderContractError(f"runtime principal {principal!r} is shared between stages")

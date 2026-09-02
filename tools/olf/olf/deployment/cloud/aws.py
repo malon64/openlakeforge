@@ -14,6 +14,7 @@ from olf import log
 from olf.deployment.charts import TERRAFORM_VARIABLE_KEY
 from olf.deployment.cloud.backend import FoundationFacts, output_raw_or_empty
 from olf.deployment.cloud.config import CloudDeploymentConfig
+from olf.deployment.context import topology_variables
 from olf.deployment.engine import Toolkit
 from olf.deployment.env_settings import env as _env
 from olf.deployment.errors import DeploymentPreconditionError
@@ -139,8 +140,7 @@ class AwsBackend:
         from olf.deployment.cloud.images import resolve_effective_images
 
         images = resolve_effective_images(config.images, facts)
-        return {
-            "namespace": config.namespace,
+        return topology_variables(config.context) | {
             "aws_region": facts.aws_region or "",
             "kube_context": facts.kube_context,
             "kubeconfig_path": str(config.paths.kubeconfig_path),
@@ -155,16 +155,13 @@ class AwsBackend:
             "project_code_image_tag": images.project_code_tag,
             "project_code_image_pull_policy": images.project_code_pull_policy,
             "project_code_image_revision": images.project_code_revision,
-            "enable_governance": "true" if config.features.governance_enabled else "false",
-            "enable_analytics": "true" if config.features.analytics_enabled else "false",
             "superset_image_repository": images.superset_repository,
             "superset_image_tag": images.superset_tag,
             "superset_image_pull_policy": images.superset_pull_policy,
         } | {TERRAFORM_VARIABLE_KEY[setting.name]: str(setting.package_path) for setting in config.charts.values()}
 
     def platform_destroy_variables(self, config: CloudDeploymentConfig, facts: FoundationFacts) -> dict[str, str]:
-        return {
-            "namespace": config.namespace,
+        return topology_variables(config.context) | {
             "aws_region": facts.aws_region or "",
             "kube_context": facts.kube_context,
             "kubeconfig_path": str(config.paths.kubeconfig_path),

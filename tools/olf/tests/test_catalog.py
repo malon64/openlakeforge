@@ -109,6 +109,51 @@ def test_plan_rejects_legacy_product_silver_namespace_with_reset_guidance() -> N
         )
 
 
+def test_plan_ignores_a_sibling_stages_canonical_silver_namespace() -> None:
+    """AWS Glue's shared default catalog surfaces every enabled stage's own
+    namespaces in `existing`, each carrying its own `namespace_prefix`
+    (lakehouse_<stage>_). Reconciling one stage must not treat another
+    already-provisioned stage's canonical names as legacy drift."""
+    desired = [ns("lakehouse_prod_sales_silver", "s3://silver/lakehouse_prod_sales_silver/")]
+
+    plan = catalog.plan_namespace_sync(
+        {
+            "lakehouse_dev_sales_silver": catalog.NamespaceState(
+                "s3://silver/lakehouse_dev_sales_silver/", {catalog.MANAGED_BY_KEY: catalog.MANAGED_BY_VALUE}
+            )
+        },
+        desired,
+        prune=True,
+        namespace_prefix="lakehouse_prod_",
+    )
+
+    assert [namespace.name for namespace in plan.create] == ["lakehouse_prod_sales_silver"]
+    assert plan.orphans == ()
+    assert plan.delete == ()
+
+
+def test_plan_rejects_unprefixed_v02_glue_namespace_before_creating_a_parallel_stage_namespace() -> None:
+    desired = [ns("lakehouse_dev_sales_silver", "s3://silver/lakehouse_dev_sales_silver/")]
+
+    with pytest.raises(catalog.NamespaceSyncError, match="unprefixed v0.2 Glue.*Iceberg table registrations"):
+        catalog.plan_namespace_sync(
+            {"sales_silver": "s3://silver/sales_silver/"},
+            desired,
+            namespace_prefix="lakehouse_dev_",
+        )
+
+
+def test_plan_still_rejects_a_same_prefix_legacy_silver_namespace() -> None:
+    desired = [ns("lakehouse_prod_sales_silver", "s3://silver/lakehouse_prod_sales_silver/")]
+
+    with pytest.raises(catalog.NamespaceSyncError, match="reset-only.*destroy and recreate"):
+        catalog.plan_namespace_sync(
+            {"lakehouse_prod_order_revenue_silver": "s3://silver/lakehouse_prod_order_revenue_silver/"},
+            desired,
+            namespace_prefix="lakehouse_prod_",
+        )
+
+
 def test_desired_namespaces_follow_the_repository_descriptors() -> None:
     namespaces = catalog.desired_namespaces(
         REPO_ROOT, bronze_bucket="lakehouse-bronze", silver_bucket="lakehouse-silver", gold_bucket="lakehouse-gold"

@@ -34,7 +34,7 @@ def test_check_ops_artifacts_uses_configured_bucket_for_local(monkeypatch: pytes
     monkeypatch.setattr(
         _artifacts,
         "load_provider_contracts_or_raise",
-        lambda _cfg: {"artifact_bucket": {"bucket_name": "custom-ops-bucket"}},
+        lambda _cfg: {"shared": {"ops_storage": {"bucket_name": "custom-ops-bucket"}}},
     )
     monkeypatch.setattr(_artifacts.k8s, "secret_value", lambda *_args, **_kwargs: "secret")
     monkeypatch.setattr(

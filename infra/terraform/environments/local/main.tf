@@ -94,6 +94,18 @@ locals {
     "http://superset.${local.stage_namespaces[local.governance_superset_stage]}:8088",
   )
   stage_service_accounts = { for name in keys(local.enabled_stages) : name => "olf-${name}-runtime" }
+  stage_storage = {
+    for name in keys(local.enabled_stages) : name => {
+      # DEV is the v0.2 deployment profile. Retaining its established bucket
+      # identities keeps the existing Polaris warehouse and Iceberg metadata
+      # valid through the platform-first v3 migration; later stages get new,
+      # stage-qualified buckets.
+      bronze_bucket_name      = name == "dev" ? var.bronze_bucket_name : "${var.profile_name}-${name}-bronze",
+      silver_bucket_name      = name == "dev" ? var.silver_bucket_name : "${var.profile_name}-${name}-silver",
+      gold_bucket_name        = name == "dev" ? var.gold_bucket_name : "${var.profile_name}-${name}-gold",
+      credentials_secret_name = "seaweedfs-${name}-s3-creds"
+    }
+  }
   stage_labels = { for name in keys(local.enabled_stages) : name => {
     "openlakeforge.io/stage"      = name
     "openlakeforge.io/managed-by" = "openlakeforge"
@@ -188,14 +200,27 @@ module "seaweedfs" {
   namespace          = kubernetes_namespace_v1.shared.metadata[0].name
   base_values_file   = "${path.root}/../../../helm/values/local/seaweedfs.yaml"
   chart_package_path = var.seaweedfs_chart_package_path
-  bucket_names = [
-    var.bronze_bucket_name,
-    var.silver_bucket_name,
-    var.gold_bucket_name,
-    var.ops_bucket_name,
-  ]
-  region              = var.s3_region
-  workload_namespaces = values(local.stage_namespaces)
+  bucket_names = concat(flatten([
+    for binding in values(local.stage_storage) : [
+      binding.bronze_bucket_name,
+      binding.silver_bucket_name,
+      binding.gold_bucket_name,
+    ]
+  ]), [var.ops_bucket_name])
+  region = var.s3_region
+  # Platform credentials stay in olf-system; stage workloads mount only the
+  # stage-owned identities supplied through stage_credentials below.
+  workload_namespaces = []
+  stage_credentials = {
+    for name, binding in local.stage_storage : name => {
+      namespace               = local.stage_namespaces[name]
+      credentials_secret_name = binding.credentials_secret_name
+      bronze_bucket_name      = binding.bronze_bucket_name
+      silver_bucket_name      = binding.silver_bucket_name
+      gold_bucket_name        = binding.gold_bucket_name
+      ops_bucket_name         = var.ops_bucket_name
+    }
+  }
 
   depends_on = [
     kubernetes_namespace_v1.stage,
@@ -205,17 +230,33 @@ module "seaweedfs" {
 module "polaris" {
   source = "../../modules/catalog/polaris"
 
-  namespace           = kubernetes_namespace_v1.shared.metadata[0].name
-  base_values_file    = "${path.root}/../../../helm/values/local/polaris.yaml"
-  chart_package_path  = var.polaris_chart_package_path
-  catalog_name        = var.catalog_name
-  principal_name      = "trino"
-  principal_role      = "data-engineer"
-  catalog_role        = "catalog-admin"
-  storage_contract    = local.storage_contract
-  postgresql_contract = local.metadata_database_contract
-  bootstrap_revision  = local.polaris_bootstrap_hash
-  workload_namespaces = values(local.stage_namespaces)
+  namespace             = kubernetes_namespace_v1.shared.metadata[0].name
+  base_values_file      = "${path.root}/../../../helm/values/local/polaris.yaml"
+  chart_package_path    = var.polaris_chart_package_path
+  catalog_name          = "lakehouse_${local.selected_stage}"
+  principal_name        = "trino"
+  principal_role        = "data-engineer"
+  catalog_role          = "catalog-admin"
+  storage_contract      = local.storage_contract
+  postgresql_contract   = local.metadata_database_contract
+  bootstrap_revision    = local.polaris_bootstrap_hash
+  workload_namespaces   = values(local.stage_namespaces)
+  replicate_credentials = false
+  stage_catalogs = {
+    for name, binding in local.stage_storage : name => {
+      namespace                        = local.stage_namespaces[name]
+      catalog_name                     = "lakehouse_${name}"
+      bronze_bucket_name               = binding.bronze_bucket_name
+      silver_bucket_name               = binding.silver_bucket_name
+      gold_bucket_name                 = binding.gold_bucket_name
+      trino_principal_name             = "trino-${name}"
+      trino_credentials_secret_name    = "polaris-${name}-trino-creds"
+      floe_principal_name              = "floe-${name}"
+      floe_credentials_secret_name     = "polaris-${name}-floe-creds"
+      deployer_principal_name          = "deployer-${name}"
+      deployer_credentials_secret_name = "polaris-${name}-deployer-creds"
+    }
+  }
 
   depends_on = [
     module.seaweedfs,
@@ -231,6 +272,7 @@ module "trino" {
   chart_package_path         = var.trino_chart_package_path
   storage_contract           = local.storage_contract
   catalog_contract           = local.catalog_contract
+  stage_catalog_contracts    = local.stage_catalog_contracts
   catalog_bootstrap_revision = local.polaris_bootstrap_hash
 
   depends_on = [
@@ -247,13 +289,26 @@ module "openmetadata" {
   deps_values_file        = "${path.root}/../../../helm/values/local/openmetadata-deps.yaml"
   chart_package_path      = var.openmetadata_chart_package_path
   deps_chart_package_path = var.openmetadata_deps_chart_package_path
-  catalog_contract        = local.catalog_contract
-  storage_contract        = local.storage_contract
-  postgresql_contract     = local.metadata_database_contract
+  # The shared OpenMetadata service has one active Iceberg connection. Bind
+  # it to the governed stage, not Terraform's selected stage; the check below
+  # rejects multiple governed stages until #131 teaches it multi-catalog
+  # connections rather than silently refreshing the wrong catalog.
+  catalog_contract = merge(
+    local.catalog_contract,
+    local.stage_catalog_contracts[local.governance_dagster_stage],
+  )
+  storage_contract = merge(local.storage_contract, {
+    bucket_name        = local.stage_storage[local.governance_dagster_stage].bronze_bucket_name
+    bronze_bucket_name = local.stage_storage[local.governance_dagster_stage].bronze_bucket_name
+    silver_bucket_name = local.stage_storage[local.governance_dagster_stage].silver_bucket_name
+    gold_bucket_name   = local.stage_storage[local.governance_dagster_stage].gold_bucket_name
+  })
+  postgresql_contract = local.metadata_database_contract
   # Empty by design: the database schemas mirror Polaris namespaces, which now
   # come into existence in Phase 2. `olf openmetadata deploy-metadata` creates
   # each databaseSchema entity right before it seeds that schema's tables.
-  catalog_schema_names = []
+  catalog_schema_names  = []
+  catalog_database_name = local.stage_catalog_contracts[local.governance_dagster_stage].catalog_name
   # Only governed stages: the ingestion-bot JWT is a live credential, and a
   # stage that did not enable governance should not have one sitting in its
   # namespace even though its Dagster never mounts it.
@@ -281,6 +336,13 @@ module "openmetadata" {
     module.seaweedfs,
     kubernetes_namespace_v1.stage,
   ]
+}
+
+check "openmetadata_governance_catalog_is_unambiguous" {
+  assert {
+    condition     = length(local.governed_stages) <= 1
+    error_message = "OpenMetadata currently has one Iceberg connection. Enable governance for one stage only; multi-stage OpenMetadata catalog connections are tracked by #131."
+  }
 }
 
 module "superset" {
@@ -317,8 +379,8 @@ module "dagster" {
   project_code_image_tag         = var.project_code_image_tag
   project_code_image_pull_policy = var.project_code_image_pull_policy
   project_code_image_revision    = var.project_code_image_revision
-  storage_contract               = local.storage_contract
-  catalog_contract               = local.catalog_contract
+  storage_contract               = local.stage_storage_contracts[each.key]
+  catalog_contract               = local.stage_catalog_contracts[each.key]
   # The shared governance service exists whenever any stage enables it, but a
   # stage that did not ask for governance must not receive OpenLineage
   # configuration or the ingestion-bot credential: capabilities are per stage
@@ -326,16 +388,22 @@ module "dagster" {
   governance_contract = merge(local.governance_contract, {
     enabled = local.governance_enabled && each.value.governance
   })
-  query_contract            = local.query_contract
-  postgresql_contract       = local.stage_metadata_database_contracts[each.key]
-  code_locations            = local.orchestration_contract.code_locations
-  floe_manifest_base_uri    = local.artifact_bucket_contract.base_uri
+  query_contract = merge(local.query_contract, {
+    catalog_name               = local.stage_catalog_contracts[each.key].catalog_name
+    runtime_identity_principal = local.stage_service_accounts[each.key]
+  })
+  postgresql_contract = local.stage_metadata_database_contracts[each.key]
+  code_locations      = local.orchestration_contract.code_locations
+  # Floe manifests are published at the ops bucket root (immutable revision,
+  # not a stage activation - libs/product_dagster.py's _remote_manifest_uri,
+  # olf/revision.py), not under any stage's activations/<stage> prefix.
+  floe_manifest_base_uri    = local.floe_manifest_base_uri
   floe_manifest_access_mode = local.artifact_bucket_contract.access_mode
   artifact_bucket_name      = local.artifact_bucket_contract.bucket_name
-  artifact_base_uri         = local.artifact_bucket_contract.artifact_base_uri
-  floe_report_base_uri      = local.artifact_bucket_contract.floe_report_base_uri
-  log_base_uri              = local.artifact_bucket_contract.log_base_uri
-  run_artifact_base_uri     = local.artifact_bucket_contract.run_artifact_base_uri
+  artifact_base_uri         = "${local.artifact_bucket_contract.artifact_base_uri}/activations/${each.key}"
+  floe_report_base_uri      = "${local.artifact_bucket_contract.artifact_base_uri}/activations/${each.key}/floe/reports"
+  log_base_uri              = "${local.artifact_bucket_contract.artifact_base_uri}/activations/${each.key}/logs"
+  run_artifact_base_uri     = "${local.artifact_bucket_contract.artifact_base_uri}/activations/${each.key}/run-artifacts"
 
   depends_on = [
     module.trino,

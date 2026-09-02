@@ -57,6 +57,7 @@ def deploy_superset_reports() -> None:
         work_dir=Path(config.env("SUPERSET_REPORT_WORK_DIR", ".tmp/superset-reports")),
         reports_mount_path=config.env("SUPERSET_REPORTS_MOUNT_PATH", superset.REPORTS_MOUNT_PATH_DEFAULT),
         admin_username=config.env("SUPERSET_ADMIN_USERNAME", "admin"),
+        schema_prefix=config.env("OPENLAKEFORGE_CATALOG_SCHEMA_PREFIX", ""),
     )
 
 

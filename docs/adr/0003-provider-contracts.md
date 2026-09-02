@@ -46,13 +46,11 @@ implementation yet (`secrets`, `identity`, `access`, `observability`). Those
 carry local-development values today; naming the contract now is what keeps
 the eventual hardening work from being a rewrite.
 
-The current Terraform roots export v2. `olf` adapts v2 into a synthetic,
-single-DEV v3 view without changing v0.2 runtime exports. A native v3 contract
-requires an explicit stage. The local root is stage-aware (#133) but still
-exports v2: a v3 contract must name distinct storage identities and a catalog
-per stage, which is what #114 provisions. Until then its v2 surface describes
-the DEV stage, and every service endpoint in it is namespace-qualified so a
-stage-scoped consumer can resolve a shared service from its own namespace.
+Every root (local, AWS, Azure) now emits v3 natively. `olf` retains the v2
+adapter (`provider_contracts._adapt_v2`) only to parse a contract from state a
+pre-v3 deploy already produced; no current root's Terraform still emits that
+shape. A native v3 contract requires an explicit stage, and every root now
+names distinct storage identities and a catalog per stage (#114).
 
 Unknown versions, fields, missing/extra stages, cross-stage bindings,
 duplicate physical identities (including storage bucket names, not only
@@ -63,29 +61,39 @@ one service used by every enabled stage, isolated by catalog rather than by
 endpoint.
 
 `query.catalog_name` is also the Trino catalog name (v2 kept this separate as
-`trino_catalog_name`, deployed today as the fixed value `iceberg`). #133/#114
-must rename the provisioned Trino catalog to `lakehouse_<stage>` before a root
-emits v3.
+`trino_catalog_name`, deployed as the fixed value `iceberg` before #114). Every
+root now provisions the Trino catalog as `lakehouse_<stage>` — for a
+Polaris-backed root (local, Azure) this is a real, separate physical catalog
+per stage; for AWS's Glue adapter it is the *logical* alias only, since this
+account's Glue service cannot create a native catalog per stage (see ADR
+0010's rewritten decision) — every stage's `lakehouse_<stage>` catalog name
+resolves to the same shared, bare AWS-account Glue catalog ID underneath.
 
 ## Consequences
 
 Adding a provider or stage-scoped capability starts by extending v3 and its
-fixtures, then implementing provider adapters. #133 and #114 consume this
-contract to make the platform roots stage-aware and provision physical
-resources; they must not invent a competing wire shape.
+fixtures, then implementing provider adapters; a provider must not invent a
+competing wire shape.
 
-`olf.contracts.load_provider_contracts` now returns either version unchanged;
-`build_contract_env` is where a v3 payload resolves, and it needs a
-`DeploymentTopology` plus a stage to do it. Selecting the stage each runtime
-consumer reads is #114's remaining half.
+`olf.contracts.load_provider_contracts` still returns either version
+unchanged, so a contract from state predating this rollout keeps parsing;
+`build_contract_env` is where a v3 payload resolves, given a
+`DeploymentTopology` plus a stage. Every current deploy/e2e/artifact code path
+now resolves and passes that stage explicitly (#114); the v2 branch exists
+only for that backward-compatibility read.
 
 `tools/olf/tests/test_provider_contracts.py` validates the v3 schema and
 local, Azure, and AWS fixtures against the typed parser; `olf check contracts`
-covers the existing Terraform v2 surface, structured HCL, and rendered
+covers the current Terraform v3 surface, structured HCL, and rendered
 profile/Floe output. The architecture guide records the field families and
 migration boundary.
 
 ## History
+
+2026-08-31: Every root (local, AWS, Azure) now emits v3 natively; the v2
+adapter is compatibility-only. Documented that AWS's `lakehouse_<stage>`
+catalog name is a logical alias over one shared Glue catalog, not a distinct
+physical catalog per stage (#114's AWS/Azure completion).
 
 2026-08-29: Recorded that the local root is stage-aware but still exports v2,
 and that the loader no longer refuses a v3 payload (#133).

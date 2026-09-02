@@ -8,7 +8,7 @@
       port: "{{ env_var('OPENLAKEFORGE_QUERY_TRINO_PORT', '8080') | int }}"
       user: "{{ env_var('OPENLAKEFORGE_DBT_TRINO_USER', 'openlakeforge-dbt') }}"
       database: "{{ env_var('OPENLAKEFORGE_CATALOG_NAME', 'lakehouse_dev') }}"
-      schema: {{GOLD_SCHEMA}}
+      schema: "{{ env_var('OPENLAKEFORGE_CATALOG_SCHEMA_PREFIX', '') }}{{GOLD_SCHEMA}}"
       threads: 1
     aws_runtime:
       type: trino
@@ -17,5 +17,5 @@
       port: "{{ env_var('OPENLAKEFORGE_QUERY_TRINO_PORT', '8080') | int }}"
       user: "{{ env_var('OPENLAKEFORGE_DBT_TRINO_USER', 'openlakeforge-dbt') }}"
       database: "{{ env_var('OPENLAKEFORGE_CATALOG_NAME', 'lakehouse_dev') }}"
-      schema: {{GOLD_SCHEMA}}
+      schema: "{{ env_var('OPENLAKEFORGE_CATALOG_SCHEMA_PREFIX', '') }}{{GOLD_SCHEMA}}"
       threads: 1

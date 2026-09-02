@@ -36,8 +36,14 @@ def test_defaults_without_contracts_match_local_profile() -> None:
     assert exports["AWS_ENDPOINT_URL_S3"] == "http://seaweedfs-s3.olf-system:8333"
     assert exports["AWS_ALLOW_HTTP"] == "true"
     assert exports["CODE_BUCKET_NAME"] == "openlakeforge-ops"
+    # Superset's Trino connection reuses the same identity dbt/Dagster use
+    # (OPENLAKEFORGE_DBT_TRINO_USER) rather than a hardcoded "superset" -
+    # Trino's file-based access control (modules/query/trino/main.tf) grants
+    # catalog access by this exact user string, so a mismatched literal would
+    # be denied once a stage-aware root provisions that access control.
+    assert exports["OPENLAKEFORGE_DBT_TRINO_USER"] == "openlakeforge-dbt"
     assert (
-        exports["OPENLAKEFORGE_QUERY_SQLALCHEMY_URI"] == "trino://superset@trino.olf-system:8080/iceberg"
+        exports["OPENLAKEFORGE_QUERY_SQLALCHEMY_URI"] == "trino://openlakeforge-dbt@trino.olf-system:8080/iceberg"
     )
     assert unsets == []
 
@@ -167,7 +173,13 @@ def test_aws_glue_contract_without_schema_fqns_falls_back_to_the_descriptors() -
     """Glue database lifecycle also moved to Phase 2 (ADR 0002): when a Glue
     contract carries no schema-FQN map at all -- not the partial single-product
     map the fixture normally carries -- the same descriptor-driven fallback
-    that serves Polaris must serve Glue, using the aws_glue.<catalog> prefix."""
+    that serves Polaris must serve Glue, using the aws_glue.<catalog> prefix.
+
+    Every physical database name is itself prefixed with the stage's own
+    catalog_name ("lakehouse_dev_sales_silver", not bare "sales_silver"):
+    this account's Glue service refuses to create a catalog per stage, so
+    every stage shares the account's one default catalog, and the database
+    name is what stays collision-free across stages instead."""
     contracts = load_fixture("aws-provider-contracts.json")
     del contracts["catalog"]["silver_schema_fqns"]
     del contracts["catalog"]["gold_schema_fqns"]
@@ -175,13 +187,13 @@ def test_aws_glue_contract_without_schema_fqns_falls_back_to_the_descriptors() -
     exports, _ = build_contract_env({}, contracts, repo_root=REPO_ROOT)
 
     assert json.loads(exports["OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON"]) == {
-        "sales": "aws_glue.lakehouse_dev.sales_silver",
-        "supply_chain": "aws_glue.lakehouse_dev.supply_chain_silver",
+        "sales": "aws_glue.lakehouse_dev.lakehouse_dev_sales_silver",
+        "supply_chain": "aws_glue.lakehouse_dev.lakehouse_dev_supply_chain_silver",
     }
     assert json.loads(exports["OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON"]) == {
-        "order_revenue": "aws_glue.lakehouse_dev.order_revenue_gold",
-        "customer_health": "aws_glue.lakehouse_dev.customer_health_gold",
-        "inventory_reliability": "aws_glue.lakehouse_dev.inventory_reliability_gold",
+        "order_revenue": "aws_glue.lakehouse_dev.lakehouse_dev_order_revenue_gold",
+        "customer_health": "aws_glue.lakehouse_dev.lakehouse_dev_customer_health_gold",
+        "inventory_reliability": "aws_glue.lakehouse_dev.lakehouse_dev_inventory_reliability_gold",
     }
 
 

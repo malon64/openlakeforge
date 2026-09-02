@@ -56,26 +56,20 @@ variable "foundation_state_path" {
   default     = null
 }
 
-variable "catalog_name" {
-  description = "Polaris catalog and Trino Iceberg warehouse name."
-  type        = string
-  default     = "lakehouse_dev"
-}
-
 variable "bronze_bucket_name" {
-  description = "S3 bucket for the Bronze raw landing zone (immutable CSV files)."
+  description = "Existing DEV Bronze bucket retained from the v0.2 local profile."
   type        = string
   default     = "lakehouse-bronze"
 }
 
 variable "silver_bucket_name" {
-  description = "S3 bucket for the Silver layer (Floe-validated Iceberg tables)."
+  description = "Existing DEV Silver bucket retained from the v0.2 local profile."
   type        = string
   default     = "lakehouse-silver"
 }
 
 variable "gold_bucket_name" {
-  description = "S3 bucket for the Gold layer (dbt business-ready Iceberg marts)."
+  description = "Existing DEV Gold bucket retained from the v0.2 local profile."
   type        = string
   default     = "lakehouse-gold"
 }

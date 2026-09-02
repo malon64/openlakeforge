@@ -12,6 +12,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from olf import config, e2e, log
+from olf.deployment import contract_env
 from olf.deployment.context import DeploymentContext, Profile
 from olf.deployment.engine import DeploymentEngine, DeploymentPhase, Toolkit, build_provider
 from olf.deployment.errors import DeploymentError
@@ -53,14 +54,38 @@ def run(
                     started, timeout_seconds, monotonic, "validating one product pipeline and Gold table"
                 )
                 log.step("Validating one product pipeline and Gold table...")
-                e2e.run(
-                    "local",
-                    suite="smoke",
-                    namespace=context.namespace,
-                    shared_namespace=context.shared_namespace,
-                    kube_context=context.kube_context,
-                    repo_root=root,
+                # e2e.run() reads its own runtime config (e.g.
+                # OPENLAKEFORGE_QUERY_TRINO_CATALOG) from the applied
+                # provider-contract environment, not from anything
+                # DeploymentEngine.deploy() exports - commands/e2e.py's CLI
+                # path always wraps its own e2e.run() call the same way.
+                # An explicit KUBECONFIG must still win over the context's
+                # own resolved path (commands/e2e.py's
+                # `_resolve_kubeconfig_path`), or this unconditionally
+                # overwrites it back to the context default.
+                kubeconfig_override = config.env("KUBECONFIG")
+                contract_terraform_dir = Path(
+                    config.env("OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR", str(context.paths.platform_terraform_dir))
                 )
+                with contract_env.applied_contract_environment(
+                    contract_terraform_dir=contract_terraform_dir,
+                    repo_root=root,
+                    namespace=context.namespace,
+                    kube_context=context.kube_context,
+                    kubeconfig_path=Path(kubeconfig_override) if kubeconfig_override else context.paths.kubeconfig_path,
+                    port_forward_log_prefix=context.paths.port_forward_log_prefix,
+                    environ=env,
+                    topology=context.topology,
+                    stage=context.stage,
+                ):
+                    e2e.run(
+                        "local",
+                        suite="smoke",
+                        namespace=context.namespace,
+                        shared_namespace=context.shared_namespace,
+                        kube_context=context.kube_context,
+                        repo_root=root,
+                    )
     except DeploymentError as exc:
         raise SmokeError(str(exc)) from exc
     _require_remaining(started, timeout_seconds, monotonic, "completing smoke validation")

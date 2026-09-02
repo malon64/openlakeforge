@@ -8,6 +8,8 @@ shell scripts this replaces do the same.
 
 from __future__ import annotations
 
+import dataclasses
+
 from olf.deployment.cloud.backend import CloudBackend
 from olf.deployment.cloud.config import CloudDeploymentConfig
 from olf.deployment.portforward import ForwardSpec, ForwardTarget
@@ -23,14 +25,18 @@ _BANNER_LINES: dict[str, str] = {
 
 
 def cloud_forward_spec(config: CloudDeploymentConfig, backend: CloudBackend, *, kube_context: str) -> ForwardSpec:
+    shared = config.context.shared_namespace
+    # `forward_base_targets()` is platform-level infra (Trino, plus Azure's
+    # SeaweedFS/Polaris) - always shared-namespace services, not stage-scoped
+    # ones, so every target it returns is rewritten to carry that namespace.
     targets: list[ForwardTarget] = [
-        *backend.forward_base_targets(),
+        *(dataclasses.replace(target, namespace=shared) for target in backend.forward_base_targets()),
         ForwardTarget("dagster", "svc/dagster-dagster-webserver", 3000, 80),
     ]
     if config.features.analytics_enabled:
         targets.append(ForwardTarget("superset", "svc/superset", 8088, 8088))
     if config.features.governance_enabled:
-        targets.append(ForwardTarget("openmetadata", "svc/openmetadata", 8585, 8585))
+        targets.append(ForwardTarget("openmetadata", "svc/openmetadata", 8585, 8585, namespace=shared))
 
     banner = [f"Starting {backend.scope.upper()} POC port-forwards (Ctrl-C to stop all)..."]
     banner += [_BANNER_LINES[target.label] for target in targets]

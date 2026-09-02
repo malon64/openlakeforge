@@ -60,18 +60,48 @@ def _state(value: str | NamespaceState) -> NamespaceState:
 
 
 def plan_namespace_sync(
-    existing: Mapping[str, str | NamespaceState], desired: Sequence[CatalogNamespace], *, prune: bool = False
+    existing: Mapping[str, str | NamespaceState],
+    desired: Sequence[CatalogNamespace],
+    *,
+    prune: bool = False,
+    namespace_prefix: str = "",
 ) -> NamespaceSyncPlan:
     """Plan reconciliation without ever taking ownership of a foreign object.
 
     A legacy namespace is adopted only when its descriptor-derived location
     already matches. A same-name namespace at another location is a collision,
     not drift: changing it could redirect someone else's data.
+
+    `existing` reflects everything visible in the catalog, which on AWS Glue's
+    shared default catalog includes every enabled stage's own namespaces too.
+    A stage prefix scopes reconciliation so siblings cannot be reported or
+    pruned. Before that scope is applied, matching unprefixed v0.2 namespace
+    names stop the upgrade: creating their prefixed replacements would hide
+    existing Iceberg table registrations behind an empty catalog boundary.
     """
-    live = {name: _state(value) for name, value in existing.items()}
+    legacy_namespace_names = sorted(
+        namespace.name.removeprefix(namespace_prefix)
+        for namespace in desired
+        if namespace_prefix and namespace.name.startswith(namespace_prefix)
+        and namespace.name.removeprefix(namespace_prefix) in existing
+    )
+    if legacy_namespace_names:
+        raise NamespaceSyncError(
+            "Catalog contains unprefixed v0.2 Glue namespace(s) "
+            f"{legacy_namespace_names!r}. Refusing to create parallel {namespace_prefix!r} namespaces because "
+            "their Iceberg table registrations would be lost. Migrate the Glue metadata to the prefixed names "
+            "before running artifacts, or create a fresh environment."
+        )
+    live = {
+        name: _state(value)
+        for name, value in existing.items()
+        if not namespace_prefix or name.startswith(namespace_prefix)
+    }
     canonical_silver = {namespace.name for namespace in desired if namespace.name.endswith("_silver")}
     noncanonical_silver = sorted(
-        name for name in live if name.endswith("_silver") and name not in canonical_silver
+        name
+        for name in live
+        if name.endswith("_silver") and name not in canonical_silver
     )
     if noncanonical_silver:
         raise NamespaceSyncError(
@@ -110,7 +140,7 @@ def plan_namespace_sync(
 
 
 def desired_namespaces(
-    repo_root: Path, *, bronze_bucket: str, silver_bucket: str, gold_bucket: str
+    repo_root: Path, *, bronze_bucket: str, silver_bucket: str, gold_bucket: str, namespace_prefix: str = ""
 ) -> tuple[CatalogNamespace, ...]:
     physical = inventory_for(repo_root).resolve_physical_names(
         catalog_database_fqn="",
@@ -118,6 +148,7 @@ def desired_namespaces(
         silver_bucket=silver_bucket,
         gold_bucket=gold_bucket,
         manifest_base_uri="",
+        namespace_prefix=namespace_prefix,
     )
     return physical.catalog_namespaces
 

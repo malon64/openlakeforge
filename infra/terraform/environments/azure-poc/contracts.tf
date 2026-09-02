@@ -22,10 +22,15 @@ locals {
   })
 
   kubernetes_platform_contract = {
-    provider             = local.azure_provider_name
-    implementation       = "kubernetes.aks"
-    adapter              = "platform.kubernetes.aks"
-    namespace            = var.namespace
+    provider       = local.azure_provider_name
+    implementation = "kubernetes.aks"
+    adapter        = "platform.kubernetes.aks"
+    # The stage a runtime consumer resolves. Shared services live in
+    # `shared_namespace`.
+    namespace            = local.selected_stage_namespace
+    shared_namespace     = var.shared_namespace
+    stage                = local.selected_stage
+    stage_namespaces     = local.stage_namespaces
     kube_context         = coalesce(try(local.foundation_contract.kube_context, null), var.kube_context)
     kubeconfig_path      = coalesce(try(local.foundation_contract.kubeconfig_path, null), local.kubeconfig_path)
     cluster_name         = try(local.foundation_contract.cluster_name, "aks-openlakeforge-poc")
@@ -35,6 +40,32 @@ locals {
     workload_identity    = "azure-workload-identity-ready"
   }
 
+  stage_storage_contracts = {
+    for name, binding in local.stage_storage : name => merge(module.seaweedfs.contract, {
+      provider                = local.azure_provider_name
+      implementation          = "storage.s3_compatible.seaweedfs_on_aks"
+      adapter                 = "storage.s3_compatible.seaweedfs_on_aks"
+      logical_name            = "stage/${name}/storage"
+      protocol                = "s3"
+      auth_mode               = "static-access-key-secret"
+      secret_delivery_mode    = "kubernetes-secret-env"
+      workload_identity       = false
+      ssl_mode                = "disabled"
+      ingress_mode            = "cluster-internal"
+      local_only              = false
+      poc_only                = true
+      future_adapter_shapes   = ["storage.azure_blob_or_adls_gen2"]
+      bronze_bucket_name      = binding.bronze_bucket_name
+      silver_bucket_name      = binding.silver_bucket_name
+      gold_bucket_name        = binding.gold_bucket_name
+      credentials_secret_name = module.seaweedfs.stage_credentials[name].credentials_secret_name
+      access_key_id_key       = module.seaweedfs.stage_credentials[name].access_key_id_key
+      secret_access_key_key   = module.seaweedfs.stage_credentials[name].secret_access_key_key
+    })
+  }
+
+  # Shared platform services keep their own administrative S3 binding. Runtime
+  # workloads below receive only the corresponding stage_storage_contract.
   storage_contract = merge(module.seaweedfs.contract, {
     provider              = local.azure_provider_name
     implementation        = "storage.s3_compatible.seaweedfs_on_aks"
@@ -49,41 +80,37 @@ locals {
     local_only            = false
     poc_only              = true
     future_adapter_shapes = ["storage.azure_blob_or_adls_gen2"]
-    bronze_bucket_name    = var.bronze_bucket_name
-    silver_bucket_name    = var.silver_bucket_name
-    gold_bucket_name      = var.gold_bucket_name
+    bronze_bucket_name    = local.stage_storage[local.selected_stage].bronze_bucket_name
+    silver_bucket_name    = local.stage_storage[local.selected_stage].silver_bucket_name
+    gold_bucket_name      = local.stage_storage[local.selected_stage].gold_bucket_name
   })
 
-  # This POC root is still single-stage: one database per platform service in
-  # the one namespace. The local root derives the same list per stage (#133);
-  # #114 carries that split to the cloud roots.
-  metadata_databases = concat(
-    [{
-      key                     = "dagster"
-      db_name                 = "dagster"
-      db_user                 = "dagster"
-      credentials_secret_name = "postgresql-dagster-creds"
-      namespaces              = [var.namespace]
-    }],
-    var.enable_governance ? [{
-      key                     = "openmetadata"
-      db_name                 = "openmetadata_db"
-      db_user                 = "openmetadata_user"
-      credentials_secret_name = "postgresql-openmetadata-creds"
-      namespaces              = [var.namespace]
-    }] : [],
-    var.enable_analytics ? [{
-      key                     = "superset"
-      db_name                 = "superset"
-      db_user                 = "superset"
-      credentials_secret_name = "postgresql-superset-creds"
-      namespaces              = [var.namespace]
-    }] : [],
-  )
+  # One contract per stage-scoped service instance: the shared PostgreSQL
+  # server with that stage's own database, user, and credentials Secret.
+  stage_metadata_database_contracts = { for name in keys(local.enabled_stages) : name => merge(
+    local.metadata_database_contract,
+    {
+      dagster_db_name                 = local.stage_databases["dagster_${name}"].db_name
+      dagster_db_user                 = local.stage_databases["dagster_${name}"].db_user
+      dagster_credentials_secret_name = local.stage_databases["dagster_${name}"].credentials_secret_name
+    },
+    contains(keys(local.analytics_stages), name) ? {
+      superset_db_name                 = local.stage_databases["superset_${name}"].db_name
+      superset_db_user                 = local.stage_databases["superset_${name}"].db_user
+      superset_credentials_secret_name = local.stage_databases["superset_${name}"].credentials_secret_name
+    } : {},
+  ) }
 
-  metadata_database_service_contract = { for database in local.metadata_databases : database.key => database }
+  # The shared OpenMetadata database, flattened onto the contract the
+  # governance module's typed input expects. Stage-scoped services take their
+  # own database through `stage_metadata_database_contracts` instead.
+  governance_database = local.governance_enabled ? local.stage_databases["openmetadata"] : null
 
   metadata_database_contract = merge(module.postgresql.contract, {
+    openmetadata_db_name                 = try(local.governance_database.db_name, null)
+    openmetadata_db_user                 = try(local.governance_database.db_user, null)
+    openmetadata_credentials_secret_name = try(local.governance_database.credentials_secret_name, null)
+
     provider              = local.azure_provider_name
     implementation        = "metadata_database.postgresql.in_cluster_on_aks"
     adapter               = "metadata_database.postgresql.in_cluster_on_aks"
@@ -96,18 +123,6 @@ locals {
     local_only            = false
     poc_only              = true
     future_adapter_shapes = ["metadata_database.azure_postgresql_flexible_server"]
-
-    dagster_db_name                 = local.metadata_database_service_contract["dagster"].db_name
-    dagster_db_user                 = local.metadata_database_service_contract["dagster"].db_user
-    dagster_credentials_secret_name = local.metadata_database_service_contract["dagster"].credentials_secret_name
-
-    openmetadata_db_name                 = var.enable_governance ? local.metadata_database_service_contract["openmetadata"].db_name : null
-    openmetadata_db_user                 = var.enable_governance ? local.metadata_database_service_contract["openmetadata"].db_user : null
-    openmetadata_credentials_secret_name = var.enable_governance ? local.metadata_database_service_contract["openmetadata"].credentials_secret_name : null
-
-    superset_db_name                 = var.enable_analytics ? local.metadata_database_service_contract["superset"].db_name : null
-    superset_db_user                 = var.enable_analytics ? local.metadata_database_service_contract["superset"].db_user : null
-    superset_credentials_secret_name = var.enable_analytics ? local.metadata_database_service_contract["superset"].credentials_secret_name : null
   })
 
   catalog_contract = merge(module.polaris.contract, {
@@ -117,10 +132,10 @@ locals {
     logical_name               = "iceberg_catalog"
     catalog_provider           = "polaris"
     catalog_type               = "rest"
-    catalog_name               = var.catalog_name
+    catalog_name               = "lakehouse_${local.selected_stage}"
     runtime_profile            = "polaris-rest"
     trino_catalog_name         = "iceberg"
-    default_warehouse_location = "s3://${var.silver_bucket_name}"
+    default_warehouse_location = "s3://${local.stage_storage[local.selected_stage].silver_bucket_name}"
     catalog_namespace_model    = local.catalog_namespace_model
     auth_mode                  = "oauth-client-secret"
     secret_delivery_mode       = "kubernetes-secret-env"
@@ -137,46 +152,85 @@ locals {
     floe_support               = ["rest"]
     dbt_support                = ["rest"]
     openmetadata_support       = ["rest"]
-    catalog_database_fqn       = "polaris.${var.catalog_name}"
+    catalog_database_fqn       = "polaris.lakehouse_${local.selected_stage}"
     # Per-product namespaces and schema FQNs are deliberately absent: Phase 2
     # reconciles them from the descriptors (ADR 0002), and olf/contracts.py
     # derives both from the same inventory when the contract omits them.
   })
 
-  governance_contract = merge(var.enable_governance ? module.openmetadata[0].contract : {}, {
-    enabled        = var.enable_governance
+  stage_catalog_contracts = {
+    for name, binding in module.polaris.stage_contracts : name => merge(binding, {
+      provider                  = local.azure_provider_name
+      implementation            = "catalog.iceberg_rest.polaris_on_aks"
+      adapter                   = "catalog.iceberg_rest.polaris_on_aks"
+      logical_name              = "stage/${name}/catalog"
+      catalog_provider          = "polaris"
+      catalog_type              = "rest"
+      runtime_profile           = "polaris-rest"
+      catalog_namespace_model   = local.catalog_namespace_model
+      auth_mode                 = "oauth-client-secret"
+      secret_delivery_mode      = "kubernetes-secret-env"
+      ssl_mode                  = "disabled"
+      endpoint                  = module.polaris.contract.rest_uri
+      ingress_mode              = "cluster-internal"
+      local_only                = false
+      poc_only                  = true
+      implemented_catalog_types = ["rest"]
+      future_catalog_types      = ["rest"]
+      future_adapter_shapes     = ["catalog.polaris_with_azure_storage"]
+      trino_support             = ["rest"]
+      dagster_support           = ["rest"]
+      floe_support              = ["rest"]
+      dbt_support               = ["rest"]
+      openmetadata_support      = ["rest"]
+      catalog_database_fqn      = "polaris.${binding.catalog_name}"
+    })
+  }
+
+  governance_contract = merge(local.governance_enabled ? module.openmetadata[0].contract : {}, {
+    enabled        = local.governance_enabled
     provider       = local.azure_provider_name
     implementation = "governance.openmetadata_on_aks"
     adapter        = "governance.openmetadata_on_aks"
     logical_name   = "governance_catalog"
     auth_mode      = "local-development"
-    endpoint       = var.enable_governance ? "http://${module.openmetadata[0].contract.service_name}:${module.openmetadata[0].contract.http_port}" : null
+    endpoint       = local.governance_enabled ? "http://${module.openmetadata[0].contract.service_name}.${module.openmetadata[0].contract.service_namespace}:${module.openmetadata[0].contract.http_port}" : null
     ingress_mode   = "cluster-internal"
     local_only     = false
     poc_only       = true
   })
 
-  reporting_contract = merge(var.enable_analytics ? module.superset[0].contract : {}, {
-    enabled        = var.enable_analytics
+  selected_stage_analytics = contains(keys(local.analytics_stages), local.selected_stage)
+
+  # `try`, not a conditional: indexing a for_each module with a key it does
+  # not have is an error even on the unselected branch of a ternary.
+  reporting_contract = merge(try(module.superset[local.selected_stage].contract, {}), {
+    enabled        = local.selected_stage_analytics
     provider       = local.azure_provider_name
     implementation = "reporting.superset_on_aks"
     adapter        = "reporting.superset_on_aks"
     logical_name   = "bi_reporting"
     auth_mode      = "local-development"
-    endpoint       = var.enable_analytics ? "http://${module.superset[0].contract.service_name}:${module.superset[0].contract.http_port}" : null
-    ingress_mode   = "cluster-internal"
-    local_only     = false
-    poc_only       = true
+    endpoint = try(
+      "http://${module.superset[local.selected_stage].contract.service_name}.${local.selected_stage_namespace}:${module.superset[local.selected_stage].contract.http_port}",
+      null,
+    )
+    ingress_mode = "cluster-internal"
+    local_only   = false
+    poc_only     = true
   })
 
   query_contract = {
-    provider            = local.azure_provider_name
-    implementation      = "query.trino_on_aks"
-    adapter             = "query.trino_on_aks"
-    logical_name        = "sql_query"
-    service_name        = "trino"
-    http_port           = 8080
-    endpoint            = "http://trino:8080"
+    provider          = local.azure_provider_name
+    implementation    = "query.trino_on_aks"
+    adapter           = "query.trino_on_aks"
+    logical_name      = "sql_query"
+    service_name      = "trino"
+    service_namespace = var.shared_namespace
+    http_port         = 8080
+    # Namespace-qualified: stage-scoped Dagster and Superset resolve this
+    # from their own namespace, where a bare service name would not resolve.
+    endpoint            = "http://trino.${var.shared_namespace}:8080"
     catalog_name        = local.catalog_contract.trino_catalog_name
     supported_catalogs  = ["rest"]
     active_catalog_type = local.catalog_contract.catalog_type
@@ -189,13 +243,14 @@ locals {
   }
 
   orchestration_contract = {
-    provider       = local.azure_provider_name
-    implementation = "orchestration.dagster_on_aks"
-    adapter        = "orchestration.dagster_on_aks"
-    logical_name   = "orchestration"
-    service_name   = "dagster-dagster-webserver"
-    http_port      = 80
-    endpoint       = "http://dagster-dagster-webserver:80"
+    provider          = local.azure_provider_name
+    implementation    = "orchestration.dagster_on_aks"
+    adapter           = "orchestration.dagster_on_aks"
+    logical_name      = "orchestration"
+    service_name      = "dagster-dagster-webserver"
+    service_namespace = local.selected_stage_namespace
+    http_port         = 80
+    endpoint          = "http://dagster-dagster-webserver.${local.selected_stage_namespace}:80"
     code_locations = [
       {
         name               = "openlakeforge-dagster"
@@ -332,24 +387,148 @@ locals {
   }
 
   provider_contracts = {
-    schema_version      = "2.0.0"
-    foundation          = local.foundation_contract
-    kubernetes_platform = local.kubernetes_platform_contract
-    cluster             = local.kubernetes_platform_contract
-    storage             = local.storage_contract
-    metadata_database   = local.metadata_database_contract
-    catalog             = local.catalog_contract
-    query               = local.query_contract
-    orchestration       = local.orchestration_contract
-    governance          = local.governance_contract
-    reporting           = local.reporting_contract
-    artifact_registry   = local.artifact_registry_contract
-    artifact_bucket     = local.artifact_bucket_contract
-    artifacts           = local.artifact_contract
-    secrets             = local.secrets_contract
-    identity            = local.identity_contract
-    access              = local.access_contract
-    observability       = local.observability_contract
+    schema_version = "3.0.0"
+    deployment = {
+      profile_name = var.profile_name
+      provider     = local.azure_provider_name
+      region       = null
+    }
+    shared = merge({
+      foundation          = { ref = "shared/foundation", implementation = local.foundation_contract.implementation }
+      kubernetes_platform = { ref = "shared/kubernetes_platform", implementation = local.kubernetes_platform_contract.implementation }
+      metadata_database   = { ref = "shared/metadata_database", implementation = local.metadata_database_contract.implementation }
+      query = {
+        ref            = "shared/query"
+        implementation = local.query_contract.implementation
+        endpoint       = local.query_contract.endpoint
+      }
+      catalog_service = {
+        ref            = "shared/catalog_service"
+        implementation = local.catalog_contract.implementation
+        endpoint       = local.catalog_contract.endpoint
+      }
+      artifact_registry = { ref = "shared/artifact_registry", implementation = local.artifact_registry_contract.implementation }
+      ops_storage = {
+        ref                      = "shared/ops_storage"
+        implementation           = local.artifact_bucket_contract.implementation
+        bucket_name              = local.artifact_bucket_contract.bucket_name
+        artifact_base_uri        = local.artifact_bucket_contract.artifact_base_uri
+        access_mode              = local.artifact_bucket_contract.access_mode
+        local_upload_access_mode = local.artifact_bucket_contract.local_upload_access_mode
+        credentials_secret_name  = local.artifact_bucket_contract.credentials_secret_name
+        access_key_id_key        = local.artifact_bucket_contract.access_key_id_key
+        secret_access_key_key    = local.artifact_bucket_contract.secret_access_key_key
+      }
+      secrets       = { ref = "shared/secrets", implementation = local.secrets_contract.implementation }
+      identity      = { ref = "shared/identity", implementation = local.identity_contract.implementation }
+      access        = { ref = "shared/access", implementation = local.access_contract.implementation }
+      observability = { ref = "shared/observability", implementation = local.observability_contract.implementation }
+      }, local.governance_enabled ? {
+      # OpenMetadata is one shared instance across every governed stage, so
+      # its binding lives here rather than being duplicated per stage.
+      governance_service = {
+        ref            = "shared/governance_service"
+        implementation = local.governance_contract.implementation
+        endpoint       = local.governance_contract.endpoint
+      }
+    } : {})
+    stages = {
+      for name, stage in local.enabled_stages : name => merge({
+        namespace = local.stage_namespaces[name]
+        storage = {
+          provider                = local.azure_provider_name
+          implementation          = "storage.s3_compatible.seaweedfs_on_aks"
+          protocol                = "s3"
+          region                  = var.s3_region
+          endpoint                = local.stage_storage_contracts[name].endpoint
+          virtual_host_endpoint   = local.stage_storage_contracts[name].virtual_host_endpoint
+          path_style_access       = true
+          ssl_mode                = "disabled"
+          credentials_secret_name = local.stage_storage_contracts[name].credentials_secret_name
+          access_key_id_key       = local.stage_storage_contracts[name].access_key_id_key
+          secret_access_key_key   = local.stage_storage_contracts[name].secret_access_key_key
+          s3_service_name         = local.stage_storage_contracts[name].s3_service_name
+          s3_service_port         = local.stage_storage_contracts[name].s3_service_port
+          identity_ref            = "stage/${name}/runtime_identity"
+          bronze = {
+            physical_id = local.stage_storage[name].bronze_bucket_name
+            bucket_name = local.stage_storage[name].bronze_bucket_name
+            uri         = "s3://${local.stage_storage[name].bronze_bucket_name}"
+          }
+          silver = {
+            physical_id = local.stage_storage[name].silver_bucket_name
+            bucket_name = local.stage_storage[name].silver_bucket_name
+            uri         = "s3://${local.stage_storage[name].silver_bucket_name}"
+          }
+          gold = {
+            physical_id = local.stage_storage[name].gold_bucket_name
+            bucket_name = local.stage_storage[name].gold_bucket_name
+            uri         = "s3://${local.stage_storage[name].gold_bucket_name}"
+          }
+        }
+        catalog = {
+          logical_name                     = "iceberg_catalog"
+          implementation                   = local.stage_catalog_contracts[name].implementation
+          catalog_type                     = "rest"
+          catalog_provider                 = "polaris"
+          catalog_name                     = local.stage_catalog_contracts[name].catalog_name
+          runtime_profile                  = "polaris-rest"
+          physical_id                      = local.stage_catalog_contracts[name].catalog_name
+          service_ref                      = "shared/catalog_service"
+          warehouse                        = local.stage_catalog_contracts[name].warehouse
+          rest_uri                         = local.stage_catalog_contracts[name].rest_uri
+          token_uri                        = local.stage_catalog_contracts[name].token_uri
+          oauth_scope                      = local.stage_catalog_contracts[name].oauth_scope
+          catalog_namespace_model          = local.catalog_namespace_model
+          floe_credentials_secret_name     = local.stage_catalog_contracts[name].floe_credentials_secret_name
+          floe_client_id_key               = local.stage_catalog_contracts[name].floe_client_id_key
+          floe_client_secret_key           = local.stage_catalog_contracts[name].floe_client_secret_key
+          deployer_credentials_secret_name = local.stage_catalog_contracts[name].deployer_credentials_secret_name
+          deployer_client_id_key           = local.stage_catalog_contracts[name].deployer_client_id_key
+          deployer_client_secret_key       = local.stage_catalog_contracts[name].deployer_client_secret_key
+        }
+        query = {
+          service_ref          = "shared/query"
+          catalog_ref          = "stage/${name}/catalog"
+          catalog_name         = local.stage_catalog_contracts[name].catalog_name
+          endpoint             = local.query_contract.endpoint
+          runtime_identity_ref = "stage/${name}/runtime_identity"
+        }
+        orchestration = {
+          service_ref  = "stage/${name}/orchestration"
+          endpoint_ref = "stage/${name}/endpoints/orchestration"
+        }
+        activation = {
+          ops_storage_ref = "shared/ops_storage"
+          prefix          = "activations/${name}"
+        }
+        runtime_identity = {
+          ref       = "stage/${name}/runtime_identity"
+          principal = local.stage_service_accounts[name]
+        }
+        endpoints = merge(
+          {
+            catalog       = "shared/catalog_service"
+            query         = "shared/query"
+            orchestration = "stage/${name}/endpoints/orchestration"
+          },
+          stage.analytics ? { reporting = "stage/${name}/endpoints/reporting" } : {},
+          stage.governance ? { governance = "stage/${name}/endpoints/governance" } : {},
+        )
+        },
+        stage.analytics ? {
+          reporting = {
+            service_ref  = "stage/${name}/reporting"
+            endpoint_ref = "stage/${name}/endpoints/reporting"
+          }
+        } : {},
+        stage.governance ? {
+          governance = {
+            service_ref  = "shared/governance_service"
+            endpoint_ref = "stage/${name}/endpoints/governance"
+          }
+      } : {})
+    }
   }
 }
 
@@ -421,7 +600,34 @@ check "catalog_contract_consumer_support" {
 
 check "openmetadata_catalog_fqn_uses_lakehouse_database" {
   assert {
-    condition     = local.catalog_contract.catalog_database_fqn == "polaris.${var.catalog_name}" && local.catalog_contract.catalog_name != "default"
+    condition     = local.catalog_contract.catalog_database_fqn == "polaris.lakehouse_${local.selected_stage}" && local.catalog_contract.catalog_name != "default"
     error_message = "OpenMetadata catalog assets must resolve under polaris.<catalog_name>, not polaris.default."
+  }
+}
+
+check "stage_namespaces_are_distinct" {
+  assert {
+    condition = alltrue([
+      length(distinct(values(local.stage_namespaces))) == length(local.stage_namespaces),
+      !contains(values(local.stage_namespaces), var.shared_namespace),
+    ])
+    error_message = "Every enabled stage must own a namespace of its own, distinct from the shared platform namespace."
+  }
+}
+
+check "stage_services_stay_in_their_own_stage" {
+  assert {
+    condition = alltrue(concat(
+      [for name, instance in module.dagster : instance.namespace == local.stage_namespaces[name]],
+      [for name, instance in module.superset : instance.namespace == local.stage_namespaces[name]],
+    ))
+    error_message = "Each stage-scoped service instance must be deployed in its own stage namespace."
+  }
+}
+
+check "stage_metadata_state_is_not_shared" {
+  assert {
+    condition     = length(distinct([for database in values(local.stage_databases) : database.db_name])) == length(local.stage_databases)
+    error_message = "Every stage-scoped service instance must own its metadata database; sharing one mixes stage state."
   }
 }

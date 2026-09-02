@@ -276,7 +276,9 @@ def test_platform_apply_variables_include_aws_region_and_resolved_repository(tmp
     assert variables["project_code_image_repository"] == _FACTS.project_code_repository
     assert variables["superset_image_repository"] == _FACTS.superset_repository
     assert set(variables.keys()) == {
-        "namespace",
+        "profile_name",
+        "shared_namespace",
+        "stages",
         "aws_region",
         "kube_context",
         "kubeconfig_path",
@@ -287,8 +289,6 @@ def test_platform_apply_variables_include_aws_region_and_resolved_repository(tmp
         "project_code_image_tag",
         "project_code_image_pull_policy",
         "project_code_image_revision",
-        "enable_governance",
-        "enable_analytics",
         "superset_image_repository",
         "superset_image_tag",
         "superset_image_pull_policy",
@@ -307,7 +307,9 @@ def test_platform_destroy_variables_are_the_five_var_subset(tmp_path: Path) -> N
     variables = backend.platform_destroy_variables(config, _FACTS)
 
     assert set(variables.keys()) == {
-        "namespace",
+        "profile_name",
+        "shared_namespace",
+        "stages",
         "aws_region",
         "kube_context",
         "kubeconfig_path",

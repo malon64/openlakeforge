@@ -519,8 +519,8 @@ def test_catalog_sync_namespaces_dispatches_to_glue_for_aws_glue_provider(
     monkeypatch.setattr(
         catalog,
         "_sync_glue_namespaces",
-        lambda *, desired, dry_run, prune: calls.append(
-            {"backend": "glue", "dry_run": dry_run, "prune": prune}
+        lambda *, desired, dry_run, prune, namespace_prefix: calls.append(
+            {"backend": "glue", "dry_run": dry_run, "prune": prune, "namespace_prefix": namespace_prefix}
         ),
     )
     monkeypatch.setattr(
@@ -531,7 +531,7 @@ def test_catalog_sync_namespaces_dispatches_to_glue_for_aws_glue_provider(
     result = runner.invoke(app, ["catalog", "sync-namespaces", "--dry-run"])
 
     assert result.exit_code == 0
-    assert calls == [{"backend": "glue", "dry_run": True, "prune": False}]
+    assert calls == [{"backend": "glue", "dry_run": True, "prune": False, "namespace_prefix": "lakehouse_dev_"}]
 
 
 def test_catalog_sync_namespaces_dispatches_to_polaris_by_default(monkeypatch: pytest.MonkeyPatch) -> None:

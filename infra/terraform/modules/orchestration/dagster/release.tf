@@ -66,9 +66,16 @@ resource "helm_release" "dagster" {
         type = "S3ComputeLogManager"
         config = {
           s3ComputeLogManager = {
-            bucket         = var.artifact_bucket_name
+            bucket = var.artifact_bucket_name
+            # A stage's own storage identity is scoped to
+            # activations/<stage>/* in the shared ops bucket (#114) - a
+            # bucket-root "logs/dagster/compute" prefix falls outside that
+            # grant and every compute-log upload is denied. Compute-log
+            # calls carry no other stage's activation prefix, so deriving it
+            # from log_base_uri (already stage-scoped) keeps this instance's
+            # logs inside its own grant.
             localDir       = "/tmp/dagster-compute-logs"
-            prefix         = "logs/dagster/compute"
+            prefix         = "${trimsuffix(replace(var.log_base_uri, "s3://${var.artifact_bucket_name}/", ""), "/")}/dagster/compute"
             useSsl         = try(var.storage_contract.ssl_mode, null) != "disabled"
             verify         = try(var.storage_contract.ssl_mode, null) != "disabled"
             endpointUrl    = var.storage_contract.endpoint

@@ -1,7 +1,29 @@
-variable "namespace" {
-  description = "Kubernetes namespace for the AWS EKS POC lakehouse stack."
+variable "profile_name" {
+  description = "Deployment Profile name resolved by `olf profile resolve`. Identifies this deployment across its stages."
   type        = string
-  default     = "lakehouse"
+  default     = "openlakeforge"
+}
+
+variable "shared_namespace" {
+  description = "Kubernetes namespace owning the shared platform services: Trino and OpenMetadata."
+  type        = string
+  default     = "olf-system"
+}
+
+variable "stages" {
+  description = "Resolved deployment topology: one entry per stage the resolver knows about, with its enabled flag and capabilities. Disabled stages stay in the map so the root can report what an apply would remove."
+  type = map(object({
+    enabled    = bool
+    analytics  = bool
+    governance = bool
+  }))
+  default = {
+    dev = {
+      enabled    = true
+      analytics  = true
+      governance = true
+    }
+  }
 }
 
 variable "aws_region" {
@@ -46,12 +68,6 @@ variable "foundation_state_path" {
   default     = null
 }
 
-variable "catalog_name" {
-  description = "Logical OpenLakeForge catalog name."
-  type        = string
-  default     = "lakehouse_dev"
-}
-
 variable "bucket_name_prefix" {
   description = "Prefix used for generated AWS S3 buckets."
   type        = string
@@ -59,19 +75,19 @@ variable "bucket_name_prefix" {
 }
 
 variable "bronze_bucket_name" {
-  description = "Optional explicit Bronze S3 bucket name."
+  description = "Optional existing DEV Bronze S3 bucket name from the v0.2 AWS POC. Null retains its generated legacy name."
   type        = string
   default     = null
 }
 
 variable "silver_bucket_name" {
-  description = "Optional explicit Silver S3 bucket name."
+  description = "Optional existing DEV Silver S3 bucket name from the v0.2 AWS POC. Null retains its generated legacy name."
   type        = string
   default     = null
 }
 
 variable "gold_bucket_name" {
-  description = "Optional explicit Gold S3 bucket name."
+  description = "Optional existing DEV Gold S3 bucket name from the v0.2 AWS POC. Null retains its generated legacy name."
   type        = string
   default     = null
 }
@@ -104,18 +120,6 @@ variable "project_code_image_revision" {
   description = "Project-code image revision used to force Dagster pod rollouts when the tag is reused."
   type        = string
   default     = "manual"
-}
-
-variable "enable_governance" {
-  description = "Whether to deploy the OpenMetadata governance layer and its supporting credentials."
-  type        = bool
-  default     = true
-}
-
-variable "enable_analytics" {
-  description = "Whether to deploy the Superset analytics layer and its supporting credentials."
-  type        = bool
-  default     = true
 }
 
 variable "superset_image_repository" {

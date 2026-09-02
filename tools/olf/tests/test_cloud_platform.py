@@ -2,14 +2,16 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from _cloud_support import FakeCloudBackend
 from _tooling_support import RecordedCall, RecordingRunner
 
 from olf.deployment.cloud import platform
 from olf.deployment.cloud.backend import FoundationFacts
 from olf.deployment.cloud.config import CloudDeploymentConfig
-from olf.deployment.context import DeploymentContext, Profile
+from olf.deployment.context import DeploymentContext, Profile, Provider
 from olf.deployment.engine import Toolkit
+from olf.deployment.errors import DeploymentPreconditionError
 from olf.tooling.process import CommandResult
 from olf.tooling.resolver import PathExecutableResolver
 
@@ -23,10 +25,43 @@ _FACTS = FoundationFacts(
 )
 
 
-def _config(tmp_path: Path, *, enable_analytics: str = "true") -> CloudDeploymentConfig:
+def _config(
+    tmp_path: Path, *, enable_analytics: str = "true", topology=None, provider: Provider = Provider.AWS  # noqa: ANN001
+) -> CloudDeploymentConfig:
     profile = Profile.FULL if enable_analytics == "true" else Profile.SLIM
-    context = DeploymentContext.aws(repo_root=tmp_path, profile=profile)
+    context_factory = DeploymentContext.aws if provider is Provider.AWS else DeploymentContext.azure
+    context = context_factory(repo_root=tmp_path, profile=profile, topology=topology)
     return CloudDeploymentConfig.from_environment({}, context=context)
+
+
+def _topology(*, dev_analytics: bool, prod_analytics: bool):  # noqa: ANN202
+    from olf.profile import (
+        DeploymentProfile,
+        Preset,
+        ProviderSpec,
+        StageCapabilities,
+        StageName,
+        StageSpec,
+        resolve_topology,
+    )
+
+    return resolve_topology(
+        DeploymentProfile(
+            name="acme-data",
+            provider=ProviderSpec(type=Provider.AWS),
+            preset=Preset.SLIM,
+            stages=(
+                StageSpec(
+                    name=StageName.DEV,
+                    capabilities=StageCapabilities(analytics=dev_analytics, governance=False),
+                ),
+                StageSpec(
+                    name=StageName.PROD,
+                    capabilities=StageCapabilities(analytics=prod_analytics, governance=False),
+                ),
+            ),
+        )
+    )
 
 
 def _toolkit(runner: RecordingRunner) -> Toolkit:
@@ -56,25 +91,39 @@ def _ok(stdout: str = "") -> CommandResult:
     return CommandResult(argv=(), returncode=0, stdout=stdout, stderr="", duration_seconds=0.0)
 
 
-def _fail() -> CommandResult:
-    return CommandResult(argv=(), returncode=1, stdout="", stderr="", duration_seconds=0.0)
+def _fail(stderr: str = "") -> CommandResult:
+    return CommandResult(argv=(), returncode=1, stdout="", stderr=stderr, duration_seconds=0.0)
 
 
 class _PlatformScriptedRunner(RecordingRunner):
     """Chart cache hits (`helm show chart` succeeds) so tests exercise orchestration, not chart caching."""
 
-    def __init__(self, *, namespace_exists: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        namespace_exists: bool = False,
+        legacy_namespace_exists: bool = False,
+        applied_stages: str | None = None,
+    ) -> None:
         super().__init__()
         self._namespace_exists = namespace_exists
+        self._legacy_namespace_exists = legacy_namespace_exists
+        self._applied_stages = applied_stages
 
     def run(self, command, **kwargs):  # type: ignore[override]
-        argv = list(command.argv) if hasattr(command, "argv") else [str(p) for p in command]
+        argv = [str(part) for part in (command.argv if hasattr(command, "argv") else command)]
         self.calls.append(RecordedCall(argv=argv, kwargs=kwargs))
         if argv[0] == "helm" and argv[1:3] == ["show", "chart"]:
+            return _ok()
+        if any(str(argument) == "stage_names" for argument in argv):
+            return _ok(self._applied_stages or "[]")
+        if "namespace" in argv and "-l" in argv:
             return _ok()
         if argv[0] == "terraform" and "state" in argv:
             return _ok() if self._namespace_exists else _fail()
         if argv[0] == "kubectl" and "namespace" in argv and "get" in argv:
+            if "lakehouse" in argv:
+                return _ok() if self._legacy_namespace_exists else _fail()
             return _ok() if self._namespace_exists else _fail()
         return _ok()
 
@@ -105,6 +154,47 @@ def test_platform_up_builds_superset_when_analytics_enabled(tmp_path: Path) -> N
     assert "registry_login" in backend.calls
 
 
+def test_platform_up_builds_superset_for_an_analytics_sibling_stage(tmp_path: Path) -> None:
+    config = _config(tmp_path, topology=_topology(dev_analytics=False, prod_analytics=True))
+    config.paths.helm_cache_dir.mkdir(parents=True, exist_ok=True)
+    config.charts["trino"].package_path.write_text("cached")
+    config.charts["dagster"].package_path.write_text("cached")
+    backend = FakeCloudBackend(scope="aws")
+    tools = _toolkit(_PlatformScriptedRunner())
+
+    platform.platform_up(config, tools, backend, _FACTS, env={})
+
+    assert config.features.analytics_enabled is False
+    assert config.context.platform_features.analytics_enabled is True
+    assert "superset" in config.charts.settings
+    assert "registry_login" in backend.calls
+
+
+@pytest.mark.parametrize(("scope", "provider"), [("aws", Provider.AWS), ("azure", Provider.AZURE)])
+def test_platform_up_refuses_removing_an_applied_stage(tmp_path: Path, scope: str, provider: Provider) -> None:
+    config = _config(tmp_path, enable_analytics="false", provider=provider)
+    config.paths.helm_cache_dir.mkdir(parents=True, exist_ok=True)
+    config.charts["trino"].package_path.write_text("cached")
+    config.charts["dagster"].package_path.write_text("cached")
+    backend = FakeCloudBackend(scope=scope)
+    tools = _toolkit(_PlatformScriptedRunner(applied_stages='["dev", "prod"]'))
+
+    with pytest.raises(DeploymentPreconditionError, match="prod"):
+        platform.platform_up(config, tools, backend, _FACTS, env={})
+
+
+def test_azure_platform_up_refuses_to_replace_the_legacy_shared_namespace(tmp_path: Path) -> None:
+    config = _config(tmp_path, enable_analytics="false", provider=Provider.AZURE)
+    config.paths.helm_cache_dir.mkdir(parents=True, exist_ok=True)
+    config.charts["trino"].package_path.write_text("cached")
+    config.charts["dagster"].package_path.write_text("cached")
+    backend = FakeCloudBackend(scope="azure")
+    tools = _toolkit(_PlatformScriptedRunner(legacy_namespace_exists=True))
+
+    with pytest.raises(DeploymentPreconditionError, match="lakehouse"):
+        platform.platform_up(config, tools, backend, _FACTS, env={})
+
+
 def test_platform_up_uses_backend_apply_variables_and_var_file(tmp_path: Path) -> None:
     config = _config(tmp_path, enable_analytics="false")
     config.paths.helm_cache_dir.mkdir(parents=True, exist_ok=True)
@@ -118,7 +208,7 @@ def test_platform_up_uses_backend_apply_variables_and_var_file(tmp_path: Path) -
 
     assert "platform_apply_variables" in backend.calls
     apply_call = next(c for c in runner.calls if c.argv[0] == "terraform" and c.argv[2:3] == ["apply"])
-    assert "-var=namespace=lakehouse" in apply_call.argv
+    assert "-var=namespace=olf-dev" in apply_call.argv
 
 
 def test_platform_up_never_passes_var_file_to_azure_apply_even_with_explicit_override(tmp_path: Path) -> None:
@@ -160,4 +250,9 @@ def test_platform_up_cleans_up_polaris_jobs_only_when_backend_requests_it(tmp_pa
     backend_cleanup = FakeCloudBackend(scope="azure", cleanup_polaris=True)
     tools2 = _toolkit(_PlatformScriptedRunner())
     platform.platform_up(config, tools2, backend_cleanup, _FACTS, env={})
-    assert any("get" in c.argv and "jobs" in c.argv for c in tools2.runner.calls)
+    jobs_calls = [c for c in tools2.runner.calls if "get" in c.argv and "jobs" in c.argv]
+    assert jobs_calls
+    # Polaris runs in the shared namespace ("olf-system"), not the selected
+    # stage's ("olf-dev") - scanning the stage namespace here never finds a
+    # failed Polaris bootstrap job to clean up before retrying.
+    assert all("-n" in c.argv and c.argv[c.argv.index("-n") + 1] == "olf-system" for c in jobs_calls)

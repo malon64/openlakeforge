@@ -64,7 +64,12 @@ def test_v3_provider_fixtures_match_the_strict_schema_and_topology(fixture_name:
     assert {stage.value for stage in parsed.stages} == set(contract["stages"])
 
 
-def test_aws_fixture_preserves_logical_names_with_distinct_glue_catalogs() -> None:
+def test_aws_fixture_preserves_logical_names_under_one_shared_glue_catalog() -> None:
+    """This account's Glue service refuses to create a custom catalog per
+    stage, so every stage shares the account's one default catalog
+    (glue_catalog_id identical across stages) - `catalog_name` is what
+    stays distinct, since it becomes each stage's physical database-name
+    prefix rather than a catalog identity."""
     contract = _fixture("aws-provider-contracts-v3.json")
     parsed = parse_provider_contracts(contract, _topology(contract))
 
@@ -73,9 +78,8 @@ def test_aws_fixture_preserves_logical_names_with_distinct_glue_catalogs() -> No
 
     assert dev.catalog["catalog_name"] == "lakehouse_dev"
     assert prod.catalog["catalog_name"] == "lakehouse_prod"
-    assert dev.catalog["glue_catalog_id"] == "123456789012:olf_acme_data_dev"
-    assert prod.catalog["glue_catalog_id"] == "123456789012:olf_acme_data_prod"
-    assert dev.catalog["glue_catalog_id"] != prod.catalog["glue_catalog_id"]
+    assert dev.catalog["glue_catalog_id"] == "123456789012"
+    assert dev.catalog["glue_catalog_id"] == prod.catalog["glue_catalog_id"]
     assert dev.catalog["catalog_namespace_model"] == prod.catalog["catalog_namespace_model"] == "medallion-owner"
 
 
@@ -564,10 +568,12 @@ def test_catalog_uri_port_must_be_valid(port_suffix: str) -> None:
 
 
 def test_glue_catalog_id_must_include_the_account_id_prefix() -> None:
-    """The prior check only compared the suffix after the last ':', so a
-    bare catalog name with no account-id prefix at all (and no colon)
-    passed as long as physical_id matched it too; GlueClient then receives
-    that as an unusable CatalogId and only fails at the AWS API."""
+    """A bare catalog *name* with no account-id at all (and no colon) is
+    still rejected: GlueClient would otherwise receive it as an unusable
+    CatalogId and only fail at the AWS API. A bare 12-digit account ID
+    (no colon) is valid, though - see the next test - it names the
+    account's own shared default catalog, the only kind this account's
+    Glue service allows creating."""
     contract = _fixture("aws-provider-contracts-v3.json")
     topology = _topology(contract)
     bare_id = "olf_acme_data_dev"
@@ -576,9 +582,19 @@ def test_glue_catalog_id_must_include_the_account_id_prefix() -> None:
     contract["stages"]["dev"]["catalog"]["glue_rest_warehouse"] = bare_id
 
     with pytest.raises(
-        ProviderContractError, match="glue_catalog_id must be '<12-digit-account-id>:<catalog-name>'"
+        ProviderContractError, match=r"glue_catalog_id must be '<12-digit-account-id>\[:<catalog-name>\]'"
     ):
         parse_provider_contracts(contract, topology)
+
+
+def test_glue_catalog_id_accepts_a_bare_account_id() -> None:
+    """The account's shared default catalog (no custom-catalog suffix) is a
+    valid glue_catalog_id, not just the legacy '<account-id>:<name>' form -
+    both stages already use this bare form in the fixture."""
+    contract = _fixture("aws-provider-contracts-v3.json")
+    parsed = parse_provider_contracts(contract, _topology(contract))
+
+    assert parsed.for_stage("dev").catalog["glue_catalog_id"] == "123456789012"
 
 
 def test_storage_region_is_validated_even_when_topology_has_no_region() -> None:
@@ -758,13 +774,13 @@ def test_catalog_physical_id_must_be_a_non_empty_string() -> None:
 
 def test_glue_rest_warehouse_must_match_its_own_glue_catalog_id() -> None:
     """as_v2_environment_contract() exports glue_rest_warehouse to the runtime;
-    a stage could keep a valid, distinct glue_catalog_id/physical_id while
-    pointing glue_rest_warehouse at another stage's Glue catalog."""
+    a stage could point glue_rest_warehouse at a different Glue catalog ID
+    than its own glue_catalog_id (both stages now legitimately share the
+    same glue_catalog_id - the account's one default catalog - so this can
+    no longer be tested by cross-wiring another stage's value)."""
     contract = _fixture("aws-provider-contracts-v3.json")
     topology = _topology(contract)
-    contract["stages"]["prod"]["catalog"]["glue_rest_warehouse"] = contract["stages"]["dev"]["catalog"][
-        "glue_catalog_id"
-    ]
+    contract["stages"]["prod"]["catalog"]["glue_rest_warehouse"] = "999999999999"
 
     with pytest.raises(ProviderContractError, match="glue_rest_warehouse must match its own Glue catalog ID"):
         parse_provider_contracts(contract, topology)

@@ -60,6 +60,19 @@ variable "credentials_secret_name" {
   default     = "seaweedfs-s3-creds"
 }
 
+variable "stage_credentials" {
+  description = "Stage-owned S3 identities. Each identity is granted access only to its medallion buckets and the shared ops bucket."
+  type = map(object({
+    namespace               = string
+    credentials_secret_name = string
+    bronze_bucket_name      = string
+    silver_bucket_name      = string
+    gold_bucket_name        = string
+    ops_bucket_name         = string
+  }))
+  default = {}
+}
+
 variable "s3_port" {
   description = "SeaweedFS S3 service port."
   type        = number
