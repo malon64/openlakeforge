@@ -32,6 +32,36 @@ variable "base_values_file" {
   type        = string
 }
 
+variable "project_code_image_repository" {
+  description = "Project-code image repository used by the Dagster code server and run pods."
+  type        = string
+  default     = "ghcr.io/openlakeforge/project-code"
+}
+
+variable "project_code_image_tag" {
+  description = "Project-code image tag used by the Dagster code server and run pods."
+  type        = string
+  default     = "local"
+}
+
+variable "project_code_image_pull_policy" {
+  description = "Project-code image pull policy used by the Dagster code server and run pods."
+  type        = string
+  default     = "IfNotPresent"
+}
+
+variable "project_code_image_revision" {
+  description = "Project-code image revision used to force Dagster pod rollouts when the tag is reused."
+  type        = string
+  default     = "manual"
+}
+
+variable "kubernetes_log_archive_schedule" {
+  description = "Cron schedule for archiving Kubernetes pod logs to the artifact bucket."
+  type        = string
+  default     = "*/15 * * * *"
+}
+
 variable "code_locations" {
   description = "Dagster user-code deployments and Python modules exposing Definitions. A merged location saves pods but a load failure affects every domain; split locations isolate load and restart failures at one pod per domain."
   type = list(object({
@@ -200,4 +230,10 @@ variable "service_account_annotations" {
   description = "Optional annotations for Dagster service accounts, used by AWS workload identity integrations."
   type        = map(string)
   default     = {}
+}
+
+variable "manage_user_deployments" {
+  description = "Whether Terraform owns the Dagster user-code deployments. True is the deprecated single-stage `olf deploy` lifecycle, where the subchart carries user code and the workspace is derived from it. False is the #115 split: `olf project deploy` owns a separate openlakeforge-project release, and this root only publishes a stable workspace endpoint pointing at it."
+  type        = bool
+  default     = true
 }

@@ -200,6 +200,10 @@ def deployment_context_for_profile(
         "profile": Profile(topology.preset.value),
         "topology": topology,
         "stage": selected_stage,
+        # Reaching a Deployment Profile through `-f` is what marks the #115
+        # lifecycle: the platform stops owning user code so `olf project
+        # deploy` can own it per stage.
+        "manage_user_deployments": False,
     }
     if cluster_name and profile.provider.type == Provider.LOCAL:
         kwargs["cluster_name"] = cluster_name

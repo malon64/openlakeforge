@@ -63,6 +63,7 @@ def topology_variables(context: DeploymentContext) -> dict[str, str]:
         "profile_name": topology.profile_name,
         "shared_namespace": context.shared_namespace,
         "stages": json.dumps(stages, sort_keys=True, separators=(",", ":")),
+        "manage_user_deployments": "true" if context.manage_user_deployments else "false",
     }
 
 
@@ -178,6 +179,10 @@ class DeploymentContext:
     stage: StageName
     shared_namespace: str = SHARED_NAMESPACE
     allow_stage_removal: bool = False
+    # Which lifecycle owns Dagster user code. `olf deploy` (deprecated, single
+    # stage) leaves Terraform owning it; the #115 commands, which resolve a
+    # Deployment Profile, hand it to `olf project deploy` instead.
+    manage_user_deployments: bool = True
 
     @property
     def platform_features(self) -> DeploymentFeatures:
@@ -234,6 +239,7 @@ class DeploymentContext:
         topology: DeploymentTopology | None = None,
         stage: StageName | str | None = None,
         allow_stage_removal: bool = False,
+        manage_user_deployments: bool = True,
     ) -> DeploymentContext:
         """Build the local `DeploymentContext`.
 
@@ -257,6 +263,7 @@ class DeploymentContext:
             topology=topology,
             stage=stage,
             allow_stage_removal=allow_stage_removal,
+            manage_user_deployments=manage_user_deployments,
             stage_aware_namespaces=True,
             kube_context=f"kind-{cluster_name}",
             foundation_terraform_dir=Path("infra/terraform/foundations/local-kind"),
@@ -282,6 +289,7 @@ class DeploymentContext:
         topology: DeploymentTopology | None = None,
         stage: StageName | str | None = None,
         allow_stage_removal: bool = False,
+        manage_user_deployments: bool = True,
     ) -> DeploymentContext:
         """Build the AWS `DeploymentContext`.
 
@@ -304,6 +312,7 @@ class DeploymentContext:
             topology=topology,
             stage=stage,
             allow_stage_removal=allow_stage_removal,
+            manage_user_deployments=manage_user_deployments,
             stage_aware_namespaces=True,
             kube_context=kube_context,
             foundation_terraform_dir=Path("infra/terraform/foundations/aws-eks"),
@@ -329,6 +338,7 @@ class DeploymentContext:
         topology: DeploymentTopology | None = None,
         stage: StageName | str | None = None,
         allow_stage_removal: bool = False,
+        manage_user_deployments: bool = True,
     ) -> DeploymentContext:
         """Build the Azure `DeploymentContext`.
 
@@ -348,6 +358,7 @@ class DeploymentContext:
             topology=topology,
             stage=stage,
             allow_stage_removal=allow_stage_removal,
+            manage_user_deployments=manage_user_deployments,
             stage_aware_namespaces=True,
             kube_context=kube_context,
             foundation_terraform_dir=Path("infra/terraform/foundations/azure-aks"),
@@ -373,6 +384,7 @@ class DeploymentContext:
         topology: DeploymentTopology | None,
         stage: StageName | str | None,
         allow_stage_removal: bool,
+        manage_user_deployments: bool = True,
         stage_aware_namespaces: bool,
         kube_context: str,
         foundation_terraform_dir: Path,
@@ -450,6 +462,7 @@ class DeploymentContext:
             topology=resolved_topology,
             stage=resolved_stage,
             allow_stage_removal=allow_stage_removal,
+            manage_user_deployments=manage_user_deployments,
             shared_namespace=resolved_shared_namespace,
         )
 

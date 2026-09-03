@@ -29,26 +29,34 @@ resource "helm_release" "dagster" {
         postgresqlUsername = var.postgresql_contract.dagster_db_user
       }
 
-      "dagster-user-deployments" = {
-        # User code is a stage activation, not Terraform state. The two keys
-        # are not interchangeable: `enabled` is what makes the parent chart
-        # render workspace.yaml at all, and turning it off while the subchart
-        # condition is still true trips the chart's own
-        # "subchart cannot be enabled if workspace.yaml is not created" guard.
-        # Only `enableSubchart` moves the deployments themselves out, into the
-        # openlakeforge-project release that activation installs after its
-        # revision verifies.
-        enabled        = true
-        enableSubchart = false
-      }
+      # `enabled` and `enableSubchart` are not interchangeable: `enabled` is
+      # what makes the parent chart render workspace.yaml at all, and turning
+      # it off while the subchart condition is still true trips the chart's
+      # own "subchart cannot be enabled if workspace.yaml is not created"
+      # guard. Only `enableSubchart` moves the deployments themselves out.
+      "dagster-user-deployments" = merge(
+        {
+          enabled        = true
+          enableSubchart = var.manage_user_deployments
+        },
+        var.manage_user_deployments ? {
+          serviceAccount = {
+            annotations = var.service_account_annotations
+          }
+          deployments = local.code_location_deployments
+        } : {},
+      )
 
       # The webserver and daemon images stay where the catalog pins them, in
       # `base_values_file`: overriding them with a project-code reference here
       # is what made a platform apply depend on a project build existing.
       dagsterWebserver = {
-        # dagster-user-deployments names each Service after its deployment, so
-        # the contract's code-location name is also its in-cluster host.
-        workspace = {
+        # Only when activation owns user code: the parent chart otherwise
+        # derives workspace.yaml from the subchart's own deployments, and
+        # setting both is rejected. dagster-user-deployments names each
+        # Service after its deployment, so the contract's code-location name
+        # is also its in-cluster host.
+        workspace = var.manage_user_deployments ? { enabled = false } : {
           enabled = true
           servers = [
             for location in var.code_locations : {
@@ -98,10 +106,18 @@ resource "helm_release" "dagster" {
         type = "K8sRunLauncher"
         config = {
           k8sRunLauncher = {
-            # Deliberately no `image`: Dagster then launches runs with the code
-            # location's own container image, which stage activation sets to the
-            # activated revision's digest. A value here would be captured at
-            # platform-apply time and silently outrank every later promotion.
+            # `includeConfigInLaunchedRuns` on the code location means a
+            # launched run inherits that server's image, so this is only the
+            # fallback for a run whose origin carries none -- it never
+            # outranks an activated revision. The deprecated `olf deploy`
+            # path still patches this `job_image` in place, so it has to
+            # exist.
+            imagePullPolicy = var.project_code_image_pull_policy
+            image = {
+              repository = var.project_code_image_repository
+              tag        = var.project_code_image_tag
+              pullPolicy = var.project_code_image_pull_policy
+            }
             jobNamespace        = var.namespace
             loadInclusterConfig = true
             failPodOnRunFailure = true

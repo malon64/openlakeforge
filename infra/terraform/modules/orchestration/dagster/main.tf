@@ -100,6 +100,10 @@ locals {
       name  = "OPENLAKEFORGE_FLOE_MANIFEST_REVISION"
       value = var.floe_manifest_revision
     },
+    {
+      name  = "OPENLAKEFORGE_PROJECT_CODE_REVISION"
+      value = var.project_code_image_revision
+    },
   ]
 
   generic_catalog_env = [
@@ -297,7 +301,51 @@ locals {
     },
   ]
 
+  code_location_deployments = [
+    for location in var.code_locations : {
+      name = location.name
+      image = {
+        repository = var.project_code_image_repository
+        tag        = var.project_code_image_tag
+        pullPolicy = var.project_code_image_pull_policy
+      }
+      dagsterApiGrpcArgs = [
+        "--module-name",
+        location.definitions_module,
+      ]
+      port = 3030
+      includeConfigInLaunchedRuns = {
+        enabled = true
+      }
+      deploymentConfig = {
+        strategy = {
+          type = "Recreate"
+        }
+      }
+      podSpecConfig = {
+        terminationGracePeriodSeconds = 10
+      }
+      env        = local.runtime_env
+      envSecrets = local.runtime_env_secrets
+    }
+  ]
+
   runtime_env = concat(local.storage_env, local.artifact_env, local.generic_catalog_env, local.glue_catalog_env, local.polaris_catalog_env, local.query_env, local.dbt_env, local.dbt_secret_env, local.namespace_env)
+
+  log_archive_env = concat(
+    local.storage_env,
+    local.artifact_env,
+    [
+      {
+        name  = "OPENLAKEFORGE_KUBE_NAMESPACE"
+        value = var.namespace
+      },
+      {
+        name  = "OPENLAKEFORGE_LOG_ARCHIVE_SINCE_SECONDS"
+        value = "3600"
+      },
+    ],
+  )
 
   runtime_env_secrets = concat(
     var.storage_contract.credentials_secret_name == null ? [] : [
