@@ -13,6 +13,12 @@ from olf.deployment.retry import RetryPolicy, RetryPredicate
 from olf.tooling.process import CommandResult, ProcessRunner
 from olf.tooling.resolver import ExecutableResolver
 
+# Helm's own default is 5m, which a first activation on a cold node routinely
+# exceeds while pulling the project-code image. Timing out under `--atomic`
+# rolls the release back, so too short a budget reads as a failed deployment
+# rather than a slow one.
+DEFAULT_ATOMIC_TIMEOUT = "20m"
+
 
 class Helm:
     def __init__(self, runner: ProcessRunner, resolver: ExecutableResolver) -> None:
@@ -90,6 +96,7 @@ class Helm:
         values: Path,
         kube_context: str | None = None,
         env: Mapping[str, str] | None = None,
+        timeout: str = DEFAULT_ATOMIC_TIMEOUT,
     ) -> CommandResult:
         """Install a release atomically, or atomically reconcile an existing one."""
         return self._run(
@@ -104,9 +111,27 @@ class Helm:
                 str(values),
                 "--atomic",
                 "--wait",
+                "--timeout",
+                timeout,
             ],
             kube_context=kube_context,
             env=env,
+        )
+
+    def get_values(
+        self,
+        release: str,
+        *,
+        namespace: str,
+        kube_context: str | None = None,
+        env: Mapping[str, str] | None = None,
+    ) -> CommandResult:
+        """Read a release's user-supplied values as JSON."""
+        return self._run(
+            ["get", "values", release, "--namespace", namespace, "--output", "json"],
+            kube_context=kube_context,
+            env=env,
+            check=False,
         )
 
     def repo_add(

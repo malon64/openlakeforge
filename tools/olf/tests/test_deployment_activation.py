@@ -59,6 +59,12 @@ class _Helm:
     def status(self, release: str, *, namespace: str, kube_context=None, env=None):  # noqa: ANN001, ANN202, ARG002
         return SimpleNamespace(ok=namespace in self.ready)
 
+    def get_values(self, release, *, namespace, kube_context=None, env=None):  # noqa: ANN001, ANN202, ARG002
+        # The platform release the activation inherits its globals from.
+        return SimpleNamespace(
+            ok=True, stdout=json.dumps({"global": {"postgresqlSecretName": f"postgresql-dagster-{namespace}-creds"}})
+        )
+
     def upgrade_install(self, release, chart, *, namespace, values, kube_context=None, env=None):  # noqa: ANN001, ANN202, ARG002
         if self.fails:
             raise RuntimeError("helm upgrade --atomic rolled back")
@@ -173,6 +179,15 @@ def test_failed_rollout_leaves_the_previous_revision_active(harness) -> None:  #
 
     assert project_activation.active(harness.store, stage=StageName.DEV) == active
     assert project_activation.active(harness.store, stage=StageName.PROD) is None
+
+
+def test_rollout_inherits_the_platform_release_globals(harness) -> None:  # noqa: ANN001
+    """The subchart installed standalone would otherwise default to a secret name no stage uses."""
+    harness.deploy("prod")
+
+    _, values = harness.helm.rollouts[0]
+
+    assert values["global"]["postgresqlSecretName"] == "postgresql-dagster-olf-prod-creds"
 
 
 def test_rollout_carries_the_activated_image_into_the_log_archiver(harness) -> None:  # noqa: ANN001

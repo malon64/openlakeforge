@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
 
 import typer
@@ -161,11 +161,12 @@ def status(
             contract_dir = Path(
                 provider.env.get("OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR", context.paths.platform_terraform_dir)
             ).resolve()
+            kube_context = provider.env.get("KUBE_CONTEXT") or context.kube_context
             with applied_contract_environment(
                 contract_terraform_dir=contract_dir,
                 repo_root=context.paths.repo_root,
                 namespace=context.namespace,
-                kube_context=context.kube_context,
+                kube_context=kube_context,
                 kubeconfig_path=context.paths.kubeconfig_path,
                 port_forward_log_prefix=context.paths.port_forward_log_prefix,
                 environ=provider.env,
@@ -181,7 +182,7 @@ def status(
                     observed_ok = provider.tools.helm.status(
                         "openlakeforge-project",
                         namespace=context.namespace,
-                        kube_context=context.kube_context,
+                        kube_context=kube_context,
                         env=provider.env,
                     ).ok
                     reports.append(
@@ -293,25 +294,31 @@ def _build_store_for_project(project_root: Path, *, via: str, output: str) -> It
     contract_dir = Path(
         provider.env.get("OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR", context.paths.platform_terraform_dir)
     ).resolve()
-    try:
-        # Building against an unreachable platform is the same outcome as
-        # building with no bucket resolved, and `olf project build` already
-        # fails closed on that. Reaching the caller as a raw kubectl or
-        # Terraform error would instead surface a traceback.
-        with applied_contract_environment(
-            contract_terraform_dir=contract_dir,
-            repo_root=project_root,
-            namespace=context.namespace,
-            kube_context=context.kube_context,
-            kubeconfig_path=context.paths.kubeconfig_path,
-            port_forward_log_prefix=context.paths.port_forward_log_prefix,
-            environ=provider.env,
-            topology=context.topology,
-            stage=context.stage,
-        ):
-            with _revision_store(via=via, output=output) as store:
-                yield store
-    except (DeploymentError, KubectlError) as exc:
-        raise ArtifactStoreError(
-            f"could not resolve the artifact store from the {context.provider.value} platform contract: {exc}"
-        ) from exc
+    with ExitStack() as stack:
+        try:
+            # Building against an unreachable platform is the same outcome as
+            # building with no bucket resolved, and `olf project build` already
+            # fails closed on that. Reaching the caller as a raw kubectl or
+            # Terraform error would instead surface a traceback. Only opening
+            # the store is wrapped: a failure in the body belongs to whatever
+            # the caller is doing with it, and reporting that as an artifact
+            # store problem would misname it.
+            stack.enter_context(
+                applied_contract_environment(
+                    contract_terraform_dir=contract_dir,
+                    repo_root=project_root,
+                    namespace=context.namespace,
+                    kube_context=provider.env.get("KUBE_CONTEXT") or context.kube_context,
+                    kubeconfig_path=context.paths.kubeconfig_path,
+                    port_forward_log_prefix=context.paths.port_forward_log_prefix,
+                    environ=provider.env,
+                    topology=context.topology,
+                    stage=context.stage,
+                )
+            )
+            store = stack.enter_context(_revision_store(via=via, output=output))
+        except (DeploymentError, KubectlError) as exc:
+            raise ArtifactStoreError(
+                f"could not resolve the artifact store from the {context.provider.value} platform contract: {exc}"
+            ) from exc
+        yield store

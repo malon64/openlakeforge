@@ -35,6 +35,7 @@ from olf.provider_contracts import ProviderContractError, parse_provider_contrac
 
 _RELEASE = "openlakeforge-project"
 _LOG_ARCHIVE = "openlakeforge-k8s-log-archive"
+_PLATFORM_RELEASE = "dagster"
 _LOG_ARCHIVE_SCHEDULE = "*/15 * * * *"
 
 
@@ -142,7 +143,11 @@ def _log_archive_manifest(
 
 
 def _user_values(
-    activation: ProjectActivation, *, contract_environ: Mapping[str, str], namespace: str
+    activation: ProjectActivation,
+    *,
+    contract_environ: Mapping[str, str],
+    namespace: str,
+    platform_globals: Mapping[str, Any],
 ) -> dict[str, object]:
     repository, digest = _image_parts(activation.project_code_image)
     env = [
@@ -161,6 +166,7 @@ def _user_values(
         - {""}
     )
     return {
+        "global": dict(platform_globals),
         "extraManifests": [_log_archive_manifest(activation, namespace=namespace, env=env, secrets=secrets)],
         "serviceAccount": {"create": False, "name": "dagster"},
         "deployments": [
@@ -262,10 +268,46 @@ def _ensure_image(provider: DeploymentProvider, image: str, *, env: Mapping[str,
         load_image_into_kind(image, provider.config, provider.tools, env=env)  # type: ignore[arg-type,attr-defined]
 
 
+def _platform_globals(provider: DeploymentProvider, *, kube_context: str, env: Mapping[str, str]) -> dict[str, Any]:
+    """The `global` values the platform's Dagster release runs with.
+
+    The activation release installs the user-deployments subchart standalone,
+    so it inherits none of the parent's globals and falls back to the
+    subchart's own defaults -- notably `postgresqlSecretName:
+    dagster-postgresql-secret`, which is not what any stage's Terraform names
+    its credentials. Reading the parent release keeps the two in agreement by
+    construction instead of by a second copy of the naming rule.
+    """
+    result = provider.tools.helm.get_values(
+        _PLATFORM_RELEASE, namespace=provider.context.namespace, kube_context=kube_context, env=env
+    )
+    if not result.ok:
+        raise ActivationError(
+            f"the {_PLATFORM_RELEASE!r} release is not installed in {provider.context.namespace}; "
+            "run olf platform apply before activating a revision."
+        )
+    try:
+        values = json.loads(result.stdout or "{}")
+    except json.JSONDecodeError as exc:
+        raise ActivationError(f"could not read {_PLATFORM_RELEASE!r} release values: {exc}") from exc
+    return dict((values or {}).get("global") or {})
+
+
+def _kube_context(provider: DeploymentProvider) -> str:
+    """The provider's resolved kube context.
+
+    A cloud `DeploymentContext` carries an empty `kube_context` until the
+    foundation outputs are read, and only the provider's command environment
+    holds the resolved value. Reading the context directly leaves every
+    kubectl-backed step of an activation without a cluster to talk to.
+    """
+    env = provider.env  # type: ignore[attr-defined]
+    return env.get("KUBE_CONTEXT") or provider.context.kube_context
+
+
 def _release_ready(provider: DeploymentProvider, *, env: Mapping[str, str]) -> bool:
-    context = provider.context
     return provider.tools.helm.status(
-        _RELEASE, namespace=context.namespace, kube_context=context.kube_context, env=env
+        _RELEASE, namespace=provider.context.namespace, kube_context=_kube_context(provider), env=env
     ).ok
 
 
@@ -276,6 +318,8 @@ def deploy_revision(
     context = provider.context
     env = provider.env  # type: ignore[attr-defined]
     contract_dir = _contract_dir(context, env)
+    kube_context = _kube_context(provider)
+    platform_globals = _platform_globals(provider, kube_context=kube_context, env=env)
     raw_contract = contracts.load_provider_contracts(str(contract_dir), environ=env)
     if raw_contract is None:
         raise ActivationError(f"provider contracts are unavailable from {contract_dir}; run olf platform apply first.")
@@ -323,7 +367,7 @@ def deploy_revision(
             contract_terraform_dir=contract_dir,
             repo_root=root,
             namespace=context.namespace,
-            kube_context=context.kube_context,
+            kube_context=kube_context,
             kubeconfig_path=context.paths.kubeconfig_path,
             port_forward_log_prefix=context.paths.port_forward_log_prefix,
             environ=env,
@@ -360,26 +404,36 @@ def deploy_revision(
             values = Path(temporary) / "values.yaml"
             values.write_text(
                 yaml.safe_dump(
-                    _user_values(activation, contract_environ=contract_environ, namespace=context.namespace),
+                    _user_values(
+                        activation,
+                        contract_environ=contract_environ,
+                        namespace=context.namespace,
+                        platform_globals=platform_globals,
+                    ),
                     sort_keys=False,
                 )
             )
             publish_activation(store, activation)
             provider.tools.helm.upgrade_install(
-                _RELEASE, chart, namespace=context.namespace, values=values, kube_context=context.kube_context, env=env
+                _RELEASE, chart, namespace=context.namespace, values=values, kube_context=kube_context, env=env
             )
             try:
                 commit_active(store, activation)
             except ProjectActivationError:
                 if previous is None:
                     provider.tools.helm.uninstall(
-                        _RELEASE, namespace=context.namespace, kube_context=context.kube_context, env=env
+                        _RELEASE, namespace=context.namespace, kube_context=kube_context, env=env
                     )
                 else:
                     rollback_values = Path(temporary) / "rollback-values.yaml"
                     rollback_values.write_text(
                         yaml.safe_dump(
-                            _user_values(previous, contract_environ=contract_environ, namespace=context.namespace),
+                            _user_values(
+                                previous,
+                                contract_environ=contract_environ,
+                                namespace=context.namespace,
+                                platform_globals=platform_globals,
+                            ),
                             sort_keys=False,
                         )
                     )
@@ -388,7 +442,7 @@ def deploy_revision(
                         chart,
                         namespace=context.namespace,
                         values=rollback_values,
-                        kube_context=context.kube_context,
+                        kube_context=kube_context,
                         env=env,
                     )
                 raise
