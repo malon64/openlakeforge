@@ -34,6 +34,8 @@ from olf.project_revision import ProjectRevisionError, materialize, verify
 from olf.provider_contracts import ProviderContractError, parse_provider_contracts
 
 _RELEASE = "openlakeforge-project"
+_LOG_ARCHIVE = "openlakeforge-k8s-log-archive"
+_LOG_ARCHIVE_SCHEDULE = "*/15 * * * *"
 
 
 class ActivationError(DeploymentPreconditionError):
@@ -81,7 +83,67 @@ def _image_parts(image: str) -> tuple[str, str]:
     return repository, digest
 
 
-def _user_values(activation: ProjectActivation, *, contract_environ: Mapping[str, str]) -> dict[str, object]:
+def _log_archive_manifest(
+    activation: ProjectActivation,
+    *,
+    namespace: str,
+    env: list[dict[str, str]],
+    secrets: list[str],
+) -> dict[str, object]:
+    """The compute-log archiver, rendered into the activation release.
+
+    It runs `libs.k8s_log_archive`, which only exists inside the project-code
+    image, so ADR 0002 puts it here rather than in a platform apply. Riding the
+    activation release also keeps it on the digest the stage actually runs
+    instead of whatever tag a platform apply last captured.
+    """
+    labels = {
+        "app.kubernetes.io/name": _LOG_ARCHIVE,
+        "openlakeforge.io/component": "observability",
+    }
+    return {
+        "apiVersion": "batch/v1",
+        "kind": "CronJob",
+        "metadata": {"name": _LOG_ARCHIVE, "namespace": namespace, "labels": labels},
+        "spec": {
+            "schedule": _LOG_ARCHIVE_SCHEDULE,
+            "concurrencyPolicy": "Forbid",
+            "successfulJobsHistoryLimit": 1,
+            "failedJobsHistoryLimit": 3,
+            "jobTemplate": {
+                "metadata": {"labels": labels},
+                "spec": {
+                    "backoffLimit": 1,
+                    "template": {
+                        "metadata": {"labels": labels},
+                        "spec": {
+                            "serviceAccountName": "dagster",
+                            "automountServiceAccountToken": True,
+                            "restartPolicy": "Never",
+                            "containers": [
+                                {
+                                    "name": "archive-k8s-logs",
+                                    "image": activation.project_code_image,
+                                    "imagePullPolicy": "IfNotPresent",
+                                    "command": ["python", "-m", "libs.k8s_log_archive"],
+                                    "env": [
+                                        *env,
+                                        {"name": "OPENLAKEFORGE_LOG_ARCHIVE_SINCE_SECONDS", "value": "3600"},
+                                    ],
+                                    "envFrom": [{"secretRef": {"name": secret}} for secret in secrets],
+                                }
+                            ],
+                        },
+                    },
+                },
+            },
+        },
+    }
+
+
+def _user_values(
+    activation: ProjectActivation, *, contract_environ: Mapping[str, str], namespace: str
+) -> dict[str, object]:
     repository, digest = _image_parts(activation.project_code_image)
     env = [
         {"name": "OPENLAKEFORGE_PROJECT_REVISION", "value": activation.project_revision},
@@ -99,6 +161,7 @@ def _user_values(activation: ProjectActivation, *, contract_environ: Mapping[str
         - {""}
     )
     return {
+        "extraManifests": [_log_archive_manifest(activation, namespace=namespace, env=env, secrets=secrets)],
         "serviceAccount": {"create": False, "name": "dagster"},
         "deployments": [
             {
@@ -199,6 +262,13 @@ def _ensure_image(provider: DeploymentProvider, image: str, *, env: Mapping[str,
         load_image_into_kind(image, provider.config, provider.tools, env=env)  # type: ignore[arg-type,attr-defined]
 
 
+def _release_ready(provider: DeploymentProvider, *, env: Mapping[str, str]) -> bool:
+    context = provider.context
+    return provider.tools.helm.status(
+        _RELEASE, namespace=context.namespace, kube_context=context.kube_context, env=env
+    ).ok
+
+
 def deploy_revision(
     provider: DeploymentProvider, *, revision: str, store: RevisionStore, profile_name: str
 ) -> ProjectActivation:
@@ -220,7 +290,33 @@ def deploy_revision(
         raise ActivationError(str(exc)) from exc
     _ensure_image(provider, manifest.project_code_image, env=env)
 
+    capabilities = {
+        "analytics": context.features.analytics_enabled,
+        "governance": context.features.governance_enabled,
+    }
     previous = active_activation(store, stage=context.stage)
+    if (
+        previous is not None
+        and previous.matches_inputs(
+            ProjectActivation(
+                deployment_profile=profile_name,
+                provider=context.provider.value,
+                stage=context.stage,
+                project_name=manifest.project_name,
+                project_revision=manifest.revision,
+                distribution_version=manifest.distribution_version,
+                project_code_image=manifest.project_code_image,
+                floe_manifest_revision=previous.floe_manifest_revision,
+                provider_binding_digest=binding,
+                capabilities=capabilities,
+            )
+        )
+        and _release_ready(provider, env=env)
+    ):
+        # Reapplying the active revision must not touch the cluster or the ops
+        # bucket at all. Deciding this only after Floe has been regenerated
+        # would already have performed the work idempotency exists to skip.
+        return previous
     with tempfile.TemporaryDirectory(prefix="project-activation.", dir=context.paths.work_root) as temporary:
         root = materialize(store, manifest, Path(temporary) / "project")
         with contract_env.applied_contract_environment(
@@ -246,17 +342,9 @@ def deploy_revision(
                 project_code_image=manifest.project_code_image,
                 floe_manifest_revision=floe_revision,
                 provider_binding_digest=binding,
-                capabilities={
-                    "analytics": context.features.analytics_enabled,
-                    "governance": context.features.governance_enabled,
-                },
+                capabilities=capabilities,
             ).resolved()
-            if (
-                previous == activation
-                and provider.tools.helm.status(
-                    _RELEASE, namespace=context.namespace, kube_context=context.kube_context, env=env
-                ).ok
-            ):
+            if previous == activation and _release_ready(provider, env=env):
                 return activation
             if activation.capabilities["analytics"] or activation.capabilities["governance"]:
                 deploy_optional_layer_artifacts(contract_environ)
@@ -271,7 +359,10 @@ def deploy_revision(
             chart = _user_chart(config.charts["dagster"].package_path, Path(temporary))
             values = Path(temporary) / "values.yaml"
             values.write_text(
-                yaml.safe_dump(_user_values(activation, contract_environ=contract_environ), sort_keys=False)
+                yaml.safe_dump(
+                    _user_values(activation, contract_environ=contract_environ, namespace=context.namespace),
+                    sort_keys=False,
+                )
             )
             publish_activation(store, activation)
             provider.tools.helm.upgrade_install(
@@ -287,7 +378,10 @@ def deploy_revision(
                 else:
                     rollback_values = Path(temporary) / "rollback-values.yaml"
                     rollback_values.write_text(
-                        yaml.safe_dump(_user_values(previous, contract_environ=contract_environ), sort_keys=False)
+                        yaml.safe_dump(
+                            _user_values(previous, contract_environ=contract_environ, namespace=context.namespace),
+                            sort_keys=False,
+                        )
                     )
                     provider.tools.helm.upgrade_install(
                         _RELEASE,

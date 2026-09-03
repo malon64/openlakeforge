@@ -89,6 +89,19 @@ class LocalProvider:
 
         prefetch.prefetch_images(self.config, self.tools, env=self.env)
 
+    def build_project_image(self) -> str:
+        """Build the project-code image and load it into kind, returning its tag.
+
+        Unlike a cloud registry this yields no pullable digest, so the result
+        cannot seed `olf project build`. See that command's error for why a
+        local image config Id is not a substitute.
+        """
+        from olf.deployment.local import images
+
+        image = images.build_project_code_image(self.config, self.tools, env=self.env, revision="manual")
+        images.load_image_into_kind(image, self.config, self.tools, env=self.env)
+        return image
+
     def platform_up(self) -> None:
         from olf.deployment.local import platform
 

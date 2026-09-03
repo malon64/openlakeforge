@@ -1,5 +1,12 @@
 # Dagster orchestration layer for the local kind cluster.
+# The webserver and daemon are the Terraform-owned control plane: neither
+# imports lakehouse_code, they reach user code over gRPC. Pinning the upstream
+# image here keeps a platform apply independent of any project build (#115),
+# and the tag must track the chart version pinned in the component catalog.
 dagsterWebserver:
+  image:
+    repository: docker.io/dagster/dagster-celery-k8s
+    tag: "1.13.6@sha256:1f8ccf43d820bb4ace7507ceacc896304733b03f841301e690ce4310972d4286"
   replicaCount: 1
   service:
     type: ClusterIP
@@ -13,6 +20,9 @@ dagsterWebserver:
 
 dagsterDaemon:
   enabled: true
+  image:
+    repository: docker.io/dagster/dagster-celery-k8s
+    tag: "1.13.6@sha256:1f8ccf43d820bb4ace7507ceacc896304733b03f841301e690ce4310972d4286"
   resources:
     requests:
       cpu: 250m

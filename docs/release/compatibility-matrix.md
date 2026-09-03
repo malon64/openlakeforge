@@ -75,6 +75,7 @@ Terraform, Helm, kubectl, and kind are provisioned by `olf toolchain` (#127) rat
 
 | Image | Reference |
 | --- | --- |
+| dagster_control_plane | `docker.io/dagster/dagster-celery-k8s:1.13.6@sha256:1f8ccf43d820bb4ace7507ceacc896304733b03f841301e690ce4310972d4286` |
 | k8s_bootstrap | `alpine/k8s:1.30.0@sha256:bd01dae02676ce4cab62fc744e43443eee5bf660054e94d3496d23bfc35d384e` |
 | openmetadata_ingestion | `docker.getcollate.io/openmetadata/ingestion-base:1.12.10@sha256:dadd44b28cc73488a943009c22da7b3c7a9e52d2adb47e61ed2c5ba791e2a07d` |
 | opensearch | `opensearchproject/opensearch:3.3.2@sha256:798cf28e226a32f5c928dd1ed9478dd3a33d2212176aad3679020088ad3afa1a` |

@@ -42,12 +42,10 @@ resource "helm_release" "dagster" {
         enableSubchart = false
       }
 
+      # The webserver and daemon images stay where the catalog pins them, in
+      # `base_values_file`: overriding them with a project-code reference here
+      # is what made a platform apply depend on a project build existing.
       dagsterWebserver = {
-        image = {
-          repository = var.project_code_image_repository
-          tag        = var.project_code_image_tag
-          pullPolicy = var.project_code_image_pull_policy
-        }
         # dagster-user-deployments names each Service after its deployment, so
         # the contract's code-location name is also its in-cluster host.
         workspace = {
@@ -69,11 +67,6 @@ resource "helm_release" "dagster" {
       }
 
       dagsterDaemon = {
-        image = {
-          repository = var.project_code_image_repository
-          tag        = var.project_code_image_tag
-          pullPolicy = var.project_code_image_pull_policy
-        }
         env        = local.runtime_env
         envSecrets = local.runtime_env_secrets
       }
@@ -105,12 +98,10 @@ resource "helm_release" "dagster" {
         type = "K8sRunLauncher"
         config = {
           k8sRunLauncher = {
-            imagePullPolicy = var.project_code_image_pull_policy
-            image = {
-              repository = var.project_code_image_repository
-              tag        = var.project_code_image_tag
-              pullPolicy = var.project_code_image_pull_policy
-            }
+            # Deliberately no `image`: Dagster then launches runs with the code
+            # location's own container image, which stage activation sets to the
+            # activated revision's digest. A value here would be captured at
+            # platform-apply time and silently outrank every later promotion.
             jobNamespace        = var.namespace
             loadInclusterConfig = true
             failPodOnRunFailure = true

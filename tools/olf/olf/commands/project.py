@@ -77,6 +77,33 @@ def build(
     typer.echo(manifest.to_json() if json_output else manifest.revision)
 
 
+@app.command("image")
+def image(
+    profile_file: str = typer.Option(..., "--file", "-f", help="Deployment Profile v1 path."),
+    var_file: str = typer.Option("", "--var-file", help="Provider-specific Terraform tfvars override."),
+) -> None:
+    """Build the project-code image and print the reference `olf project build --image` expects.
+
+    The profile's own directory is the project root, matching `olf project
+    deploy`. Cloud providers push to the foundation's registry and print a
+    digest-pinned reference; local builds load into kind and print a tag,
+    which is not publishable as a revision.
+    """
+    from olf.deployment.context import Provider
+    from olf.deployment.errors import DeploymentError
+    from olf.project_revision import ProjectRevisionError, resolve_image_digest
+
+    context = deployment_context_for_profile(profile_file, var_file=var_file)
+    provider = _profile_provider(context, var_file=var_file)
+    try:
+        reference = provider.build_project_image()
+        if context.provider is not Provider.LOCAL:
+            reference = resolve_image_digest(reference)
+    except (DeploymentError, ProjectRevisionError) as exc:
+        raise typer.Exit(code=fail(str(exc))) from exc
+    typer.echo(reference)
+
+
 @app.command("deploy")
 def deploy(
     profile_file: str = typer.Option(..., "--file", "-f", help="Deployment Profile v1 path."),

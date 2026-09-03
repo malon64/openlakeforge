@@ -73,6 +73,33 @@ class ProjectActivation:
             )
         return ProjectActivation(**{**self.__dict__, "stage": StageName(self.stage), "activation_revision": revision})
 
+    def matches_inputs(self, other: ProjectActivation) -> bool:
+        """Compare every activation input except the Floe manifest revision.
+
+        `activation_revision` folds in `floe_manifest_revision`, which only
+        regenerating Floe produces -- so a full equality check can only run
+        after the work an idempotent redeploy is trying to skip. Nothing that
+        changes the rendered Floe output is invisible here: Floe configs are
+        hashed into the revision's `floe` component, a contract change moves
+        `provider_binding_digest`, and a capability change moves
+        `capabilities`. Equal inputs therefore mean equal output without
+        depending on Floe generation being byte-for-byte reproducible.
+        """
+        fields = (
+            "deployment_profile",
+            "provider",
+            "project_name",
+            "project_revision",
+            "distribution_version",
+            "project_code_image",
+            "provider_binding_digest",
+        )
+        return (
+            all(getattr(self, name) == getattr(other, name) for name in fields)
+            and StageName(self.stage) == StageName(other.stage)
+            and dict(self.capabilities) == dict(other.capabilities)
+        )
+
     def validate(self, *, allow_unresolved: bool = False) -> None:
         if not self.deployment_profile or not self.project_name or not self.distribution_version:
             raise ProjectActivationError(
