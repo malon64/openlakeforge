@@ -177,3 +177,22 @@ def test_installed_layout_keeps_platform_assets_in_the_payload_when_a_project_is
     assert layout.catalog_path == payload / "release" / "component-catalog.yaml"
     assert layout.project.root == project.resolve()
     assert layout.project.distribution_root == payload
+
+
+def test_distribution_version_at_reads_a_distribution_root(tmp_path: Path) -> None:
+    from olf.distribution import distribution_version_at
+
+    repo_root = Path(__file__).resolve().parents[3]
+
+    assert distribution_version_at(repo_root) == _catalog_version(repo_root)
+    # An external project checkout ships no catalog; activation must read the
+    # resolved distribution root instead of falling back to a wrong version.
+    assert distribution_version_at(tmp_path) is None
+
+
+def _catalog_version(root: Path) -> str:
+    import re
+
+    catalog = (root / "release" / "component-catalog.yaml").read_text()
+    pattern = re.compile(r"^distribution:\s*$.*?^\s+version:\s*['\"]?([^'\"\s#]+)", re.MULTILINE | re.DOTALL)
+    return pattern.search(catalog).group(1)

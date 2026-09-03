@@ -36,6 +36,35 @@ def test_activation_hash_is_deterministic_and_round_trips() -> None:
     assert project_activation.ProjectActivation.from_json(first.to_json()) == first
 
 
+def test_matches_inputs_ignores_only_the_floe_revision() -> None:
+    from dataclasses import replace
+
+    activation = _activation().resolved()
+    regenerated = replace(activation, floe_manifest_revision="sha256:" + "e" * 64, activation_revision="").resolved()
+
+    assert activation.matches_inputs(regenerated)
+    assert activation != regenerated
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("capabilities", {"analytics": False, "governance": False}),
+        ("provider_binding_digest", "sha256:" + "f" * 64),
+        ("project_revision", "sha256:" + "1" * 64),
+        ("project_code_image", "ghcr.io/openlakeforge/project-code@sha256:" + "2" * 64),
+        ("stage", "prod"),
+    ],
+)
+def test_matches_inputs_rejects_a_changed_activation_input(field: str, value: object) -> None:
+    from dataclasses import replace
+
+    activation = _activation().resolved()
+    changed = replace(activation, **{field: value}, activation_revision="").resolved()
+
+    assert not activation.matches_inputs(changed)
+
+
 def test_activation_rejects_unknown_fields() -> None:
     payload = json.loads(_activation().to_json())
     payload["unexpected"] = True

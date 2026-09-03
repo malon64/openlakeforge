@@ -32,9 +32,17 @@ provider, must never invalidate a revision that already exists.
 
 ```bash
 olf platform apply -f openlakeforge.yaml
+olf project image  -f openlakeforge.yaml
+olf project build  --project . --image <repository>@sha256:<digest>
 olf project deploy -f openlakeforge.yaml --stage dev --revision sha256:<digest>
+olf project deploy -f openlakeforge.yaml --stage prod --revision sha256:<digest>
 olf project status -f openlakeforge.yaml --json
 ```
+
+`olf project image` builds and pushes the project-code image and prints the
+digest-pinned reference `olf project build` requires. It needs a registry: a
+local image's config Id is not a pullable digest, so a kind-only build cannot
+seed a revision.
 
 Activation verifies every object of the published `ProjectRevision`, restores it
 to a temporary root, and renders Floe only from that root and the selected v3

@@ -24,14 +24,16 @@ class ArtifactRevisionError(RuntimeError):
 def built_manifest_revision(environ: Mapping[str, str] | None = None) -> str | None:
     """Return the active Floe revision for this project-code container.
 
-    Prefers the stage-activated runtime value (`OPENLAKEFORGE_FLOE_MANIFEST_
-    REVISION`, passed by Terraform on every deploy, default "manual") over
-    the value baked into the image at build time
-    (`OPENLAKEFORGE_FLOE_MANIFEST_REVISION_BUILT`). Without this preference
-    the project-code image would need rebuilding per revision, which
-    defeats #154's "one image digest deploys to every stage" contract. The
-    baked value stays as a fallback until #115 wires the runtime variable
-    from the platform root for every deploy path.
+    Prefers the stage-activated runtime value
+    (`OPENLAKEFORGE_FLOE_MANIFEST_REVISION`) over the value baked into the
+    image at build time (`OPENLAKEFORGE_FLOE_MANIFEST_REVISION_BUILT`).
+    Without this preference the project-code image would need rebuilding per
+    revision, which defeats #154's "one image digest deploys to every stage"
+    contract.
+
+    `olf project deploy` sets the runtime variable on every activation and
+    `olf project image` deliberately builds with "manual", so the baked value
+    is now only reached by the deprecated `olf deploy --phase artifacts` path.
     """
     env = environ if environ is not None else os.environ
     for env_name in (REVISION_ENV, REVISION_BUILT_ENV):

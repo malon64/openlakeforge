@@ -112,8 +112,16 @@ does not run Terraform or rebuild the project:
 
 ```bash
 olf platform apply -f openlakeforge.yaml
+olf project image  -f openlakeforge.yaml            # -> <repository>@sha256:<digest>
+olf project build  --project . --image <repository>@sha256:<digest>
 olf project deploy -f openlakeforge.yaml --stage dev --revision sha256:<digest>
 olf project status -f openlakeforge.yaml --json
+```
+
+Promoting that same revision to another stage never rebuilds it:
+
+```bash
+olf project deploy -f openlakeforge.yaml --stage prod --revision sha256:<digest>
 ```
 
 Slim contains the complete data path while leaving out the optional governance and dashboarding services.

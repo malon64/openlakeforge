@@ -314,3 +314,26 @@ def test_the_single_dev_shorthand_still_works_on_cloud(tmp_path: Path, monkeypat
     )
 
     assert result.exit_code == 0, result.output
+
+
+def test_profile_context_keeps_an_external_checkout_separate_from_the_distribution(
+    external_project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#115 deploys a project built in another checkout, so the two roots must not collapse.
+
+    A profile outside the distribution is the shape that hid a bug: reading the
+    running distribution version through `runtime_layout()` resolved the project
+    root and reported the wrong version to the compatibility gate.
+    """
+    from olf.commands._shared import deployment_context_for_profile
+    from olf.distribution import distribution_version_at
+
+    monkeypatch.delenv("OPENLAKEFORGE_REPO_ROOT", raising=False)
+    monkeypatch.delenv("OLF_DISTRIBUTION_ROOT", raising=False)
+    checkout = Path(__file__).resolve().parents[3]
+
+    context = deployment_context_for_profile(str(external_project / "openlakeforge.yaml"))
+
+    assert context.paths.repo_root == external_project
+    assert context.paths.distribution_root == checkout
+    assert distribution_version_at(context.paths.distribution_root) is not None
