@@ -74,9 +74,7 @@ def test_build_context_honors_kubeconfig_path_override_for_cloud_providers(tmp_p
     old_repo_root = os.environ.get("OPENLAKEFORGE_REPO_ROOT")
     os.environ["OPENLAKEFORGE_REPO_ROOT"] = str(tmp_path)
     try:
-        context = _build_context(
-            "aws", profile="full", namespace="", cluster_name="", kubeconfig_path=str(override)
-        )
+        context = _build_context("aws", profile="full", namespace="", cluster_name="", kubeconfig_path=str(override))
     finally:
         if old_repo_root is None:
             os.environ.pop("OPENLAKEFORGE_REPO_ROOT", None)
@@ -93,6 +91,19 @@ def test_deploy_defaults_to_all_phases(fake_engine: _FakeEngine) -> None:
 
     assert result.exit_code == 0
     assert fake_engine.deploy_calls == [DeploymentPhase.ALL]
+
+
+def test_platform_apply_never_routes_to_artifacts(monkeypatch: pytest.MonkeyPatch) -> None:
+    from olf.deployment.engine import DeploymentPhase
+
+    engine = _FakeEngine()
+    monkeypatch.setattr("olf.commands.platform.deployment_context_for_profile", lambda *a, **k: object())
+    monkeypatch.setattr("olf.commands.platform._engine", lambda *a, **k: engine)
+
+    result = runner.invoke(app, ["platform", "apply", "-f", "openlakeforge.yaml"])
+
+    assert result.exit_code == 0, result.output
+    assert engine.deploy_calls == [DeploymentPhase.FOUNDATION, DeploymentPhase.PREFETCH, DeploymentPhase.PLATFORM]
 
 
 def test_deploy_routes_phase_flag(fake_engine: _FakeEngine) -> None:
@@ -282,9 +293,7 @@ def test_a_multi_stage_profile_is_accepted_on_the_stage_aware_cloud_roots(
 ) -> None:
     """The aws-poc and azure-poc roots became stage-aware (#114), so a
     multi-stage profile no longer needs the single-DEV shorthand."""
-    _write_profile(
-        tmp_path, provider="aws", stages="    dev:\n      enabled: true\n    prod:\n      enabled: true\n"
-    )
+    _write_profile(tmp_path, provider="aws", stages="    dev:\n      enabled: true\n    prod:\n      enabled: true\n")
     monkeypatch.setattr("olf.commands.deployment._build_engine", lambda *a, **k: _FakeEngine())
 
     result = runner.invoke(
@@ -296,9 +305,7 @@ def test_a_multi_stage_profile_is_accepted_on_the_stage_aware_cloud_roots(
 
 
 def test_the_single_dev_shorthand_still_works_on_cloud(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    _write_profile(
-        tmp_path, provider="aws", stages="    dev:\n      enabled: true\n    prod:\n      enabled: true\n"
-    )
+    _write_profile(tmp_path, provider="aws", stages="    dev:\n      enabled: true\n    prod:\n      enabled: true\n")
     monkeypatch.setattr("olf.commands.deployment._build_engine", lambda *a, **k: _FakeEngine())
 
     result = runner.invoke(

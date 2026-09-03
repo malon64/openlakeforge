@@ -152,3 +152,60 @@ def deployment_context(
         return DeploymentContext.for_provider(resolved_provider, **kwargs)
     except DeploymentPreconditionError as exc:
         raise typer.Exit(code=fail(str(exc))) from exc
+
+
+def deployment_context_for_profile(
+    profile_file: str,
+    *,
+    stage: str = "",
+    cluster_name: str = "",
+    kubeconfig_path: str = "",
+    var_file: str = "",
+):  # noqa: ANN202
+    """Resolve a profile file without requiring a writable data project.
+
+    #115 deliberately gives platform and activation commands a profile path:
+    a project revision may have been built in another checkout, and platform
+    deployment must not inspect that checkout merely to find its topology.
+    ``var_file`` is accepted by callers for a uniform command shape; Terraform
+    wiring remains in the provider config built from the returned context.
+    """
+    from olf.deployment.context import DeploymentContext, Profile, Provider
+    from olf.deployment.errors import DeploymentPreconditionError
+    from olf.distribution import DistributionError, runtime_layout
+    from olf.profile import DeploymentProfileError, StageName, load_deployment_profile, resolve_topology
+
+    path = Path(profile_file).resolve()
+    try:
+        profile = load_deployment_profile(path)
+        topology = resolve_topology(profile)
+    except (DeploymentProfileError, OSError) as exc:
+        raise typer.Exit(code=fail(f"{path}: {exc}")) from exc
+    try:
+        selected_stage = StageName(stage) if stage else StageName.DEV
+    except ValueError as exc:
+        raise typer.Exit(code=fail(f"unknown --stage: {stage!r} (expected dev, uat, or prod)")) from exc
+    if topology.stage(selected_stage) is None or not topology.stage(selected_stage).enabled:
+        raise typer.Exit(code=fail(f"stage {selected_stage.value!r} is not enabled by {path}."))
+    try:
+        layout = runtime_layout({**os.environ, "OPENLAKEFORGE_PROJECT_ROOT": str(path.parent)})
+    except DistributionError as exc:
+        raise typer.Exit(code=fail(str(exc))) from exc
+    kwargs: dict[str, object] = {
+        "repo_root": path.parent,
+        "distribution_root": layout.distribution_root,
+        "state_root": None if layout.is_source else layout.state_root,
+        "work_root": None if layout.is_source else layout.work_root,
+        "cache_root": None if layout.is_source else layout.cache_root,
+        "profile": Profile(topology.preset.value),
+        "topology": topology,
+        "stage": selected_stage,
+    }
+    if cluster_name and profile.provider.type == Provider.LOCAL:
+        kwargs["cluster_name"] = cluster_name
+    if kubeconfig_path:
+        kwargs["kubeconfig_path"] = Path(kubeconfig_path)
+    try:
+        return DeploymentContext.for_provider(profile.provider.type, **kwargs)
+    except DeploymentPreconditionError as exc:
+        raise typer.Exit(code=fail(str(exc))) from exc

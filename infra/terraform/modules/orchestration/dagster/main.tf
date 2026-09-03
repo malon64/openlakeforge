@@ -318,35 +318,6 @@ locals {
     ],
   )
 
-  code_location_deployments = [
-    for location in var.code_locations : {
-      name = location.name
-      image = {
-        repository = var.project_code_image_repository
-        tag        = var.project_code_image_tag
-        pullPolicy = var.project_code_image_pull_policy
-      }
-      dagsterApiGrpcArgs = [
-        "--module-name",
-        location.definitions_module,
-      ]
-      port = 3030
-      includeConfigInLaunchedRuns = {
-        enabled = true
-      }
-      deploymentConfig = {
-        strategy = {
-          type = "Recreate"
-        }
-      }
-      podSpecConfig = {
-        terminationGracePeriodSeconds = 10
-      }
-      env        = local.runtime_env
-      envSecrets = local.runtime_env_secrets
-    }
-  ]
-
   runtime_env_secrets = concat(
     var.storage_contract.credentials_secret_name == null ? [] : [
       {

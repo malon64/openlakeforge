@@ -2,12 +2,15 @@ apiVersion: openlakeforge.io/v1alpha1
 kind: DeploymentProfile
 
 metadata:
-  name: openlakeforge
+  name: openlakeforge-acceptance
 
 spec:
   provider:
-    type: local
-  preset: slim
+    type: aws
+    region: eu-west-3
+  preset: full
   stages:
     dev:
+      enabled: true
+    prod:
       enabled: true

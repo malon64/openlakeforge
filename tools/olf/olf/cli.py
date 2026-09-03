@@ -29,6 +29,7 @@ from olf.commands import (
     k8s,
     layers,
     openmetadata,
+    platform,
     product,
     profile,
     project,
@@ -68,6 +69,7 @@ app.add_typer(domain.app, name="domain")
 app.add_typer(product.app, name="product")
 app.add_typer(project.app, name="project")
 app.add_typer(profile.app, name="profile")
+app.add_typer(platform.app, name="platform")
 app.add_typer(toolchain.app, name="toolchain")
 
 app.command("deploy")(deployment.deploy)

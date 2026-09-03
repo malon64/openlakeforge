@@ -28,6 +28,21 @@ optional UAT and then PROD. A project revision that changed meaning between
 stages would defeat that: enabling UAT, or moving a project to another
 provider, must never invalidate a revision that already exists.
 
+## Stage activation
+
+```bash
+olf platform apply -f openlakeforge.yaml
+olf project deploy -f openlakeforge.yaml --stage dev --revision sha256:<digest>
+olf project status -f openlakeforge.yaml --json
+```
+
+Activation verifies every object of the published `ProjectRevision`, restores it
+to a temporary root, and renders Floe only from that root and the selected v3
+provider contract. It writes an immutable `ProjectActivation` beneath
+`activations/<stage>/revisions/sha256/` and advances `ACTIVE.json` only after
+the stage's `openlakeforge-project` Helm release is ready. Project revisions
+remain equal across stages; activation and Floe revisions intentionally differ.
+
 ## What is frozen
 
 | Component | Source | Notes |

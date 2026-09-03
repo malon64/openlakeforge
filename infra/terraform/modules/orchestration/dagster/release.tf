@@ -30,12 +30,10 @@ resource "helm_release" "dagster" {
       }
 
       "dagster-user-deployments" = {
-        enabled        = true
-        enableSubchart = true
-        serviceAccount = {
-          annotations = var.service_account_annotations
-        }
-        deployments = local.code_location_deployments
+        # User code is a stage activation, not Terraform state.  The stable
+        # endpoint is served by the separately released openlakeforge-project
+        # chart, which activation installs only after its revision verifies.
+        enabled = false
       }
 
       dagsterWebserver = {
@@ -43,6 +41,16 @@ resource "helm_release" "dagster" {
           repository = var.project_code_image_repository
           tag        = var.project_code_image_tag
           pullPolicy = var.project_code_image_pull_policy
+        }
+        workspace = {
+          enabled = true
+          servers = [
+            {
+              host = "openlakeforge-project-dagster-user-deployments"
+              port = 3030
+              name = "openlakeforge-dagster"
+            },
+          ]
         }
         env        = local.runtime_env
         envSecrets = local.runtime_env_secrets

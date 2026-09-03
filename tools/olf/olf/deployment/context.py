@@ -483,6 +483,12 @@ class DeploymentContext:
         env["OPENLAKEFORGE_PROJECT_ROOT"] = str(self.paths.project.root)
         # The legacy name remains for contributor/release compatibility.
         env["OPENLAKEFORGE_REPO_ROOT"] = str(self.paths.project.root)
+        if self.provider is Provider.AWS and self.topology.region:
+            # The Deployment Profile is the authority for a v0.3 cloud
+            # deployment.  Avoid silently sending Terraform, ECR, or Glue to
+            # an ambient CLI default in a different region.
+            env["AWS_REGION"] = self.topology.region
+            env["AWS_DEFAULT_REGION"] = self.topology.region
         # Gate on `installed`, never on `distribution_root != repo_root`: the
         # documented quick start (`uv tool install` then `olf deploy` with no
         # --project-root) deploys the bundled demo, so both roots are the same

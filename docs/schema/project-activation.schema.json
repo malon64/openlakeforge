@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openlakeforge.io/schemas/project-activation/v1alpha1",
+  "title": "OpenLakeForge Project Activation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "apiVersion", "kind", "schema_version", "deployment_profile", "provider", "stage",
+    "project_name", "project_revision", "distribution_version", "project_code_image",
+    "floe_manifest_revision", "provider_binding_digest", "capabilities", "activation_revision"
+  ],
+  "properties": {
+    "apiVersion": {"const": "openlakeforge.io/v1alpha1"},
+    "kind": {"const": "ProjectActivation"},
+    "schema_version": {"const": 1},
+    "deployment_profile": {"type": "string", "minLength": 1},
+    "provider": {"enum": ["local", "aws", "azure"]},
+    "stage": {"enum": ["dev", "uat", "prod"]},
+    "project_name": {"type": "string", "minLength": 1},
+    "distribution_version": {"type": "string", "minLength": 1},
+    "project_code_image": {"type": "string", "pattern": "@sha256:[0-9a-f]{64}$"},
+    "project_revision": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "floe_manifest_revision": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "provider_binding_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "activation_revision": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "capabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {"analytics": {"type": "boolean"}, "governance": {"type": "boolean"}}
+    }
+  }
+}

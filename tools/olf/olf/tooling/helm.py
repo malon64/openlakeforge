@@ -81,6 +81,34 @@ class Helm:
             env=env,
         )
 
+    def upgrade_install(
+        self,
+        release: str,
+        chart: Path,
+        *,
+        namespace: str,
+        values: Path,
+        kube_context: str | None = None,
+        env: Mapping[str, str] | None = None,
+    ) -> CommandResult:
+        """Install a release atomically, or atomically reconcile an existing one."""
+        return self._run(
+            [
+                "upgrade",
+                "--install",
+                release,
+                str(chart),
+                "--namespace",
+                namespace,
+                "--values",
+                str(values),
+                "--atomic",
+                "--wait",
+            ],
+            kube_context=kube_context,
+            env=env,
+        )
+
     def repo_add(
         self,
         name: str,

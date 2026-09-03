@@ -2,19 +2,35 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
 import typer
 
-from olf.commands._shared import fail
+from olf.commands._shared import deployment_context_for_profile, fail
 from olf.project import ProjectSpec, validate_project
 
 app = typer.Typer(help="Validate and build writable OpenLakeForge data projects.")
 
 revision_app = typer.Typer(help="Inspect and verify a published ProjectRevision (#154).")
 app.add_typer(revision_app, name="revision")
+
+
+def _profile_provider(context, *, var_file: str = ""):  # noqa: ANN001, ANN202
+    import os
+
+    from olf.deployment.engine import Toolkit, build_provider
+    from olf.deployment.errors import DeploymentError
+
+    try:
+        env = context.command_env(base=os.environ)
+        return build_provider(
+            context, toolkit=Toolkit.default(environ=env), environ=env, var_file=Path(var_file) if var_file else None
+        )
+    except DeploymentError as exc:
+        raise typer.Exit(code=fail(str(exc))) from exc
 
 
 @app.command("validate")
@@ -37,9 +53,7 @@ def build(
     image: str = typer.Option(
         ..., "--image", help="project-code image reference; digest-pinned, or resolved to a digest via Docker."
     ),
-    output: str = typer.Option(
-        "", "--output", help="Publish into this local directory instead of the ops bucket."
-    ),
+    output: str = typer.Option("", "--output", help="Publish into this local directory instead of the ops bucket."),
     via: str = typer.Option(
         "port-forward",
         "--via",
@@ -56,11 +70,114 @@ def build(
     spec = ProjectSpec(root=layout.project_root, distribution_root=layout.distribution_root)
     try:
         manifest = build_project_revision(spec, image=image, distribution_version=layout.distribution_version)
-        with _revision_store(via=via, output=output) as store:
+        with _build_store_for_project(layout.project_root, via=via, output=output) as store:
             publish(store, manifest, spec)
     except (ProjectRevisionError, ArtifactStoreError) as exc:
         raise typer.Exit(code=fail(str(exc))) from exc
     typer.echo(manifest.to_json() if json_output else manifest.revision)
+
+
+@app.command("deploy")
+def deploy(
+    profile_file: str = typer.Option(..., "--file", "-f", help="Deployment Profile v1 path."),
+    stage: str = typer.Option(..., "--stage", help="Enabled target stage: dev, uat, or prod."),
+    revision: str = typer.Option(..., "--revision", help="Published ProjectRevision, e.g. sha256:<digest>."),
+    var_file: str = typer.Option("", "--var-file", help="Provider-specific Terraform tfvars override."),
+) -> None:
+    """Activate an existing immutable revision without building source or Terraform."""
+    from olf.artifact_store import ArtifactStoreError
+    from olf.deployment.activation import ActivationError, deploy_revision
+    from olf.deployment.errors import DeploymentError
+    from olf.profile import load_deployment_profile
+    from olf.project_activation import ProjectActivationError
+    from olf.project_revision import ProjectRevisionError
+
+    context = deployment_context_for_profile(profile_file, stage=stage, var_file=var_file)
+    provider = _profile_provider(context, var_file=var_file)
+    via = "direct" if context.provider.value == "aws" else "port-forward"
+    try:
+        profile = load_deployment_profile(Path(profile_file))
+        with _build_store_for_project(Path(profile_file).resolve().parent, via=via, output="") as store:
+            activation = deploy_revision(
+                provider,
+                revision=revision,
+                store=store,
+                profile_name=profile.name,
+            )
+    except (ActivationError, ArtifactStoreError, DeploymentError, ProjectActivationError, ProjectRevisionError) as exc:
+        raise typer.Exit(code=fail(str(exc))) from exc
+    typer.echo(activation.activation_revision)
+
+
+@app.command("status")
+def status(
+    profile_file: str = typer.Option(..., "--file", "-f", help="Deployment Profile v1 path."),
+    stage: str = typer.Option("", "--stage", help="One enabled stage; defaults to all enabled stages."),
+    json_output: bool = typer.Option(False, "--json", help="Render stable JSON."),
+) -> None:
+    """Compare each stage's immutable active pointer with its user deployment."""
+    from olf.artifact_store import ArtifactStoreError, S3RevisionStore, artifact_bucket, artifact_storage_client
+    from olf.deployment.contract_env import applied_contract_environment
+    from olf.profile import StageName
+    from olf.project_activation import ProjectActivationError
+    from olf.project_activation import active as active_activation
+
+    selected = (StageName(stage),) if stage else None
+    initial = deployment_context_for_profile(profile_file, stage=stage or "dev")
+    stages = selected or initial.enabled_stages
+    reports: list[dict[str, object]] = []
+    via = "direct" if initial.provider.value == "aws" else "port-forward"
+    try:
+        for item in stages:
+            context = deployment_context_for_profile(profile_file, stage=item.value)
+            provider = _profile_provider(context)
+            contract_dir = Path(
+                provider.env.get("OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR", context.paths.platform_terraform_dir)
+            ).resolve()
+            with applied_contract_environment(
+                contract_terraform_dir=contract_dir,
+                repo_root=context.paths.repo_root,
+                namespace=context.namespace,
+                kube_context=context.kube_context,
+                kubeconfig_path=context.paths.kubeconfig_path,
+                port_forward_log_prefix=context.paths.port_forward_log_prefix,
+                environ=provider.env,
+                topology=context.topology,
+                stage=context.stage,
+            ):
+                with artifact_storage_client(via, artifact_bucket()) as client:
+                    store = S3RevisionStore(client, artifact_bucket())
+                    activation = active_activation(store, stage=item)
+                    if activation is None:
+                        reports.append({"stage": item.value, "state": "inactive", "recorded": None, "observed": None})
+                        continue
+                    observed_ok = provider.tools.helm.status(
+                        "openlakeforge-project",
+                        namespace=context.namespace,
+                        kube_context=context.kube_context,
+                        env=provider.env,
+                    ).ok
+                    reports.append(
+                        {
+                            "stage": item.value,
+                            "state": "active" if observed_ok else "drifted",
+                            "recorded": {
+                                "activation_revision": activation.activation_revision,
+                                "project_revision": activation.project_revision,
+                                "floe_manifest_revision": activation.floe_manifest_revision,
+                            },
+                            "observed": {"release": "openlakeforge-project", "present": observed_ok},
+                        }
+                    )
+    except (ArtifactStoreError, ProjectActivationError) as exc:
+        raise typer.Exit(code=fail(str(exc))) from exc
+    if json_output:
+        typer.echo(json.dumps({"stages": reports}, sort_keys=True))
+        return
+    for report in reports:
+        recorded = report["recorded"]
+        suffix = "" if recorded is None else f" ({recorded['project_revision']})"  # type: ignore[index]
+        typer.echo(f"{report['stage']}: {report['state']}{suffix}")
 
 
 @revision_app.command("inspect")
@@ -130,3 +247,32 @@ def _revision_store(*, via: str, output: str) -> Iterator[object]:
     bucket = artifact_bucket()
     with artifact_storage_client(via, bucket) as client:
         yield S3RevisionStore(client, bucket)
+
+
+@contextmanager
+def _build_store_for_project(project_root: Path, *, via: str, output: str) -> Iterator[object]:
+    """Open the build store under the profile contract when one is available."""
+    if output or not (project_root / "openlakeforge.yaml").is_file():
+        with _revision_store(via=via, output=output) as store:
+            yield store
+        return
+    from olf.deployment.contract_env import applied_contract_environment
+
+    context = deployment_context_for_profile(str(project_root / "openlakeforge.yaml"))
+    provider = _profile_provider(context)
+    contract_dir = Path(
+        provider.env.get("OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR", context.paths.platform_terraform_dir)
+    ).resolve()
+    with applied_contract_environment(
+        contract_terraform_dir=contract_dir,
+        repo_root=project_root,
+        namespace=context.namespace,
+        kube_context=context.kube_context,
+        kubeconfig_path=context.paths.kubeconfig_path,
+        port_forward_log_prefix=context.paths.port_forward_log_prefix,
+        environ=provider.env,
+        topology=context.topology,
+        stage=context.stage,
+    ):
+        with _revision_store(via=via, output=output) as store:
+            yield store

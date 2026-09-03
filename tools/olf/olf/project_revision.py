@@ -122,9 +122,7 @@ class ComponentEntries:
             not isinstance(payload, dict)
             or not isinstance(payload.get("name"), str)
             or not isinstance(payload.get("entries"), dict)
-            or not all(
-                isinstance(key, str) and isinstance(digest, str) for key, digest in payload["entries"].items()
-            )
+            or not all(isinstance(key, str) and isinstance(digest, str) for key, digest in payload["entries"].items())
         ):
             raise ProjectRevisionError(f"malformed component entry: {payload!r}")
         return cls(name=payload["name"], entries=dict(payload["entries"]))
@@ -169,8 +167,7 @@ class ProjectRevisionManifest:
             raise ProjectRevisionError(f"malformed {SIDECAR_NAME}: expected a JSON object")
         if payload.get("apiVersion") != MANIFEST_API_VERSION or payload.get("kind") != MANIFEST_KIND:
             raise ProjectRevisionError(
-                f"unsupported {SIDECAR_NAME} apiVersion/kind: "
-                f"{payload.get('apiVersion')!r}/{payload.get('kind')!r}"
+                f"unsupported {SIDECAR_NAME} apiVersion/kind: {payload.get('apiVersion')!r}/{payload.get('kind')!r}"
             )
         components_payload = payload.get("components")
         if not isinstance(components_payload, list):
@@ -211,9 +208,7 @@ class ProjectRevisionManifest:
             )
         unknown = name_set - _ALL_COMPONENT_NAMES
         if unknown:
-            raise ProjectRevisionError(
-                f"revision sidecar declares unknown component(s): {', '.join(sorted(unknown))}."
-            )
+            raise ProjectRevisionError(f"revision sidecar declares unknown component(s): {', '.join(sorted(unknown))}.")
         actual = _aggregate_components(self.components)
         if self.revision != actual:
             raise ProjectRevisionError(
@@ -244,9 +239,7 @@ class ProjectRevisionManifest:
         # it too -- a self-consistent manifest pointing at a mutable tag is
         # still not an immutable revision.
         if not is_digest_pinned(self.project_code_image):
-            raise ProjectRevisionError(
-                f"project_code_image {self.project_code_image!r} is not digest-pinned."
-            )
+            raise ProjectRevisionError(f"project_code_image {self.project_code_image!r} is not digest-pinned.")
         _reject_runtime_values(self.to_json())
 
     def component(self, name: str) -> ComponentEntries | None:
@@ -342,9 +335,7 @@ def _hash_and_scan(relative_key: str, path: Path, *, project_root: Path) -> str:
     # outside `project_root`, which only the containment check below
     # catches; a leaf-only `is_symlink()` check would miss it entirely.
     if path.is_symlink():
-        raise ProjectRevisionError(
-            f"{relative_key} is a symlink; project revision inputs must be regular files."
-        )
+        raise ProjectRevisionError(f"{relative_key} is a symlink; project revision inputs must be regular files.")
     resolved = path.resolve()
     if not resolved.is_relative_to(project_root.resolve()):
         raise ProjectRevisionError(f"{relative_key} resolves outside the project root ({resolved}).")
@@ -374,8 +365,7 @@ def _descriptors_component(project: ProjectSpec, inventory: Any) -> ComponentEnt
     for source in inventory.sources:
         paths.append(project.bronze_root / source.name / "source.yaml")
     entries = {
-        (key := _relative_key(project, path)): _hash_and_scan(key, path, project_root=project.root)
-        for path in paths
+        (key := _relative_key(project, path)): _hash_and_scan(key, path, project_root=project.root) for path in paths
     }
     return ComponentEntries("descriptors", entries)
 
@@ -395,8 +385,7 @@ def _floe_component(project: ProjectSpec) -> ComponentEntries:
     except DeploymentPreconditionError as exc:
         raise ProjectRevisionError(str(exc)) from exc
     entries = {
-        (key := _relative_key(project, path)): _hash_and_scan(key, path, project_root=project.root)
-        for path in configs
+        (key := _relative_key(project, path)): _hash_and_scan(key, path, project_root=project.root) for path in configs
     }
     return ComponentEntries("floe", entries)
 
@@ -624,6 +613,59 @@ def verify(
                     f"hashes to {actual_digest}, expected {expected_digest}."
                 )
     return manifest
+
+
+def materialize(store: RevisionStore, manifest: ProjectRevisionManifest, destination: Path) -> Path:
+    """Restore a verified revision into an empty project root.
+
+    Activation must never fall back to the caller's checkout.  The manifest is
+    deliberately the authority here, so reject path shapes that a hand-written
+    sidecar could use to escape the temporary root before writing a byte.
+    """
+    from olf.artifact_store import ArtifactStoreError
+
+    destination = destination.resolve()
+    if destination.exists() and any(destination.iterdir()):
+        raise ProjectRevisionError(f"materialization destination {destination} must be empty.")
+    destination.mkdir(parents=True, exist_ok=True)
+    prefix = revision_prefix(manifest.revision)
+    seen: set[Path] = set()
+    for component in manifest.components:
+        if component.name in {"image", "distribution"}:
+            continue
+        for relative_key, expected_digest in component.entries.items():
+            relative_path = _materialization_path(relative_key)
+            if relative_path in seen:
+                raise ProjectRevisionError(f"revision declares duplicate materialized path {relative_key!r}.")
+            seen.add(relative_path)
+            target = (destination / relative_path).resolve()
+            if not target.is_relative_to(destination):
+                raise ProjectRevisionError(f"revision path {relative_key!r} escapes the materialization root.")
+            try:
+                content = read_required(store, f"{prefix}/{component.name}/{relative_key}")
+            except ArtifactStoreError as exc:
+                raise ProjectRevisionError(str(exc)) from exc
+            digest = _content_hash(content)
+            if digest != expected_digest:
+                raise ProjectRevisionError(
+                    f"artifact {relative_key} in component {component.name} of revision {manifest.revision} "
+                    f"hashes to {digest}, expected {expected_digest}."
+                )
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(content)
+    return destination
+
+
+def _materialization_path(relative_key: str) -> Path:
+    path = Path(relative_key)
+    if (
+        not relative_key
+        or path.is_absolute()
+        or any(part in {"", ".", ".."} for part in path.parts)
+        or path.name in {"", ".", ".."}
+    ):
+        raise ProjectRevisionError(f"revision contains unsafe artifact path {relative_key!r}.")
+    return path
 
 
 def _content_type(path: Path) -> str:

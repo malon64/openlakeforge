@@ -106,6 +106,16 @@ Start the **Slim** profile:
 olf deploy --provider local --profile slim
 ```
 
+For a stage-aware v0.3 deployment, apply the profile-owned platform first,
+then activate a previously built immutable project revision. The activation
+does not run Terraform or rebuild the project:
+
+```bash
+olf platform apply -f openlakeforge.yaml
+olf project deploy -f openlakeforge.yaml --stage dev --revision sha256:<digest>
+olf project status -f openlakeforge.yaml --json
+```
+
 Slim contains the complete data path while leaving out the optional governance and dashboarding services.
 
 Run the included data products end-to-end:
