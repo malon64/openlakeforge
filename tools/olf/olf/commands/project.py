@@ -81,23 +81,27 @@ def build(
 def image(
     profile_file: str = typer.Option(..., "--file", "-f", help="Deployment Profile v1 path."),
     var_file: str = typer.Option("", "--var-file", help="Provider-specific Terraform tfvars override."),
+    push: bool = typer.Option(
+        True, "--push/--no-push", help="Publish to the image repository. Required to build a revision from the result."
+    ),
 ) -> None:
     """Build the project-code image and print the reference `olf project build --image` expects.
 
     The profile's own directory is the project root, matching `olf project
-    deploy`. Cloud providers push to the foundation's registry and print a
-    digest-pinned reference; local builds load into kind and print a tag,
-    which is not publishable as a revision.
+    deploy`. Cloud pushes to the foundation's own registry; local pushes to
+    whatever `PROJECT_CODE_IMAGE_REPOSITORY` names (GHCR or Docker Hub by
+    default) and also loads the image into kind. `--no-push` is a local
+    inner-loop shortcut: it prints a tag, not a digest, so the result cannot
+    seed `olf project build`.
     """
-    from olf.deployment.context import Provider
     from olf.deployment.errors import DeploymentError
     from olf.project_revision import ProjectRevisionError, resolve_image_digest
 
     context = deployment_context_for_profile(profile_file, var_file=var_file)
     provider = _profile_provider(context, var_file=var_file)
     try:
-        reference = provider.build_project_image()
-        if context.provider is not Provider.LOCAL:
+        reference = provider.build_project_image(push=push)
+        if push:
             reference = resolve_image_digest(reference)
     except (DeploymentError, ProjectRevisionError) as exc:
         raise typer.Exit(code=fail(str(exc))) from exc

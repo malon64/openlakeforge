@@ -40,9 +40,16 @@ olf project status -f openlakeforge.yaml --json
 ```
 
 `olf project image` builds and pushes the project-code image and prints the
-digest-pinned reference `olf project build` requires. It needs a registry: a
-local image's config Id is not a pullable digest, so a kind-only build cannot
-seed a revision.
+digest-pinned reference `olf project build` requires.
+
+A revision is identified partly by that image, so the reference has to mean the
+same thing from every stage -- which makes a **registry** part of the contract,
+not an optional convenience. A registry digest is the only pullable identity an
+image has; a local image's config Id is not one. Cloud providers use the
+foundation's own ECR/ACR. Local has no registry of its own and deliberately
+does not stand one up: it pushes to whatever `PROJECT_CODE_IMAGE_REPOSITORY`
+names, GHCR or Docker Hub by default. See
+[docs/setup/local.md](../setup/local.md) for that loop.
 
 Activation verifies every object of the published `ProjectRevision`, restores it
 to a temporary root, and renders Floe only from that root and the selected v3

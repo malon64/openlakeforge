@@ -437,6 +437,45 @@ For Slim:
 olf deploy --provider local --profile slim --phase artifacts
 ```
 
+## Promote a project revision between stages
+
+The v0.3 workflow (`olf platform apply` plus `olf project deploy`) works
+locally, but it needs a **container registry**. Local runs deliberately do not
+stand one up: an image built straight into kind has only a local config Id,
+and that is not a pullable digest, so it cannot identify a revision that a
+second stage is supposed to activate unchanged. Point the build at GHCR or
+Docker Hub instead.
+
+```bash
+export PROJECT_CODE_IMAGE_REPOSITORY=ghcr.io/<your-account>/project-code
+export PROJECT_CODE_IMAGE_TAG=dev
+docker login ghcr.io                     # or docker.io
+
+olf platform apply -f openlakeforge.yaml
+olf project image  -f openlakeforge.yaml            # builds, pushes, loads into kind
+olf project build  --project . --image ghcr.io/<your-account>/project-code@sha256:<digest>
+olf project deploy -f openlakeforge.yaml --stage dev --revision sha256:<digest>
+```
+
+`olf project image` prints the digest-pinned reference the next command wants.
+It also loads the image into kind, so the default `Never` pull policy still
+finds it without a second pull.
+
+Promoting to another enabled stage reuses that revision and never rebuilds it:
+
+```bash
+olf project deploy -f openlakeforge.yaml --stage prod --revision sha256:<digest>
+olf project status -f openlakeforge.yaml --json
+```
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `PROJECT_CODE_IMAGE_REPOSITORY` | `ghcr.io/openlakeforge/project-code` | Where `olf project image` pushes. Must be a repository you can push to. |
+| `PROJECT_CODE_IMAGE_TAG` | `local` | Tag to build and push. |
+
+`olf project image --no-push` skips the push for a quick inner loop. It prints
+a tag rather than a digest, so its output cannot seed `olf project build`.
+
 ## Reapply platform infrastructure
 
 ```bash

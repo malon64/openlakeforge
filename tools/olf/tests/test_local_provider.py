@@ -232,3 +232,30 @@ def test_platform_plan_prepares_cached_chart(tmp_path: Path, monkeypatch) -> Non
     provider.plan(DeploymentPhase.PLATFORM)
 
     assert calls == ["charts"]
+
+
+def test_build_project_image_pushes_so_a_revision_can_name_a_digest(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    """Local has no registry of its own; a revision still needs a pullable digest.
+
+    A kind-only image has just a local config Id, which `olf project build`
+    rejects, so the default has to publish to whatever
+    `PROJECT_CODE_IMAGE_REPOSITORY` names.
+    """
+    from olf.deployment.local import images
+    from olf.deployment.local import provider as provider_module
+
+    monkeypatch.setattr(images, "build_project_code_image", lambda *a, **k: "ghcr.io/acme/project-code:dev")
+    monkeypatch.setattr(images, "load_image_into_kind", lambda *a, **k: None)
+    monkeypatch.setattr(provider_module.log, "step", lambda _message: None)
+    pushed: list[str] = []
+
+    provider = LocalProvider.create(_config(tmp_path), toolkit=_toolkit(), environ={})
+    monkeypatch.setattr(provider.tools.docker, "push", lambda image, **k: pushed.append(image))
+
+    assert provider.build_project_image() == "ghcr.io/acme/project-code:dev"
+    assert pushed == ["ghcr.io/acme/project-code:dev"]
+
+    pushed.clear()
+    provider.build_project_image(push=False)
+
+    assert pushed == []

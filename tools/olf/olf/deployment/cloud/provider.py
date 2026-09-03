@@ -121,8 +121,12 @@ class CloudProvider:
     def prepare_images(self) -> None:
         """No-op: cloud has no kind-prefetch equivalent. `--phase prefetch` is intentionally inert."""
 
-    def build_project_image(self) -> str:
+    def build_project_image(self, *, push: bool = True) -> str:
         """Build and push the project-code image, returning its pushed reference.
+
+        `push` is accepted for a uniform provider surface and must stay true: a
+        cloud cluster can only pull from its registry, so an unpushed build
+        could never be activated.
 
         `FLOE_MANIFEST_REVISION` is deliberately left at "manual": a stage
         activation supplies the real revision at runtime through
@@ -132,7 +136,13 @@ class CloudProvider:
         break #154's one-digest-deploys-everywhere contract.
         """
         from olf.deployment.cloud import images
+        from olf.deployment.errors import DeploymentPreconditionError
 
+        if not push:
+            raise DeploymentPreconditionError(
+                f"--no-push is not supported for the {self.backend.scope} provider: "
+                "the cluster pulls the project-code image from its registry."
+            )
         return images.build_and_push_project_code_image(
             self.config, self.tools, self.backend, self._foundation_facts, env=self.env, revision="manual"
         )

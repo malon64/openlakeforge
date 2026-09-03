@@ -118,6 +118,11 @@ olf project deploy -f openlakeforge.yaml --stage dev --revision sha256:<digest>
 olf project status -f openlakeforge.yaml --json
 ```
 
+A revision names its image by registry digest, so this loop needs a registry
+even locally. Cloud uses the foundation's own; local pushes to
+`PROJECT_CODE_IMAGE_REPOSITORY` (GHCR or Docker Hub) — see
+[docs/setup/local.md](docs/setup/local.md).
+
 Promoting that same revision to another stage never rebuilds it:
 
 ```bash
