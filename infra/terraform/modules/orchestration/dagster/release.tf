@@ -30,10 +30,16 @@ resource "helm_release" "dagster" {
       }
 
       "dagster-user-deployments" = {
-        # User code is a stage activation, not Terraform state.  The stable
-        # endpoint is served by the separately released openlakeforge-project
-        # chart, which activation installs only after its revision verifies.
-        enabled = false
+        # User code is a stage activation, not Terraform state. The two keys
+        # are not interchangeable: `enabled` is what makes the parent chart
+        # render workspace.yaml at all, and turning it off while the subchart
+        # condition is still true trips the chart's own
+        # "subchart cannot be enabled if workspace.yaml is not created" guard.
+        # Only `enableSubchart` moves the deployments themselves out, into the
+        # openlakeforge-project release that activation installs after its
+        # revision verifies.
+        enabled        = true
+        enableSubchart = false
       }
 
       dagsterWebserver = {
@@ -42,14 +48,16 @@ resource "helm_release" "dagster" {
           tag        = var.project_code_image_tag
           pullPolicy = var.project_code_image_pull_policy
         }
+        # dagster-user-deployments names each Service after its deployment, so
+        # the contract's code-location name is also its in-cluster host.
         workspace = {
           enabled = true
           servers = [
-            {
-              host = "openlakeforge-project-dagster-user-deployments"
+            for location in var.code_locations : {
+              host = location.name
               port = 3030
-              name = "openlakeforge-dagster"
-            },
+              name = location.name
+            }
           ]
         }
         env        = local.runtime_env

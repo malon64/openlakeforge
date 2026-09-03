@@ -25,6 +25,7 @@ from olf.deployment.context import DeploymentContext, Provider
 from olf.deployment.engine import DeploymentProvider
 from olf.deployment.errors import DeploymentPreconditionError
 from olf.deployment.floe_manifests import generate_aws_manifests, generate_local_manifests
+from olf.distribution import distribution_version_at
 from olf.profile import StageName
 from olf.project_activation import ProjectActivation, ProjectActivationError, commit_active
 from olf.project_activation import active as active_activation
@@ -118,18 +119,41 @@ def _user_values(activation: ProjectActivation, *, contract_environ: Mapping[str
     }
 
 
+_USER_SUBCHART = "charts/dagster-user-deployments/"
+
+
 def _user_chart(chart: Path, work_root: Path) -> Path:
-    """Extract the pinned user-deployments subchart from the cached Dagster chart."""
+    """Extract the pinned user-deployments subchart from the cached Dagster chart.
+
+    The subchart travels unpacked inside the parent archive -- `prepare_chart`
+    repackages a `helm pull --untar` tree to strip values schemas, so there is
+    no nested `dagster-user-deployments-<version>.tgz` to lift out. Helm
+    installs a chart directory as readily as an archive, so rebuild the
+    subtree rather than re-tarring it.
+    """
+    destination = work_root / "dagster-user-deployments"
+    destination.mkdir(parents=True, exist_ok=True)
     with tarfile.open(chart) as parent:
-        member = next((item for item in parent.getmembers() if "/charts/dagster-user-deployments-" in item.name), None)
-        if member is None:
-            raise ActivationError(f"pinned Dagster chart {chart} does not contain dagster-user-deployments.")
-        handle = parent.extractfile(member)
-        if handle is None:
-            raise ActivationError(f"could not read user-deployments chart from {chart}.")
-        extracted = work_root / "dagster-user-deployments.tgz"
-        extracted.write_bytes(handle.read())
-    return extracted
+        for member in parent.getmembers():
+            head, separator, relative = member.name.partition(_USER_SUBCHART)
+            if not separator or "/" in head.rstrip("/") or not relative:
+                continue
+            target = (destination / relative).resolve()
+            if not target.is_relative_to(destination.resolve()):
+                raise ActivationError(f"pinned Dagster chart {chart} contains an unsafe member {member.name!r}.")
+            if member.isdir():
+                target.mkdir(parents=True, exist_ok=True)
+                continue
+            if not member.isfile():
+                continue
+            handle = parent.extractfile(member)
+            if handle is None:
+                raise ActivationError(f"could not read {member.name} from {chart}.")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(handle.read())
+    if not (destination / "Chart.yaml").is_file():
+        raise ActivationError(f"pinned Dagster chart {chart} does not contain dagster-user-deployments.")
+    return destination
 
 
 def _generate_floe(
@@ -190,11 +214,7 @@ def deploy_revision(
         manifest = verify(
             store,
             revision,
-            running_distribution_version=context.paths.distribution_root.joinpath(
-                "release/component-catalog.yaml"
-            ).exists()
-            and __import__("olf.distribution", fromlist=["runtime_layout"]).runtime_layout().distribution_version
-            or None,
+            running_distribution_version=distribution_version_at(context.paths.distribution_root),
         )
     except (ProjectRevisionError, ProviderContractError) as exc:
         raise ActivationError(str(exc)) from exc

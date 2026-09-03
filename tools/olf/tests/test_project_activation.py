@@ -94,3 +94,31 @@ def test_materialize_rejects_path_escape(tmp_path: Path) -> None:
 
     with pytest.raises(project_revision.ProjectRevisionError, match="unsafe artifact path"):
         project_revision.materialize(store, manifest, tmp_path / "materialized")
+
+
+def _packaged_dagster_chart(root: Path) -> Path:
+    """A parent chart shaped like `prepare_chart` output: subchart unpacked, not re-archived."""
+    import tarfile
+
+    tree = root / "tree"
+    subchart = tree / "dagster" / "charts" / "dagster-user-deployments"
+    (subchart / "templates").mkdir(parents=True)
+    (tree / "dagster" / "Chart.yaml").write_text("name: dagster\nversion: 1.13.6\n")
+    (subchart / "Chart.yaml").write_text("name: dagster-user-deployments\nversion: 1.13.6\n")
+    (subchart / "values.yaml").write_text("deployments: []\n")
+    (subchart / "templates" / "service-user.yaml").write_text("kind: Service\n")
+
+    archive = root / "dagster-1.13.6.tgz"
+    with tarfile.open(archive, "w:gz") as bundle:
+        bundle.add(tree / "dagster", arcname="dagster")
+    return archive
+
+
+def test_user_chart_extracts_the_unpacked_subchart(tmp_path: Path) -> None:
+    from olf.deployment.activation import _user_chart
+
+    chart = _user_chart(_packaged_dagster_chart(tmp_path), tmp_path / "work")
+
+    assert (chart / "Chart.yaml").read_text().startswith("name: dagster-user-deployments")
+    assert (chart / "templates" / "service-user.yaml").is_file()
+    assert not (chart / "charts").exists()
