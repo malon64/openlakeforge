@@ -38,6 +38,24 @@ E2E_REPO_ROOT = Path(__file__).resolve().parents[3]
 E2E_INVENTORY = inventory_for(E2E_REPO_ROOT)
 
 
+@pytest.fixture(autouse=True)
+def _pin_project_roots(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every test resolves the project and distribution roots from this
+    checkout instead of from the process working directory.
+
+    `olf.config.repo_root()` defaults to `"."`, and `project_root()` and
+    `distribution_root()` both fall back to it. A real run never reaches that
+    default because `provider_contract_environment` exports the variable
+    first; a test that stubs out the hydration does reach it, and then
+    resolves whichever directory pytest happened to be started from - which
+    is why nine CLI tests passed from the repository root and failed from
+    `tools/olf` (#190). Only `OPENLAKEFORGE_REPO_ROOT` is pinned:
+    `OLF_DISTRIBUTION_ROOT` outranks it in `runtime_layout`, so pinning that
+    one too would shadow the project root a test selects for itself.
+    """
+    monkeypatch.setenv("OPENLAKEFORGE_REPO_ROOT", str(E2E_REPO_ROOT))
+
+
 @pytest.fixture
 def external_project(tmp_path: Path) -> Path:
     """Copy only the versioned data-project payload into a separate root."""
