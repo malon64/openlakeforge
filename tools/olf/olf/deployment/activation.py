@@ -179,17 +179,39 @@ def _user_values(
         value = contract_environ.get(name)
         if value:
             env.append({"name": name, "value": value})
+    # The chart puts a list-form `env` straight onto the container, so a
+    # secretKeyRef survives; a map would be flattened into a ConfigMap. The
+    # ingestion-bot Secret stores its JWT under its own key name, and mounting
+    # the whole Secret would expose only that name -- OpenLineage reads
+    # OPENLINEAGE_API_KEY, so Terraform mapped the two explicitly and so must
+    # this, or authenticated lineage silently stops working.
+    jwt_secret = contract_environ.get("OPENLAKEFORGE_GOVERNANCE_INGESTION_BOT_SECRET_NAME", "")
+    jwt_key = contract_environ.get("OPENLAKEFORGE_GOVERNANCE_INGESTION_BOT_JWT_KEY", "")
+    if activation.capabilities.get("governance") and jwt_secret and jwt_key:
+        env.append(
+            {"name": "OPENLINEAGE_API_KEY", "valueFrom": {"secretKeyRef": {"name": jwt_secret, "key": jwt_key}}}
+        )
+    storage_secret = contract_environ.get("OPENLAKEFORGE_STORAGE_CREDENTIALS_SECRET_NAME", "")
     secrets = sorted(
         {
-            contract_environ.get("OPENLAKEFORGE_STORAGE_CREDENTIALS_SECRET_NAME", ""),
+            storage_secret,
             contract_environ.get("OPENLAKEFORGE_CATALOG_FLOE_CREDENTIALS_SECRET_NAME", ""),
-            contract_environ.get("OPENLAKEFORGE_GOVERNANCE_INGESTION_BOT_SECRET_NAME", ""),
+            jwt_secret,
         }
         - {""}
     )
     return {
         "global": dict(platform_globals),
-        "extraManifests": [_log_archive_manifest(activation, namespace=namespace, env=env, secrets=secrets)],
+        "extraManifests": [_log_archive_manifest(
+                activation,
+                namespace=namespace,
+                env=env,
+                # `libs.k8s_log_archive` reads the object store and nothing
+                # else, and the Terraform CronJob it replaces mounted only
+                # this Secret. Handing it catalog and governance credentials
+                # would widen what a compromised log container reaches.
+                secrets=[storage_secret] if storage_secret else [],
+            )],
         "serviceAccount": {"create": False, "name": "dagster"},
         "deployments": [
             {
@@ -338,7 +360,9 @@ def _kube_context(provider: DeploymentProvider) -> str:
     return env.get("KUBE_CONTEXT") or provider.context.kube_context
 
 
-def _release_runs(provider: DeploymentProvider, activation_revision: str, *, env: Mapping[str, str]) -> bool:
+def release_runs_activation(
+    provider: DeploymentProvider, activation_revision: str, *, env: Mapping[str, str]
+) -> bool:
     """Whether the installed release is healthy *and* actually runs this activation.
 
     `helm status` alone reports a release that was manually rolled back, or
@@ -409,7 +433,7 @@ def deploy_revision(
                 capabilities=capabilities,
             )
         )
-        and _release_runs(provider, previous.activation_revision, env=env)
+        and release_runs_activation(provider, previous.activation_revision, env=env)
     ):
         # Reapplying the active revision must not touch the cluster or the ops
         # bucket at all. Deciding this only after Floe has been regenerated
@@ -442,7 +466,7 @@ def deploy_revision(
                 provider_binding_digest=binding,
                 capabilities=capabilities,
             ).resolved()
-            if previous == activation and _release_runs(provider, activation.activation_revision, env=env):
+            if previous == activation and release_runs_activation(provider, activation.activation_revision, env=env):
                 return activation
             if activation.capabilities["analytics"] or activation.capabilities["governance"]:
                 deploy_optional_layer_artifacts(contract_environ)

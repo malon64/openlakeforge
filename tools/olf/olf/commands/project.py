@@ -149,6 +149,7 @@ def status(
 ) -> None:
     """Compare each stage's immutable active pointer with its user deployment."""
     from olf.artifact_store import ArtifactStoreError, S3RevisionStore, artifact_bucket, artifact_storage_client
+    from olf.deployment.activation import release_runs_activation
     from olf.deployment.contract_env import applied_contract_environment
     from olf.profile import StageName
     from olf.project_activation import ProjectActivationError
@@ -158,7 +159,6 @@ def status(
     initial = deployment_context_for_profile(profile_file, stage=stage or "dev")
     stages = selected or initial.enabled_stages
     reports: list[dict[str, object]] = []
-    via = "direct" if initial.provider.value == "aws" else "port-forward"
     try:
         for item in stages:
             context = deployment_context_for_profile(profile_file, stage=item.value)
@@ -178,18 +178,19 @@ def status(
                 topology=context.topology,
                 stage=context.stage,
             ):
-                with artifact_storage_client(via, artifact_bucket()) as client:
+                with artifact_storage_client(_artifact_transport(provider), artifact_bucket()) as client:
                     store = S3RevisionStore(client, artifact_bucket())
                     activation = active_activation(store, stage=item)
                     if activation is None:
                         reports.append({"stage": item.value, "state": "inactive", "recorded": None, "observed": None})
                         continue
-                    observed_ok = provider.tools.helm.status(
-                        "openlakeforge-project",
-                        namespace=context.namespace,
-                        kube_context=kube_context,
-                        env=provider.env,
-                    ).ok
+                    # `helm status` alone calls a release that was rolled back
+                    # or reconciled to another activation healthy, so status
+                    # would report `active` for exactly the drift a redeploy
+                    # exists to repair. Compare what the release runs.
+                    observed_ok = release_runs_activation(
+                        provider, activation.activation_revision, env=provider.env
+                    )
                     reports.append(
                         {
                             "stage": item.value,

@@ -258,3 +258,60 @@ def test_rollout_keeps_contract_runtime_aliases(external_project: Path, tmp_path
     assert env["OPENLAKEFORGE_STORAGE_BUCKET"] == "lakehouse-bronze"
     # Credential values travel by Secret reference, never inline.
     assert "AWS_SECRET_ACCESS_KEY" not in env
+
+
+def _values(**capabilities: bool) -> dict:
+    from olf.deployment.activation import _user_values
+    from olf.project_activation import ProjectActivation
+
+    activation = ProjectActivation(
+        deployment_profile="acceptance",
+        provider="local",
+        stage=StageName.DEV,
+        project_name="demo",
+        project_revision="sha256:" + "b" * 64,
+        distribution_version="0.0.0",
+        project_code_image=_IMAGE,
+        floe_manifest_revision=_FLOE,
+        provider_binding_digest="sha256:" + "d" * 64,
+        capabilities={"analytics": False, "governance": False, **capabilities},
+    ).resolved()
+    return _user_values(
+        activation,
+        contract_environ={
+            "OPENLAKEFORGE_STORAGE_CREDENTIALS_SECRET_NAME": "seaweedfs-s3-creds",
+            "OPENLAKEFORGE_CATALOG_FLOE_CREDENTIALS_SECRET_NAME": "polaris-floe-creds",
+            "OPENLAKEFORGE_GOVERNANCE_INGESTION_BOT_SECRET_NAME": "openmetadata-ingestion-bot",
+            "OPENLAKEFORGE_GOVERNANCE_INGESTION_BOT_JWT_KEY": "OPENMETADATA_INGESTION_BOT_JWT",
+        },
+        namespace="olf-dev",
+        platform_globals={},
+    )
+
+
+def test_governed_stage_maps_the_bot_jwt_to_the_name_openlineage_reads() -> None:
+    """Mounting the Secret alone would expose its own key name, not OPENLINEAGE_API_KEY."""
+    entry = next(e for e in _values(governance=True)["deployments"][0]["env"] if e["name"] == "OPENLINEAGE_API_KEY")
+
+    assert entry["valueFrom"]["secretKeyRef"] == {
+        "name": "openmetadata-ingestion-bot",
+        "key": "OPENMETADATA_INGESTION_BOT_JWT",
+    }
+
+
+def test_ungoverned_stage_maps_no_lineage_key() -> None:
+    assert not [e for e in _values()["deployments"][0]["env"] if e["name"] == "OPENLINEAGE_API_KEY"]
+
+
+def test_log_archiver_only_receives_storage_credentials() -> None:
+    """It reads the object store and nothing else, so it should reach nothing else."""
+    values = _values(governance=True)
+    archiver = values["extraManifests"][0]["spec"]["jobTemplate"]["spec"]["template"]["spec"]["containers"][0]
+
+    assert [ref["secretRef"]["name"] for ref in archiver["envFrom"]] == ["seaweedfs-s3-creds"]
+    # The code server still gets the full set it needs.
+    assert {s["name"] for s in values["deployments"][0]["envSecrets"]} == {
+        "seaweedfs-s3-creds",
+        "polaris-floe-creds",
+        "openmetadata-ingestion-bot",
+    }
