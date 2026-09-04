@@ -115,11 +115,11 @@ def _check_asset_key_collisions(inventory: LakehouseInventory) -> None:
         for resource in source.resources:
             register((source.name, resource.name), f"Bronze resource {source.name}/{resource.name}")
     for domain in inventory.domains:
-        for table in domain.silver_tables:
-            register((domain.name, table.name), f"Silver table {domain.name}/{table.name}")
+        for silver_table in domain.silver_tables:
+            register((domain.name, silver_table.name), f"Silver table {domain.name}/{silver_table.name}")
     for product in inventory.products:
-        for table in product.gold_tables:
-            register((product.id, table.name), f"Gold table {product.id}/{table.name}")
+        for gold_table in product.gold_tables:
+            register((product.id, gold_table.name), f"Gold table {product.id}/{gold_table.name}")
 
     if collisions:
         raise ScaffoldError("; ".join(collisions))

@@ -70,6 +70,12 @@ kubeconfig*
 tmp/
 .tmp/
 
+# Coverage measurement artifacts
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
 # Vendored patched dependencies (test-only, not for commit)
 vendor/
 

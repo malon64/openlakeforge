@@ -143,7 +143,10 @@ class AwsSdk:
             headers={"x-k8s-aws-id": cluster_name},
         )
         SigV4QueryAuth(credentials, "sts", region, expires=60).add_auth(request)
-        encoded = base64.urlsafe_b64encode(request.url.encode()).decode().rstrip("=")
+        # botocore types `AWSRequest.url` as optional because its constructor
+        # allows omitting one; this request is built with a url above, and
+        # `add_auth` only rewrites it in place.
+        encoded = base64.urlsafe_b64encode(request.url.encode()).decode().rstrip("=")  # type: ignore[union-attr]
         return f"k8s-aws-v1.{encoded}"
 
     def ecr_get_login_password(self, *, region: str, env: Mapping[str, str] | None = None) -> str:
