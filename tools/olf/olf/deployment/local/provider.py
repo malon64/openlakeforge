@@ -19,6 +19,7 @@ from olf import log
 from olf.deployment.engine import DeploymentPhase, Toolkit
 from olf.deployment.inspection import DoctorItem, DoctorReport, base_report, docker_health
 from olf.deployment.local.config import LocalDeploymentConfig
+from olf.tooling.docker import ambient_registry_env
 
 if TYPE_CHECKING:
     from olf.deployment.context import DeploymentContext
@@ -105,26 +106,11 @@ class LocalProvider:
         image = images.build_project_code_image(self.config, self.tools, env=self.env, revision="manual")
         if push:
             log.step(f"Pushing project-code image: {image}")
-            self.tools.docker.push(image, env=self._registry_env(), retry_policy=self.config.images.push_retry)
+            self.tools.docker.push(
+                image, env=ambient_registry_env(self.env), retry_policy=self.config.images.push_retry
+            )
         images.load_image_into_kind(image, self.config, self.tools, env=self.env)
         return image
-
-    def _registry_env(self) -> dict[str, str]:
-        """The push environment, carrying the caller's own registry credentials.
-
-        This provider scopes `DOCKER_CONFIG` to an OLF-owned directory to keep
-        build state isolated, and nothing ever runs `docker login` against it.
-        Local has no provider registry to authenticate on the user's behalf --
-        the documented flow is their own `docker login ghcr.io` -- so pushing
-        under the scoped config would fail as unauthenticated.
-        """
-        env = dict(self.env)
-        ambient = os.environ.get("DOCKER_CONFIG")
-        if ambient:
-            env["DOCKER_CONFIG"] = ambient
-        else:
-            env.pop("DOCKER_CONFIG", None)
-        return env
 
     def platform_up(self) -> None:
         from olf.deployment.local import platform

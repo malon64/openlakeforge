@@ -32,6 +32,7 @@ from olf.project_activation import active as active_activation
 from olf.project_activation import publish as publish_activation
 from olf.project_revision import ProjectRevisionError, materialize, verify
 from olf.provider_contracts import ProviderContractError, parse_provider_contracts
+from olf.tooling import docker as docker_tooling
 
 _RELEASE = "openlakeforge-project"
 _LOG_ARCHIVE = "openlakeforge-k8s-log-archive"
@@ -179,6 +180,12 @@ def _user_values(
         value = contract_environ.get(name)
         if value:
             env.append({"name": name, "value": value})
+    # floe_dagster.kubernetes_runner submits its ephemeral Jobs into NAMESPACE
+    # and falls back to "lakehouse", the pre-#133 single-stage namespace, when
+    # it is unset -- every stage's Floe run would be RBAC-denied against a
+    # namespace that no longer exists. Taken from the activation's own stage
+    # rather than the environment, which is what makes it true per stage.
+    env.append({"name": "NAMESPACE", "value": namespace})
     # The chart puts a list-form `env` straight onto the container, so a
     # secretKeyRef survives; a map would be flattened into a ConfigMap. The
     # ingestion-bot Secret stores its JWT under its own key name, and mounting
@@ -300,23 +307,26 @@ def _registry_host(repository: str) -> str:
 
 def _ensure_image(provider: DeploymentProvider, image: str, *, env: Mapping[str, str]) -> None:
     platform = None
+    # A revision can legitimately live outside the provider's registry -- GHCR
+    # or Docker Hub, which is what the local workflow documents, or another
+    # provider's registry after a move. Only the provider's own registry can be
+    # authenticated here; for anything else the scoped Docker config holds no
+    # credentials at all, so the pull has to use the caller's own.
+    pull_env = docker_tooling.ambient_registry_env(env)
     if provider.context.provider is not Provider.LOCAL:
         facts = provider._foundation_facts  # type: ignore[attr-defined]
         repository = _image_parts(image)[0]
-        # Cloud command environments deliberately use a scoped Docker config,
-        # so the provider's own registry has to be authenticated here rather
-        # than relying on a developer's ambient Docker credentials. A revision
-        # can legitimately live somewhere else though -- GHCR, Docker Hub, or
-        # another provider's registry after a move -- and logging into that
-        # host with an ECR password or as if it were an ACR fails before the
-        # pull. Anything foreign is left to whatever credentials the Docker
-        # config already carries.
         if _registry_host(repository) == _registry_host(facts.project_code_repository):
+            # Cloud command environments deliberately use a scoped Docker
+            # config, so authenticate it rather than relying on ambient
+            # credentials. Logging into a foreign host with an ECR password,
+            # or as if it were an ACR, fails before the pull.
             provider.backend.registry_login(  # type: ignore[attr-defined]
                 provider.tools, facts, repository=repository, env=env
             )
+            pull_env = dict(env)
         platform = provider.config.images.image_platform  # type: ignore[attr-defined]
-    provider.tools.docker.pull(image, platform=platform, env=env)
+    provider.tools.docker.pull(image, platform=platform, env=pull_env)
     if provider.context.provider is Provider.LOCAL:
         from olf.deployment.local.images import load_image_into_kind
 
@@ -410,7 +420,6 @@ def deploy_revision(
         )
     except (ProjectRevisionError, ProviderContractError) as exc:
         raise ActivationError(str(exc)) from exc
-    _ensure_image(provider, manifest.project_code_image, env=env)
 
     capabilities = {
         "analytics": context.features.analytics_enabled,
@@ -439,6 +448,11 @@ def deploy_revision(
         # bucket at all. Deciding this only after Floe has been regenerated
         # would already have performed the work idempotency exists to skip.
         return previous
+    # Only once a rollout is actually required: pulling here, and on local
+    # reloading into kind, is exactly the cluster mutation the no-op path
+    # promises not to perform, and it would make an idempotent redeploy fail
+    # on a transient registry outage.
+    _ensure_image(provider, manifest.project_code_image, env=env)
     with tempfile.TemporaryDirectory(prefix="project-activation.", dir=context.paths.work_root) as temporary:
         root = materialize(store, manifest, Path(temporary) / "project")
         with contract_env.applied_contract_environment(

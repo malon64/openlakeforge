@@ -118,7 +118,10 @@ def harness(external_project: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPa
     catalog_calls: list[str] = []
 
     monkeypatch.setattr(activation_module.contracts, "load_provider_contracts", lambda *a, **k: contract)
-    monkeypatch.setattr(activation_module, "_ensure_image", lambda *a, **k: None)
+    image_calls: list[str] = []
+    monkeypatch.setattr(
+        activation_module, "_ensure_image", lambda provider, image, **k: image_calls.append(image)
+    )
     monkeypatch.setattr(activation_module, "prepare_chart", lambda *a, **k: None)
     monkeypatch.setattr(activation_module, "deploy_optional_layer_artifacts", lambda *a, **k: None)
     monkeypatch.setattr(activation_module, "_user_chart", lambda chart, work_root: work_root)
@@ -151,6 +154,7 @@ def harness(external_project: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPa
         helm=helm,
         manifest=manifest,
         floe_calls=floe_calls,
+        image_calls=image_calls,
         catalog_calls=catalog_calls,
     )
 
@@ -165,6 +169,9 @@ def test_reapplying_the_active_revision_changes_nothing(harness) -> None:  # noq
     # reconcile catalog namespaces just to discover it had nothing to do.
     assert len(harness.floe_calls) == 1
     assert len(harness.catalog_calls) == 1
+    # Pulling the image (and on local, reloading it into kind) is a cluster
+    # mutation, so it belongs after the gate, not before it.
+    assert len(harness.image_calls) == 1
 
 
 def test_promoting_one_revision_to_another_stage_reuses_the_project_revision(harness) -> None:  # noqa: ANN001
@@ -315,3 +322,10 @@ def test_log_archiver_only_receives_storage_credentials() -> None:
         "polaris-floe-creds",
         "openmetadata-ingestion-bot",
     }
+
+
+def test_namespace_alias_follows_the_activated_stage() -> None:
+    """floe_dagster.kubernetes_runner submits Jobs into NAMESPACE, defaulting to "lakehouse"."""
+    env = {entry["name"]: entry.get("value") for entry in _values()["deployments"][0]["env"]}
+
+    assert env["NAMESPACE"] == "olf-dev"
