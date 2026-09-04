@@ -11,7 +11,7 @@ import yaml
 from olf import project_activation, project_revision
 from olf.artifact_store import FilesystemRevisionStore
 from olf.deployment import activation as activation_module
-from olf.deployment.context import DeploymentContext
+from olf.deployment.context import DeploymentContext, Provider
 from olf.distribution import distribution_version_at
 from olf.profile import StageName, resolve_topology, validate_deployment_profile
 from olf.project import ProjectSpec
@@ -208,6 +208,49 @@ def test_failed_rollout_leaves_the_previous_revision_active(harness) -> None:  #
     assert project_activation.active(harness.store, stage=StageName.PROD) is None
 
 
+def test_a_pointer_that_will_not_commit_uninstalls_a_first_activation(
+    harness, monkeypatch: pytest.MonkeyPatch
+) -> None:  # noqa: ANN001
+    """The release is live before ACTIVE.json moves. If the pointer never lands,
+    a stage with no previous activation must not be left running an unreferenced one."""
+    monkeypatch.setattr(
+        activation_module,
+        "commit_active",
+        lambda *a, **k: (_ for _ in ()).throw(project_activation.ProjectActivationError("pointer write failed")),
+    )
+
+    with pytest.raises(project_activation.ProjectActivationError):
+        harness.deploy("dev")
+
+    assert harness.helm.uninstalled == ["olf-dev"]
+    assert project_activation.active(harness.store, stage=StageName.DEV) is None
+
+
+def test_a_pointer_that_will_not_commit_restores_the_previous_activation(
+    harness, monkeypatch: pytest.MonkeyPatch
+) -> None:  # noqa: ANN001
+    """With an activation already live, the rollback reinstalls it rather than
+    uninstalling the stage -- and marks the renderer unreconciled so the next
+    deploy regenerates Floe instead of trusting the rolled-back annotation."""
+    active = harness.deploy("dev")
+    monkeypatch.setattr(
+        activation_module,
+        "commit_active",
+        lambda *a, **k: (_ for _ in ()).throw(project_activation.ProjectActivationError("pointer write failed")),
+    )
+    harness.providers[-1].config.floe = SimpleNamespace(
+        image="ghcr.io/malon64/floe:0.7.0", version="0.7.0", runtime="image"
+    )
+
+    with pytest.raises(project_activation.ProjectActivationError):
+        harness.deploy("dev")
+
+    assert harness.helm.uninstalled == []
+    assert project_activation.active(harness.store, stage=StageName.DEV) == active
+    annotations = harness.helm.installed["olf-dev"]["deployments"][0]["deploymentAnnotations"]
+    assert annotations["openlakeforge.io/floe-renderer"] == activation_module._RENDERER_UNRECONCILED
+
+
 def test_rollout_inherits_the_platform_release_globals(harness) -> None:  # noqa: ANN001
     """The subchart installed standalone would otherwise default to a secret name no stage uses."""
     harness.deploy("prod")
@@ -384,3 +427,127 @@ def test_reapplying_regenerates_when_the_floe_renderer_changes(harness) -> None:
     assert len(harness.helm.rollouts) == 2
     annotations = harness.helm.installed["olf-dev"]["deployments"][0]["deploymentAnnotations"]
     assert annotations["openlakeforge.io/floe-renderer"] == "ghcr.io/malon64/floe:0.7.0|0.7.0|image"
+
+
+@pytest.mark.parametrize(
+    ("repository", "expected"),
+    [
+        ("ghcr.io/openlakeforge/project-code", "ghcr.io"),
+        ("123456789012.dkr.ecr.eu-west-1.amazonaws.com/project-code", "123456789012.dkr.ecr.eu-west-1.amazonaws.com"),
+        ("localhost:5001/project-code", "localhost:5001"),
+        ("openlakeforge/project-code", ""),
+        ("project-code", ""),
+    ],
+)
+def test_registry_host_names_only_a_real_registry(repository: str, expected: str) -> None:
+    """Docker Hub short forms carry no host, which is what makes them unauthenticatable here."""
+    assert activation_module._registry_host(repository) == expected
+
+
+class _Docker:
+    """Records pulls the way the real client would perform them."""
+
+    def __init__(self) -> None:
+        self.pulls: list[tuple[str, str | None, dict]] = []
+
+    def pull(self, image: str, *, platform=None, env=None) -> None:  # noqa: ANN001
+        self.pulls.append((image, platform, dict(env or {})))
+
+
+class _Backend:
+    def __init__(self) -> None:
+        self.logins: list[str] = []
+
+    def registry_login(self, tools, facts, *, repository: str, env) -> None:  # noqa: ANN001, ARG002
+        self.logins.append(repository)
+
+
+def _image_provider(provider_kind, *, project_code_repository: str = ""):  # noqa: ANN001, ANN202
+    docker = _Docker()
+    backend = _Backend()
+    return SimpleNamespace(
+        context=SimpleNamespace(provider=provider_kind),
+        tools=SimpleNamespace(docker=docker),
+        backend=backend,
+        config=SimpleNamespace(images=SimpleNamespace(image_platform="linux/amd64")),
+        _foundation_facts=SimpleNamespace(project_code_repository=project_code_repository),
+    )
+
+
+def test_local_image_pull_loads_the_image_into_kind(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A kind node cannot reach the host daemon's images, so the pull alone is not enough."""
+    from olf.deployment.local import images as local_images
+
+    loaded: list[str] = []
+    monkeypatch.setattr(local_images, "load_image_into_kind", lambda image, *a, **k: loaded.append(image))
+    provider = _image_provider(Provider.LOCAL)
+
+    activation_module._ensure_image(provider, _IMAGE, env={})
+
+    assert [pull[0] for pull in provider.tools.docker.pulls] == [_IMAGE]
+    assert loaded == [_IMAGE]
+    # Only a cloud provider pins a platform; kind runs the host's architecture.
+    assert provider.tools.docker.pulls[0][1] is None
+    assert provider.backend.logins == []
+
+
+def test_cloud_pull_authenticates_only_its_own_registry() -> None:
+    """The scoped Docker config holds a provider login, so a foreign host must not use it."""
+    registry = "123456789012.dkr.ecr.eu-west-1.amazonaws.com"
+    provider = _image_provider(Provider.AWS, project_code_repository=f"{registry}/project-code")
+
+    image = f"{registry}/project-code@sha256:{'a' * 64}"
+
+    activation_module._ensure_image(provider, image, env={"DOCKER_CONFIG": "/scoped"})
+
+    assert provider.backend.logins == [f"{registry}/project-code"]
+    assert provider.tools.docker.pulls[0][1] == "linux/amd64"
+    # Authenticated: the pull keeps the provider's own scoped config.
+    assert provider.tools.docker.pulls[0][2]["DOCKER_CONFIG"] == "/scoped"
+
+
+@pytest.mark.parametrize(
+    ("provider_kind", "expected_transport", "expected_renderer"),
+    [(Provider.AWS, "direct", "aws"), (Provider.LOCAL, "port-forward", "local")],
+)
+def test_floe_generation_picks_the_transport_its_provider_can_reach(
+    provider_kind, expected_transport: str, expected_renderer: str, monkeypatch: pytest.MonkeyPatch
+) -> None:  # noqa: ANN001
+    """AWS writes to object storage directly; local has to go through a forwarded port."""
+    rendered: list[str] = []
+    monkeypatch.setattr(
+        activation_module, "generate_aws_manifests", lambda *a, **k: rendered.append("aws")
+    )
+    monkeypatch.setattr(
+        activation_module, "generate_local_manifests", lambda *a, **k: rendered.append("local")
+    )
+    monkeypatch.setattr(activation_module, "activate_runtime_revision", lambda _dir, *, via: via)
+    provider = SimpleNamespace(
+        context=SimpleNamespace(
+            provider=provider_kind,
+            paths=SimpleNamespace(distribution_root=Path("/dist")),
+            namespace="olf-dev",
+            features=SimpleNamespace(governance_enabled=True),
+        ),
+        tools=SimpleNamespace(),
+        config=SimpleNamespace(floe=SimpleNamespace(runtime_artifact_dir=Path("/artifacts"))),
+    )
+
+    transport = activation_module._generate_floe(
+        provider, repo_root=Path("/repo"), contract_environ={}, env={}
+    )
+
+    assert rendered == [expected_renderer]
+    assert transport == expected_transport
+
+
+def test_cloud_pull_of_a_foreign_registry_falls_back_to_ambient_credentials() -> None:
+    """A revision built elsewhere -- GHCR, or another provider -- has no login here."""
+    provider = _image_provider(
+        Provider.AWS, project_code_repository="123456789012.dkr.ecr.eu-west-1.amazonaws.com/project-code"
+    )
+
+    activation_module._ensure_image(provider, _IMAGE, env={"DOCKER_CONFIG": "/scoped"})
+
+    assert provider.backend.logins == []
+    assert "DOCKER_CONFIG" not in provider.tools.docker.pulls[0][2]

@@ -151,3 +151,41 @@ def test_user_chart_extracts_the_unpacked_subchart(tmp_path: Path) -> None:
     assert (chart / "Chart.yaml").read_text().startswith("name: dagster-user-deployments")
     assert (chart / "templates" / "service-user.yaml").is_file()
     assert not (chart / "charts").exists()
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("deployment_profile", "", "are required"),
+        ("project_name", "", "are required"),
+        ("distribution_version", "", "are required"),
+        ("provider", "gcp", "unsupported activation provider"),
+        ("stage", "staging", "unsupported activation stage"),
+        ("project_revision", "sha256:short", "project_revision must be"),
+        ("floe_manifest_revision", "not-a-digest", "floe_manifest_revision must be"),
+        ("provider_binding_digest", "sha256:" + "G" * 64, "provider_binding_digest must be"),
+        ("project_code_image", "ghcr.io/openlakeforge/project-code:latest", "must be digest-pinned"),
+        ("capabilities", {"analytics": True, "lineage": True}, "may only declare analytics and governance"),
+        ("capabilities", {"analytics": "yes"}, "outcomes must be booleans"),
+    ],
+)
+def test_validate_rejects_an_unusable_activation(field: str, value: object, message: str) -> None:
+    """An activation is the record a stage is later redeployed from, so a
+    malformed one has to fail here rather than at the Helm rollout it reaches."""
+    from dataclasses import replace
+
+    activation = replace(_activation(), **{field: value})
+
+    with pytest.raises(project_activation.ProjectActivationError, match=message):
+        activation.validate(allow_unresolved=True)
+
+
+def test_validate_requires_the_revision_once_the_activation_is_resolved() -> None:
+    """`activation_revision` is empty until `resolved()` computes it, so the
+    pre-hash pass tolerates exactly that one absence and the final pass does not."""
+    activation = _activation()
+
+    activation.validate(allow_unresolved=True)
+
+    with pytest.raises(project_activation.ProjectActivationError, match="activation_revision must be"):
+        activation.validate()

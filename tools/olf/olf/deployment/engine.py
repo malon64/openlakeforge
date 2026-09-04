@@ -89,6 +89,12 @@ class DeploymentProvider(Protocol):
     """
 
     context: DeploymentContext
+    # Stage activation (`olf.deployment.activation`) drives Helm and Docker
+    # through the provider instead of building its own toolkit, so the toolkit
+    # is part of what a provider promises its callers. Leaving it off meant
+    # every shared caller reached past this Protocol into the concrete
+    # provider, and the contract stopped describing what callers actually use.
+    tools: Toolkit
 
     def foundation_up(self) -> None: ...
     def foundation_down(self, *, force: bool = False) -> None: ...

@@ -213,7 +213,10 @@ def _user_values(
     floe_renderer: str,
 ) -> dict[str, object]:
     repository, digest = _image_parts(activation.project_code_image)
-    env = [
+    # Annotated rather than inferred: the initializer is all plain string
+    # values, but the OPENLINEAGE_API_KEY entry below carries a nested
+    # `valueFrom.secretKeyRef`, which a `dict[str, str]` inference rejects.
+    env: list[dict[str, Any]] = [
         {"name": "OPENLAKEFORGE_PROJECT_REVISION", "value": activation.project_revision},
         {"name": "OPENLAKEFORGE_FLOE_MANIFEST_REVISION", "value": activation.floe_manifest_revision},
     ]
@@ -377,7 +380,7 @@ def _ensure_image(provider: DeploymentProvider, image: str, *, env: Mapping[str,
     if provider.context.provider is Provider.LOCAL:
         from olf.deployment.local.images import load_image_into_kind
 
-        load_image_into_kind(image, provider.config, provider.tools, env=env)  # type: ignore[arg-type,attr-defined]
+        load_image_into_kind(image, provider.config, provider.tools, env=env)  # type: ignore[attr-defined]
 
 
 def read_platform_globals(

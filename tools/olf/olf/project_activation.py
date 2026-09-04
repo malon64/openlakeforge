@@ -21,7 +21,11 @@ class ProjectActivationError(RuntimeError):
     """An activation record is malformed, unavailable, or unsafe to change."""
 
 
-def _digest(value: str, *, field: str) -> str:
+def _digest(value: object, *, field: str) -> str:
+    # `object`, not `str`: every caller passes a value straight out of parsed
+    # JSON, and rejecting a non-string is this function's job. Declaring `str`
+    # claimed the callers had already done the narrowing they were calling
+    # here to get.
     if not isinstance(value, str) or not _DIGEST.fullmatch(value):
         raise ProjectActivationError(f"{field} must be sha256:<64 lowercase hex characters>.")
     return value
