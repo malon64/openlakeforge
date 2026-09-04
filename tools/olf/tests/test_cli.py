@@ -196,6 +196,10 @@ def test_dbt_parse_discovers_projects_under_the_contract_environments_repo_root(
     @contextmanager
     def fake_provider_contract_environment(**kwargs):  # noqa: ANN003, ANN202
         monkeypatch.setenv("OPENLAKEFORGE_REPO_ROOT", kwargs["project_root"])
+        # The selected project root holds no `libs`, which stays
+        # distribution-owned; without this the render_profiles import below
+        # resolves against the project root and fails.
+        monkeypatch.setenv("OLF_DISTRIBUTION_ROOT", str(Path(__file__).resolve().parents[3]))
         yield
 
     monkeypatch.setattr("olf.commands.runtime.provider_contract_environment", fake_provider_contract_environment)
