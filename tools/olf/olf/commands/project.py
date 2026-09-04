@@ -182,7 +182,24 @@ def status(
                     store = S3RevisionStore(client, artifact_bucket())
                     activation = active_activation(store, stage=item)
                     if activation is None:
-                        reports.append({"stage": item.value, "state": "inactive", "recorded": None, "observed": None})
+                        # A release with no pointer is an untracked executable
+                        # deployment, not an absence: an object-store restore or
+                        # a deleted pointer would otherwise be reported as
+                        # `inactive` while a code server keeps running pipelines.
+                        orphaned = provider.tools.helm.status(
+                            "openlakeforge-project",
+                            namespace=context.namespace,
+                            kube_context=kube_context,
+                            env=provider.env,
+                        ).ok
+                        reports.append(
+                            {
+                                "stage": item.value,
+                                "state": "drifted" if orphaned else "inactive",
+                                "recorded": None,
+                                "observed": {"release": "openlakeforge-project", "present": orphaned},
+                            }
+                        )
                         continue
                     # `helm status` alone calls a release that was rolled back
                     # or reconciled to another activation healthy, so status
