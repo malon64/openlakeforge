@@ -70,7 +70,13 @@ class LocalProvider:
         """
         docker_host = None
         if not self._environ.get("DOCKER_HOST"):
-            docker_host = self.tools.docker.resolve_current_engine_endpoint(env=dict(self._environ))
+            # Docker contexts live in the caller's own config; `_environ`
+            # already carries the scoped OLF-owned one, which has none. A
+            # Rancher Desktop or remote-engine context would otherwise be
+            # invisible and every command target the default socket.
+            docker_host = self.tools.docker.resolve_current_engine_endpoint(
+                env=ambient_registry_env(self._environ)
+            )
         self.context.prepare_directories()
         return self.context.command_env(docker_host=docker_host)
 

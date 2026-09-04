@@ -188,15 +188,18 @@ def status(
                     # or reconciled to another activation healthy, so status
                     # would report `active` for exactly the drift a redeploy
                     # exists to repair. Compare what the release runs.
-                    # None when the platform release is absent: the stage is
-                    # already reported as not running its activation, and
-                    # status must report rather than raise.
-                    observed_ok = release_runs_activation(
+                    # A stage whose Terraform-owned control plane is gone is
+                    # drifted however healthy its user deployment looks, so an
+                    # unreadable platform release is an answer, not a reason to
+                    # skip the comparison. Reported rather than raised: status
+                    # exists to describe a broken stage.
+                    platform_globals = read_platform_globals(
+                        provider, kube_context=kube_context, env=provider.env
+                    )
+                    observed_ok = platform_globals is not None and release_runs_activation(
                         provider,
                         activation.activation_revision,
-                        platform_globals=read_platform_globals(
-                            provider, kube_context=kube_context, env=provider.env
-                        ),
+                        platform_globals=platform_globals,
                         env=provider.env,
                     )
                     reports.append(

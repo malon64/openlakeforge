@@ -97,6 +97,7 @@ class _Provider:
             charts={"dagster": SimpleNamespace(package_path=Path("unused.tgz"))},
             paths=context.paths,
             terraform=SimpleNamespace(apply_retry=None),
+            floe=SimpleNamespace(image="ghcr.io/malon64/floe:0.6.11", version="0.6.11", runtime="image"),
         )
 
 
@@ -143,13 +144,19 @@ def harness(external_project: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPa
 
     monkeypatch.setattr(activation_module.contract_env, "applied_contract_environment", _contract_environment)
 
+    providers: list[_Provider] = []
+
     def deploy(stage: str):  # noqa: ANN202
         context = DeploymentContext.local(
             repo_root=external_project, topology=topology, stage=stage, work_root=tmp_path / "work"
         )
         context.paths.work_root.mkdir(parents=True, exist_ok=True)
+        provider = _Provider(context, helm)
+        if providers:
+            provider.config.floe = providers[-1].config.floe
+        providers.append(provider)
         return activation_module.deploy_revision(
-            _Provider(context, helm), revision=manifest.revision, store=store, profile_name="acceptance"
+            provider, revision=manifest.revision, store=store, profile_name="acceptance"
         )
 
     return SimpleNamespace(
@@ -159,6 +166,7 @@ def harness(external_project: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPa
         manifest=manifest,
         floe_calls=floe_calls,
         image_calls=image_calls,
+        providers=providers,
         catalog_calls=catalog_calls,
     )
 
@@ -261,6 +269,7 @@ def test_rollout_keeps_contract_runtime_aliases(external_project: Path, tmp_path
         },
         namespace="olf-dev",
         platform_globals={},
+        floe_renderer="ghcr.io/malon64/floe:0.6.11|0.6.11|image",
     )
 
     env = {entry["name"]: entry["value"] for entry in values["deployments"][0]["env"]}
@@ -297,6 +306,7 @@ def _values(**capabilities: bool) -> dict:
         },
         namespace="olf-dev",
         platform_globals={},
+        floe_renderer="ghcr.io/malon64/floe:0.6.11|0.6.11|image",
     )
 
 
@@ -349,3 +359,17 @@ def test_reapplying_reconciles_globals_the_platform_rebound(harness) -> None:  #
     assert harness.helm.installed["olf-dev"]["global"] == {
         "postgresqlSecretName": "postgresql-dagster-olf-dev-rotated"
     }
+
+
+def test_reapplying_regenerates_when_the_floe_renderer_changes(harness) -> None:  # noqa: ANN001
+    """FLOE_IMAGE/VERSION/RUNTIME change the manifests without moving any activation input."""
+    harness.deploy("dev")
+
+    harness.providers[-1].config.floe = SimpleNamespace(
+        image="ghcr.io/malon64/floe:0.7.0", version="0.7.0", runtime="image"
+    )
+    harness.deploy("dev")
+
+    assert len(harness.helm.rollouts) == 2
+    annotations = harness.helm.installed["olf-dev"]["deployments"][0]["deploymentAnnotations"]
+    assert annotations["openlakeforge.io/floe-renderer"] == "ghcr.io/malon64/floe:0.7.0|0.7.0|image"

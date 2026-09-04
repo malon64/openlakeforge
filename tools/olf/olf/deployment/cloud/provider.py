@@ -28,6 +28,7 @@ from olf.deployment.cloud.backend import CloudBackend, FoundationFacts
 from olf.deployment.cloud.config import CloudDeploymentConfig
 from olf.deployment.engine import DeploymentPhase, Toolkit
 from olf.deployment.inspection import DoctorItem, DoctorReport, base_report, docker_health
+from olf.tooling import docker as docker_tooling
 
 if TYPE_CHECKING:
     from olf.deployment.context import DeploymentContext
@@ -66,7 +67,11 @@ class CloudProvider:
         """Command environment without a resolved `KUBE_CONTEXT` - see module docstring."""
         docker_host = None
         if not self._environ.get("DOCKER_HOST"):
-            docker_host = self.tools.docker.resolve_current_engine_endpoint(env=dict(self._environ))
+            # See LocalProvider.env: context discovery has to read the caller's
+            # Docker config, not the scoped one, which holds no contexts.
+            docker_host = self.tools.docker.resolve_current_engine_endpoint(
+                env=docker_tooling.ambient_registry_env(self._environ)
+            )
         self.config.context.prepare_directories()
         base = self.config.context.command_env(docker_host=docker_host)
         # Terraform receives SDK-mediated credentials only for OLF-managed

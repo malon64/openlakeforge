@@ -38,6 +38,7 @@ _RELEASE = "openlakeforge-project"
 _LOG_ARCHIVE = "openlakeforge-k8s-log-archive"
 _PLATFORM_RELEASE = "dagster"
 _ACTIVATION_LABEL = "openlakeforge.io/activation-revision"
+_RENDERER_ANNOTATION = "openlakeforge.io/floe-renderer"
 # Contract-derived runtime settings that deliberately carry no OPENLAKEFORGE_
 # prefix because the libraries reading them are not ours: libs.s3_artifacts
 # resolves the object store through AWS_ENDPOINT_URL_S3, so a local or Azure
@@ -167,6 +168,7 @@ def _user_values(
     contract_environ: Mapping[str, str],
     namespace: str,
     platform_globals: Mapping[str, Any],
+    floe_renderer: str,
 ) -> dict[str, object]:
     repository, digest = _image_parts(activation.project_code_image)
     env = [
@@ -233,7 +235,10 @@ def _user_values(
                     "openlakeforge.io/project-revision": activation.project_revision,
                     _ACTIVATION_LABEL: activation.activation_revision,
                 },
-                "deploymentAnnotations": {"openlakeforge.io/floe-manifest-revision": activation.floe_manifest_revision},
+                "deploymentAnnotations": {
+                    "openlakeforge.io/floe-manifest-revision": activation.floe_manifest_revision,
+                    _RENDERER_ANNOTATION: floe_renderer,
+                },
             }
         ],
     }
@@ -379,6 +384,19 @@ def _kube_context(provider: DeploymentProvider) -> str:
     return env.get("KUBE_CONTEXT") or provider.context.kube_context
 
 
+def _floe_renderer(provider: DeploymentProvider) -> str:
+    """What renders this stage's Floe manifests, as one comparable string.
+
+    `FLOE_IMAGE`, `FLOE_VERSION` and `FLOE_RUNTIME` change the generated
+    manifests without moving any activation input, so an inputs-only gate
+    would keep manifests the previous renderer produced. Recorded on the
+    release rather than in the activation record: it describes how the stage
+    was rendered, not what was activated, and the record's schema stays put.
+    """
+    floe = provider.config.floe  # type: ignore[attr-defined]
+    return f"{floe.image}|{floe.version}|{floe.runtime}"
+
+
 def release_runs_activation(
     provider: DeploymentProvider,
     activation_revision: str,
@@ -417,7 +435,10 @@ def release_runs_activation(
     # deployment pointing at a Secret that no longer exists.
     if platform_globals is not None and dict(values.get("global") or {}) != dict(platform_globals):
         return False
-    return True
+    return all(
+        (deployment.get("deploymentAnnotations") or {}).get(_RENDERER_ANNOTATION) == _floe_renderer(provider)
+        for deployment in values.get("deployments") or []
+    )
 
 
 def deploy_revision(
@@ -526,6 +547,7 @@ def deploy_revision(
                         contract_environ=contract_environ,
                         namespace=context.namespace,
                         platform_globals=platform_globals,
+                        floe_renderer=_floe_renderer(provider),
                     ),
                     sort_keys=False,
                 )
@@ -550,6 +572,7 @@ def deploy_revision(
                                 contract_environ=contract_environ,
                                 namespace=context.namespace,
                                 platform_globals=platform_globals,
+                                floe_renderer=_floe_renderer(provider),
                             ),
                             sort_keys=False,
                         )
