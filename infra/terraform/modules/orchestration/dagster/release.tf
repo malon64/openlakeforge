@@ -11,7 +11,7 @@ resource "helm_release" "dagster" {
   timeout         = 300
   cleanup_on_fail = true
 
-  values = [
+  values = compact([
     file(var.base_values_file),
     yamlencode({
       global = {
@@ -135,5 +135,28 @@ resource "helm_release" "dagster" {
         }
       }
     }),
-  ]
+
+    # `olf deploy` runs the control plane on the project-code image and patches
+    # it in place during its artifacts phase (`olf k8s set-project-code-image`
+    # targets the webserver and daemon by name), so it also needs that image's
+    # pull policy -- `Never` locally, where the image only ever exists inside
+    # kind. The catalog-pinned control plane in `base_values_file` applies
+    # where activation owns user code and nothing patches these deployments.
+    var.manage_user_deployments ? yamlencode({
+      dagsterWebserver = {
+        image = {
+          repository = var.project_code_image_repository
+          tag        = var.project_code_image_tag
+          pullPolicy = var.project_code_image_pull_policy
+        }
+      }
+      dagsterDaemon = {
+        image = {
+          repository = var.project_code_image_repository
+          tag        = var.project_code_image_tag
+          pullPolicy = var.project_code_image_pull_policy
+        }
+      }
+    }) : "",
+  ])
 }
