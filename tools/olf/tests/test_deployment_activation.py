@@ -299,6 +299,8 @@ def _values(**capabilities: bool) -> dict:
     return _user_values(
         activation,
         contract_environ={
+            "OPENLAKEFORGE_LOG_BASE_URI": "s3://ops/activations/dev/logs",
+            "AWS_ENDPOINT_URL_S3": "http://seaweedfs-s3.olf-system:8333",
             "OPENLAKEFORGE_STORAGE_CREDENTIALS_SECRET_NAME": "seaweedfs-s3-creds",
             "OPENLAKEFORGE_CATALOG_FLOE_CREDENTIALS_SECRET_NAME": "polaris-floe-creds",
             "OPENLAKEFORGE_GOVERNANCE_INGESTION_BOT_SECRET_NAME": "openmetadata-ingestion-bot",
@@ -330,6 +332,15 @@ def test_log_archiver_only_receives_storage_credentials() -> None:
     archiver = values["extraManifests"][0]["spec"]["jobTemplate"]["spec"]["template"]["spec"]["containers"][0]
 
     assert [ref["secretRef"]["name"] for ref in archiver["envFrom"]] == ["seaweedfs-s3-creds"]
+    # The governance JWT reaches the code server, never the log container.
+    archive_env = {entry["name"] for entry in archiver["env"]}
+    assert "OPENLINEAGE_API_KEY" not in archive_env
+    assert archive_env == {
+        "OPENLAKEFORGE_LOG_BASE_URI",
+        "AWS_ENDPOINT_URL_S3",
+        "OPENLAKEFORGE_KUBE_NAMESPACE",
+        "OPENLAKEFORGE_LOG_ARCHIVE_SINCE_SECONDS",
+    }
     # The code server still gets the full set it needs.
     assert {s["name"] for s in values["deployments"][0]["envSecrets"]} == {
         "seaweedfs-s3-creds",

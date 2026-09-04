@@ -39,6 +39,17 @@ _LOG_ARCHIVE = "openlakeforge-k8s-log-archive"
 _PLATFORM_RELEASE = "dagster"
 _ACTIVATION_LABEL = "openlakeforge.io/activation-revision"
 _RENDERER_ANNOTATION = "openlakeforge.io/floe-renderer"
+# Everything `libs.k8s_log_archive` reads, directly or through
+# `libs.s3_artifacts.s3_client`, and nothing else. Handing it the code server's
+# environment would give a log-processing container the governance JWT and the
+# catalog settings it has no use for.
+_ARCHIVE_ENV = (
+    "OPENLAKEFORGE_LOG_BASE_URI",
+    "AWS_ENDPOINT_URL_S3",
+    "AWS_ENDPOINT_URL",
+    "AWS_REGION",
+    "AWS_DEFAULT_REGION",
+)
 # Contract-derived runtime settings that deliberately carry no OPENLAKEFORGE_
 # prefix because the libraries reading them are not ours: libs.s3_artifacts
 # resolves the object store through AWS_ENDPOINT_URL_S3, so a local or Azure
@@ -104,6 +115,13 @@ def _image_parts(image: str) -> tuple[str, str]:
     return repository, digest
 
 
+def _archive_env(contract_environ: Mapping[str, str], *, namespace: str) -> list[dict[str, str]]:
+    env = [{"name": name, "value": contract_environ[name]} for name in _ARCHIVE_ENV if contract_environ.get(name)]
+    env.append({"name": "OPENLAKEFORGE_KUBE_NAMESPACE", "value": namespace})
+    env.append({"name": "OPENLAKEFORGE_LOG_ARCHIVE_SINCE_SECONDS", "value": "3600"})
+    return env
+
+
 def _log_archive_manifest(
     activation: ProjectActivation,
     *,
@@ -147,10 +165,7 @@ def _log_archive_manifest(
                                     "image": activation.project_code_image,
                                     "imagePullPolicy": "IfNotPresent",
                                     "command": ["python", "-m", "libs.k8s_log_archive"],
-                                    "env": [
-                                        *env,
-                                        {"name": "OPENLAKEFORGE_LOG_ARCHIVE_SINCE_SECONDS", "value": "3600"},
-                                    ],
+                                    "env": env,
                                     "envFrom": [{"secretRef": {"name": secret}} for secret in secrets],
                                 }
                             ],
@@ -214,7 +229,7 @@ def _user_values(
         "extraManifests": [_log_archive_manifest(
                 activation,
                 namespace=namespace,
-                env=env,
+                env=_archive_env(contract_environ, namespace=namespace),
                 # `libs.k8s_log_archive` reads the object store and nothing
                 # else, and the Terraform CronJob it replaces mounted only
                 # this Secret. Handing it catalog and governance credentials
