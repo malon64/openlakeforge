@@ -39,6 +39,11 @@ _LOG_ARCHIVE = "openlakeforge-k8s-log-archive"
 _PLATFORM_RELEASE = "dagster"
 _ACTIVATION_LABEL = "openlakeforge.io/activation-revision"
 _RENDERER_ANNOTATION = "openlakeforge.io/floe-renderer"
+# Stamped when a rollback restores the previous activation: the renderer that
+# produced its manifests is not known here, and stamping the current one would
+# make the next attempt mistake the rolled-back release for an up-to-date one
+# and skip the regeneration the retry exists to perform.
+_RENDERER_UNRECONCILED = "unreconciled"
 # Everything `libs.k8s_log_archive` reads, directly or through
 # `libs.s3_artifacts.s3_client`, and nothing else. Handing it the code server's
 # environment would give a log-processing container the governance JWT and the
@@ -74,6 +79,28 @@ class ActivationError(DeploymentPreconditionError):
     """A revision cannot be activated while preserving the current release."""
 
 
+def _plain(value: Any) -> Any:
+    """Convert a parsed contract into plain JSON types, by value.
+
+    Parsed contracts freeze nested objects as `MappingProxyType`, which `json`
+    does not recognise as a mapping. Serializing with `default=list` therefore
+    reduced every nested binding to a list of its field *names*: renaming a
+    bucket, moving an endpoint, or repointing a catalog left this digest
+    byte-identical, so the no-op gate skipped a rollout the platform needed and
+    code servers kept reading the previous storage binding.
+
+    No `default` fallback: an unexpected type must fail loudly here rather than
+    hash to something that silently does not distinguish two bindings.
+    """
+    if isinstance(value, Mapping):
+        return {str(key): _plain(item) for key, item in value.items()}
+    if isinstance(value, (set, frozenset)):
+        return sorted(_plain(item) for item in value)
+    if isinstance(value, (list, tuple)):
+        return [_plain(item) for item in value]
+    return value
+
+
 def provider_binding_digest(raw_contract: Mapping[str, Any], *, topology, stage: StageName) -> str:  # noqa: ANN001
     """Hash the selected non-secret provider contract binding deterministically."""
     parsed = parse_provider_contracts(raw_contract, topology)
@@ -102,7 +129,7 @@ def provider_binding_digest(raw_contract: Mapping[str, Any], *, topology, stage:
             "governance": None if selected.governance is None else dict(selected.governance),
         },
     }
-    rendered = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=list).encode()
+    rendered = json.dumps(_plain(payload), sort_keys=True, separators=(",", ":")).encode()
     return "sha256:" + hashlib.sha256(rendered).hexdigest()
 
 
@@ -587,7 +614,7 @@ def deploy_revision(
                                 contract_environ=contract_environ,
                                 namespace=context.namespace,
                                 platform_globals=platform_globals,
-                                floe_renderer=_floe_renderer(provider),
+                                floe_renderer=_RENDERER_UNRECONCILED,
                             ),
                             sort_keys=False,
                         )

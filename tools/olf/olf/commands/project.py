@@ -197,7 +197,11 @@ def status(
                                 "stage": item.value,
                                 "state": "drifted" if orphaned else "inactive",
                                 "recorded": None,
-                                "observed": {"release": "openlakeforge-project", "present": orphaned},
+                                "observed": {
+                                    "release": "openlakeforge-project",
+                                    "present": orphaned,
+                                    "matches_activation": False,
+                                },
                             }
                         )
                         continue
@@ -213,6 +217,16 @@ def status(
                     platform_globals = read_platform_globals(
                         provider, kube_context=kube_context, env=provider.env
                     )
+                    # Presence and agreement are different facts: a release that
+                    # exists but runs another activation must not be reported
+                    # the same way as one that is gone, and the no-pointer
+                    # branch above already reports presence on its own.
+                    present = provider.tools.helm.status(
+                        "openlakeforge-project",
+                        namespace=context.namespace,
+                        kube_context=kube_context,
+                        env=provider.env,
+                    ).ok
                     observed_ok = platform_globals is not None and release_runs_activation(
                         provider,
                         activation.activation_revision,
@@ -228,7 +242,11 @@ def status(
                                 "project_revision": activation.project_revision,
                                 "floe_manifest_revision": activation.floe_manifest_revision,
                             },
-                            "observed": {"release": "openlakeforge-project", "present": observed_ok},
+                            "observed": {
+                                "release": "openlakeforge-project",
+                                "present": present,
+                                "matches_activation": observed_ok,
+                            },
                         }
                     )
     except (ArtifactStoreError, ProjectActivationError) as exc:
