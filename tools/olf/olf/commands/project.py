@@ -149,7 +149,7 @@ def status(
 ) -> None:
     """Compare each stage's immutable active pointer with its user deployment."""
     from olf.artifact_store import ArtifactStoreError, S3RevisionStore, artifact_bucket, artifact_storage_client
-    from olf.deployment.activation import release_runs_activation
+    from olf.deployment.activation import read_platform_globals, release_runs_activation
     from olf.deployment.contract_env import applied_contract_environment
     from olf.profile import StageName
     from olf.project_activation import ProjectActivationError
@@ -188,8 +188,16 @@ def status(
                     # or reconciled to another activation healthy, so status
                     # would report `active` for exactly the drift a redeploy
                     # exists to repair. Compare what the release runs.
+                    # None when the platform release is absent: the stage is
+                    # already reported as not running its activation, and
+                    # status must report rather than raise.
                     observed_ok = release_runs_activation(
-                        provider, activation.activation_revision, env=provider.env
+                        provider,
+                        activation.activation_revision,
+                        platform_globals=read_platform_globals(
+                            provider, kube_context=kube_context, env=provider.env
+                        ),
+                        env=provider.env,
                     )
                     reports.append(
                         {

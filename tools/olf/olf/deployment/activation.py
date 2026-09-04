@@ -333,8 +333,10 @@ def _ensure_image(provider: DeploymentProvider, image: str, *, env: Mapping[str,
         load_image_into_kind(image, provider.config, provider.tools, env=env)  # type: ignore[arg-type,attr-defined]
 
 
-def _platform_globals(provider: DeploymentProvider, *, kube_context: str, env: Mapping[str, str]) -> dict[str, Any]:
-    """The `global` values the platform's Dagster release runs with.
+def read_platform_globals(
+    provider: DeploymentProvider, *, kube_context: str, env: Mapping[str, str]
+) -> dict[str, Any] | None:
+    """The `global` values the platform's Dagster release runs with, or None if absent.
 
     The activation release installs the user-deployments subchart standalone,
     so it inherits none of the parent's globals and falls back to the
@@ -347,15 +349,22 @@ def _platform_globals(provider: DeploymentProvider, *, kube_context: str, env: M
         _PLATFORM_RELEASE, namespace=provider.context.namespace, kube_context=kube_context, env=env
     )
     if not result.ok:
+        return None
+    try:
+        values = json.loads(result.stdout or "{}") or {}
+    except json.JSONDecodeError:
+        return None
+    return dict(values.get("global") or {})
+
+
+def _platform_globals(provider: DeploymentProvider, *, kube_context: str, env: Mapping[str, str]) -> dict[str, Any]:
+    values = read_platform_globals(provider, kube_context=kube_context, env=env)
+    if values is None:
         raise ActivationError(
             f"the {_PLATFORM_RELEASE!r} release is not installed in {provider.context.namespace}; "
             "run olf platform apply before activating a revision."
         )
-    try:
-        values = json.loads(result.stdout or "{}")
-    except json.JSONDecodeError as exc:
-        raise ActivationError(f"could not read {_PLATFORM_RELEASE!r} release values: {exc}") from exc
-    return dict((values or {}).get("global") or {})
+    return values
 
 
 def _kube_context(provider: DeploymentProvider) -> str:
@@ -371,7 +380,11 @@ def _kube_context(provider: DeploymentProvider) -> str:
 
 
 def release_runs_activation(
-    provider: DeploymentProvider, activation_revision: str, *, env: Mapping[str, str]
+    provider: DeploymentProvider,
+    activation_revision: str,
+    *,
+    platform_globals: Mapping[str, Any] | None = None,
+    env: Mapping[str, str],
 ) -> bool:
     """Whether the installed release is healthy *and* actually runs this activation.
 
@@ -393,10 +406,18 @@ def release_runs_activation(
         values = json.loads(result.stdout or "{}") or {}
     except json.JSONDecodeError:
         return False
-    return any(
+    if not any(
         (deployment.get("deploymentLabels") or {}).get(_ACTIVATION_LABEL) == activation_revision
         for deployment in values.get("deployments") or []
-    )
+    ):
+        return False
+    # A platform apply can re-bind something the activation renders -- renaming
+    # the Dagster credentials Secret, say -- without moving any input the
+    # activation digest covers. Skipping on the label alone would leave the
+    # deployment pointing at a Secret that no longer exists.
+    if platform_globals is not None and dict(values.get("global") or {}) != dict(platform_globals):
+        return False
+    return True
 
 
 def deploy_revision(
@@ -442,7 +463,9 @@ def deploy_revision(
                 capabilities=capabilities,
             )
         )
-        and release_runs_activation(provider, previous.activation_revision, env=env)
+        and release_runs_activation(
+            provider, previous.activation_revision, platform_globals=platform_globals, env=env
+        )
     ):
         # Reapplying the active revision must not touch the cluster or the ops
         # bucket at all. Deciding this only after Floe has been regenerated
@@ -480,7 +503,9 @@ def deploy_revision(
                 provider_binding_digest=binding,
                 capabilities=capabilities,
             ).resolved()
-            if previous == activation and release_runs_activation(provider, activation.activation_revision, env=env):
+            if previous == activation and release_runs_activation(
+                provider, activation.activation_revision, platform_globals=platform_globals, env=env
+            ):
                 return activation
             if activation.capabilities["analytics"] or activation.capabilities["governance"]:
                 deploy_optional_layer_artifacts(contract_environ)

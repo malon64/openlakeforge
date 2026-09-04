@@ -55,17 +55,21 @@ class _Helm:
         self.uninstalled: list[str] = []
         self.ready: set[str] = set()
         self.installed: dict[str, dict] = {}
+        self.secret_suffix = "creds"
         self.fails = False
 
     def status(self, release: str, *, namespace: str, kube_context=None, env=None):  # noqa: ANN001, ANN202, ARG002
         return SimpleNamespace(ok=namespace in self.ready)
+
+    def platform_globals(self, namespace: str) -> dict[str, str]:
+        return {"postgresqlSecretName": f"postgresql-dagster-{namespace}-{self.secret_suffix}"}
 
     def get_values(self, release, *, namespace, kube_context=None, env=None):  # noqa: ANN001, ANN202, ARG002
         if release == "dagster":
             # The platform release the activation inherits its globals from.
             return SimpleNamespace(
                 ok=True,
-                stdout=json.dumps({"global": {"postgresqlSecretName": f"postgresql-dagster-{namespace}-creds"}}),
+                stdout=json.dumps({"global": self.platform_globals(namespace)}),
             )
         installed = self.installed.get(namespace)
         return SimpleNamespace(ok=installed is not None, stdout=json.dumps(installed or {}))
@@ -329,3 +333,19 @@ def test_namespace_alias_follows_the_activated_stage() -> None:
     env = {entry["name"]: entry.get("value") for entry in _values()["deployments"][0]["env"]}
 
     assert env["NAMESPACE"] == "olf-dev"
+
+
+def test_reapplying_reconciles_globals_the_platform_rebound(harness) -> None:  # noqa: ANN001
+    """A platform apply can rename the credentials Secret without moving any activation input."""
+    activation = harness.deploy("dev")
+    installed = harness.helm.installed["olf-dev"]
+    assert installed["global"] == {"postgresqlSecretName": "postgresql-dagster-olf-dev-creds"}
+
+    harness.helm.secret_suffix = "rotated"
+    reapplied = harness.deploy("dev")
+
+    assert reapplied == activation
+    assert len(harness.helm.rollouts) == 2
+    assert harness.helm.installed["olf-dev"]["global"] == {
+        "postgresqlSecretName": "postgresql-dagster-olf-dev-rotated"
+    }
