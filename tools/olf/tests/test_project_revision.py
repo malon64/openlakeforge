@@ -626,3 +626,16 @@ def test_build_still_allows_a_bare_env_lookup_with_no_default(external_project: 
     manifest = _build(external_project)  # must not raise
 
     assert manifest.revision.startswith("sha256:")
+
+
+def test_registry_host_only_matches_provider_native_registries() -> None:
+    """A revision may live outside the provider's registry; logging in there would fail."""
+    from olf.deployment.activation import _registry_host
+
+    ecr = "883553345052.dkr.ecr.eu-west-3.amazonaws.com/openlakeforge/project-code"
+    assert _registry_host(ecr) == "883553345052.dkr.ecr.eu-west-3.amazonaws.com"
+    assert _registry_host("ghcr.io/example/project-code") == "ghcr.io"
+    assert _registry_host("localhost:5001/project-code") == "localhost:5001"
+    # Docker Hub short form carries no host segment.
+    assert _registry_host("openlakeforge/project-code") == ""
+    assert _registry_host(ecr) != _registry_host("ghcr.io/example/project-code")

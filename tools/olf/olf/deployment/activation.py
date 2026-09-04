@@ -36,6 +36,24 @@ from olf.provider_contracts import ProviderContractError, parse_provider_contrac
 _RELEASE = "openlakeforge-project"
 _LOG_ARCHIVE = "openlakeforge-k8s-log-archive"
 _PLATFORM_RELEASE = "dagster"
+_ACTIVATION_LABEL = "openlakeforge.io/activation-revision"
+# Contract-derived runtime settings that deliberately carry no OPENLAKEFORGE_
+# prefix because the libraries reading them are not ours: libs.s3_artifacts
+# resolves the object store through AWS_ENDPOINT_URL_S3, so a local or Azure
+# stage that loses these reaches public S3 instead of its contracted endpoint.
+# Terraform passed exactly this set to the code server. Credential *values*
+# (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, OPENLINEAGE_API_KEY) stay out --
+# those arrive by Secret reference.
+_RUNTIME_ALIASES = (
+    "AWS_ALLOW_HTTP",
+    "AWS_DEFAULT_REGION",
+    "AWS_ENDPOINT_URL_S3",
+    "AWS_REGION",
+    "AWS_S3_FORCE_PATH_STYLE",
+    "OPENLINEAGE_ENDPOINT",
+    "OPENLINEAGE_NAMESPACE",
+    "OPENLINEAGE_URL",
+)
 _LOG_ARCHIVE_SCHEDULE = "*/15 * * * *"
 
 
@@ -157,6 +175,10 @@ def _user_values(
     for name in sorted(key for key in contract_environ if key.startswith("OPENLAKEFORGE_")):
         if "SECRET" not in name and "ACCESS_KEY" not in name:
             env.append({"name": name, "value": contract_environ[name]})
+    for name in _RUNTIME_ALIASES:
+        value = contract_environ.get(name)
+        if value:
+            env.append({"name": name, "value": value})
     secrets = sorted(
         {
             contract_environ.get("OPENLAKEFORGE_STORAGE_CREDENTIALS_SECRET_NAME", ""),
@@ -180,7 +202,7 @@ def _user_values(
                 "envSecrets": [{"name": secret} for secret in secrets],
                 "deploymentLabels": {
                     "openlakeforge.io/project-revision": activation.project_revision,
-                    "openlakeforge.io/activation-revision": activation.activation_revision,
+                    _ACTIVATION_LABEL: activation.activation_revision,
                 },
                 "deploymentAnnotations": {"openlakeforge.io/floe-manifest-revision": activation.floe_manifest_revision},
             }
@@ -248,18 +270,29 @@ def _generate_floe(
     return activate_runtime_revision(config.floe.runtime_artifact_dir, via=transport)
 
 
+def _registry_host(repository: str) -> str:
+    """The registry a repository reference points at, or "" for Docker Hub."""
+    head = repository.split("/", 1)[0]
+    return head if ("." in head or ":" in head or head == "localhost") else ""
+
+
 def _ensure_image(provider: DeploymentProvider, image: str, *, env: Mapping[str, str]) -> None:
     platform = None
     if provider.context.provider is not Provider.LOCAL:
-        # Cloud command environments deliberately use a scoped Docker config.
-        # Authenticate that config immediately before the digest probe rather
-        # than relying on a developer's ambient Docker credentials.
-        provider.backend.registry_login(  # type: ignore[attr-defined]
-            provider.tools,
-            provider._foundation_facts,  # type: ignore[attr-defined]
-            repository=_image_parts(image)[0],
-            env=env,
-        )
+        facts = provider._foundation_facts  # type: ignore[attr-defined]
+        repository = _image_parts(image)[0]
+        # Cloud command environments deliberately use a scoped Docker config,
+        # so the provider's own registry has to be authenticated here rather
+        # than relying on a developer's ambient Docker credentials. A revision
+        # can legitimately live somewhere else though -- GHCR, Docker Hub, or
+        # another provider's registry after a move -- and logging into that
+        # host with an ECR password or as if it were an ACR fails before the
+        # pull. Anything foreign is left to whatever credentials the Docker
+        # config already carries.
+        if _registry_host(repository) == _registry_host(facts.project_code_repository):
+            provider.backend.registry_login(  # type: ignore[attr-defined]
+                provider.tools, facts, repository=repository, env=env
+            )
         platform = provider.config.images.image_platform  # type: ignore[attr-defined]
     provider.tools.docker.pull(image, platform=platform, env=env)
     if provider.context.provider is Provider.LOCAL:
@@ -305,10 +338,31 @@ def _kube_context(provider: DeploymentProvider) -> str:
     return env.get("KUBE_CONTEXT") or provider.context.kube_context
 
 
-def _release_ready(provider: DeploymentProvider, *, env: Mapping[str, str]) -> bool:
-    return provider.tools.helm.status(
-        _RELEASE, namespace=provider.context.namespace, kube_context=_kube_context(provider), env=env
-    ).ok
+def _release_runs(provider: DeploymentProvider, activation_revision: str, *, env: Mapping[str, str]) -> bool:
+    """Whether the installed release is healthy *and* actually runs this activation.
+
+    `helm status` alone reports a release that was manually rolled back, or
+    restored from stale state, as perfectly healthy. Gating the idempotent
+    skip on that would let reapplying the recorded revision decline to repair
+    the very drift it should fix. The release renders the activation revision
+    onto its deployments, so ask the release what it is running.
+    """
+    namespace = provider.context.namespace
+    kube_context = _kube_context(provider)
+    helm = provider.tools.helm
+    if not helm.status(_RELEASE, namespace=namespace, kube_context=kube_context, env=env).ok:
+        return False
+    result = helm.get_values(_RELEASE, namespace=namespace, kube_context=kube_context, env=env)
+    if not result.ok:
+        return False
+    try:
+        values = json.loads(result.stdout or "{}") or {}
+    except json.JSONDecodeError:
+        return False
+    return any(
+        (deployment.get("deploymentLabels") or {}).get(_ACTIVATION_LABEL) == activation_revision
+        for deployment in values.get("deployments") or []
+    )
 
 
 def deploy_revision(
@@ -355,7 +409,7 @@ def deploy_revision(
                 capabilities=capabilities,
             )
         )
-        and _release_ready(provider, env=env)
+        and _release_runs(provider, previous.activation_revision, env=env)
     ):
         # Reapplying the active revision must not touch the cluster or the ops
         # bucket at all. Deciding this only after Floe has been regenerated
@@ -388,7 +442,7 @@ def deploy_revision(
                 provider_binding_digest=binding,
                 capabilities=capabilities,
             ).resolved()
-            if previous == activation and _release_ready(provider, env=env):
+            if previous == activation and _release_runs(provider, activation.activation_revision, env=env):
                 return activation
             if activation.capabilities["analytics"] or activation.capabilities["governance"]:
                 deploy_optional_layer_artifacts(contract_environ)

@@ -12,6 +12,8 @@ import typer
 from olf.commands._shared import deployment_context_for_profile, fail
 from olf.project import ProjectSpec, validate_project
 
+_LOCAL_TRANSPORT = "port-forward"
+
 app = typer.Typer(help="Validate and build writable OpenLakeForge data projects.")
 
 revision_app = typer.Typer(help="Inspect and verify a published ProjectRevision (#154).")
@@ -55,9 +57,9 @@ def build(
     ),
     output: str = typer.Option("", "--output", help="Publish into this local directory instead of the ops bucket."),
     via: str = typer.Option(
-        "port-forward",
+        "",
         "--via",
-        help="'port-forward' for in-cluster S3-compatible storage, 'direct' for cloud S3. Ignored with --output.",
+        help="Override the provider's transport: 'port-forward' or 'direct'. Ignored with --output.",
     ),
     json_output: bool = typer.Option(False, "--json", help="Print the full manifest instead of the revision id."),
 ) -> None:
@@ -125,10 +127,9 @@ def deploy(
 
     context = deployment_context_for_profile(profile_file, stage=stage, var_file=var_file)
     provider = _profile_provider(context, var_file=var_file)
-    via = "direct" if context.provider.value == "aws" else "port-forward"
     try:
         profile = load_deployment_profile(Path(profile_file))
-        with _build_store_for_project(Path(profile_file).resolve().parent, via=via, output="") as store:
+        with _build_store_for_project(Path(profile_file).resolve().parent, via="", output="") as store:
             activation = deploy_revision(
                 provider,
                 revision=revision,
@@ -281,11 +282,26 @@ def _revision_store(*, via: str, output: str) -> Iterator[object]:
         yield S3RevisionStore(client, bucket)
 
 
+def _artifact_transport(provider: object) -> str:
+    """The `--via` mode this provider's backend prescribes.
+
+    AWS deliberately blanks the S3 service fields in its contract because its
+    store requires direct S3, so a blanket `port-forward` default fails while
+    resolving an empty service port instead of publishing the revision.
+    """
+    backend = getattr(provider, "backend", None)
+    return backend.artifact_transport() if backend is not None else _LOCAL_TRANSPORT
+
+
 @contextmanager
 def _build_store_for_project(project_root: Path, *, via: str, output: str) -> Iterator[object]:
-    """Open the build store under the profile contract when one is available."""
+    """Open the build store under the profile contract when one is available.
+
+    An empty `via` means "ask the provider", which is the default for every
+    project command: only an explicit `--via` overrides it.
+    """
     if output or not (project_root / "openlakeforge.yaml").is_file():
-        with _revision_store(via=via, output=output) as store:
+        with _revision_store(via=via or _LOCAL_TRANSPORT, output=output) as store:
             yield store
         return
     from olf.artifact_store import ArtifactStoreError
@@ -320,7 +336,7 @@ def _build_store_for_project(project_root: Path, *, via: str, output: str) -> It
                     stage=context.stage,
                 )
             )
-            store = stack.enter_context(_revision_store(via=via, output=output))
+            store = stack.enter_context(_revision_store(via=via or _artifact_transport(provider), output=output))
         except (DeploymentError, KubectlError) as exc:
             raise ArtifactStoreError(
                 f"could not resolve the artifact store from the {context.provider.value} platform contract: {exc}"

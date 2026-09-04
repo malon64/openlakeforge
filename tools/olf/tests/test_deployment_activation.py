@@ -54,25 +54,33 @@ class _Helm:
         self.rollouts: list[tuple[str, dict]] = []
         self.uninstalled: list[str] = []
         self.ready: set[str] = set()
+        self.installed: dict[str, dict] = {}
         self.fails = False
 
     def status(self, release: str, *, namespace: str, kube_context=None, env=None):  # noqa: ANN001, ANN202, ARG002
         return SimpleNamespace(ok=namespace in self.ready)
 
     def get_values(self, release, *, namespace, kube_context=None, env=None):  # noqa: ANN001, ANN202, ARG002
-        # The platform release the activation inherits its globals from.
-        return SimpleNamespace(
-            ok=True, stdout=json.dumps({"global": {"postgresqlSecretName": f"postgresql-dagster-{namespace}-creds"}})
-        )
+        if release == "dagster":
+            # The platform release the activation inherits its globals from.
+            return SimpleNamespace(
+                ok=True,
+                stdout=json.dumps({"global": {"postgresqlSecretName": f"postgresql-dagster-{namespace}-creds"}}),
+            )
+        installed = self.installed.get(namespace)
+        return SimpleNamespace(ok=installed is not None, stdout=json.dumps(installed or {}))
 
     def upgrade_install(self, release, chart, *, namespace, values, kube_context=None, env=None):  # noqa: ANN001, ANN202, ARG002
         if self.fails:
             raise RuntimeError("helm upgrade --atomic rolled back")
-        self.rollouts.append((namespace, yaml.safe_load(values.read_text())))
+        rendered = yaml.safe_load(values.read_text())
+        self.rollouts.append((namespace, rendered))
+        self.installed[namespace] = rendered
         self.ready.add(namespace)
 
     def uninstall(self, release, *, namespace, kube_context=None, env=None) -> None:  # noqa: ANN001, ARG002
         self.uninstalled.append(namespace)
+        self.installed.pop(namespace, None)
         self.ready.discard(namespace)
 
 
@@ -200,3 +208,53 @@ def test_rollout_carries_the_activated_image_into_the_log_archiver(harness) -> N
     assert archiver["kind"] == "CronJob"
     assert container["image"] == activation.project_code_image
     assert archiver["metadata"]["namespace"] == "olf-dev"
+
+
+def test_reapplying_repairs_a_release_that_drifted_to_another_activation(harness) -> None:  # noqa: ANN001
+    """A healthy-but-wrong release must not be mistaken for an idempotent no-op."""
+    activation = harness.deploy("dev")
+    drifted = harness.helm.installed["olf-dev"]
+    drifted["deployments"][0]["deploymentLabels"]["openlakeforge.io/activation-revision"] = "sha256:" + "9" * 64
+
+    reapplied = harness.deploy("dev")
+
+    assert reapplied == activation
+    assert len(harness.helm.rollouts) == 2
+
+
+def test_rollout_keeps_contract_runtime_aliases(external_project: Path, tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    """Non-prefixed aliases reach the pod: libs.s3_artifacts reads AWS_ENDPOINT_URL_S3 itself."""
+    from olf.deployment.activation import _user_values
+    from olf.project_activation import ProjectActivation
+
+    activation = ProjectActivation(
+        deployment_profile="acceptance",
+        provider="local",
+        stage=StageName.DEV,
+        project_name="demo",
+        project_revision="sha256:" + "b" * 64,
+        distribution_version="0.0.0",
+        project_code_image=_IMAGE,
+        floe_manifest_revision=_FLOE,
+        provider_binding_digest="sha256:" + "d" * 64,
+        capabilities={"analytics": False, "governance": False},
+    ).resolved()
+
+    values = _user_values(
+        activation,
+        contract_environ={
+            "AWS_ENDPOINT_URL_S3": "http://seaweedfs-s3.olf-system:8333",
+            "AWS_REGION": "us-east-1",
+            "AWS_SECRET_ACCESS_KEY": "must-not-appear",
+            "OPENLAKEFORGE_STORAGE_BUCKET": "lakehouse-bronze",
+        },
+        namespace="olf-dev",
+        platform_globals={},
+    )
+
+    env = {entry["name"]: entry["value"] for entry in values["deployments"][0]["env"]}
+    assert env["AWS_ENDPOINT_URL_S3"] == "http://seaweedfs-s3.olf-system:8333"
+    assert env["AWS_REGION"] == "us-east-1"
+    assert env["OPENLAKEFORGE_STORAGE_BUCKET"] == "lakehouse-bronze"
+    # Credential values travel by Secret reference, never inline.
+    assert "AWS_SECRET_ACCESS_KEY" not in env
