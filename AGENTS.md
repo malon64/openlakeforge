@@ -27,9 +27,13 @@ closed with a pointer here rather than fixed.
 | Not a goal | Why |
 | --- | --- |
 | Concurrent or re-entrant `olf` invocation | `olf` is a single-operator CLI: one invocation at a time, on a workstation or a CI runner. `olf deploy` runs its phases sequentially in one process and relies on that. Do not add locks, leases, atomic-rename dances, or TOCTOU guards to shared code. |
-| Hostile input to the CLI's own files | `openlakeforge.yaml`, `lakehouse_code/`, and `sandbox.tfvars` are authored by the operator running the command. Validate them for **mistakes**, with a message that says how to fix it — not for **attacks**. |
-| Multi-tenancy across teams | Stages (`dev`/`prod`) isolate one team's data planes. Tenant isolation between distinct organisations is not a thing this platform offers. |
 | Windows support | Deployment targets are Linux and macOS. |
+
+The audience is a small data team without a platform engineer, and that is a
+design constraint rather than a market description: machinery those teams will
+never exercise is not free. It costs runtime footprint, onboarding friction,
+and reviewer attention — the three things this project treats as product
+features.
 
 This list is about the CLI process model, not about the deployed platform's
 security. Authentication, credential scope, and stage data isolation in the
