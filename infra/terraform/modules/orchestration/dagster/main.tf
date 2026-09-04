@@ -301,8 +301,24 @@ locals {
     },
   ]
 
+  # Conditioning the *source* list rather than the rendered result keeps both
+  # branches the same type. A `? <objects> : {}` on the result is what raised
+  # "Inconsistent conditional result types": Terraform cannot unify an object
+  # that has attributes with one that has none, and `terraform validate` does
+  # not evaluate it -- only a real apply does.
+  managed_code_locations   = var.manage_user_deployments ? var.code_locations : []
+  workspace_code_locations = var.manage_user_deployments ? [] : var.code_locations
+
+  workspace_servers = [
+    for location in local.workspace_code_locations : {
+      host = location.name
+      port = 3030
+      name = location.name
+    }
+  ]
+
   code_location_deployments = [
-    for location in var.code_locations : {
+    for location in local.managed_code_locations : {
       name = location.name
       image = {
         repository = var.project_code_image_repository

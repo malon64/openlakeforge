@@ -34,18 +34,16 @@ resource "helm_release" "dagster" {
       # it off while the subchart condition is still true trips the chart's
       # own "subchart cannot be enabled if workspace.yaml is not created"
       # guard. Only `enableSubchart` moves the deployments themselves out.
-      "dagster-user-deployments" = merge(
-        {
-          enabled        = true
-          enableSubchart = var.manage_user_deployments
-        },
-        var.manage_user_deployments ? {
-          serviceAccount = {
-            annotations = var.service_account_annotations
-          }
-          deployments = local.code_location_deployments
-        } : {},
-      )
+      "dagster-user-deployments" = {
+        enabled        = true
+        enableSubchart = var.manage_user_deployments
+        serviceAccount = {
+          annotations = var.service_account_annotations
+        }
+        # Empty when activation owns user code; the subchart renders nothing
+        # from it either way once `enableSubchart` is false.
+        deployments = local.code_location_deployments
+      }
 
       # The webserver and daemon images stay where the catalog pins them, in
       # `base_values_file`: overriding them with a project-code reference here
@@ -56,15 +54,9 @@ resource "helm_release" "dagster" {
         # setting both is rejected. dagster-user-deployments names each
         # Service after its deployment, so the contract's code-location name
         # is also its in-cluster host.
-        workspace = var.manage_user_deployments ? { enabled = false } : {
-          enabled = true
-          servers = [
-            for location in var.code_locations : {
-              host = location.name
-              port = 3030
-              name = location.name
-            }
-          ]
+        workspace = {
+          enabled = !var.manage_user_deployments
+          servers = local.workspace_servers
         }
         env        = local.runtime_env
         envSecrets = local.runtime_env_secrets
