@@ -1,11 +1,12 @@
-name: Local full e2e (manual)
+name: Local full e2e (nightly and manual)
 
-# Manually-triggered fresh local end-to-end validation.
+# Fresh local end-to-end validation, nightly on the default branch and on
+# demand for any branch.
 #
-# Issue #60 scoped the full local e2e suite as a main/nightly gate. This
-# workflow instead exposes it as workflow_dispatch only, so a maintainer can
-# select any branch in the dispatch UI and verify that branch's runtime
-# conformance from GitHub Actions instead of a local machine.
+# Issue #60 scoped the full local e2e suite as a main/nightly gate. The
+# schedule below is that gate; the dispatch trigger additionally lets a
+# maintainer select any branch in the UI and verify its runtime conformance
+# from GitHub Actions instead of a local machine.
 #
 # The job runs the supported `olf` lifecycle and e2e commands directly.
 #
@@ -44,14 +45,23 @@ on:
           deployment. Defaults to false.
         type: boolean
         default: false
+  schedule:
+    # 02:00 UTC nightly against the default branch. `checks.yml`'s kind-smoke
+    # covers one product per pull request; this is the only scheduled run of
+    # the full assertion suite, so a runtime regression that static checks
+    # cannot see is dated to a single day of merges instead of surfacing at
+    # release time. Every `inputs.*` below is null on this trigger and falls
+    # back to its dispatch default.
+    - cron: "0 2 * * *"
 
 permissions:
   contents: read
   pull-requests: write
 
 concurrency:
-  # One manual run per branch at a time; a new dispatch waits for the previous
-  # one instead of cancelling it, so a branch's result is never ambiguous.
+  # One run per branch at a time; a new dispatch or nightly trigger waits for
+  # the previous one instead of cancelling it, so a branch's result is never
+  # ambiguous.
   group: local-full-e2e-${{ github.ref }}
   cancel-in-progress: false
 
@@ -64,9 +74,9 @@ env:
 
 jobs:
   e2e:
-    name: Deploy and validate local stack (${{ inputs.suite }})
+    name: Deploy and validate local stack (${{ inputs.suite || 'full' }})
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ fromJSON(inputs.timeout_minutes) }}
+    timeout-minutes: ${{ fromJSON(inputs.timeout_minutes || 120) }}
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
@@ -99,13 +109,13 @@ jobs:
           exit 1
 
       - name: Run the local e2e suite
-        run: uv run --project tools/olf --locked olf e2e run --env local --suite ${{ inputs.suite }}
+        run: uv run --project tools/olf --locked olf e2e run --env local --suite ${{ inputs.suite || 'full' }}
 
       - name: Write run summary
         if: always()
         run: |
           {
-            echo "## Local ${{ inputs.suite }} e2e -- ${{ job.status }}"
+            echo "## Local ${{ inputs.suite || 'full' }} e2e -- ${{ job.status }}"
             echo ""
             echo "- Ref: \`${{ github.ref }}\`"
             echo "- Commit: \`${{ github.sha }}\`"
@@ -122,7 +132,7 @@ jobs:
           pr_number="$(gh pr list --head "${{ github.ref_name }}" --json number --jq '.[0].number // empty')"
           if [[ -n "${pr_number}" ]]; then
             gh pr comment "${pr_number}" --body \
-              "Local ${{ inputs.suite }} e2e dispatch finished with status **${{ job.status }}** ([run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}))"
+              "Local ${{ inputs.suite || 'full' }} e2e run finished with status **${{ job.status }}** ([run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}))"
           fi
 
       - name: Collect kind diagnostics

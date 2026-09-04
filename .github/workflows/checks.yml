@@ -95,8 +95,20 @@ jobs:
       - name: Lint tooling
         run: uv run --project tools/olf ruff check tools/olf
 
+      # The path is explicit because this job runs from the repository root,
+      # where the config's own relative `files` entry does not resolve.
+      - name: Type-check tooling
+        run: >
+          uv run --project tools/olf mypy
+          --config-file tools/olf/pyproject.toml tools/olf/olf
+
+      # `--cov-config` is required: this job runs from the repository root, and
+      # without it coverage never finds the config, silently drops to line-only
+      # measurement, and enforces no threshold.
       - name: Test tooling
-        run: uv run --project tools/olf pytest tools/olf/tests
+        run: >
+          uv run --project tools/olf pytest tools/olf/tests
+          --cov --cov-config=tools/olf/pyproject.toml
 
   dbt:
     name: Validate product dbt projects

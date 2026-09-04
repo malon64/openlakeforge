@@ -179,7 +179,7 @@ class _BlockIndentDumper(yaml.SafeDumper):
     output insertable by `_block_list_end`/`_PRODUCTS_KEY`/
     `_SILVER_TABLES_TABLES_KEY`, which all assume it."""
 
-    def increase_indent(self, flow: bool = False, indentless: bool = False) -> int:
+    def increase_indent(self, flow: bool = False, indentless: bool = False) -> None:
         return super().increase_indent(flow, False)
 
 

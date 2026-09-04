@@ -18,6 +18,24 @@ footprint, onboarding friction, and recoverability are product features here,
 not polish — a team without a platform engineer cannot absorb a stack that needs
 one. `v0.2-alpha` is scoped around exactly that; see the roadmap.
 
+## Non-goals
+
+These are settled scope decisions, not gaps. A change that adds machinery for
+one of them is out of scope, and a review finding that asks for it should be
+closed with a pointer here rather than fixed.
+
+| Not a goal | Why |
+| --- | --- |
+| Concurrent or re-entrant `olf` invocation | `olf` is a single-operator CLI: one invocation at a time, on a workstation or a CI runner. `olf deploy` runs its phases sequentially in one process and relies on that. Do not add locks, leases, atomic-rename dances, or TOCTOU guards to shared code. |
+| Hostile input to the CLI's own files | `openlakeforge.yaml`, `lakehouse_code/`, and `sandbox.tfvars` are authored by the operator running the command. Validate them for **mistakes**, with a message that says how to fix it — not for **attacks**. |
+| Multi-tenancy across teams | Stages (`dev`/`prod`) isolate one team's data planes. Tenant isolation between distinct organisations is not a thing this platform offers. |
+| Windows support | Deployment targets are Linux and macOS. |
+
+This list is about the CLI process model, not about the deployed platform's
+security. Authentication, credential scope, and stage data isolation in the
+running stack are real requirements — open items are tracked as debt in
+`docs/technical-debt.md`, not waived here.
+
 ## Orientation — read in this order
 
 1. `README.md` — stack, deployment targets, local workflow
@@ -135,6 +153,29 @@ check it against the tree in the same change.
 
 No marketing adjectives, and no restating a heading as its own first sentence.
 
+## One change per pull request
+
+A pull request should be reviewable in one sitting. **Over roughly 15 files or
+600 changed lines, split it** — and say in the body why the remainder is a
+separate change.
+
+This is a hard-won rule, not style. The v0.2/v0.3 milestones landed as pull
+requests of 104, 120, and 89 files; review findings per change rose with them,
+because a diff that size gets skimmed rather than read, by humans and review
+bots alike. The gates below all pass on a 4,000-line change, so nothing except
+this rule stops one.
+
+Split along the seams the architecture already has:
+
+1. The contract change (`contracts.tf`, `provider_contracts.py`, a schema) with
+   its tests, and no adapter using it yet.
+2. One pull request per provider adapter — local, then AWS, then Azure.
+3. Docs and ADR updates land with the change that makes them true, not after.
+
+A vertical slice through one provider is a better first pull request than a
+horizontal one across all three: it proves the contract against a real caller
+before two more adapters are written to the same assumptions.
+
 ## Standards
 
 **Python.** 3.12 — `project-code` requires `>=3.12,<3.13`, `tools/olf` requires
@@ -166,8 +207,24 @@ registered there.
 ```bash
 uv run --project tools/olf olf check all
 uv run --project tools/olf ruff check tools/olf
-uv run --project tools/olf pytest tools/olf/tests
+uv run --project tools/olf mypy --config-file tools/olf/pyproject.toml tools/olf/olf
+uv run --project tools/olf pytest tools/olf/tests --cov --cov-config=tools/olf/pyproject.toml
 ```
+
+Run all four from the repository root. Two of them depend on it: seven tests in
+`tests/test_cli.py` resolve the lakehouse descriptor through the working
+directory and fail from `tools/olf`, and coverage needs `--cov-config` because
+it will not otherwise find its settings — without the flag it silently
+measures line coverage only and enforces no threshold at all.
+
+**Type checking** is a ratchet, not a wall. 121 of 147 modules are checked; the
+26 that had pre-existing errors are listed under `[[tool.mypy.overrides]]` in
+`tools/olf/pyproject.toml`. Removing a module from that list needs no
+justification. Adding one needs a reason in the pull request body — and is
+almost always the wrong answer to a new type error.
+
+**Coverage** is a floor at 81% branch coverage, for the same reason: a change
+may not lower it. Raise the floor when it rises; never lower it to go green.
 
 `olf check all` runs the check targets above plus the release-readiness
 gate. It runs on every pull request via `.github/workflows/checks.yml`. Note
