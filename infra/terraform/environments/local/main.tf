@@ -374,11 +374,12 @@ module "dagster" {
 
   namespace                      = kubernetes_namespace_v1.stage[each.key].metadata[0].name
   base_values_file               = "${path.root}/../../../helm/values/local/dagster.yaml"
-  chart_package_path             = var.dagster_chart_package_path
   project_code_image_repository  = var.project_code_image_repository
   project_code_image_tag         = var.project_code_image_tag
   project_code_image_pull_policy = var.project_code_image_pull_policy
   project_code_image_revision    = var.project_code_image_revision
+  manage_user_deployments        = var.manage_user_deployments
+  chart_package_path             = var.dagster_chart_package_path
   storage_contract               = local.stage_storage_contracts[each.key]
   catalog_contract               = local.stage_catalog_contracts[each.key]
   # The shared governance service exists whenever any stage enables it, but a

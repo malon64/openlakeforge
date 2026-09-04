@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from olf.deployment.context import DeploymentContext, Profile, Provider
+from olf.profile import DeploymentProfile, Preset, ProviderSpec, StageName, StageSpec, resolve_topology
 
 
 def test_local_defaults(tmp_path: Path) -> None:
@@ -250,6 +251,24 @@ def test_command_env_does_not_mutate_supplied_base_mapping(tmp_path: Path) -> No
     assert base == base_copy
     assert env["DOCKER_BUILDKIT"] == "0"  # base overrides default when caller pre-sets it
     assert env["PATH"] == "/usr/bin"
+
+
+def test_aws_command_env_uses_the_profile_region(tmp_path: Path) -> None:
+    topology = resolve_topology(
+        DeploymentProfile(
+            name="acceptance",
+            provider=ProviderSpec(type=Provider.AWS, region="eu-west-3"),
+            preset=Preset.SLIM,
+            stages=(StageSpec(name=StageName.DEV),),
+        )
+    )
+
+    env = DeploymentContext.aws(repo_root=tmp_path, topology=topology).command_env(
+        base={"AWS_REGION": "eu-west-1"}
+    )
+
+    assert env["AWS_REGION"] == "eu-west-3"
+    assert env["AWS_DEFAULT_REGION"] == "eu-west-3"
 
 
 def test_prepare_directories_creates_owned_paths(tmp_path: Path) -> None:

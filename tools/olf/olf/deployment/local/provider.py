@@ -15,9 +15,11 @@ from functools import cached_property
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from olf import log
 from olf.deployment.engine import DeploymentPhase, Toolkit
 from olf.deployment.inspection import DoctorItem, DoctorReport, base_report, docker_health
 from olf.deployment.local.config import LocalDeploymentConfig
+from olf.tooling.docker import ambient_registry_env
 
 if TYPE_CHECKING:
     from olf.deployment.context import DeploymentContext
@@ -68,7 +70,13 @@ class LocalProvider:
         """
         docker_host = None
         if not self._environ.get("DOCKER_HOST"):
-            docker_host = self.tools.docker.resolve_current_engine_endpoint(env=dict(self._environ))
+            # Docker contexts live in the caller's own config; `_environ`
+            # already carries the scoped OLF-owned one, which has none. A
+            # Rancher Desktop or remote-engine context would otherwise be
+            # invisible and every command target the default socket.
+            docker_host = self.tools.docker.resolve_current_engine_endpoint(
+                env=ambient_registry_env(self._environ)
+            )
         self.context.prepare_directories()
         return self.context.command_env(docker_host=docker_host)
 
@@ -88,6 +96,27 @@ class LocalProvider:
         from olf.deployment.local import prefetch
 
         prefetch.prefetch_images(self.config, self.tools, env=self.env)
+
+    def build_project_image(self, *, push: bool = True) -> str:
+        """Build the project-code image, optionally push it, and load it into kind.
+
+        Local has no registry of its own, so a publishable revision depends on
+        an external one (GHCR, Docker Hub) named by
+        `PROJECT_CODE_IMAGE_REPOSITORY`. Pushing is what creates the registry
+        digest `olf project build` requires -- a kind-only image has just a
+        local config Id, which is not pullable. The kind load still happens
+        either way so the default `Never` pull policy keeps working.
+        """
+        from olf.deployment.local import images
+
+        image = images.build_project_code_image(self.config, self.tools, env=self.env, revision="manual")
+        if push:
+            log.step(f"Pushing project-code image: {image}")
+            self.tools.docker.push(
+                image, env=ambient_registry_env(self.env), retry_policy=self.config.images.push_retry
+            )
+        images.load_image_into_kind(image, self.config, self.tools, env=self.env)
+        return image
 
     def platform_up(self) -> None:
         from olf.deployment.local import platform

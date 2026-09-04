@@ -855,3 +855,36 @@ def test_v2_contract_lifts_to_legacy_dev_without_changing_environment_output() -
     assert parsed.compatibility_v2 is True
     assert parsed.for_stage().name.value == "dev"
     assert exports["OPENLAKEFORGE_CATALOG_NAME"] == "lakehouse_dev"
+
+
+def _binding(contract: dict, stage: str) -> str:
+    from olf.deployment.activation import provider_binding_digest
+    from olf.profile import StageName
+
+    return provider_binding_digest(contract, topology=_topology(contract), stage=StageName(stage))
+
+
+def test_binding_digest_tracks_nested_contract_values() -> None:
+    """Parsed contracts freeze nested bindings; hashing their field names hides a rebind."""
+    contract = _fixture("aws-provider-contracts-v3.json")
+    mutated = copy.deepcopy(contract)
+
+    def rename(node: object) -> None:
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if isinstance(value, str) and "bronze" in value:
+                    node[key] = value.replace("bronze", "other-bucket")
+                else:
+                    rename(value)
+
+    rename(mutated["stages"]["dev"]["storage"])
+
+    assert _binding(contract, "dev") != _binding(mutated, "dev")
+    # A stage nothing touched must not be disturbed by another stage's rebind.
+    assert _binding(contract, "prod") == _binding(mutated, "prod")
+
+
+def test_binding_digest_is_stable_for_an_unchanged_contract() -> None:
+    contract = _fixture("aws-provider-contracts-v3.json")
+
+    assert _binding(contract, "dev") == _binding(copy.deepcopy(contract), "dev")

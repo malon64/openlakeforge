@@ -8,9 +8,10 @@ from _tooling_support import RecordedCall, RecordingRunner
 from olf.deployment.cloud.aws import AwsBackend
 from olf.deployment.cloud.backend import FoundationFacts
 from olf.deployment.cloud.config import CloudDeploymentConfig
-from olf.deployment.context import DeploymentContext, Profile
+from olf.deployment.context import DeploymentContext, Profile, Provider
 from olf.deployment.engine import Toolkit
 from olf.deployment.errors import CommandExecutionError, DeploymentPreconditionError
+from olf.profile import DeploymentProfile, Preset, ProviderSpec, StageName, StageSpec, resolve_topology
 from olf.tooling.process import CommandResult
 from olf.tooling.resolver import PathExecutableResolver
 
@@ -121,6 +122,23 @@ def test_foundation_variables_pass_through_a_bracketed_instance_type_list(tmp_pa
     apply_vars = backend.foundation_apply_variables(config, {"AWS_NODE_INSTANCE_TYPES": '["m7i.large","m7i.xlarge"]'})
 
     assert apply_vars["node_instance_types"] == '["m7i.large","m7i.xlarge"]'
+
+
+def test_foundation_variables_use_the_profile_region(tmp_path: Path) -> None:
+    topology = resolve_topology(
+        DeploymentProfile(
+            name="acceptance",
+            provider=ProviderSpec(type=Provider.AWS, region="eu-west-3"),
+            preset=Preset.SLIM,
+            stages=(StageSpec(name=StageName.DEV),),
+        )
+    )
+    context = DeploymentContext.aws(repo_root=tmp_path, topology=topology)
+    config = CloudDeploymentConfig.from_environment({}, context=context)
+
+    variables = AwsBackend().foundation_apply_variables(config, {"AWS_REGION": "eu-west-1"})
+
+    assert variables["aws_region"] == "eu-west-3"
 
 
 def test_foundation_tfvars_file_is_none_when_absent(tmp_path: Path) -> None:
@@ -279,6 +297,7 @@ def test_platform_apply_variables_include_aws_region_and_resolved_repository(tmp
         "profile_name",
         "shared_namespace",
         "stages",
+        "manage_user_deployments",
         "aws_region",
         "kube_context",
         "kubeconfig_path",
@@ -310,6 +329,7 @@ def test_platform_destroy_variables_are_the_five_var_subset(tmp_path: Path) -> N
         "profile_name",
         "shared_namespace",
         "stages",
+        "manage_user_deployments",
         "aws_region",
         "kube_context",
         "kubeconfig_path",

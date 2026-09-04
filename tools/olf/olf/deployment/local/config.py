@@ -55,6 +55,7 @@ class ImageSettings:
     superset_base_image: str
     pull_retry: RetryPolicy
     build_retry: RetryPolicy
+    push_retry: RetryPolicy
 
     @property
     def project_code_image(self) -> str:
@@ -92,6 +93,9 @@ class ImageSettings:
             ),
             build_retry=_retry_policy(
                 environ, specific_attempts="DOCKER_BUILD_ATTEMPTS", specific_delay="DOCKER_BUILD_RETRY_DELAY_SECONDS"
+            ),
+            push_retry=_retry_policy(
+                environ, specific_attempts="DOCKER_PUSH_ATTEMPTS", specific_delay="DOCKER_PUSH_RETRY_DELAY_SECONDS"
             ),
         )
 

@@ -11,6 +11,7 @@ back to probing Colima's own on-disk socket convention.
 
 from __future__ import annotations
 
+import os
 import socket
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -78,6 +79,25 @@ def _probe_colima_socket(*, env: Mapping[str, str] | None) -> str | None:
     if len(candidates) == 1:
         return f"unix://{candidates[0]}"
     return None
+
+
+def ambient_registry_env(env: Mapping[str, str]) -> dict[str, str]:
+    """Swap OpenLakeForge's scoped Docker config for the caller's own.
+
+    A provider's command environment points `DOCKER_CONFIG` at an OLF-owned
+    directory so build state stays isolated, and the only credentials ever
+    written there are a provider registry login. An image in a private GHCR or
+    Docker Hub repository -- the registry the local workflow documents -- is
+    reachable only with what the developer's own `docker login` wrote, so any
+    operation against a registry OLF does not own has to use their config.
+    """
+    merged = dict(env)
+    ambient = os.environ.get("DOCKER_CONFIG")
+    if ambient:
+        merged["DOCKER_CONFIG"] = ambient
+    else:
+        merged.pop("DOCKER_CONFIG", None)
+    return merged
 
 
 class Docker:

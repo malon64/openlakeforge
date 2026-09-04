@@ -27,14 +27,14 @@ It is three phases, in two lifecycle categories. Those are different axes.
 
 ### Three ordered phases
 
-`olf deploy --provider P` runs these in order. Each is individually selectable
-with `--phase`.
+`olf platform apply -f openlakeforge.yaml` runs the static prefix in order.
+The deprecated `olf deploy --provider P` retains the old single-DEV path.
 
 | Phase | Creates | Engine |
 | --- | --- | --- |
 | `foundation` | Kubernetes cluster and container registry — kind locally, EKS + ECR on AWS, AKS + ACR on Azure | Terraform |
 | `platform` | Kubernetes namespaces plus the long-lived platform services: SeaweedFS, PostgreSQL, Polaris, Trino, Dagster, and (analytics/governance enabled) Superset and OpenMetadata | Terraform + Helm |
-| `artifacts` | Everything derived from `lakehouse_code/`: the project-code image, catalog namespaces, Floe manifests, Superset report bundles, OpenMetadata metadata, and the Dagster rollout that picks the new image up | `olf` |
+| `artifacts` | Deprecated single-DEV compatibility path derived from `lakehouse_code/` | `olf` |
 
 `DeploymentPhase` (`tools/olf/olf/deployment/engine.py`) also carries a
 `prefetch` value that runs between `foundation` and `platform`. It is a local
@@ -78,8 +78,13 @@ artifacts               ->  dynamic, code-derived   (rebuilt from lakehouse_code
 triggers the artifacts phase and nothing else; CI never invokes Terraform for a
 code change. Terraform runs are a deliberate platform action.
 
-This is what "two-phase deploy" has always meant. It is a statement about
-ownership and CD, not a different phase count.
+In v0.3 the dynamic lifecycle is split into immutable project build and stage
+activation. `olf project build` publishes a `ProjectRevision`; `olf project
+deploy -f openlakeforge.yaml --stage STAGE --revision REVISION` verifies it,
+renders stage-bound Floe output, and changes that stage only. It never invokes
+Terraform or reads the caller's `lakehouse_code/`. `ACTIVE.json` is committed
+only after the user-code Helm release is ready, so an unsuccessful activation
+leaves the prior executable revision active.
 
 The corollary is a rule: **a platform apply must never wait on an artifact.**
 Anything requiring domain code to exist belongs in the artifacts phase. Catalog
@@ -118,6 +123,11 @@ deprecated single-DEV-stage shorthand for the general profile/stage model; ADR
 2026-08-29: Recorded that the platform phase owns the shared and stage
 namespaces derived from the resolved topology, and that removing a stage needs
 an explicit opt-in (#133). The three phases and their ordering are unchanged.
+
+2026-09-03: Split the v0.3 dynamic lifecycle into immutable project build and
+stage activation (#115). Platform commands are profile-only and never inspect
+project source; the legacy artifacts phase remains a single-DEV compatibility
+path.
 
 Merges the decisions previously recorded as ADR 0008 (two-phase deploy), 0017
 (shell/Python split), 0022 (Phase 2 catalog namespace reconciliation), 0025

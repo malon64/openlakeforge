@@ -178,6 +178,10 @@ class _ImageDeploymentSource:
     registry_key_path: tuple[str, ...] | None = None
     repository_key_path: tuple[str, ...] | None = None
     tag_key_path: tuple[str, ...] | None = None
+    # One values file may pin the same image in several blocks (a chart's
+    # webserver and daemon, say). Each is read independently so a drifted
+    # second block cannot hide behind a matching first one.
+    image_key_paths: tuple[tuple[str, ...], ...] | None = None
 
 
 # Every non-build-only catalog image, mapped to exactly where its deployed
@@ -202,6 +206,10 @@ _IMAGE_DEPLOYMENT_SOURCES: dict[str, _ImageDeploymentSource] = {
             r'variable\s+"bootstrap_job_image"\s*\{.*?default\s*=\s*"([^"\n]+@sha256:[0-9a-f]{64})"',
             re.DOTALL,
         ),
+    ),
+    "dagster_control_plane": _ImageDeploymentSource(
+        paths=("infra/helm/values/local/dagster.yaml",),
+        image_key_paths=(("dagsterWebserver", "image"), ("dagsterDaemon", "image")),
     ),
     "opensearch": _ImageDeploymentSource(
         paths=("infra/helm/values/local/openmetadata-deps.yaml",),
@@ -286,6 +294,15 @@ def _deployed_image_references(source_path: Path, source: _ImageDeploymentSource
     if source.full_ref_key_path is not None:
         found = _value_at_key_path(values, source.full_ref_key_path)
         return [found] if isinstance(found, str) else []
+
+    if source.image_key_paths is not None:
+        references = []
+        for prefix in source.image_key_paths:
+            repository = _value_at_key_path(values, (*prefix, "repository"))
+            tag = _value_at_key_path(values, (*prefix, "tag"))
+            if isinstance(repository, str) and isinstance(tag, str):
+                references.append(f"{repository}:{tag}")
+        return references
 
     if source.repository_key_path is None or source.tag_key_path is None:
         return []

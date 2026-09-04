@@ -615,3 +615,125 @@ def test_catalog_sync_namespaces_hydrates_selected_provider_contracts(monkeypatc
     assert result.exit_code == 0
     assert options["provider"] == "aws"
     assert options["project_root"] == "/srv/my-project"
+
+
+class _Engine:
+    """Records the phases an invocation drives, in the order ADR 0002 requires."""
+
+    def __init__(self, *, changes: bool = False) -> None:
+        self.changes = changes
+        self.planned: list[str] = []
+        self.deployed: list[str] = []
+
+    def plan(self, phase) -> bool:  # noqa: ANN001
+        self.planned.append(phase.value)
+        return self.changes
+
+    def deploy(self, phase) -> None:  # noqa: ANN001
+        self.deployed.append(phase.value)
+
+
+@pytest.fixture
+def platform_cli(monkeypatch: pytest.MonkeyPatch):  # noqa: ANN201
+    """`olf platform` with its profile resolution and provider construction stubbed."""
+    from olf.commands import platform as platform_module
+
+    engine = _Engine()
+    monkeypatch.setattr(platform_module, "deployment_context_for_profile", lambda _file: SimpleNamespace())
+    monkeypatch.setattr(platform_module, "_engine", lambda context, *, var_file: engine)
+    return engine
+
+
+def test_platform_plan_reports_a_clean_tree_without_a_detailed_exit_code(platform_cli) -> None:  # noqa: ANN001
+    result = runner.invoke(app, ["platform", "plan", "--file", "openlakeforge.yaml"])
+
+    assert result.exit_code == 0
+    assert "no changes" in result.output
+    assert platform_cli.planned == ["all"]
+
+
+def test_platform_plan_returns_two_only_when_asked_for_a_detailed_exit_code(platform_cli) -> None:  # noqa: ANN001
+    """CI distinguishes "drift" from "failed" by this code, so a pending plan
+    must stay exit 0 unless the caller opted into the third outcome."""
+    platform_cli.changes = True
+
+    assert runner.invoke(app, ["platform", "plan", "-f", "openlakeforge.yaml"]).exit_code == 0
+
+    detailed = runner.invoke(app, ["platform", "plan", "-f", "openlakeforge.yaml", "--detailed-exitcode"])
+
+    assert detailed.exit_code == 2
+    assert "pending" in detailed.output
+
+
+def test_platform_apply_all_runs_the_static_phases_in_order(platform_cli) -> None:  # noqa: ANN001
+    """Artifacts are deliberately absent: `olf platform` owns only what Terraform owns."""
+    result = runner.invoke(app, ["platform", "apply", "-f", "openlakeforge.yaml"])
+
+    assert result.exit_code == 0
+    assert platform_cli.deployed == ["foundation", "prefetch", "platform"]
+
+
+def test_platform_apply_a_single_phase_runs_only_that_phase(platform_cli) -> None:  # noqa: ANN001
+    result = runner.invoke(app, ["platform", "apply", "-f", "openlakeforge.yaml", "--phase", "foundation"])
+
+    assert result.exit_code == 0
+    assert platform_cli.deployed == ["foundation"]
+
+
+def test_platform_rejects_a_phase_it_does_not_own(platform_cli) -> None:  # noqa: ANN001
+    """`artifacts` is a real DeploymentPhase, which is exactly why it is rejected here."""
+    result = runner.invoke(app, ["platform", "apply", "-f", "openlakeforge.yaml", "--phase", "artifacts"])
+
+    assert result.exit_code != 0
+    assert platform_cli.deployed == []
+
+
+def test_platform_plan_reports_a_deployment_error_as_a_failure(platform_cli, monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: ANN001
+    """A provider that cannot plan is a failed command, never a clean tree."""
+    from olf.deployment.errors import DeploymentError
+
+    def _raise(phase):  # noqa: ANN001, ANN202
+        raise DeploymentError("terraform init failed")
+
+    monkeypatch.setattr(platform_cli, "plan", _raise)
+
+    result = runner.invoke(app, ["platform", "plan", "-f", "openlakeforge.yaml"])
+
+    assert result.exit_code != 0
+    assert "no changes" not in result.output
+
+
+def test_platform_apply_reports_a_deployment_error_as_a_failure(platform_cli, monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: ANN001
+    from olf.deployment.errors import DeploymentError
+
+    def _raise(phase):  # noqa: ANN001, ANN202
+        raise DeploymentError("terraform apply failed")
+
+    monkeypatch.setattr(platform_cli, "deploy", _raise)
+
+    result = runner.invoke(app, ["platform", "apply", "-f", "openlakeforge.yaml"])
+
+    assert result.exit_code != 0
+
+
+def test_platform_surfaces_a_provider_it_cannot_build_as_a_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An unusable profile has to fail before Terraform runs, not during it."""
+    from olf.commands import platform as platform_module
+    from olf.deployment import engine as engine_module
+    from olf.deployment.errors import UnsupportedProviderError
+
+    monkeypatch.setattr(
+        platform_module,
+        "deployment_context_for_profile",
+        lambda _file: SimpleNamespace(command_env=lambda *, base: dict(base)),
+    )
+
+    def _unbuildable(context, **kwargs):  # noqa: ANN001, ANN003, ANN202, ARG001
+        raise UnsupportedProviderError("provider 'gcp' has no adapter")
+
+    monkeypatch.setattr(engine_module, "build_provider", _unbuildable)
+
+    result = runner.invoke(app, ["platform", "plan", "-f", "openlakeforge.yaml"])
+
+    assert result.exit_code != 0
+    assert "no changes" not in result.output

@@ -28,6 +28,36 @@ optional UAT and then PROD. A project revision that changed meaning between
 stages would defeat that: enabling UAT, or moving a project to another
 provider, must never invalidate a revision that already exists.
 
+## Stage activation
+
+```bash
+olf platform apply -f openlakeforge.yaml
+olf project image  -f openlakeforge.yaml
+olf project build  --project . --image <repository>@sha256:<digest>
+olf project deploy -f openlakeforge.yaml --stage dev --revision sha256:<digest>
+olf project deploy -f openlakeforge.yaml --stage prod --revision sha256:<digest>
+olf project status -f openlakeforge.yaml --json
+```
+
+`olf project image` builds and pushes the project-code image and prints the
+digest-pinned reference `olf project build` requires.
+
+A revision is identified partly by that image, so the reference has to mean the
+same thing from every stage -- which makes a **registry** part of the contract,
+not an optional convenience. A registry digest is the only pullable identity an
+image has; a local image's config Id is not one. Cloud providers use the
+foundation's own ECR/ACR. Local has no registry of its own and deliberately
+does not stand one up: it pushes to whatever `PROJECT_CODE_IMAGE_REPOSITORY`
+names, GHCR or Docker Hub by default. See
+[docs/setup/local.md](../setup/local.md) for that loop.
+
+Activation verifies every object of the published `ProjectRevision`, restores it
+to a temporary root, and renders Floe only from that root and the selected v3
+provider contract. It writes an immutable `ProjectActivation` beneath
+`activations/<stage>/revisions/sha256/` and advances `ACTIVE.json` only after
+the stage's `openlakeforge-project` Helm release is ready. Project revisions
+remain equal across stages; activation and Floe revisions intentionally differ.
+
 ## What is frozen
 
 | Component | Source | Notes |

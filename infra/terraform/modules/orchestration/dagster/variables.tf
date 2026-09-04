@@ -56,6 +56,12 @@ variable "project_code_image_revision" {
   default     = "manual"
 }
 
+variable "kubernetes_log_archive_schedule" {
+  description = "Cron schedule for archiving Kubernetes pod logs to the artifact bucket."
+  type        = string
+  default     = "*/15 * * * *"
+}
+
 variable "code_locations" {
   description = "Dagster user-code deployments and Python modules exposing Definitions. A merged location saves pods but a load failure affects every domain; split locations isolate load and restart failures at one pod per domain."
   type = list(object({
@@ -115,12 +121,6 @@ variable "log_base_uri" {
 variable "run_artifact_base_uri" {
   description = "S3 base URI where tool run artifacts are archived."
   type        = string
-}
-
-variable "kubernetes_log_archive_schedule" {
-  description = "Cron schedule for archiving Kubernetes pod logs to the artifact bucket."
-  type        = string
-  default     = "*/15 * * * *"
 }
 
 variable "storage_contract" {
@@ -230,4 +230,10 @@ variable "service_account_annotations" {
   description = "Optional annotations for Dagster service accounts, used by AWS workload identity integrations."
   type        = map(string)
   default     = {}
+}
+
+variable "manage_user_deployments" {
+  description = "Whether Terraform owns the Dagster user-code deployments. True is the deprecated single-stage `olf deploy` lifecycle, where the subchart carries user code and the workspace is derived from it. False is the #115 split: `olf project deploy` owns a separate openlakeforge-project release, and this root only publishes a stable workspace endpoint pointing at it."
+  type        = bool
+  default     = true
 }

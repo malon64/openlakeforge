@@ -132,6 +132,8 @@ without the isolated dependency environment `olf check project-code` builds.
 | `olf project build --project P --image REF` | Validate the project, freeze its content, resolve/require a digest-pinned image, publish |
 | `olf project revision inspect --revision R` | Read a published manifest without rebuilding source |
 | `olf project revision verify --revision R` | Re-verify manifest self-consistency, the distribution-compatibility gate, and every published object's digest |
+| `olf project deploy -f PROFILE --stage STAGE --revision R` | Materialize only verified published content, render stage-bound Floe output, and activate the stage |
+| `olf project status -f PROFILE [--stage STAGE] [--json]` | Compare immutable activation records with the observed user deployment |
 
 `olf revision` (the v0.2 Floe runtime-artifact commands) moved to `olf floe
 revision compute|publish|activate|verify`, freeing the top-level name for the
@@ -153,6 +155,12 @@ path alone.
   per stage. `ProjectRevision` does not replace it; it is the layer above.
 
 ## History
+
+2026-09-03: #115 added the derived `ProjectActivation` identity. It records
+the project revision, stage contract binding, Floe runtime revision, enabled
+capabilities, and digest-pinned image under
+`activations/<stage>/revisions/sha256/<digest>/ACTIVATION.json`; the mutable
+`ACTIVE.json` pointer changes only after the Helm rollout succeeds.
 
 New record. No prior ADR modeled a promotable project revision distinct from
 the v0.2 Floe runtime-artifact revision; ADR 0009's distribution-payload

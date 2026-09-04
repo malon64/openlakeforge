@@ -301,25 +301,24 @@ locals {
     },
   ]
 
-  runtime_env = concat(local.storage_env, local.artifact_env, local.generic_catalog_env, local.glue_catalog_env, local.polaris_catalog_env, local.query_env, local.dbt_env, local.dbt_secret_env, local.namespace_env)
+  # Conditioning the *source* list rather than the rendered result keeps both
+  # branches the same type. A `? <objects> : {}` on the result is what raised
+  # "Inconsistent conditional result types": Terraform cannot unify an object
+  # that has attributes with one that has none, and `terraform validate` does
+  # not evaluate it -- only a real apply does.
+  managed_code_locations   = var.manage_user_deployments ? var.code_locations : []
+  workspace_code_locations = var.manage_user_deployments ? [] : var.code_locations
 
-  log_archive_env = concat(
-    local.storage_env,
-    local.artifact_env,
-    [
-      {
-        name  = "OPENLAKEFORGE_KUBE_NAMESPACE"
-        value = var.namespace
-      },
-      {
-        name  = "OPENLAKEFORGE_LOG_ARCHIVE_SINCE_SECONDS"
-        value = "3600"
-      },
-    ],
-  )
+  workspace_servers = [
+    for location in local.workspace_code_locations : {
+      host = location.name
+      port = 3030
+      name = location.name
+    }
+  ]
 
   code_location_deployments = [
-    for location in var.code_locations : {
+    for location in local.managed_code_locations : {
       name = location.name
       image = {
         repository = var.project_code_image_repository
@@ -346,6 +345,23 @@ locals {
       envSecrets = local.runtime_env_secrets
     }
   ]
+
+  runtime_env = concat(local.storage_env, local.artifact_env, local.generic_catalog_env, local.glue_catalog_env, local.polaris_catalog_env, local.query_env, local.dbt_env, local.dbt_secret_env, local.namespace_env)
+
+  log_archive_env = concat(
+    local.storage_env,
+    local.artifact_env,
+    [
+      {
+        name  = "OPENLAKEFORGE_KUBE_NAMESPACE"
+        value = var.namespace
+      },
+      {
+        name  = "OPENLAKEFORGE_LOG_ARCHIVE_SINCE_SECONDS"
+        value = "3600"
+      },
+    ],
+  )
 
   runtime_env_secrets = concat(
     var.storage_contract.credentials_secret_name == null ? [] : [

@@ -626,3 +626,33 @@ def test_build_still_allows_a_bare_env_lookup_with_no_default(external_project: 
     manifest = _build(external_project)  # must not raise
 
     assert manifest.revision.startswith("sha256:")
+
+
+def test_registry_host_only_matches_provider_native_registries() -> None:
+    """A revision may live outside the provider's registry; logging in there would fail."""
+    from olf.deployment.activation import _registry_host
+
+    ecr = "883553345052.dkr.ecr.eu-west-3.amazonaws.com/openlakeforge/project-code"
+    assert _registry_host(ecr) == "883553345052.dkr.ecr.eu-west-3.amazonaws.com"
+    assert _registry_host("ghcr.io/example/project-code") == "ghcr.io"
+    assert _registry_host("localhost:5001/project-code") == "localhost:5001"
+    # Docker Hub short form carries no host segment.
+    assert _registry_host("openlakeforge/project-code") == ""
+    assert _registry_host(ecr) != _registry_host("ghcr.io/example/project-code")
+
+
+def test_ambient_registry_env_restores_the_callers_docker_config(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A private GHCR pull can only use credentials `docker login` wrote to the caller's config."""
+    from olf.tooling.docker import ambient_registry_env
+
+    scoped = {"DOCKER_CONFIG": "/work/.tmp/docker/local", "AWS_REGION": "eu-west-3"}
+
+    monkeypatch.setenv("DOCKER_CONFIG", "/home/dev/.docker")
+    assert ambient_registry_env(scoped)["DOCKER_CONFIG"] == "/home/dev/.docker"
+
+    # With no ambient override, Docker's own default (~/.docker) must apply,
+    # which means removing the scoped value rather than keeping it.
+    monkeypatch.delenv("DOCKER_CONFIG", raising=False)
+    resolved = ambient_registry_env(scoped)
+    assert "DOCKER_CONFIG" not in resolved
+    assert resolved["AWS_REGION"] == "eu-west-3"

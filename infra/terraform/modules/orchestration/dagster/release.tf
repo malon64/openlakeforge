@@ -11,7 +11,7 @@ resource "helm_release" "dagster" {
   timeout         = 300
   cleanup_on_fail = true
 
-  values = [
+  values = compact([
     file(var.base_values_file),
     yamlencode({
       global = {
@@ -29,20 +29,34 @@ resource "helm_release" "dagster" {
         postgresqlUsername = var.postgresql_contract.dagster_db_user
       }
 
+      # `enabled` and `enableSubchart` are not interchangeable: `enabled` is
+      # what makes the parent chart render workspace.yaml at all, and turning
+      # it off while the subchart condition is still true trips the chart's
+      # own "subchart cannot be enabled if workspace.yaml is not created"
+      # guard. Only `enableSubchart` moves the deployments themselves out.
       "dagster-user-deployments" = {
         enabled        = true
-        enableSubchart = true
+        enableSubchart = var.manage_user_deployments
         serviceAccount = {
           annotations = var.service_account_annotations
         }
+        # Empty when activation owns user code; the subchart renders nothing
+        # from it either way once `enableSubchart` is false.
         deployments = local.code_location_deployments
       }
 
+      # The webserver and daemon images stay where the catalog pins them, in
+      # `base_values_file`: overriding them with a project-code reference here
+      # is what made a platform apply depend on a project build existing.
       dagsterWebserver = {
-        image = {
-          repository = var.project_code_image_repository
-          tag        = var.project_code_image_tag
-          pullPolicy = var.project_code_image_pull_policy
+        # Only when activation owns user code: the parent chart otherwise
+        # derives workspace.yaml from the subchart's own deployments, and
+        # setting both is rejected. dagster-user-deployments names each
+        # Service after its deployment, so the contract's code-location name
+        # is also its in-cluster host.
+        workspace = {
+          enabled = !var.manage_user_deployments
+          servers = local.workspace_servers
         }
         env        = local.runtime_env
         envSecrets = local.runtime_env_secrets
@@ -53,11 +67,6 @@ resource "helm_release" "dagster" {
       }
 
       dagsterDaemon = {
-        image = {
-          repository = var.project_code_image_repository
-          tag        = var.project_code_image_tag
-          pullPolicy = var.project_code_image_pull_policy
-        }
         env        = local.runtime_env
         envSecrets = local.runtime_env_secrets
       }
@@ -89,6 +98,12 @@ resource "helm_release" "dagster" {
         type = "K8sRunLauncher"
         config = {
           k8sRunLauncher = {
+            # `includeConfigInLaunchedRuns` on the code location means a
+            # launched run inherits that server's image, so this is only the
+            # fallback for a run whose origin carries none -- it never
+            # outranks an activated revision. The deprecated `olf deploy`
+            # path still patches this `job_image` in place, so it has to
+            # exist.
             imagePullPolicy = var.project_code_image_pull_policy
             image = {
               repository = var.project_code_image_repository
@@ -120,5 +135,28 @@ resource "helm_release" "dagster" {
         }
       }
     }),
-  ]
+
+    # `olf deploy` runs the control plane on the project-code image and patches
+    # it in place during its artifacts phase (`olf k8s set-project-code-image`
+    # targets the webserver and daemon by name), so it also needs that image's
+    # pull policy -- `Never` locally, where the image only ever exists inside
+    # kind. The catalog-pinned control plane in `base_values_file` applies
+    # where activation owns user code and nothing patches these deployments.
+    var.manage_user_deployments ? yamlencode({
+      dagsterWebserver = {
+        image = {
+          repository = var.project_code_image_repository
+          tag        = var.project_code_image_tag
+          pullPolicy = var.project_code_image_pull_policy
+        }
+      }
+      dagsterDaemon = {
+        image = {
+          repository = var.project_code_image_repository
+          tag        = var.project_code_image_tag
+          pullPolicy = var.project_code_image_pull_policy
+        }
+      }
+    }) : "",
+  ])
 }

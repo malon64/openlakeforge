@@ -53,10 +53,11 @@ class AwsBackend:
         cluster_name = _env(environ, "AWS_CLUSTER_NAME", _DEFAULT_CLUSTER_NAME)
         instance_types_raw = _env(environ, "AWS_NODE_INSTANCE_TYPES", "m7i.large")
         instance_types = instance_types_raw if instance_types_raw.startswith("[") else f'["{instance_types_raw}"]'
+        region = config.context.topology.region or _env(environ, "AWS_REGION", "eu-west-1")
         return {
             "cluster_name": cluster_name,
             "kubeconfig_path": str(config.paths.kubeconfig_path),
-            "aws_region": _env(environ, "AWS_REGION", "eu-west-1"),
+            "aws_region": region,
             "node_desired_size": _env(environ, "AWS_NODE_DESIRED_SIZE", "3"),
             "node_min_size": _env(environ, "AWS_NODE_MIN_SIZE", "1"),
             "node_max_size": _env(environ, "AWS_NODE_MAX_SIZE", "4"),

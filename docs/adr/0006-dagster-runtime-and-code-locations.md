@@ -13,15 +13,32 @@ has to understand.
 
 ## Decision
 
-### One `project-code` runtime image
+### Platform control plane and project-code runtime
 
-A single image (`images/project-code/`) carries everything Dagster needs to load
-and run user code: Dagster definitions, the `dagster-floe` and `dagster-dbt`
+A project image carries everything Dagster needs to load and run user code:
+Dagster definitions, the `dagster-floe` and `dagster-dbt`
 connectors, dlt pipelines, the dbt projects, generated Floe manifests, the
 `openlakeforge-domain-model` package, and the shared `libs/`.
 
-The alternative — a separate image per tool — multiplies build time and version
-skew for no benefit while one team owns all of it.
+The Terraform-owned Dagster control plane owns the webserver, daemon, database,
+RBAC, and a stable external gRPC workspace. It does not own a project image,
+Floe revision, or code location. `olf project deploy` owns the separate
+`openlakeforge-project` user-deployment Helm release, which points the stable
+workspace at its stage's verified image and revisions. A platform apply can
+therefore reconcile infrastructure without resetting active user code.
+
+The control plane runs a digest-pinned upstream Dagster image from
+`release/component-catalog.yaml`: neither the webserver nor the daemon imports
+`lakehouse_code`, so pointing them at a project image made a platform apply
+depend on a project build having happened first. The K8sRunLauncher is given no
+image at all, so Dagster launches each run with its code location's own
+container image -- the digest that stage activation set. A value configured at
+platform-apply time would otherwise outrank every later promotion.
+
+Anything that does need project code rides the activation release instead. The
+compute-log archiver (`libs.k8s_log_archive`) is rendered into it through the
+user-deployments subchart's `extraManifests`, which also keeps it on the digest
+its stage actually runs.
 
 ### Floe runs in its own image, driven by manifests
 
@@ -70,8 +87,9 @@ pods keep serving the previous build.
 
 ## Consequences
 
-The inner loop after a code change is `olf deploy --phase artifacts`: rebuild the
-image, load it, republish manifests, roll Dagster out.
+The v0.3 promotion loop is `olf project build` followed by `olf project deploy`
+for each stage. The deprecated `olf deploy --phase artifacts` remains only for
+single-DEV compatibility.
 
 Durable product jobs are named `<product>_pipeline` and derived from the
 descriptor (ADR 0005), so adding a product adds a job with no platform edit.
@@ -82,3 +100,9 @@ Merges the decisions previously recorded as ADR 0003 (the local Dagster
 project-code runtime), 0004 (manifest-first Floe ingestion, generalized from the
 Sales seed product), 0014's code-location half, and 0019 (the merged code
 location default, which superseded ADR 0014's per-domain split).
+
+2026-09-03: Moved project user-deployment ownership from the Terraform Dagster
+release to stage activation (#115); the control plane keeps a stable external
+workspace endpoint. The control plane and run launcher stopped referencing the
+project-code image in the same change, and the compute-log archiver moved into
+the activation release.

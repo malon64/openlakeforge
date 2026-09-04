@@ -28,6 +28,7 @@ from olf.deployment.cloud.backend import CloudBackend, FoundationFacts
 from olf.deployment.cloud.config import CloudDeploymentConfig
 from olf.deployment.engine import DeploymentPhase, Toolkit
 from olf.deployment.inspection import DoctorItem, DoctorReport, base_report, docker_health
+from olf.tooling import docker as docker_tooling
 
 if TYPE_CHECKING:
     from olf.deployment.context import DeploymentContext
@@ -66,7 +67,11 @@ class CloudProvider:
         """Command environment without a resolved `KUBE_CONTEXT` - see module docstring."""
         docker_host = None
         if not self._environ.get("DOCKER_HOST"):
-            docker_host = self.tools.docker.resolve_current_engine_endpoint(env=dict(self._environ))
+            # See LocalProvider.env: context discovery has to read the caller's
+            # Docker config, not the scoped one, which holds no contexts.
+            docker_host = self.tools.docker.resolve_current_engine_endpoint(
+                env=docker_tooling.ambient_registry_env(self._environ)
+            )
         self.config.context.prepare_directories()
         base = self.config.context.command_env(docker_host=docker_host)
         # Terraform receives SDK-mediated credentials only for OLF-managed
@@ -120,6 +125,32 @@ class CloudProvider:
 
     def prepare_images(self) -> None:
         """No-op: cloud has no kind-prefetch equivalent. `--phase prefetch` is intentionally inert."""
+
+    def build_project_image(self, *, push: bool = True) -> str:
+        """Build and push the project-code image, returning its pushed reference.
+
+        `push` is accepted for a uniform provider surface and must stay true: a
+        cloud cluster can only pull from its registry, so an unpushed build
+        could never be activated.
+
+        `FLOE_MANIFEST_REVISION` is deliberately left at "manual": a stage
+        activation supplies the real revision at runtime through
+        `OPENLAKEFORGE_FLOE_MANIFEST_REVISION`, which
+        `libs.floe_revision.built_manifest_revision` prefers over the baked
+        value. Baking it here would give every stage its own image digest and
+        break #154's one-digest-deploys-everywhere contract.
+        """
+        from olf.deployment.cloud import images
+        from olf.deployment.errors import DeploymentPreconditionError
+
+        if not push:
+            raise DeploymentPreconditionError(
+                f"--no-push is not supported for the {self.backend.scope} provider: "
+                "the cluster pulls the project-code image from its registry."
+            )
+        return images.build_and_push_project_code_image(
+            self.config, self.tools, self.backend, self._foundation_facts, env=self.env, revision="manual"
+        )
 
     def platform_up(self) -> None:
         from olf.deployment.cloud import platform

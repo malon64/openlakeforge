@@ -175,3 +175,9 @@ variable "rds_instance_class" {
   type        = string
   default     = "db.t4g.micro"
 }
+
+variable "manage_user_deployments" {
+  description = "Whether Terraform owns the Dagster user-code deployments. `olf deploy` (deprecated, single stage) leaves this true; `olf platform apply` sets it false so `olf project deploy` owns the openlakeforge-project release instead."
+  type        = bool
+  default     = true
+}

@@ -64,6 +64,19 @@ def _catalog_distribution_version(root: Path) -> str:
     return match.group(1)
 
 
+def distribution_version_at(root: Path) -> str | None:
+    """The distribution version a resolved deployment root ships, or None when it ships no catalog.
+
+    Activation gates a revision on the running distribution, and the root it
+    must ask is the one the `DeploymentContext` already resolved -- not a
+    second `runtime_layout()` read, which for an external project checkout
+    resolves the project root rather than the distribution.
+    """
+    if not (root / "release" / "component-catalog.yaml").is_file():
+        return None
+    return _catalog_distribution_version(root)
+
+
 def _tracked_payload_paths(root: Path) -> list[Path]:
     """Return the deliberately small, tracked runtime allowlist."""
     result = subprocess.run(["git", "-C", str(root), "ls-files", "-z"], check=True, capture_output=True)
