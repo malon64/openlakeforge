@@ -49,10 +49,16 @@ def _pin_project_roots(monkeypatch: pytest.MonkeyPatch) -> None:
     first; a test that stubs out the hydration does reach it, and then
     resolves whichever directory pytest happened to be started from - which
     is why nine CLI tests passed from the repository root and failed from
-    `tools/olf` (#190). Only `OPENLAKEFORGE_REPO_ROOT` is pinned:
-    `OLF_DISTRIBUTION_ROOT` outranks it in `runtime_layout`, so pinning that
-    one too would shadow the project root a test selects for itself.
+    `tools/olf` (#190). `OLF_DISTRIBUTION_ROOT` and `OPENLAKEFORGE_PROJECT_ROOT`
+    both outrank `OPENLAKEFORGE_REPO_ROOT` in `config.py`, so an ambient
+    export of either would shadow the pin below and reintroduce #190 - they
+    are deleted, not pinned, because pinning `OLF_DISTRIBUTION_ROOT` globally
+    would itself shadow the project root a test selects for itself. A test
+    that needs one sets it locally afterwards, and monkeypatch tears down
+    fixtures in reverse order, so the test's own value still wins.
     """
+    monkeypatch.delenv("OLF_DISTRIBUTION_ROOT", raising=False)
+    monkeypatch.delenv("OPENLAKEFORGE_PROJECT_ROOT", raising=False)
     monkeypatch.setenv("OPENLAKEFORGE_REPO_ROOT", str(E2E_REPO_ROOT))
 
 
