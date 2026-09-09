@@ -56,6 +56,16 @@ reference PROD's. Trino query connectivity is the one deliberate exception:
 rather than by endpoint, so `stages.<name>.query.endpoint` and `service_ref`
 are not stage-scoped.
 
+`stages.<name>.orchestration.code_locations` carries the stage's Dagster
+user-code deployments as `{name, definitions_module}` entries. It is the one
+place that set is decided: Terraform renders the webserver's `workspace.yaml`
+from it and `olf project deploy` renders one user deployment per entry, so the
+two agree by construction rather than by repeating the same default. Because
+`dagster-user-deployments` names each Service after its deployment, a
+code-location name is also an in-cluster host — the parser requires a DNS-1123
+label and a dotted Python module path, and rejects a name declared twice within
+one stage. Two stages may share a name; they run in different namespaces.
+
 Ops artifacts are shared storage with a stage-specific activation prefix,
 `activations/<stage>`. They do not define the revision manifest or promotion
 workflow, which belong to #154 and #115.

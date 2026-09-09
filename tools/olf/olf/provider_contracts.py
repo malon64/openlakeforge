@@ -198,6 +198,37 @@ _STORAGE_IMPLEMENTATION_BY_TOPOLOGY_PROVIDER = {
 }
 
 
+# A Dagster code-location name becomes a Kubernetes Deployment and Service
+# name, so it is bounded by the DNS-1123 label rules those objects enforce.
+_DNS_LABEL_PATTERN = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
+_PYTHON_MODULE_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$")
+
+
+def _code_locations(value: object, *, where: str) -> None:
+    """Validate the stage's Dagster user-code deployments.
+
+    `dagster-user-deployments` names each Service after its deployment, so a
+    location name the API server would reject is not a cosmetic problem: the
+    webserver workspace Terraform renders from this same list would then point
+    at a host nothing ever creates, and the stage would come up with no code
+    server reachable and no error at apply time.
+    """
+    if not isinstance(value, list) or not value:
+        raise ProviderContractError(f"{where} must be a non-empty list")
+    names: set[str] = set()
+    for index, entry in enumerate(value):
+        document = _fields(entry, where=f"{where}[{index}]", required={"name", "definitions_module"})
+        name = _string(document["name"], where=f"{where}[{index}].name")
+        if not _DNS_LABEL_PATTERN.match(name):
+            raise ProviderContractError(f"{where}[{index}].name must be a DNS-1123 label")
+        if name in names:
+            raise ProviderContractError(f"{where} declares the code location {name!r} twice")
+        names.add(name)
+        module = _string(document["definitions_module"], where=f"{where}[{index}].definitions_module")
+        if not _PYTHON_MODULE_PATTERN.match(module):
+            raise ProviderContractError(f"{where}[{index}].definitions_module must be a dotted Python module path")
+
+
 def _canonical_stage_reference(value: object, *, where: str, stage: StageName, path: str) -> str:
     """A stage-service binding pinned to its one canonical name.
 
@@ -212,6 +243,14 @@ def _canonical_stage_reference(value: object, *, where: str, stage: StageName, p
     if reference != expected:
         raise ProviderContractError(f"{where} must be {expected!r}")
     return reference
+
+
+@dataclass(frozen=True)
+class CodeLocation:
+    """One Dagster user-code deployment: its in-cluster name and its module."""
+
+    name: str
+    definitions_module: str
 
 
 @dataclass(frozen=True)
@@ -237,6 +276,18 @@ class StageContract:
     reporting: Mapping[str, Any] | None
     governance: Mapping[str, Any] | None
     shared: SharedPlatformContract
+
+    @property
+    def code_locations(self) -> tuple[CodeLocation, ...]:
+        """The stage's contracted Dagster code locations, in contract order.
+
+        Empty only on the v2 compatibility view, which predates the field and
+        whose user deployments Terraform still owns (ADR 0006).
+        """
+        return tuple(
+            CodeLocation(name=entry["name"], definitions_module=entry["definitions_module"])
+            for entry in self.orchestration.get("code_locations", ())
+        )
 
     def as_v2_environment_contract(self) -> dict[str, Any]:
         """Adapt a selected v3 stage to the existing runtime environment API."""
@@ -561,7 +612,10 @@ def _parse_stage(
     orchestration = _fields(
         document["orchestration"],
         where=f"stages.{name.value}.orchestration",
-        required={"service_ref", "endpoint_ref"},
+        required={"service_ref", "endpoint_ref", "code_locations"},
+    )
+    _code_locations(
+        orchestration["code_locations"], where=f"stages.{name.value}.orchestration.code_locations"
     )
     _canonical_stage_reference(
         orchestration["service_ref"],

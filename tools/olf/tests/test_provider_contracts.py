@@ -888,3 +888,79 @@ def test_binding_digest_is_stable_for_an_unchanged_contract() -> None:
     contract = _fixture("aws-provider-contracts-v3.json")
 
     assert _binding(contract, "dev") == _binding(copy.deepcopy(contract), "dev")
+
+
+def test_stage_carries_its_contracted_code_locations() -> None:
+    contract = _fixture("local-provider-contracts-v3.json")
+    contract["stages"]["dev"]["orchestration"]["code_locations"] = [
+        {"name": "sales", "definitions_module": "lakehouse_code.sales_definitions"},
+        {"name": "finance", "definitions_module": "lakehouse_code.finance_definitions"},
+    ]
+
+    parsed = parse_provider_contracts(contract, _topology(contract))
+
+    assert [(location.name, location.definitions_module) for location in parsed.for_stage("dev").code_locations] == [
+        ("sales", "lakehouse_code.sales_definitions"),
+        ("finance", "lakehouse_code.finance_definitions"),
+    ]
+
+
+def test_stage_without_code_locations_is_rejected() -> None:
+    contract = _fixture("local-provider-contracts-v3.json")
+    del contract["stages"]["dev"]["orchestration"]["code_locations"]
+
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(contract, SCHEMA)
+    with pytest.raises(ProviderContractError, match="orchestration is missing required fields"):
+        parse_provider_contracts(contract, _topology(contract))
+
+
+@pytest.mark.parametrize(
+    ("code_locations", "match"),
+    [
+        ([], "must be a non-empty list"),
+        ("openlakeforge-dagster", "must be a non-empty list"),
+        ([{"name": "sales"}], r"code_locations\[0\] is missing required fields"),
+        ([{"name": "sales", "definitions_module": "m", "port": 3030}], "contains unsupported fields"),
+        # dagster-user-deployments names the Service after the deployment, so
+        # a name the API server would reject is unusable as an in-cluster host.
+        ([{"name": "Sales Domain", "definitions_module": "m"}], "must be a DNS-1123 label"),
+        ([{"name": "sales", "definitions_module": "lakehouse_code/definitions"}], "dotted Python module path"),
+        (
+            [
+                {"name": "sales", "definitions_module": "a"},
+                {"name": "sales", "definitions_module": "b"},
+            ],
+            "declares the code location 'sales' twice",
+        ),
+    ],
+)
+def test_malformed_code_locations_fail_closed(code_locations: object, match: str) -> None:
+    contract = _fixture("local-provider-contracts-v3.json")
+    contract["stages"]["dev"]["orchestration"]["code_locations"] = code_locations
+
+    with pytest.raises(ProviderContractError, match=match):
+        parse_provider_contracts(contract, _topology(contract))
+
+
+def test_two_stages_may_reuse_one_code_location_name() -> None:
+    """Each stage runs in its own namespace, so the same name is not the kind of
+    collision a shared bucket or catalog identity is - and every root hands
+    every stage the same default list."""
+    contract = _fixture("local-provider-contracts-v3.json")
+
+    parsed = parse_provider_contracts(contract, _topology(contract))
+
+    assert [location.name for location in parsed.for_stage("dev").code_locations] == [
+        location.name for location in parsed.for_stage("prod").code_locations
+    ]
+
+
+def test_renaming_a_code_location_moves_the_binding_digest() -> None:
+    """Activation renders the user deployments from this list, so a rename has
+    to force a rollout rather than leaving the previous Services in place."""
+    contract = _fixture("aws-provider-contracts-v3.json")
+    renamed = copy.deepcopy(contract)
+    renamed["stages"]["dev"]["orchestration"]["code_locations"][0]["name"] = "sales"
+
+    assert _binding(contract, "dev") != _binding(renamed, "dev")
