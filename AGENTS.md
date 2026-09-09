@@ -215,11 +215,10 @@ uv run --project tools/olf mypy --config-file tools/olf/pyproject.toml tools/olf
 uv run --project tools/olf pytest tools/olf/tests --cov --cov-config=tools/olf/pyproject.toml
 ```
 
-Run all four from the repository root. Two of them depend on it: seven tests in
-`tests/test_cli.py` resolve the lakehouse descriptor through the working
-directory and fail from `tools/olf`, and coverage needs `--cov-config` because
-it will not otherwise find its settings — without the flag it silently
-measures line coverage only and enforces no threshold at all.
+Run all four from the repository root, which is what the relative paths above
+are written against. Coverage also needs `--cov-config` because it will not
+otherwise find its settings — without the flag it silently measures line
+coverage only and enforces no threshold at all.
 
 **Type checking** is a ratchet, not a wall. 121 of 147 modules are checked; the
 26 that had pre-existing errors are listed under `[[tool.mypy.overrides]]` in
