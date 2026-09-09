@@ -6,7 +6,7 @@ import hashlib
 import json
 import tarfile
 import tempfile
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -31,7 +31,7 @@ from olf.project_activation import ProjectActivation, ProjectActivationError, co
 from olf.project_activation import active as active_activation
 from olf.project_activation import publish as publish_activation
 from olf.project_revision import ProjectRevisionError, materialize, verify
-from olf.provider_contracts import ProviderContractError, parse_provider_contracts
+from olf.provider_contracts import CodeLocation, ProviderContractError, StageContract, parse_provider_contracts
 from olf.tooling import docker as docker_tooling
 
 _RELEASE = "openlakeforge-project"
@@ -73,6 +73,9 @@ _RUNTIME_ALIASES = (
     "OPENLINEAGE_URL",
 )
 _LOG_ARCHIVE_SCHEDULE = "*/15 * * * *"
+# The gRPC port the platform's workspace entries expect on every code-location
+# host (modules/orchestration/dagster/main.tf, local.workspace_servers).
+_CODE_SERVER_PORT = 3030
 
 
 class ActivationError(DeploymentPreconditionError):
@@ -101,16 +104,21 @@ def _plain(value: Any) -> Any:
     return value
 
 
-def provider_binding_digest(raw_contract: Mapping[str, Any], *, topology, stage: StageName) -> str:  # noqa: ANN001
-    """Hash the selected non-secret provider contract binding deterministically."""
+def _selected_stage(  # noqa: ANN001
+    raw_contract: Mapping[str, Any], *, topology, stage: StageName
+) -> tuple[Mapping[str, Any], StageContract]:
+    """The stage's parsed bindings, refusing a platform activation cannot serve."""
     parsed = parse_provider_contracts(raw_contract, topology)
     if parsed.compatibility_v2 or parsed.schema_version != "3.0.0":
         raise ActivationError(
             "olf project deploy requires a native provider-contract v3 platform; v2 is DEV compatibility only."
         )
-    selected = parsed.for_stage(stage)
+    return parsed.deployment, parsed.for_stage(stage)
+
+
+def _binding_digest(deployment: Mapping[str, Any], selected: StageContract) -> str:
     payload = {
-        "deployment": dict(parsed.deployment),
+        "deployment": dict(deployment),
         "shared": {
             "ops_storage": dict(selected.shared.values["ops_storage"]),
             "identity": dict(selected.shared.values["identity"]),
@@ -131,6 +139,11 @@ def provider_binding_digest(raw_contract: Mapping[str, Any], *, topology, stage:
     }
     rendered = json.dumps(_plain(payload), sort_keys=True, separators=(",", ":")).encode()
     return "sha256:" + hashlib.sha256(rendered).hexdigest()
+
+
+def provider_binding_digest(raw_contract: Mapping[str, Any], *, topology, stage: StageName) -> str:  # noqa: ANN001
+    """Hash the selected non-secret provider contract binding deterministically."""
+    return _binding_digest(*_selected_stage(raw_contract, topology=topology, stage=stage))
 
 
 def _contract_dir(context: DeploymentContext, environ: Mapping[str, str]) -> Path:
@@ -211,6 +224,7 @@ def _user_values(
     namespace: str,
     platform_globals: Mapping[str, Any],
     floe_renderer: str,
+    code_locations: Sequence[CodeLocation],
 ) -> dict[str, object]:
     repository, digest = _image_parts(activation.project_code_image)
     # Annotated rather than inferred: the initializer is all plain string
@@ -267,12 +281,18 @@ def _user_values(
                 secrets=[storage_secret] if storage_secret else [],
             )],
         "serviceAccount": {"create": False, "name": "dagster"},
+        # One deployment per contracted location, never a literal: the platform
+        # renders the webserver's workspace from the same list, and
+        # dagster-user-deployments names each Service after its deployment, so
+        # a second copy of the set here would point the workspace at hosts
+        # nothing creates. Every location runs the same revision on the same
+        # port -- each is its own Service, so the shared port does not collide.
         "deployments": [
             {
-                "name": "openlakeforge-dagster",
+                "name": location.name,
                 "image": {"repository": repository, "digest": digest, "pullPolicy": "IfNotPresent"},
-                "dagsterApiGrpcArgs": ["--module-name", "lakehouse_code.definitions"],
-                "port": 3030,
+                "dagsterApiGrpcArgs": ["--module-name", location.definitions_module],
+                "port": _CODE_SERVER_PORT,
                 "includeConfigInLaunchedRuns": {"enabled": True},
                 "env": env,
                 "envSecrets": [{"name": secret} for secret in secrets],
@@ -285,6 +305,7 @@ def _user_values(
                     _RENDERER_ANNOTATION: floe_renderer,
                 },
             }
+            for location in code_locations
         ],
     }
 
@@ -499,7 +520,9 @@ def deploy_revision(
     if raw_contract is None:
         raise ActivationError(f"provider contracts are unavailable from {contract_dir}; run olf platform apply first.")
     try:
-        binding = provider_binding_digest(raw_contract, topology=context.topology, stage=context.stage)
+        deployment, selected = _selected_stage(raw_contract, topology=context.topology, stage=context.stage)
+        binding = _binding_digest(deployment, selected)
+        code_locations = selected.code_locations
         manifest = verify(
             store,
             revision,
@@ -593,6 +616,7 @@ def deploy_revision(
                         namespace=context.namespace,
                         platform_globals=platform_globals,
                         floe_renderer=_floe_renderer(provider),
+                        code_locations=code_locations,
                     ),
                     sort_keys=False,
                 )
@@ -618,6 +642,7 @@ def deploy_revision(
                                 namespace=context.namespace,
                                 platform_globals=platform_globals,
                                 floe_renderer=_RENDERER_UNRECONCILED,
+                                code_locations=code_locations,
                             ),
                             sort_keys=False,
                         )

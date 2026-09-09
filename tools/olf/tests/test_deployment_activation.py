@@ -15,11 +15,13 @@ from olf.deployment.context import DeploymentContext, Provider
 from olf.distribution import distribution_version_at
 from olf.profile import StageName, resolve_topology, validate_deployment_profile
 from olf.project import ProjectSpec
+from olf.provider_contracts import CodeLocation
 
 FIXTURES = Path(__file__).parent / "fixtures"
 ROOT = Path(__file__).resolve().parents[3]
 _IMAGE = "ghcr.io/openlakeforge/project-code@sha256:" + "a" * 64
 _FLOE = "sha256:" + "c" * 64
+_DEFAULT_LOCATIONS = (CodeLocation(name="openlakeforge-dagster", definitions_module="lakehouse_code.definitions"),)
 
 
 def _contract() -> dict:
@@ -161,6 +163,7 @@ def harness(external_project: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPa
 
     return SimpleNamespace(
         deploy=deploy,
+        contract=contract,
         store=store,
         helm=helm,
         manifest=manifest,
@@ -313,6 +316,7 @@ def test_rollout_keeps_contract_runtime_aliases(external_project: Path, tmp_path
         namespace="olf-dev",
         platform_globals={},
         floe_renderer="ghcr.io/malon64/floe:0.6.11|0.6.11|image",
+        code_locations=_DEFAULT_LOCATIONS,
     )
 
     env = {entry["name"]: entry["value"] for entry in values["deployments"][0]["env"]}
@@ -352,6 +356,7 @@ def _values(**capabilities: bool) -> dict:
         namespace="olf-dev",
         platform_globals={},
         floe_renderer="ghcr.io/malon64/floe:0.6.11|0.6.11|image",
+        code_locations=_DEFAULT_LOCATIONS,
     )
 
 
@@ -551,3 +556,82 @@ def test_cloud_pull_of_a_foreign_registry_falls_back_to_ambient_credentials() ->
 
     assert provider.backend.logins == []
     assert "DOCKER_CONFIG" not in provider.tools.docker.pulls[0][2]
+
+
+def _deployed_locations(values: dict) -> list[tuple[str, list[str], int]]:
+    return [(entry["name"], entry["dagsterApiGrpcArgs"], entry["port"]) for entry in values["deployments"]]
+
+
+def test_rollout_serves_the_default_merged_code_location(harness) -> None:  # noqa: ANN001
+    """ADR 0006's shipped default: one location aggregating every product."""
+    harness.deploy("dev")
+
+    _, values = harness.helm.rollouts[0]
+
+    assert _deployed_locations(values) == [
+        ("openlakeforge-dagster", ["--module-name", "lakehouse_code.definitions"], 3030)
+    ]
+
+
+def test_rollout_follows_a_renamed_code_location(harness) -> None:  # noqa: ANN001
+    """The platform's workspace names the location's host; a Service under the
+    old name would leave the webserver pointing at nothing."""
+    harness.contract["stages"]["dev"]["orchestration"]["code_locations"] = [
+        {"name": "acme-dagster", "definitions_module": "acme_code.definitions"}
+    ]
+
+    harness.deploy("dev")
+
+    _, values = harness.helm.rollouts[0]
+
+    assert _deployed_locations(values) == [("acme-dagster", ["--module-name", "acme_code.definitions"], 3030)]
+
+
+def test_rollout_creates_one_deployment_per_split_code_location(harness) -> None:  # noqa: ANN001
+    """Split locations render N workspace servers on the platform side, so N
+    Services have to exist -- rendering only the first leaves the rest unreachable."""
+    harness.contract["stages"]["dev"]["orchestration"]["code_locations"] = [
+        {"name": "sales", "definitions_module": "lakehouse_code.sales_definitions"},
+        {"name": "finance", "definitions_module": "lakehouse_code.finance_definitions"},
+    ]
+
+    harness.deploy("dev")
+
+    _, values = harness.helm.rollouts[0]
+
+    assert _deployed_locations(values) == [
+        ("sales", ["--module-name", "lakehouse_code.sales_definitions"], 3030),
+        ("finance", ["--module-name", "lakehouse_code.finance_definitions"], 3030),
+    ]
+    # Every location runs the activated revision, not just the first.
+    assert {entry["image"]["digest"] for entry in values["deployments"]} == {_IMAGE.split("@", 1)[1]}
+
+
+def test_each_stage_gets_its_own_contracted_code_locations(harness) -> None:  # noqa: ANN001
+    harness.contract["stages"]["prod"]["orchestration"]["code_locations"] = [
+        {"name": "sales", "definitions_module": "lakehouse_code.sales_definitions"}
+    ]
+
+    harness.deploy("dev")
+    harness.deploy("prod")
+
+    rendered = {
+        namespace: [entry["name"] for entry in values["deployments"]]
+        for namespace, values in harness.helm.rollouts
+    }
+
+    assert rendered == {"olf-dev": ["openlakeforge-dagster"], "olf-prod": ["sales"]}
+
+
+def test_changing_the_code_locations_rolls_the_stage_out_again(harness) -> None:  # noqa: ANN001
+    """Renaming a location moves nothing else about the revision, so without the
+    contract binding covering it a redeploy would skip as an idempotent no-op."""
+    first = harness.deploy("dev")
+    harness.contract["stages"]["dev"]["orchestration"]["code_locations"] = [
+        {"name": "acme-dagster", "definitions_module": "lakehouse_code.definitions"}
+    ]
+
+    second = harness.deploy("dev")
+
+    assert second.activation_revision != first.activation_revision
+    assert [entry["name"] for entry in harness.helm.rollouts[1][1]["deployments"]] == ["acme-dagster"]

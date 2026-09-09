@@ -74,6 +74,22 @@ isolated to one pod, can configure the split explicitly — the trade-off is a
 merged location's blast radius (one bad module fails the whole graph) against a
 pod per domain.
 
+### The contract owns the code-location set
+
+The set has two consumers with no shared code between them: Terraform renders
+the webserver's `workspace.yaml` from it, and `olf project deploy` renders one
+user deployment per entry. `dagster-user-deployments` names each Service after
+its deployment, so a location name is also its in-cluster host — the two sides
+must produce the same names or the webserver points at Services that do not
+exist, and the stage comes up with no code server reachable and no error at
+apply time.
+
+The provider contract is therefore the single owner:
+`stages.<name>.orchestration.code_locations` carries `{name,
+definitions_module}` per entry, emitted by every environment root from the same
+Terraform local it passes to the Dagster module, and read back by `olf` through
+`provider_contracts.py`. Neither consumer holds its own copy.
+
 ### Kubernetes run launcher
 
 Runs execute in isolated pods using the project-code image, so a run's
@@ -106,3 +122,9 @@ release to stage activation (#115); the control plane keeps a stable external
 workspace endpoint. The control plane and run launcher stopped referencing the
 project-code image in the same change, and the compute-log archiver moved into
 the activation release.
+
+2026-09-09: Recorded the provider contract as the owner of the code-location
+set (#185). The #115 split left Terraform and activation deciding it
+independently, agreeing only because both repeated the module variable's
+default; a rename or a configured split broke the stage silently. The shipped
+default — one merged location — is unchanged.
