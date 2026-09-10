@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import gzip
 import hashlib
 import io
 import json
 import os
 import tarfile
+import time
 import zipfile
 from pathlib import Path
 
@@ -30,17 +32,29 @@ def _archive_bytes(tool: str, spec) -> bytes:  # noqa: ANN001
     payload = f"pretend {tool} binary v{spec.version}".encode()
     if spec.archive == "raw":
         return payload
+    # Byte-for-byte reproducible, because the caller digests one call's output
+    # and then serves another's: `_catalog_and_digests` pins the digest, and
+    # the fake downloader rebuilds the archive when the manager asks for it. A
+    # container format that stamps the current time makes those two disagree
+    # whenever they land in different seconds, which failed as a digest
+    # mismatch on whichever tool happened to straddle the boundary.
     if spec.archive == "zip":
         buffer = io.BytesIO()
         with zipfile.ZipFile(buffer, "w") as zf:
-            zf.writestr(spec.member, payload)
+            # ZipInfo from a bare name would take `time.localtime()`.
+            zf.writestr(zipfile.ZipInfo(filename=spec.member, date_time=(1980, 1, 1, 0, 0, 0)), payload)
         return buffer.getvalue()
     if spec.archive == "tar.gz":
-        buffer = io.BytesIO()
-        with tarfile.open(fileobj=buffer, mode="w:gz") as tf:
+        tar = io.BytesIO()
+        with tarfile.open(fileobj=tar, mode="w") as tf:
             info = tarfile.TarInfo(name=spec.member)
             info.size = len(payload)
             tf.addfile(info, io.BytesIO(payload))
+        buffer = io.BytesIO()
+        # gzip writes the current mtime into its header unless told otherwise,
+        # and `tarfile`'s own "w:gz" mode gives no way to set it.
+        with gzip.GzipFile(fileobj=buffer, mode="wb", mtime=0) as gz:
+            gz.write(tar.getvalue())
         return buffer.getvalue()
     raise AssertionError(spec.archive)
 
@@ -537,3 +551,25 @@ def test_from_catalog_raises_a_typed_error_for_a_non_mapping_distribution(
 
     with pytest.raises(ToolchainCatalogError):
         ToolchainManager.from_catalog(catalog, home=tmp_path / "home", platform=_PLATFORM)
+
+
+@pytest.mark.parametrize("tool", sorted(_TOOLS))
+def test_the_fake_archives_are_byte_reproducible(tool: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The suite digests one build of an archive and serves another.
+
+    `_catalog_and_digests` pins a digest from one call and `_FakeDownloader`
+    rebuilds the archive when the manager asks for it. Any container format
+    stamping the current time makes those disagree across a second boundary,
+    which surfaced as an intermittent `ToolchainVerificationError` on
+    whichever tool happened to straddle it.
+
+    The clock is moved between the two builds rather than trusting them to
+    land in the same second, which is what made the original failure rare
+    enough to read as unrelated flake.
+    """
+    specs = load_specs(_catalog_and_digests()[0], platform=_PLATFORM)
+    monkeypatch.setattr(time, "time", lambda: 1_000_000.0)
+    first = _archive_bytes(tool, specs[tool])
+    monkeypatch.setattr(time, "time", lambda: 2_000_000.0)
+
+    assert _archive_bytes(tool, specs[tool]) == first
