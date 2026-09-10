@@ -498,7 +498,7 @@ locals {
           service_ref  = "stage/${name}/orchestration"
           endpoint_ref = "stage/${name}/endpoints/orchestration"
           # The same list the Dagster module renders workspace.yaml from, and
-          # the one `olf project deploy` renders its user deployments from.
+          # the set a stage's user deployments are rendered from.
           # dagster-user-deployments names each Service after its deployment,
           # so a code-location name is also an in-cluster host: a second copy
           # on the activation side points the webserver at a Service nobody

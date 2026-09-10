@@ -203,8 +203,11 @@ _STORAGE_IMPLEMENTATION_BY_TOPOLOGY_PROVIDER = {
 # unless the alpha RelaxedServiceNameValidation gate is on, which no root
 # here enables. Validating the looser rule would accept a name like "1sales"
 # that this parser calls fine and the API server then rejects mid-rollout.
-_SERVICE_NAME_PATTERN = re.compile(r"^[a-z]([a-z0-9-]{0,61}[a-z0-9])?$")
-_PYTHON_MODULE_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$")
+# Matched with `fullmatch`, not `match`: `$` also matches just before a
+# trailing newline, so "sales\n" would pass and reach the API server with the
+# newline still in it.
+_SERVICE_NAME_PATTERN = re.compile(r"[a-z]([a-z0-9-]{0,61}[a-z0-9])?")
+_PYTHON_MODULE_PATTERN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*")
 # What a stage runs when its contract predates the field. A platform applied
 # before #185 has a persisted 3.0.0 orchestration object with only the two
 # refs, and its Dagster release is running the Terraform module's own default
@@ -231,7 +234,7 @@ def _code_locations(value: object, *, where: str) -> None:
     for index, entry in enumerate(value):
         document = _fields(entry, where=f"{where}[{index}]", required={"name", "definitions_module"})
         name = _string(document["name"], where=f"{where}[{index}].name")
-        if not _SERVICE_NAME_PATTERN.match(name):
+        if not _SERVICE_NAME_PATTERN.fullmatch(name):
             raise ProviderContractError(
                 f"{where}[{index}].name must be an RFC 1035 label: lowercase alphanumerics or '-', "
                 f"starting with a letter, as a Kubernetes Service name requires"
@@ -240,7 +243,7 @@ def _code_locations(value: object, *, where: str) -> None:
             raise ProviderContractError(f"{where} declares the code location {name!r} twice")
         names.add(name)
         module = _string(document["definitions_module"], where=f"{where}[{index}].definitions_module")
-        if not _PYTHON_MODULE_PATTERN.match(module):
+        if not _PYTHON_MODULE_PATTERN.fullmatch(module):
             raise ProviderContractError(f"{where}[{index}].definitions_module must be a dotted Python module path")
 
 

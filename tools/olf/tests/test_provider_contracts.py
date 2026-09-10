@@ -956,6 +956,9 @@ def test_a_contract_predating_the_field_still_digests_stably() -> None:
         # A Service name may not start with a digit: DNS-1123 allows it, RFC 1035
         # does not, and the API server rejects it mid-rollout rather than here.
         ([{"name": "1sales", "definitions_module": "m"}], "must be an RFC 1035 label"),
+        # `$` alone would match before a trailing newline and let it through.
+        ([{"name": "sales\n", "definitions_module": "m"}], "must be an RFC 1035 label"),
+        ([{"name": "sales", "definitions_module": "m\n"}], "must be a dotted Python module path"),
         ([{"name": "sales", "definitions_module": "lakehouse_code/definitions"}], "dotted Python module path"),
         (
             [
