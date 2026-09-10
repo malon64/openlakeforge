@@ -450,6 +450,10 @@ def _kube_context(provider: DeploymentProvider) -> str:
     return env.get("KUBE_CONTEXT") or provider.context.kube_context
 
 
+class _RollbackUncapturable(ActivationError):
+    """The live release's code locations could not be read before an upgrade."""
+
+
 def _rollback_code_locations(
     provider: DeploymentProvider,
     *,
@@ -467,34 +471,48 @@ def _rollback_code_locations(
     only ever ran the previous ones, and pairing its image with a module that
     exists solely in the new image fails readiness.
 
-    So take each from its owner. When the release cannot be read, or names a
-    different number of deployments than the contract does -- there is no
-    honest pairing then -- fall back to the contract alone, which is what this
-    path did before.
+    Modules are matched by name, not position, so reordering a multi-location
+    contract does not hand each Service another location's definitions. A name
+    the release does not have -- a rename -- takes a module from whatever the
+    release did not otherwise account for, in order, which is the only pairing
+    available and is right for the single-rename case.
+
+    Raises rather than guessing when an installed release cannot be read: this
+    runs before the upgrade precisely so a failure here costs nothing, and the
+    fallback it replaces paired the previous image with the current contract's
+    modules -- the exact mismatch this function exists to avoid. A release that
+    is not installed at all is not that case: there is nothing deployed to
+    preserve, and refusing would block the redeploy that repairs it.
     """
+    helm = provider.tools.helm
+    if not helm.status(_RELEASE, namespace=namespace, kube_context=_kube_context(provider), env=env).ok:
+        return contracted
     result = provider.tools.helm.get_values(
         _RELEASE, namespace=namespace, kube_context=_kube_context(provider), env=env
     )
     if not result.ok:
-        return contracted
+        raise _RollbackUncapturable(
+            f"cannot read the current {_RELEASE!r} release's values in {namespace}, so a failed activation "
+            "could not be rolled back onto the code locations it is running. Refusing to upgrade."
+        )
     try:
         values = json.loads(result.stdout or "null")
-    except json.JSONDecodeError:
-        return contracted
-    if not isinstance(values, dict):
-        return contracted
-    modules = [
-        args[args.index("--module-name") + 1]
-        for deployment in values.get("deployments") or []
-        if "--module-name" in (args := list(deployment.get("dagsterApiGrpcArgs") or []))
-        and args.index("--module-name") + 1 < len(args)
-    ]
-    if len(modules) != len(contracted):
-        return contracted
-    return [
-        CodeLocation(name=location.name, definitions_module=module)
-        for location, module in zip(contracted, modules, strict=True)
-    ]
+    except json.JSONDecodeError as exc:
+        raise _RollbackUncapturable(
+            f"the current {_RELEASE!r} release in {namespace} reported unreadable values, so a failed "
+            "activation could not be rolled back onto the code locations it is running. Refusing to upgrade."
+        ) from exc
+    deployed: dict[str, str] = {}
+    for deployment in (values or {}).get("deployments") or []:
+        args = list(deployment.get("dagsterApiGrpcArgs") or [])
+        if "--module-name" in args and args.index("--module-name") + 1 < len(args):
+            deployed[str(deployment.get("name"))] = args[args.index("--module-name") + 1]
+    unmatched = [module for name, module in deployed.items() if name not in {loc.name for loc in contracted}]
+    resolved: list[CodeLocation] = []
+    for location in contracted:
+        module = deployed.get(location.name) or (unmatched.pop(0) if unmatched else location.definitions_module)
+        resolved.append(CodeLocation(name=location.name, definitions_module=module))
+    return resolved
 
 
 def _floe_renderer(provider: DeploymentProvider) -> str:

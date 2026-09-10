@@ -694,3 +694,62 @@ def test_a_release_missing_one_contracted_location_is_not_skipped(harness) -> No
         "openlakeforge-dagster",
         "acme-dagster",
     ]
+
+
+def test_a_rollback_matches_modules_by_name_not_position(harness, monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: ANN001
+    """Reordering a multi-location contract must not shuffle modules between hosts.
+
+    Pairing the contracted list with the release's by position hands each
+    Service another location's definitions when only the order changed: the
+    rollback stays healthy and serves the wrong code under each workspace
+    host, which is worse than failing."""
+    harness.contract["stages"]["dev"]["orchestration"]["code_locations"] = [
+        {"name": "alpha-dagster", "definitions_module": "lakehouse_code.alpha"},
+        {"name": "beta-dagster", "definitions_module": "lakehouse_code.beta"},
+    ]
+    harness.deploy("dev")
+    harness.contract["stages"]["dev"]["orchestration"]["code_locations"] = [
+        {"name": "beta-dagster", "definitions_module": "lakehouse_code.beta"},
+        {"name": "alpha-dagster", "definitions_module": "lakehouse_code.alpha"},
+    ]
+    monkeypatch.setattr(
+        activation_module,
+        "commit_active",
+        lambda *a, **k: (_ for _ in ()).throw(project_activation.ProjectActivationError("pointer write failed")),
+    )
+
+    with pytest.raises(project_activation.ProjectActivationError):
+        harness.deploy("dev")
+
+    restored = {
+        entry["name"]: entry["dagsterApiGrpcArgs"][1] for entry in harness.helm.installed["olf-dev"]["deployments"]
+    }
+    assert restored == {"alpha-dagster": "lakehouse_code.alpha", "beta-dagster": "lakehouse_code.beta"}
+
+
+def test_an_unreadable_release_refuses_the_upgrade_before_it_starts(
+    harness, monkeypatch: pytest.MonkeyPatch
+) -> None:  # noqa: ANN001
+    """With no way to learn what the release runs, there is no safe rollback.
+
+    Failing here costs nothing -- the upgrade has not begun. Proceeding would
+    leave the previous image paired with the current contract's modules if the
+    pointer write then failed, which is the mismatch this path exists to
+    prevent."""
+    harness.deploy("dev")
+    rollouts = len(harness.helm.rollouts)
+    original = harness.helm.get_values
+    # Only the activation's own release: the platform release is a different
+    # read on the same method, and failing that one is a different scenario.
+    monkeypatch.setattr(
+        harness.helm,
+        "get_values",
+        lambda release, **k: original(release, **k)
+        if release == "dagster"
+        else SimpleNamespace(ok=False, stdout=""),
+    )
+
+    with pytest.raises(activation_module.ActivationError, match="Refusing to upgrade"):
+        harness.deploy("dev")
+
+    assert len(harness.helm.rollouts) == rollouts
