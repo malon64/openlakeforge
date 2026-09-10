@@ -150,13 +150,16 @@ def _toolkit(runner: RecordingRunner) -> Toolkit:
 def _permitted_calls(protocol_method: Any) -> tuple[tuple[tuple[Any, ...], dict[str, Any]], ...]:
     """The (args, kwargs) shapes a caller holding only the Protocol may use.
 
-    Two shapes per method - every optional argument omitted, and every one
-    supplied - which is the whole space for this Protocol (no *args/**kwargs,
-    no overloads).
+    Optional arguments are both omitted and supplied, and a
+    POSITIONAL_OR_KEYWORD parameter is offered both ways: the Protocol permits
+    `plan(phase)` and `plan(phase=...)` alike, so an adapter narrowing one to
+    positional-only rejects a call its callers may legally make. This is the
+    whole space for this Protocol - no *args/**kwargs, no overloads.
     """
     marker = object()
     parameters = list(inspect.signature(protocol_method).parameters.values())[1:]  # drop `self`
-    args: list[Any] = []
+    positional: list[Any] = []
+    by_name: dict[str, Any] = {}
     required: dict[str, Any] = {}
     optional: dict[str, Any] = {}
     for parameter in parameters:
@@ -167,8 +170,19 @@ def _permitted_calls(protocol_method: Any) -> tuple[tuple[tuple[Any, ...], dict[
         elif parameter.kind is parameter.KEYWORD_ONLY:
             required[parameter.name] = marker
         else:
-            args.append(marker)
-    return ((tuple(args), dict(required)), (tuple(args), {**required, **optional}))
+            positional.append(marker)
+            if parameter.kind is parameter.POSITIONAL_OR_KEYWORD:
+                by_name[parameter.name] = marker
+    calls = [
+        (tuple(positional), dict(required)),
+        (tuple(positional), {**required, **optional}),
+    ]
+    if len(by_name) == len(positional):
+        # Every positional slot can also be named, so the all-keyword form is
+        # a call the Protocol permits too.
+        calls.append(((), {**by_name, **required}))
+        calls.append(((), {**by_name, **required, **optional}))
+    return tuple(calls)
 
 
 def _calls_the_adapter_rejects(protocol_method: Any, implementation: Any) -> list[str]:
@@ -212,7 +226,15 @@ def _contract(provider: Provider) -> dict[str, Any]:
         "capture its root's `terraform output -json provider_contracts` so this suite can assert the contract "
         "olf parses at runtime, rather than trusting the adapter."
     )
-    return json.loads(path.read_text(encoding="utf-8"))
+    document = json.loads(path.read_text(encoding="utf-8"))
+    declared = document.get("deployment", {}).get("provider")
+    assert declared == provider.value, (
+        f"{path.name} declares deployment.provider {declared!r}, not {provider.value!r}. Nothing else ties a "
+        f"fixture back to the provider it stands for -- `_topology_of` derives the expected topology from this "
+        f"same field, so a copied or mislabelled capture would validate one provider's contract while this "
+        f"suite reported it as another's coverage."
+    )
+    return document
 
 
 def _topology_of(contract: dict[str, Any]):  # noqa: ANN202 - DeploymentTopology
