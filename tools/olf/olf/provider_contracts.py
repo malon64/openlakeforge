@@ -202,6 +202,15 @@ _STORAGE_IMPLEMENTATION_BY_TOPOLOGY_PROVIDER = {
 # name, so it is bounded by the DNS-1123 label rules those objects enforce.
 _DNS_LABEL_PATTERN = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
 _PYTHON_MODULE_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$")
+# What a stage runs when its contract predates the field. A platform applied
+# before #185 has a persisted 3.0.0 orchestration object with only the two
+# refs, and its Dagster release is running the Terraform module's own default
+# (modules/orchestration/dagster/variables.tf). Requiring the field instead
+# would make every artifacts-phase deploy against that state demand a platform
+# apply first, which is the lifecycle boundary ADR 0002 exists to hold.
+_LEGACY_CODE_LOCATIONS = (
+    MappingProxyType({"name": "openlakeforge-dagster", "definitions_module": "lakehouse_code.definitions"}),
+)
 
 
 def _code_locations(value: object, *, where: str) -> None:
@@ -279,14 +288,16 @@ class StageContract:
 
     @property
     def code_locations(self) -> tuple[CodeLocation, ...]:
-        """The stage's contracted Dagster code locations, in contract order.
+        """The stage's Dagster code locations, in contract order.
 
-        Empty only on the v2 compatibility view, which predates the field and
-        whose user deployments Terraform still owns (ADR 0006).
+        A contract that predates the field (v2, or a v3 document emitted before
+        #185) resolves to the single merged location those platforms are
+        actually running, so a code commit can still deploy against Terraform
+        state nobody has re-applied.
         """
         return tuple(
             CodeLocation(name=entry["name"], definitions_module=entry["definitions_module"])
-            for entry in self.orchestration.get("code_locations", ())
+            for entry in self.orchestration.get("code_locations", _LEGACY_CODE_LOCATIONS)
         )
 
     def as_v2_environment_contract(self) -> dict[str, Any]:
@@ -612,11 +623,11 @@ def _parse_stage(
     orchestration = _fields(
         document["orchestration"],
         where=f"stages.{name.value}.orchestration",
-        required={"service_ref", "endpoint_ref", "code_locations"},
+        required={"service_ref", "endpoint_ref"},
+        optional={"code_locations"},
     )
-    _code_locations(
-        orchestration["code_locations"], where=f"stages.{name.value}.orchestration.code_locations"
-    )
+    if "code_locations" in orchestration:
+        _code_locations(orchestration["code_locations"], where=f"stages.{name.value}.orchestration.code_locations")
     _canonical_stage_reference(
         orchestration["service_ref"],
         where=f"stages.{name.value}.orchestration.service_ref",

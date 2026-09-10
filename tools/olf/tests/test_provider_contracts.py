@@ -905,14 +905,42 @@ def test_stage_carries_its_contracted_code_locations() -> None:
     ]
 
 
-def test_stage_without_code_locations_is_rejected() -> None:
+def test_contract_emitted_before_the_field_resolves_the_merged_default() -> None:
+    """A platform last applied before #185 has a persisted 3.0.0 contract with
+    no code_locations. Rejecting it would make a code commit demand a platform
+    apply -- ADR 0002 keeps those two lifecycles apart -- so it resolves to the
+    single merged location that state is actually running."""
     contract = _fixture("local-provider-contracts-v3.json")
     del contract["stages"]["dev"]["orchestration"]["code_locations"]
 
-    with pytest.raises(jsonschema.ValidationError):
-        jsonschema.validate(contract, SCHEMA)
-    with pytest.raises(ProviderContractError, match="orchestration is missing required fields"):
-        parse_provider_contracts(contract, _topology(contract))
+    jsonschema.validate(contract, SCHEMA)
+    parsed = parse_provider_contracts(contract, _topology(contract))
+
+    assert [(location.name, location.definitions_module) for location in parsed.for_stage("dev").code_locations] == [
+        ("openlakeforge-dagster", "lakehouse_code.definitions")
+    ]
+
+
+def test_a_contract_predating_the_field_still_builds_its_runtime_environment() -> None:
+    """`olf deploy`'s artifacts phase reads the same contract; it must not start
+    failing on Terraform state nobody has re-applied."""
+    contract = _fixture("local-provider-contracts-v3.json")
+    for stage in contract["stages"].values():
+        del stage["orchestration"]["code_locations"]
+
+    exports, _ = build_contract_env({}, contract, repo_root=REPO_ROOT, topology=_topology(contract), stage="dev")
+
+    assert exports["OPENLAKEFORGE_CATALOG_NAME"] == "lakehouse_dev"
+
+
+def test_a_contract_predating_the_field_still_digests_stably() -> None:
+    """The resolved default is read through the property, never written back into
+    the parsed binding, so a legacy contract keeps hashing to one value however
+    often it is read -- a CLI upgrade alone does not move it."""
+    contract = _fixture("aws-provider-contracts-v3.json")
+    del contract["stages"]["dev"]["orchestration"]["code_locations"]
+
+    assert _binding(contract, "dev") == _binding(copy.deepcopy(contract), "dev")
 
 
 @pytest.mark.parametrize(
