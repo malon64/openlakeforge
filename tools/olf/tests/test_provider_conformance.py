@@ -405,7 +405,9 @@ def test_adapter_satisfies_the_deployment_provider_protocol(provider: Provider, 
 
 
 @every_provider
-def test_adapter_exposes_the_command_environment_shared_callers_use(provider: Provider, tmp_path: Path) -> None:
+def test_adapter_exposes_the_command_environment_shared_callers_use(
+    provider: Provider, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """`olf.deployment.activation` reads `provider.env` on whichever provider
     it is handed. It is not a `DeploymentProvider` member yet, which is why
     those reads carry `# type: ignore[attr-defined]` (#187 Group A) - asserted
@@ -414,9 +416,10 @@ def test_adapter_exposes_the_command_environment_shared_callers_use(provider: Pr
 
     The value is resolved, not just the attribute: an adapter whose `env` is
     None, raises, or yields something Helm and Docker cannot take as an
-    environment would pass an attribute check and fail at activation. Cloud
-    adapters resolve the foundation's outputs on first touch, so the fake
-    facts are primed first rather than letting it reach a real Terraform.
+    environment would pass an attribute check and fail at activation. A cloud
+    adapter reads the foundation's outputs on first touch, so the resolver
+    itself is stubbed -- not the property's cache -- leaving the adapter free
+    to store what it resolves however it likes.
     """
     adapter = _adapter(provider, tmp_path)
 
@@ -425,7 +428,9 @@ def test_adapter_exposes_the_command_environment_shared_callers_use(provider: Pr
         f"own command-environment overlay; without it, activation cannot run against this provider."
     )
     if provider is not Provider.LOCAL:
-        adapter.__dict__["_foundation_facts"] = _FOUNDATION_FACTS
+        from olf.deployment.cloud import foundation
+
+        monkeypatch.setattr(foundation, "require_foundation_facts", lambda *a, **k: _FOUNDATION_FACTS)
 
     env = adapter.env
 
