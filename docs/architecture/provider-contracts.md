@@ -61,7 +61,8 @@ user-code deployments as `{name, definitions_module}` entries — the same list
 every root passes to the Dagster module, which renders the webserver's
 `workspace.yaml` from it. Because `dagster-user-deployments` names each Service
 after its deployment, a code-location name is also an in-cluster host, so the
-parser requires a DNS-1123 label and a dotted Python module path and rejects a
+parser requires an RFC 1035 label -- a Service name must start with a letter,
+which DNS-1123 does not require -- and a dotted Python module path, and rejects a
 name declared twice within one stage. Two stages may share a name; they run in
 different namespaces.
 

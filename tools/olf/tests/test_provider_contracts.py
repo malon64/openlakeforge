@@ -952,7 +952,10 @@ def test_a_contract_predating_the_field_still_digests_stably() -> None:
         ([{"name": "sales", "definitions_module": "m", "port": 3030}], "contains unsupported fields"),
         # dagster-user-deployments names the Service after the deployment, so
         # a name the API server would reject is unusable as an in-cluster host.
-        ([{"name": "Sales Domain", "definitions_module": "m"}], "must be a DNS-1123 label"),
+        ([{"name": "Sales Domain", "definitions_module": "m"}], "must be an RFC 1035 label"),
+        # A Service name may not start with a digit: DNS-1123 allows it, RFC 1035
+        # does not, and the API server rejects it mid-rollout rather than here.
+        ([{"name": "1sales", "definitions_module": "m"}], "must be an RFC 1035 label"),
         ([{"name": "sales", "definitions_module": "lakehouse_code/definitions"}], "dotted Python module path"),
         (
             [

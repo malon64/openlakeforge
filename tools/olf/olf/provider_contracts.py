@@ -199,8 +199,11 @@ _STORAGE_IMPLEMENTATION_BY_TOPOLOGY_PROVIDER = {
 
 
 # A Dagster code-location name becomes a Kubernetes Deployment and Service
-# name, so it is bounded by the DNS-1123 label rules those objects enforce.
-_DNS_LABEL_PATTERN = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
+# name. Services are RFC 1035, not DNS-1123: they must start with a letter
+# unless the alpha RelaxedServiceNameValidation gate is on, which no root
+# here enables. Validating the looser rule would accept a name like "1sales"
+# that this parser calls fine and the API server then rejects mid-rollout.
+_SERVICE_NAME_PATTERN = re.compile(r"^[a-z]([a-z0-9-]{0,61}[a-z0-9])?$")
 _PYTHON_MODULE_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$")
 # What a stage runs when its contract predates the field. A platform applied
 # before #185 has a persisted 3.0.0 orchestration object with only the two
@@ -228,8 +231,11 @@ def _code_locations(value: object, *, where: str) -> None:
     for index, entry in enumerate(value):
         document = _fields(entry, where=f"{where}[{index}]", required={"name", "definitions_module"})
         name = _string(document["name"], where=f"{where}[{index}].name")
-        if not _DNS_LABEL_PATTERN.match(name):
-            raise ProviderContractError(f"{where}[{index}].name must be a DNS-1123 label")
+        if not _SERVICE_NAME_PATTERN.match(name):
+            raise ProviderContractError(
+                f"{where}[{index}].name must be an RFC 1035 label: lowercase alphanumerics or '-', "
+                f"starting with a letter, as a Kubernetes Service name requires"
+            )
         if name in names:
             raise ProviderContractError(f"{where} declares the code location {name!r} twice")
         names.add(name)
