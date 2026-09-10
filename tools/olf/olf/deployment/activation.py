@@ -450,6 +450,35 @@ def _kube_context(provider: DeploymentProvider) -> str:
     return env.get("KUBE_CONTEXT") or provider.context.kube_context
 
 
+def _deployed_values(
+    provider: DeploymentProvider, *, namespace: str, env: Mapping[str, str]
+) -> dict[str, Any] | None:
+    """The live release's own values, marked unreconciled, or None if unreadable.
+
+    Replaying what Helm recorded keeps a rollback's image and code locations
+    the pair that was actually deployed. The renderer annotation is the one
+    field that must not survive verbatim: it describes manifests the restored
+    release was running, and leaving it would let `release_runs_activation`
+    read the rolled-back release as current and skip the regeneration the
+    next attempt exists to perform.
+    """
+    result = provider.tools.helm.get_values(
+        _RELEASE, namespace=namespace, kube_context=_kube_context(provider), env=env
+    )
+    if not result.ok:
+        return None
+    try:
+        values = json.loads(result.stdout or "null")
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(values, dict) or not values.get("deployments"):
+        return None
+    for deployment in values["deployments"]:
+        annotations = deployment.setdefault("deploymentAnnotations", {})
+        annotations[_RENDERER_ANNOTATION] = _RENDERER_UNRECONCILED
+    return values
+
+
 def _floe_renderer(provider: DeploymentProvider) -> str:
     """What renders this stage's Floe manifests, as one comparable string.
 
@@ -622,6 +651,15 @@ def deploy_revision(
                 )
             )
             publish_activation(store, activation)
+            # Captured before the upgrade overwrites it: a rollback has to
+            # restore the image and the code locations that were deployed
+            # together. Re-rendering the previous activation against the
+            # current contract pairs the old image with a module that may
+            # exist only in the new one, and the failed readiness that
+            # follows lets Helm restore the uncommitted new release - leaving
+            # ACTIVE.json naming the old activation while the cluster runs
+            # the new one.
+            deployed_values = _deployed_values(provider, namespace=context.namespace, env=env) if previous else None
             provider.tools.helm.upgrade_install(
                 _RELEASE, chart, namespace=context.namespace, values=values, kube_context=kube_context, env=env
             )
@@ -636,7 +674,9 @@ def deploy_revision(
                     rollback_values = Path(temporary) / "rollback-values.yaml"
                     rollback_values.write_text(
                         yaml.safe_dump(
-                            _user_values(
+                            deployed_values
+                            if deployed_values is not None
+                            else _user_values(
                                 previous,
                                 contract_environ=contract_environ,
                                 namespace=context.namespace,

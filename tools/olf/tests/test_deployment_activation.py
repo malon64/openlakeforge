@@ -635,3 +635,33 @@ def test_changing_the_code_locations_rolls_the_stage_out_again(harness) -> None:
 
     assert second.activation_revision != first.activation_revision
     assert [entry["name"] for entry in harness.helm.rollouts[1][1]["deployments"]] == ["acme-dagster"]
+
+
+def test_a_rollback_restores_the_modules_the_previous_image_shipped(
+    harness, monkeypatch: pytest.MonkeyPatch
+) -> None:  # noqa: ANN001
+    """A deploy that changes `definitions_module` and then fails to commit must
+    put back the pair that was actually running.
+
+    Re-rendering the previous activation against the current contract would
+    give the old image a module that exists only in the new one. The rollback
+    then fails readiness, Helm restores the uncommitted new release, and
+    ACTIVE.json names an activation the cluster is not running."""
+    active = harness.deploy("dev")
+    harness.contract["stages"]["dev"]["orchestration"]["code_locations"] = [
+        {"name": "openlakeforge-dagster", "definitions_module": "lakehouse_code.next_definitions"}
+    ]
+    monkeypatch.setattr(
+        activation_module,
+        "commit_active",
+        lambda *a, **k: (_ for _ in ()).throw(project_activation.ProjectActivationError("pointer write failed")),
+    )
+
+    with pytest.raises(project_activation.ProjectActivationError):
+        harness.deploy("dev")
+
+    assert project_activation.active(harness.store, stage=StageName.DEV) == active
+    restored = harness.helm.installed["olf-dev"]["deployments"]
+    assert [entry["dagsterApiGrpcArgs"] for entry in restored] == [["--module-name", "lakehouse_code.definitions"]]
+    annotations = restored[0]["deploymentAnnotations"]
+    assert annotations["openlakeforge.io/floe-renderer"] == activation_module._RENDERER_UNRECONCILED
