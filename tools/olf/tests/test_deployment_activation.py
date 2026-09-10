@@ -649,7 +649,7 @@ def test_a_rollback_restores_the_modules_the_previous_image_shipped(
     ACTIVE.json names an activation the cluster is not running."""
     active = harness.deploy("dev")
     harness.contract["stages"]["dev"]["orchestration"]["code_locations"] = [
-        {"name": "openlakeforge-dagster", "definitions_module": "lakehouse_code.next_definitions"}
+        {"name": "acme-dagster", "definitions_module": "lakehouse_code.next_definitions"}
     ]
     monkeypatch.setattr(
         activation_module,
@@ -662,7 +662,10 @@ def test_a_rollback_restores_the_modules_the_previous_image_shipped(
 
     assert project_activation.active(harness.store, stage=StageName.DEV) == active
     restored = harness.helm.installed["olf-dev"]["deployments"]
+    # The module is the previous image's; the name is the current contract's,
+    # because Terraform has already rendered the webserver's workspace from it.
     assert [entry["dagsterApiGrpcArgs"] for entry in restored] == [["--module-name", "lakehouse_code.definitions"]]
+    assert [entry["name"] for entry in restored] == ["acme-dagster"]
     annotations = restored[0]["deploymentAnnotations"]
     assert annotations["openlakeforge.io/floe-renderer"] == activation_module._RENDERER_UNRECONCILED
 

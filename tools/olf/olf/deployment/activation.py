@@ -450,33 +450,51 @@ def _kube_context(provider: DeploymentProvider) -> str:
     return env.get("KUBE_CONTEXT") or provider.context.kube_context
 
 
-def _deployed_values(
-    provider: DeploymentProvider, *, namespace: str, env: Mapping[str, str]
-) -> dict[str, Any] | None:
-    """The live release's own values, marked unreconciled, or None if unreadable.
+def _rollback_code_locations(
+    provider: DeploymentProvider,
+    *,
+    contracted: Sequence[CodeLocation],
+    namespace: str,
+    env: Mapping[str, str],
+) -> Sequence[CodeLocation]:
+    """The contracted names paired with the modules the live release runs.
 
-    Replaying what Helm recorded keeps a rollback's image and code locations
-    the pair that was actually deployed. The renderer annotation is the one
-    field that must not survive verbatim: it describes manifests the restored
-    release was running, and leaving it would let `release_runs_activation`
-    read the rolled-back release as current and skip the regeneration the
-    next attempt exists to perform.
+    A rollback has to satisfy two owners at once. The names are Terraform's:
+    it has already rendered the webserver's workspace from the current
+    contract, and `dagster-user-deployments` names each Service after its
+    deployment, so restoring an old name leaves the workspace resolving a host
+    that does not exist. The modules are the image's: the previous activation
+    only ever ran the previous ones, and pairing its image with a module that
+    exists solely in the new image fails readiness.
+
+    So take each from its owner. When the release cannot be read, or names a
+    different number of deployments than the contract does -- there is no
+    honest pairing then -- fall back to the contract alone, which is what this
+    path did before.
     """
     result = provider.tools.helm.get_values(
         _RELEASE, namespace=namespace, kube_context=_kube_context(provider), env=env
     )
     if not result.ok:
-        return None
+        return contracted
     try:
         values = json.loads(result.stdout or "null")
     except json.JSONDecodeError:
-        return None
-    if not isinstance(values, dict) or not values.get("deployments"):
-        return None
-    for deployment in values["deployments"]:
-        annotations = deployment.setdefault("deploymentAnnotations", {})
-        annotations[_RENDERER_ANNOTATION] = _RENDERER_UNRECONCILED
-    return values
+        return contracted
+    if not isinstance(values, dict):
+        return contracted
+    modules = [
+        args[args.index("--module-name") + 1]
+        for deployment in values.get("deployments") or []
+        if "--module-name" in (args := list(deployment.get("dagsterApiGrpcArgs") or []))
+        and args.index("--module-name") + 1 < len(args)
+    ]
+    if len(modules) != len(contracted):
+        return contracted
+    return [
+        CodeLocation(name=location.name, definitions_module=module)
+        for location, module in zip(contracted, modules, strict=True)
+    ]
 
 
 def _floe_renderer(provider: DeploymentProvider) -> str:
@@ -677,7 +695,13 @@ def deploy_revision(
             # follows lets Helm restore the uncommitted new release - leaving
             # ACTIVE.json naming the old activation while the cluster runs
             # the new one.
-            deployed_values = _deployed_values(provider, namespace=context.namespace, env=env) if previous else None
+            rollback_locations = (
+                _rollback_code_locations(
+                    provider, contracted=code_locations, namespace=context.namespace, env=env
+                )
+                if previous
+                else code_locations
+            )
             provider.tools.helm.upgrade_install(
                 _RELEASE, chart, namespace=context.namespace, values=values, kube_context=kube_context, env=env
             )
@@ -692,15 +716,13 @@ def deploy_revision(
                     rollback_values = Path(temporary) / "rollback-values.yaml"
                     rollback_values.write_text(
                         yaml.safe_dump(
-                            deployed_values
-                            if deployed_values is not None
-                            else _user_values(
+                            _user_values(
                                 previous,
                                 contract_environ=contract_environ,
                                 namespace=context.namespace,
                                 platform_globals=platform_globals,
                                 floe_renderer=_RENDERER_UNRECONCILED,
-                                code_locations=code_locations,
+                                code_locations=rollback_locations,
                             ),
                             sort_keys=False,
                         )
