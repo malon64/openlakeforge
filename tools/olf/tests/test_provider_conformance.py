@@ -19,7 +19,8 @@ this file. What that leaves uncovered is one thing only — that a real
 Terraform and a provider account, and stays with `olf e2e run`. The two static
 checks here (the root declares a v3 stage-indexed contract surface, and the
 outputs shared tooling reads) are what catch a root drifting away from its
-fixture in the meantime.
+fixture in the meantime -- as presence checks over an opaque expression
+string, not as proof that each field is pinned to its own stage.
 
 Assertions are written against what a caller can observe. The destructive-apply
 guards are driven through each provider's platform apply rather than called
@@ -461,10 +462,12 @@ def test_platform_root_declares_a_v3_stage_indexed_contract_surface(provider: Pr
         "shared/ops_storage",
     ):
         assert reference in stages, (
-            f"{terraform_root}/contracts.tf never emits {reference!r} in its stage index. Stage-scoped bindings "
-            f"must be pinned to the stage being emitted (and shared ones to `shared/...`); "
-            f"`parse_provider_contracts` rejects any other value, so a root that hardcodes one stage's name "
-            f"fails at deploy time on the second stage."
+            f"{terraform_root}/contracts.tf never emits {reference!r} anywhere in its stage index. A root that "
+            f"dropped stage interpolation entirely, or renamed a binding, fails here.\n\n"
+            f"This is a presence check, not a per-field one: hcl2 gives `stages` back as one opaque expression "
+            f"string, so it cannot tell which field a token came from. Pinning the wrong stage into one field "
+            f"while another still carries the token passes this and is caught only by a rendered contract - "
+            f"`olf e2e run`, not this suite."
         )
 
 
