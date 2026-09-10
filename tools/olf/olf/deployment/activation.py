@@ -496,6 +496,7 @@ def release_runs_activation(
     provider: DeploymentProvider,
     activation_revision: str,
     *,
+    code_locations: Sequence[CodeLocation],
     platform_globals: Mapping[str, Any] | None = None,
     env: Mapping[str, str],
 ) -> bool:
@@ -519,10 +520,19 @@ def release_runs_activation(
         values = json.loads(result.stdout or "{}") or {}
     except json.JSONDecodeError:
         return False
-    if not any(
-        (deployment.get("deploymentLabels") or {}).get(_ACTIVATION_LABEL) == activation_revision
+    # Every contracted location, not merely one of them: the contract can name
+    # several, and Terraform renders the webserver's workspace from the same
+    # set. A release carrying one correctly labelled deployment while another
+    # is missing or stale would otherwise be accepted, and the redeploy that
+    # would have repaired it skipped -- leaving the workspace pointing at a
+    # Service that does not exist.
+    deployed = {
+        deployment.get("name"): (deployment.get("deploymentLabels") or {}).get(_ACTIVATION_LABEL)
         for deployment in values.get("deployments") or []
-    ):
+    }
+    if set(deployed) != {location.name for location in code_locations}:
+        return False
+    if any(revision != activation_revision for revision in deployed.values()):
         return False
     # A platform apply can re-bind something the activation renders -- renaming
     # the Dagster credentials Secret, say -- without moving any input the
@@ -582,7 +592,11 @@ def deploy_revision(
             )
         )
         and release_runs_activation(
-            provider, previous.activation_revision, platform_globals=platform_globals, env=env
+            provider,
+            previous.activation_revision,
+            code_locations=code_locations,
+            platform_globals=platform_globals,
+            env=env,
         )
     ):
         # Reapplying the active revision must not touch the cluster or the ops
@@ -622,7 +636,11 @@ def deploy_revision(
                 capabilities=capabilities,
             ).resolved()
             if previous == activation and release_runs_activation(
-                provider, activation.activation_revision, platform_globals=platform_globals, env=env
+                provider,
+                activation.activation_revision,
+                code_locations=code_locations,
+                platform_globals=platform_globals,
+                env=env,
             ):
                 return activation
             if activation.capabilities["analytics"] or activation.capabilities["governance"]:

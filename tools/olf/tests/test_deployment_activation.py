@@ -665,3 +665,29 @@ def test_a_rollback_restores_the_modules_the_previous_image_shipped(
     assert [entry["dagsterApiGrpcArgs"] for entry in restored] == [["--module-name", "lakehouse_code.definitions"]]
     annotations = restored[0]["deploymentAnnotations"]
     assert annotations["openlakeforge.io/floe-renderer"] == activation_module._RENDERER_UNRECONCILED
+
+
+def test_a_release_missing_one_contracted_location_is_not_skipped(harness) -> None:  # noqa: ANN001
+    """A redeploy must repair a release that lost one of several code locations.
+
+    The label check accepted a release where any one deployment matched, which
+    was equivalent to all of them only while the contract named exactly one.
+    With several, a release carrying one correct deployment and one missing
+    would be read as up to date, and the reapply that would have restored it
+    skipped -- leaving Terraform's workspace pointing at a Service nobody
+    creates."""
+    harness.contract["stages"]["dev"]["orchestration"]["code_locations"] = [
+        {"name": "openlakeforge-dagster", "definitions_module": "lakehouse_code.definitions"},
+        {"name": "acme-dagster", "definitions_module": "lakehouse_code.acme"},
+    ]
+    harness.deploy("dev")
+    assert len(harness.helm.rollouts) == 1
+    harness.helm.installed["olf-dev"]["deployments"] = harness.helm.installed["olf-dev"]["deployments"][:1]
+
+    harness.deploy("dev")
+
+    assert len(harness.helm.rollouts) == 2
+    assert [entry["name"] for entry in harness.helm.rollouts[1][1]["deployments"]] == [
+        "openlakeforge-dagster",
+        "acme-dagster",
+    ]
