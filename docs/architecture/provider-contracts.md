@@ -56,6 +56,21 @@ reference PROD's. Trino query connectivity is the one deliberate exception:
 rather than by endpoint, so `stages.<name>.query.endpoint` and `service_ref`
 are not stage-scoped.
 
+`stages.<name>.orchestration.code_locations` carries the stage's Dagster
+user-code deployments as `{name, definitions_module}` entries — the same list
+every root passes to the Dagster module, which renders the webserver's
+`workspace.yaml` from it. Because `dagster-user-deployments` names each Service
+after its deployment, a code-location name is also an in-cluster host, so the
+parser requires an RFC 1035 label -- a Service name must start with a letter,
+which DNS-1123 does not require -- and a dotted Python module path, and rejects a
+name declared twice within one stage. Two stages may share a name; they run in
+different namespaces.
+
+The field is optional. A `3.0.0` contract emitted before it existed resolves to
+the single merged location ADR 0006 documents, which is what such a platform's
+Dagster release is running; requiring it would make a code commit demand a
+platform apply, across the lifecycle boundary ADR 0002 draws.
+
 Ops artifacts are shared storage with a stage-specific activation prefix,
 `activations/<stage>`. They do not define the revision manifest or promotion
 workflow, which belong to #154 and #115.

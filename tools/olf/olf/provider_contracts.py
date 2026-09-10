@@ -198,6 +198,55 @@ _STORAGE_IMPLEMENTATION_BY_TOPOLOGY_PROVIDER = {
 }
 
 
+# A Dagster code-location name becomes a Kubernetes Deployment and Service
+# name. Services are RFC 1035, not DNS-1123: they must start with a letter
+# unless the alpha RelaxedServiceNameValidation gate is on, which no root
+# here enables. Validating the looser rule would accept a name like "1sales"
+# that this parser calls fine and the API server then rejects mid-rollout.
+# Matched with `fullmatch`, not `match`: `$` also matches just before a
+# trailing newline, so "sales\n" would pass and reach the API server with the
+# newline still in it.
+_SERVICE_NAME_PATTERN = re.compile(r"[a-z]([a-z0-9-]{0,61}[a-z0-9])?")
+_PYTHON_MODULE_PATTERN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*")
+# What a stage runs when its contract predates the field. A platform applied
+# before #185 has a persisted 3.0.0 orchestration object with only the two
+# refs, and its Dagster release is running the Terraform module's own default
+# (modules/orchestration/dagster/variables.tf). Requiring the field instead
+# would make every artifacts-phase deploy against that state demand a platform
+# apply first, which is the lifecycle boundary ADR 0002 exists to hold.
+_LEGACY_CODE_LOCATIONS = (
+    MappingProxyType({"name": "openlakeforge-dagster", "definitions_module": "lakehouse_code.definitions"}),
+)
+
+
+def _code_locations(value: object, *, where: str) -> None:
+    """Validate the stage's Dagster user-code deployments.
+
+    `dagster-user-deployments` names each Service after its deployment, so a
+    location name the API server would reject is not a cosmetic problem: the
+    webserver workspace Terraform renders from this same list would then point
+    at a host nothing ever creates, and the stage would come up with no code
+    server reachable and no error at apply time.
+    """
+    if not isinstance(value, list) or not value:
+        raise ProviderContractError(f"{where} must be a non-empty list")
+    names: set[str] = set()
+    for index, entry in enumerate(value):
+        document = _fields(entry, where=f"{where}[{index}]", required={"name", "definitions_module"})
+        name = _string(document["name"], where=f"{where}[{index}].name")
+        if not _SERVICE_NAME_PATTERN.fullmatch(name):
+            raise ProviderContractError(
+                f"{where}[{index}].name must be an RFC 1035 label: lowercase alphanumerics or '-', "
+                f"starting with a letter, as a Kubernetes Service name requires"
+            )
+        if name in names:
+            raise ProviderContractError(f"{where} declares the code location {name!r} twice")
+        names.add(name)
+        module = _string(document["definitions_module"], where=f"{where}[{index}].definitions_module")
+        if not _PYTHON_MODULE_PATTERN.fullmatch(module):
+            raise ProviderContractError(f"{where}[{index}].definitions_module must be a dotted Python module path")
+
+
 def _canonical_stage_reference(value: object, *, where: str, stage: StageName, path: str) -> str:
     """A stage-service binding pinned to its one canonical name.
 
@@ -212,6 +261,14 @@ def _canonical_stage_reference(value: object, *, where: str, stage: StageName, p
     if reference != expected:
         raise ProviderContractError(f"{where} must be {expected!r}")
     return reference
+
+
+@dataclass(frozen=True)
+class CodeLocation:
+    """One Dagster user-code deployment: its in-cluster name and its module."""
+
+    name: str
+    definitions_module: str
 
 
 @dataclass(frozen=True)
@@ -237,6 +294,20 @@ class StageContract:
     reporting: Mapping[str, Any] | None
     governance: Mapping[str, Any] | None
     shared: SharedPlatformContract
+
+    @property
+    def code_locations(self) -> tuple[CodeLocation, ...]:
+        """The stage's Dagster code locations, in contract order.
+
+        A contract that predates the field (v2, or a v3 document emitted before
+        #185) resolves to the single merged location those platforms are
+        actually running, so a code commit can still deploy against Terraform
+        state nobody has re-applied.
+        """
+        return tuple(
+            CodeLocation(name=entry["name"], definitions_module=entry["definitions_module"])
+            for entry in self.orchestration.get("code_locations", _LEGACY_CODE_LOCATIONS)
+        )
 
     def as_v2_environment_contract(self) -> dict[str, Any]:
         """Adapt a selected v3 stage to the existing runtime environment API."""
@@ -562,7 +633,10 @@ def _parse_stage(
         document["orchestration"],
         where=f"stages.{name.value}.orchestration",
         required={"service_ref", "endpoint_ref"},
+        optional={"code_locations"},
     )
+    if "code_locations" in orchestration:
+        _code_locations(orchestration["code_locations"], where=f"stages.{name.value}.orchestration.code_locations")
     _canonical_stage_reference(
         orchestration["service_ref"],
         where=f"stages.{name.value}.orchestration.service_ref",

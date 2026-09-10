@@ -464,6 +464,13 @@ locals {
         orchestration = {
           service_ref  = "stage/${name}/orchestration"
           endpoint_ref = "stage/${name}/endpoints/orchestration"
+          # The same list the Dagster module renders workspace.yaml from, and
+          # the set a stage's user deployments are rendered from.
+          # dagster-user-deployments names each Service after its deployment,
+          # so a code-location name is also an in-cluster host: a second copy
+          # on the activation side points the webserver at a Service nobody
+          # creates, and the stage comes up with no code server reachable.
+          code_locations = local.orchestration_contract.code_locations
         }
         activation = {
           ops_storage_ref = "shared/ops_storage"

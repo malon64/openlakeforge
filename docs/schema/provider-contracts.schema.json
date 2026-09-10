@@ -178,6 +178,28 @@
         "endpoint_ref": {"$ref": "#/definitions/nonEmptyString"}
       }
     },
+    "orchestrationBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["service_ref", "endpoint_ref"],
+      "properties": {
+        "service_ref": {"$ref": "#/definitions/nonEmptyString"},
+        "endpoint_ref": {"$ref": "#/definitions/nonEmptyString"},
+        "code_locations": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "definitions_module"],
+            "properties": {
+              "name": {"$ref": "#/definitions/nonEmptyString"},
+              "definitions_module": {"$ref": "#/definitions/nonEmptyString"}
+            }
+          }
+        }
+      }
+    },
     "stage": {
       "type": "object",
       "additionalProperties": false,
@@ -196,7 +218,7 @@
         "storage": {"$ref": "#/definitions/storage"},
         "catalog": {"$ref": "#/definitions/catalog"},
         "query": {"$ref": "#/definitions/query"},
-        "orchestration": {"$ref": "#/definitions/serviceBinding"},
+        "orchestration": {"$ref": "#/definitions/orchestrationBinding"},
         "reporting": {"$ref": "#/definitions/serviceBinding"},
         "governance": {"$ref": "#/definitions/serviceBinding"},
         "activation": {

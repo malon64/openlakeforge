@@ -888,3 +888,113 @@ def test_binding_digest_is_stable_for_an_unchanged_contract() -> None:
     contract = _fixture("aws-provider-contracts-v3.json")
 
     assert _binding(contract, "dev") == _binding(copy.deepcopy(contract), "dev")
+
+
+def test_stage_carries_its_contracted_code_locations() -> None:
+    contract = _fixture("local-provider-contracts-v3.json")
+    contract["stages"]["dev"]["orchestration"]["code_locations"] = [
+        {"name": "sales", "definitions_module": "lakehouse_code.sales_definitions"},
+        {"name": "finance", "definitions_module": "lakehouse_code.finance_definitions"},
+    ]
+
+    parsed = parse_provider_contracts(contract, _topology(contract))
+
+    assert [(location.name, location.definitions_module) for location in parsed.for_stage("dev").code_locations] == [
+        ("sales", "lakehouse_code.sales_definitions"),
+        ("finance", "lakehouse_code.finance_definitions"),
+    ]
+
+
+def test_contract_emitted_before_the_field_resolves_the_merged_default() -> None:
+    """A platform last applied before #185 has a persisted 3.0.0 contract with
+    no code_locations. Rejecting it would make a code commit demand a platform
+    apply -- ADR 0002 keeps those two lifecycles apart -- so it resolves to the
+    single merged location that state is actually running."""
+    contract = _fixture("local-provider-contracts-v3.json")
+    del contract["stages"]["dev"]["orchestration"]["code_locations"]
+
+    jsonschema.validate(contract, SCHEMA)
+    parsed = parse_provider_contracts(contract, _topology(contract))
+
+    assert [(location.name, location.definitions_module) for location in parsed.for_stage("dev").code_locations] == [
+        ("openlakeforge-dagster", "lakehouse_code.definitions")
+    ]
+
+
+def test_a_contract_predating_the_field_still_builds_its_runtime_environment() -> None:
+    """`olf deploy`'s artifacts phase reads the same contract; it must not start
+    failing on Terraform state nobody has re-applied."""
+    contract = _fixture("local-provider-contracts-v3.json")
+    for stage in contract["stages"].values():
+        del stage["orchestration"]["code_locations"]
+
+    exports, _ = build_contract_env({}, contract, repo_root=REPO_ROOT, topology=_topology(contract), stage="dev")
+
+    assert exports["OPENLAKEFORGE_CATALOG_NAME"] == "lakehouse_dev"
+
+
+def test_a_contract_predating_the_field_still_digests_stably() -> None:
+    """The resolved default is read through the property, never written back into
+    the parsed binding, so a legacy contract keeps hashing to one value however
+    often it is read -- a CLI upgrade alone does not move it."""
+    contract = _fixture("aws-provider-contracts-v3.json")
+    del contract["stages"]["dev"]["orchestration"]["code_locations"]
+
+    assert _binding(contract, "dev") == _binding(copy.deepcopy(contract), "dev")
+
+
+@pytest.mark.parametrize(
+    ("code_locations", "match"),
+    [
+        ([], "must be a non-empty list"),
+        ("openlakeforge-dagster", "must be a non-empty list"),
+        ([{"name": "sales"}], r"code_locations\[0\] is missing required fields"),
+        ([{"name": "sales", "definitions_module": "m", "port": 3030}], "contains unsupported fields"),
+        # dagster-user-deployments names the Service after the deployment, so
+        # a name the API server would reject is unusable as an in-cluster host.
+        ([{"name": "Sales Domain", "definitions_module": "m"}], "must be an RFC 1035 label"),
+        # A Service name may not start with a digit: DNS-1123 allows it, RFC 1035
+        # does not, and the API server rejects it mid-rollout rather than here.
+        ([{"name": "1sales", "definitions_module": "m"}], "must be an RFC 1035 label"),
+        # `$` alone would match before a trailing newline and let it through.
+        ([{"name": "sales\n", "definitions_module": "m"}], "must be an RFC 1035 label"),
+        ([{"name": "sales", "definitions_module": "m\n"}], "must be a dotted Python module path"),
+        ([{"name": "sales", "definitions_module": "lakehouse_code/definitions"}], "dotted Python module path"),
+        (
+            [
+                {"name": "sales", "definitions_module": "a"},
+                {"name": "sales", "definitions_module": "b"},
+            ],
+            "declares the code location 'sales' twice",
+        ),
+    ],
+)
+def test_malformed_code_locations_fail_closed(code_locations: object, match: str) -> None:
+    contract = _fixture("local-provider-contracts-v3.json")
+    contract["stages"]["dev"]["orchestration"]["code_locations"] = code_locations
+
+    with pytest.raises(ProviderContractError, match=match):
+        parse_provider_contracts(contract, _topology(contract))
+
+
+def test_two_stages_may_reuse_one_code_location_name() -> None:
+    """Each stage runs in its own namespace, so the same name is not the kind of
+    collision a shared bucket or catalog identity is - and every root hands
+    every stage the same default list."""
+    contract = _fixture("local-provider-contracts-v3.json")
+
+    parsed = parse_provider_contracts(contract, _topology(contract))
+
+    assert [location.name for location in parsed.for_stage("dev").code_locations] == [
+        location.name for location in parsed.for_stage("prod").code_locations
+    ]
+
+
+def test_renaming_a_code_location_moves_the_binding_digest() -> None:
+    """Activation renders the user deployments from this list, so a rename has
+    to force a rollout rather than leaving the previous Services in place."""
+    contract = _fixture("aws-provider-contracts-v3.json")
+    renamed = copy.deepcopy(contract)
+    renamed["stages"]["dev"]["orchestration"]["code_locations"][0]["name"] = "sales"
+
+    assert _binding(contract, "dev") != _binding(renamed, "dev")
