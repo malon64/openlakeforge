@@ -637,7 +637,7 @@ def test_changing_the_code_locations_rolls_the_stage_out_again(harness) -> None:
     assert [entry["name"] for entry in harness.helm.rollouts[1][1]["deployments"]] == ["acme-dagster"]
 
 
-def test_a_rollback_restores_the_modules_the_previous_image_shipped(
+def test_a_rollback_restores_the_pairs_the_previous_release_ran(
     harness, monkeypatch: pytest.MonkeyPatch
 ) -> None:  # noqa: ANN001
     """A deploy that changes `definitions_module` and then fails to commit must
@@ -662,10 +662,12 @@ def test_a_rollback_restores_the_modules_the_previous_image_shipped(
 
     assert project_activation.active(harness.store, stage=StageName.DEV) == active
     restored = harness.helm.installed["olf-dev"]["deployments"]
-    # The module is the previous image's; the name is the current contract's,
-    # because Terraform has already rendered the webserver's workspace from it.
+    # Both halves come from the release that was running. Keeping the
+    # contract's name here would pair the previous image with a module it need
+    # not contain, and an unready rollback lets Helm restore the uncommitted
+    # new release while ACTIVE.json still names the old one.
     assert [entry["dagsterApiGrpcArgs"] for entry in restored] == [["--module-name", "lakehouse_code.definitions"]]
-    assert [entry["name"] for entry in restored] == ["acme-dagster"]
+    assert [entry["name"] for entry in restored] == ["openlakeforge-dagster"]
     annotations = restored[0]["deploymentAnnotations"]
     assert annotations["openlakeforge.io/floe-renderer"] == activation_module._RENDERER_UNRECONCILED
 
@@ -753,3 +755,31 @@ def test_an_unreadable_release_refuses_the_upgrade_before_it_starts(
         harness.deploy("dev")
 
     assert len(harness.helm.rollouts) == rollouts
+
+
+def test_a_rollback_does_not_give_the_previous_image_a_new_module(
+    harness, monkeypatch: pytest.MonkeyPatch
+) -> None:  # noqa: ANN001
+    """Growing a stage from one code location to two must not break recovery.
+
+    The added name has no module in the running release, so pairing it with
+    the contract's would hand `previous`'s image a module introduced in the
+    new one. The rollback could not become ready, and Helm would restore the
+    uncommitted new release while ACTIVE.json still named the old activation."""
+    harness.deploy("dev")
+    harness.contract["stages"]["dev"]["orchestration"]["code_locations"] = [
+        {"name": "openlakeforge-dagster", "definitions_module": "lakehouse_code.definitions"},
+        {"name": "acme-dagster", "definitions_module": "lakehouse_code.brand_new"},
+    ]
+    monkeypatch.setattr(
+        activation_module,
+        "commit_active",
+        lambda *a, **k: (_ for _ in ()).throw(project_activation.ProjectActivationError("pointer write failed")),
+    )
+
+    with pytest.raises(project_activation.ProjectActivationError):
+        harness.deploy("dev")
+
+    restored = harness.helm.installed["olf-dev"]["deployments"]
+    assert [entry["name"] for entry in restored] == ["openlakeforge-dagster"]
+    assert all("lakehouse_code.brand_new" not in entry["dagsterApiGrpcArgs"] for entry in restored)

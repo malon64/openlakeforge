@@ -461,35 +461,33 @@ def _rollback_code_locations(
     namespace: str,
     env: Mapping[str, str],
 ) -> Sequence[CodeLocation]:
-    """The contracted names paired with the modules the live release runs.
+    """Exactly the name/module pairs the live release is running.
 
-    A rollback has to satisfy two owners at once. The names are Terraform's:
-    it has already rendered the webserver's workspace from the current
-    contract, and `dagster-user-deployments` names each Service after its
-    deployment, so restoring an old name leaves the workspace resolving a host
-    that does not exist. The modules are the image's: the previous activation
-    only ever ran the previous ones, and pairing its image with a module that
-    exists solely in the new image fails readiness.
+    A rollback restores a known-good release, so it may only redeploy pairs
+    that release actually supplied. Anything else pairs `previous`'s image with
+    a module that image need not contain -- a renamed location, or one added
+    when a stage grew from one to two -- and the rollback then fails readiness.
+    Helm restores the uncommitted new release when it does, leaving
+    `ACTIVE.json` naming an activation the cluster is not running: the silent
+    split brain this path exists to prevent.
 
-    Modules are matched by name, not position, so reordering a multi-location
-    contract does not hand each Service another location's definitions. A name
-    the release does not have -- a rename -- takes a module from whatever the
-    release did not otherwise account for, in order, which is the only pairing
-    available and is right for the single-rename case.
+    The cost is that Terraform has already rendered the webserver's workspace
+    from the *current* contract, so after a rollback that dropped or renamed a
+    location the workspace names a Service that is not there. That is the
+    lesser failure, and a self-healing one: the pods run, the release is
+    consistent with the pointer, and the next successful deploy re-renders the
+    workspace. Keeping the contracted names instead trades it for a rollback
+    that cannot come up at all.
 
     Raises rather than guessing when an installed release cannot be read: this
-    runs before the upgrade precisely so a failure here costs nothing, and the
-    fallback it replaces paired the previous image with the current contract's
-    modules -- the exact mismatch this function exists to avoid. A release that
-    is not installed at all is not that case: there is nothing deployed to
-    preserve, and refusing would block the redeploy that repairs it.
+    runs before the upgrade, so failing costs nothing. A release that is not
+    installed is not that case -- there is nothing deployed to preserve, and
+    refusing would block the redeploy that repairs it.
     """
     helm = provider.tools.helm
     if not helm.status(_RELEASE, namespace=namespace, kube_context=_kube_context(provider), env=env).ok:
         return contracted
-    result = provider.tools.helm.get_values(
-        _RELEASE, namespace=namespace, kube_context=_kube_context(provider), env=env
-    )
+    result = helm.get_values(_RELEASE, namespace=namespace, kube_context=_kube_context(provider), env=env)
     if not result.ok:
         raise _RollbackUncapturable(
             f"cannot read the current {_RELEASE!r} release's values in {namespace}, so a failed activation "
@@ -502,17 +500,22 @@ def _rollback_code_locations(
             f"the current {_RELEASE!r} release in {namespace} reported unreadable values, so a failed "
             "activation could not be rolled back onto the code locations it is running. Refusing to upgrade."
         ) from exc
-    deployed: dict[str, str] = {}
+    deployed: list[CodeLocation] = []
     for deployment in (values or {}).get("deployments") or []:
         args = list(deployment.get("dagsterApiGrpcArgs") or [])
         if "--module-name" in args and args.index("--module-name") + 1 < len(args):
-            deployed[str(deployment.get("name"))] = args[args.index("--module-name") + 1]
-    unmatched = [module for name, module in deployed.items() if name not in {loc.name for loc in contracted}]
-    resolved: list[CodeLocation] = []
-    for location in contracted:
-        module = deployed.get(location.name) or (unmatched.pop(0) if unmatched else location.definitions_module)
-        resolved.append(CodeLocation(name=location.name, definitions_module=module))
-    return resolved
+            deployed.append(
+                CodeLocation(
+                    name=str(deployment.get("name")),
+                    definitions_module=args[args.index("--module-name") + 1],
+                )
+            )
+    if not deployed:
+        raise _RollbackUncapturable(
+            f"the current {_RELEASE!r} release in {namespace} declares no readable code location, so a failed "
+            "activation could not be rolled back onto what it is running. Refusing to upgrade."
+        )
+    return deployed
 
 
 def _floe_renderer(provider: DeploymentProvider) -> str:
