@@ -7,6 +7,7 @@ import json
 import tarfile
 import tempfile
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -233,8 +234,13 @@ def _user_values(
     platform_globals: Mapping[str, Any],
     floe_renderer: str,
     code_locations: Sequence[CodeLocation],
+    image: str | None = None,
 ) -> dict[str, object]:
-    repository, digest = _image_parts(activation.project_code_image)
+    # `image` overrides the activation's own only on the rollback path, where
+    # the target is the release that was running rather than the one the
+    # pointer names. Image and modules must come from the same place: a
+    # digest that never shipped a module cannot load it.
+    repository, digest = _image_parts(image or activation.project_code_image)
     # Annotated rather than inferred: the initializer is all plain string
     # values, but the OPENLINEAGE_API_KEY entry below carries a nested
     # `valueFrom.secretKeyRef`, which a `dict[str, str]` inference rejects.
@@ -459,71 +465,88 @@ def _kube_context(provider: DeploymentProvider) -> str:
 
 
 class _RollbackUncapturable(ActivationError):
-    """The live release's code locations could not be read before an upgrade."""
+    """The live release's rollback target could not be read before an upgrade."""
 
 
-def _rollback_code_locations(
-    provider: DeploymentProvider,
-    *,
-    contracted: Sequence[CodeLocation],
-    namespace: str,
-    env: Mapping[str, str],
-) -> Sequence[CodeLocation]:
-    """Exactly the name/module pairs the live release is running.
+@dataclass(frozen=True)
+class _RollbackTarget:
+    """One coherent executable state: an image and the modules it shipped."""
 
-    A rollback restores a known-good release, so it may only redeploy pairs
-    that release actually supplied. Anything else pairs `previous`'s image with
-    a module that image need not contain -- a renamed location, or one added
-    when a stage grew from one to two -- and the rollback then fails readiness.
-    Helm restores the uncommitted new release when it does, leaving
-    `ACTIVE.json` naming an activation the cluster is not running: the silent
-    split brain this path exists to prevent.
+    image: str
+    locations: tuple[CodeLocation, ...]
 
-    The cost is that Terraform has already rendered the webserver's workspace
-    from the *current* contract, so after a rollback that dropped or renamed a
-    location the workspace names a Service that is not there. That is the
-    lesser failure, and a self-healing one: the pods run, the release is
-    consistent with the pointer, and the next successful deploy re-renders the
-    workspace. Keeping the contracted names instead trades it for a rollback
-    that cannot come up at all.
 
-    Raises rather than guessing when an installed release cannot be read: this
-    runs before the upgrade, so failing costs nothing. A release that is not
-    installed is not that case -- there is nothing deployed to preserve, and
-    refusing would block the redeploy that repairs it.
+def _rollback_target(
+    provider: DeploymentProvider, *, namespace: str, env: Mapping[str, str]
+) -> _RollbackTarget | None:
+    """What the live release is running, or None when there is no release.
+
+    A rollback may only redeploy a state that existed. Taking the modules from
+    the live release but the image from `ACTIVE.json` -- or the modules from
+    the current contract -- can name a module that digest never shipped, and
+    the rollback then fails readiness. Helm restores the uncommitted new
+    release when it does, leaving the pointer naming an activation the cluster
+    is not running: the silent split brain this path exists to prevent. So
+    both halves come from the same observation.
+
+    None means no release was installed, so there is nothing to restore and a
+    failed activation is undone by removing what was just installed. That is
+    the honest answer even when `ACTIVE.json` still names an activation --
+    a pointer is not a running deployment.
+
+    Raises when an installed release cannot be read. This runs before the
+    upgrade, so refusing costs nothing.
+
+    The cost of restoring exactly what ran is that Terraform has already
+    rendered the webserver's workspace from the current contract, so after a
+    rollback that dropped or renamed a location the workspace names a Service
+    that is not there. That is the lesser failure and it heals: the pods run,
+    the release agrees with the pointer, and the next successful deploy
+    re-renders the workspace.
     """
     helm = provider.tools.helm
-    if not helm.status(_RELEASE, namespace=namespace, kube_context=_kube_context(provider), env=env).ok:
-        return contracted
-    result = helm.get_values(_RELEASE, namespace=namespace, kube_context=_kube_context(provider), env=env)
+    kube_context = _kube_context(provider)
+    if not helm.status(_RELEASE, namespace=namespace, kube_context=kube_context, env=env).ok:
+        return None
+    result = helm.get_values(_RELEASE, namespace=namespace, kube_context=kube_context, env=env)
     if not result.ok:
         raise _RollbackUncapturable(
             f"cannot read the current {_RELEASE!r} release's values in {namespace}, so a failed activation "
-            "could not be rolled back onto the code locations it is running. Refusing to upgrade."
+            "could not be rolled back onto what it is running. Refusing to upgrade."
         )
     try:
         values = json.loads(result.stdout or "null")
     except json.JSONDecodeError as exc:
         raise _RollbackUncapturable(
             f"the current {_RELEASE!r} release in {namespace} reported unreadable values, so a failed "
-            "activation could not be rolled back onto the code locations it is running. Refusing to upgrade."
+            "activation could not be rolled back onto what it is running. Refusing to upgrade."
         ) from exc
-    deployed: list[CodeLocation] = []
+    locations: list[CodeLocation] = []
+    images: set[str] = set()
     for deployment in (values or {}).get("deployments") or []:
         args = list(deployment.get("dagsterApiGrpcArgs") or [])
-        if "--module-name" in args and args.index("--module-name") + 1 < len(args):
-            deployed.append(
-                CodeLocation(
-                    name=str(deployment.get("name")),
-                    definitions_module=args[args.index("--module-name") + 1],
-                )
+        image = deployment.get("image") or {}
+        repository, digest = image.get("repository"), image.get("digest")
+        if "--module-name" not in args or args.index("--module-name") + 1 >= len(args):
+            continue
+        if not repository or not digest:
+            continue
+        locations.append(
+            CodeLocation(
+                name=str(deployment.get("name")),
+                definitions_module=args[args.index("--module-name") + 1],
             )
-    if not deployed:
-        raise _RollbackUncapturable(
-            f"the current {_RELEASE!r} release in {namespace} declares no readable code location, so a failed "
-            "activation could not be rolled back onto what it is running. Refusing to upgrade."
         )
-    return deployed
+        images.add(f"{repository}@{digest}")
+    if not locations or len(images) != 1:
+        # One release runs one project image across however many locations it
+        # has. No location, or more than one image, is not a state this can
+        # put back coherently.
+        raise _RollbackUncapturable(
+            f"the current {_RELEASE!r} release in {namespace} does not declare one image and a readable module "
+            "per code location, so a failed activation could not be rolled back onto it. Refusing to upgrade."
+        )
+    return _RollbackTarget(image=images.pop(), locations=tuple(locations))
 
 
 def _floe_renderer(provider: DeploymentProvider) -> str:
@@ -724,20 +747,20 @@ def deploy_revision(
             # follows lets Helm restore the uncommitted new release - leaving
             # ACTIVE.json naming the old activation while the cluster runs
             # the new one.
-            rollback_locations = (
-                _rollback_code_locations(
-                    provider, contracted=code_locations, namespace=context.namespace, env=env
-                )
-                if previous
-                else code_locations
-            )
+            rollback = _rollback_target(provider, namespace=context.namespace, env=env) if previous else None
             provider.tools.helm.upgrade_install(
                 _RELEASE, chart, namespace=context.namespace, values=values, kube_context=kube_context, env=env
             )
             try:
                 commit_active(store, activation)
             except ProjectActivationError:
-                if previous is None:
+                # `previous` is redundant with `rollback` -- the target is only
+                # read when a pointer exists -- but stating it lets the type
+                # checker see that the branch below has an activation.
+                if rollback is None or previous is None:
+                    # Either nothing was active, or nothing was installed. In
+                    # both cases undoing this activation means removing what
+                    # it just installed, not restoring a state that never ran.
                     provider.tools.helm.uninstall(
                         _RELEASE, namespace=context.namespace, kube_context=kube_context, env=env
                     )
@@ -751,7 +774,8 @@ def deploy_revision(
                                 namespace=context.namespace,
                                 platform_globals=platform_globals,
                                 floe_renderer=_RENDERER_UNRECONCILED,
-                                code_locations=rollback_locations,
+                                code_locations=rollback.locations,
+                                image=rollback.image,
                             ),
                             sort_keys=False,
                         )

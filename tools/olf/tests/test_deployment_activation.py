@@ -783,3 +783,62 @@ def test_a_rollback_does_not_give_the_previous_image_a_new_module(
     restored = harness.helm.installed["olf-dev"]["deployments"]
     assert [entry["name"] for entry in restored] == ["openlakeforge-dagster"]
     assert all("lakehouse_code.brand_new" not in entry["dagsterApiGrpcArgs"] for entry in restored)
+
+
+def test_a_rollback_restores_the_image_that_ran_the_modules(
+    harness, monkeypatch: pytest.MonkeyPatch
+) -> None:  # noqa: ANN001
+    """The rollback target is one observation, not two sources spliced.
+
+    A release manually rolled back to another activation runs modules the
+    pointer's image need not contain. Taking modules from the release and the
+    image from `ACTIVE.json` can therefore name a module that digest never
+    shipped, and the rollback would not become ready."""
+    harness.deploy("dev")
+    live = harness.helm.installed["olf-dev"]["deployments"]
+    other = "ghcr.io/openlakeforge/project-code@sha256:" + "d" * 64
+    repository, digest = other.split("@", 1)
+    for entry in live:
+        entry["image"] = {"repository": repository, "digest": digest, "pullPolicy": "IfNotPresent"}
+        entry["dagsterApiGrpcArgs"] = ["--module-name", "lakehouse_code.other_definitions"]
+        # The label a manual rollback to another activation leaves behind;
+        # without it the redeploy reads the release as current and skips.
+        entry["deploymentLabels"]["openlakeforge.io/activation-revision"] = "sha256:" + "e" * 64
+    monkeypatch.setattr(
+        activation_module,
+        "commit_active",
+        lambda *a, **k: (_ for _ in ()).throw(project_activation.ProjectActivationError("pointer write failed")),
+    )
+
+    with pytest.raises(project_activation.ProjectActivationError):
+        harness.deploy("dev")
+
+    restored = harness.helm.installed["olf-dev"]["deployments"]
+    assert [entry["dagsterApiGrpcArgs"] for entry in restored] == [
+        ["--module-name", "lakehouse_code.other_definitions"]
+    ]
+    assert {entry["image"]["digest"] for entry in restored} == {digest}
+
+
+def test_a_deleted_release_is_uninstalled_rather_than_restored(
+    harness, monkeypatch: pytest.MonkeyPatch
+) -> None:  # noqa: ANN001
+    """A pointer is not a running deployment.
+
+    With `ACTIVE.json` naming an activation whose release was deleted, there is
+    no state to put back, and reconstructing one from the current contract
+    would pair its modules with the previous image. Undoing means removing what
+    was just installed."""
+    harness.deploy("dev")
+    harness.helm.installed.pop("olf-dev")
+    harness.helm.ready.discard("olf-dev")
+    monkeypatch.setattr(
+        activation_module,
+        "commit_active",
+        lambda *a, **k: (_ for _ in ()).throw(project_activation.ProjectActivationError("pointer write failed")),
+    )
+
+    with pytest.raises(project_activation.ProjectActivationError):
+        harness.deploy("dev")
+
+    assert harness.helm.uninstalled == ["olf-dev"]
