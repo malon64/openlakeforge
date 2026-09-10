@@ -20,6 +20,14 @@ Terraform and a provider account, and stays with `olf e2e run`. The two static
 checks here (the root declares a v3 stage-indexed contract surface, and the
 outputs shared tooling reads) are what catch a root drifting away from its
 fixture in the meantime.
+
+Assertions are written against what a caller can observe. The destructive-apply
+guards are driven through each provider's platform apply rather than called
+directly, so a provider whose apply stops invoking them fails here; the
+Protocol check binds Protocol-shaped calls rather than comparing signature
+text, so an adapter may be rewritten freely as long as shared callers still
+work; and cross-provider equality covers only the logical identities olf itself
+derives, never physical names the provider contract owns.
 """
 
 from __future__ import annotations
@@ -31,9 +39,11 @@ from typing import Any
 
 import hcl2
 import pytest
+from _cloud_support import FakeCloudBackend
 from _tooling_support import RecordedCall, RecordingRunner
 from conftest import write_two_product_fixture
 
+from olf.deployment.cloud.backend import FoundationFacts
 from olf.deployment.context import DeploymentContext, Provider, stage_namespace
 from olf.deployment.engine import (
     DeploymentEngine,
@@ -43,10 +53,6 @@ from olf.deployment.engine import (
     build_provider,
 )
 from olf.deployment.errors import DeploymentPreconditionError
-from olf.deployment.local.platform import (
-    require_no_shared_namespace_replacement,
-    require_no_stage_removal,
-)
 from olf.profile import StageName, resolve_topology, validate_deployment_profile
 from olf.provider_contracts import ProviderContractError, parse_provider_contracts
 from olf.tooling.aws import AwsSdk
@@ -64,7 +70,16 @@ FIXTURES = Path(__file__).parent / "fixtures"
 
 every_provider = pytest.mark.parametrize("provider", tuple(Provider), ids=[p.value for p in Provider])
 
-_FAKE_TOOLS = ("terraform", "docker", "kind", "kubectl", "helm")
+_FAKE_TOOLS = ("terraform", "docker", "kind", "kubectl", "helm", "aws", "az")
+
+# What a cloud foundation reports once applied. Only the cloud platform
+# apply reads it; the local one derives its context statically.
+_FOUNDATION_FACTS = FoundationFacts(
+    cluster_name="olf-conformance",
+    kube_context="olf-conformance",
+    project_code_repository="registry.example/project-code",
+    superset_repository="registry.example/superset",
+)
 
 # `DeploymentProvider`'s own members, read off the Protocol rather than
 # restated: a member added there has to be implemented by every adapter, and
@@ -97,11 +112,14 @@ _PHASE_STEP = {
 # silently disarming the stage-removal guard on that provider.
 _REQUIRED_ROOT_OUTPUTS = ("provider_contracts", "shared_namespace", "stage_names")
 
-# Names no stage-scoped identity may carry: the providers themselves, and the
-# implementation each happens to be built on. AGENTS.md architectural rule 2 -
-# a physical name derived from anything but logical identity makes the same
-# descriptor resolve differently per provider.
-_PROVIDER_TOKENS = tuple(sorted({provider.value for provider in Provider} | {"seaweedfs", "polaris", "glue"}))
+_MEDALLION_LAYERS = ("bronze", "silver", "gold")
+
+# The stages every provider's captured contract must serve, so cross-provider
+# comparison is over a declared set rather than whatever the fixtures happen to
+# share - an intersection would skip a dropped stage instead of failing on it.
+# A provider may serve more (AWS's fixture also carries UAT); it may not serve
+# fewer.
+_CONFORMANCE_STAGES = (StageName.DEV, StageName.PROD)
 
 
 def _ok(stdout: str = "") -> CommandResult:
@@ -125,6 +143,48 @@ def _toolkit(runner: RecordingRunner) -> Toolkit:
         aws=AwsSdk(),
         azure=AzureSdk(),
     )
+
+
+def _permitted_calls(protocol_method: Any) -> tuple[tuple[tuple[Any, ...], dict[str, Any]], ...]:
+    """The (args, kwargs) shapes a caller holding only the Protocol may use.
+
+    Two shapes per method - every optional argument omitted, and every one
+    supplied - which is the whole space for this Protocol (no *args/**kwargs,
+    no overloads).
+    """
+    marker = object()
+    parameters = list(inspect.signature(protocol_method).parameters.values())[1:]  # drop `self`
+    args: list[Any] = []
+    required: dict[str, Any] = {}
+    optional: dict[str, Any] = {}
+    for parameter in parameters:
+        if parameter.kind in (parameter.VAR_POSITIONAL, parameter.VAR_KEYWORD):
+            continue
+        if parameter.default is not parameter.empty:
+            optional[parameter.name] = marker
+        elif parameter.kind is parameter.KEYWORD_ONLY:
+            required[parameter.name] = marker
+        else:
+            args.append(marker)
+    return ((tuple(args), dict(required)), (tuple(args), {**required, **optional}))
+
+
+def _calls_the_adapter_rejects(protocol_method: Any, implementation: Any) -> list[str]:
+    """Protocol-shaped calls the bound implementation would not accept.
+
+    Binds rather than compares signature text: an adapter may spell an
+    annotation differently, narrow a return type, or add an argument of its own
+    with a default, and none of that changes what a shared caller can do. Only
+    a call the Protocol permits and the adapter refuses is a contract break.
+    """
+    rejected = []
+    for args, kwargs in _permitted_calls(protocol_method):
+        try:
+            inspect.signature(implementation).bind(*args, **kwargs)
+        except TypeError:
+            rendered = ", ".join(["<positional>"] * len(args) + [f"{name}=..." for name in kwargs])
+            rejected.append(f"{protocol_method.__name__}({rendered})")
+    return rejected
 
 
 def _context(provider: Provider, repo_root: Path, **kwargs: Any) -> DeploymentContext:
@@ -219,15 +279,32 @@ def _root_locals(terraform_root: Path) -> dict[str, Any]:
     return merged
 
 
+def _logical_identities(stage_name: StageName, stage: Any) -> tuple[tuple[str, str, str], ...]:
+    """The names shared, provider-neutral code derives from the stage alone.
+
+    Each has exactly one correct value per stage, on every provider, because
+    olf itself computes the expected one. Physical object-store and catalog
+    naming is *not* here: rule 2 delegates it to the provider contract, so an
+    account-derived bucket name is correct rather than a violation.
+    """
+    return (
+        ("namespace", str(stage.namespace), stage_namespace(stage_name)),
+        ("catalog.catalog_name", str(stage.catalog["catalog_name"]), f"lakehouse_{stage_name.value}"),
+        ("query.catalog_name", str(stage.query["catalog_name"]), f"lakehouse_{stage_name.value}"),
+        ("activation.prefix", str(stage.activation["prefix"]), f"activations/{stage_name.value}"),
+    )
+
+
 def _guard_runner(
     *,
     applied_stages: str | None = None,
     legacy_namespace_exists: bool = False,
     labelled_namespaces: str = "",
 ) -> RecordingRunner:
-    """A runner standing in for a cluster the destructive-apply guards query:
-    `terraform output -json stage_names`, the pre-v0.3 shared namespace, and
-    the namespaces labelled as this deployment's."""
+    """A runner standing in for the cluster a platform apply queries on its way
+    to the destructive-apply guards: a reachable kube context, cached charts,
+    `terraform output -json stage_names`, the pre-v0.3 shared namespace, and the
+    namespaces labelled as this deployment's."""
 
     class _Runner(RecordingRunner):
         def run(self, command, **kwargs):  # type: ignore[override]  # noqa: ANN001, ANN202
@@ -235,13 +312,66 @@ def _guard_runner(
             self.calls.append(RecordedCall(argv=argv, kwargs=kwargs))
             if "stage_names" in argv:
                 return _ok(applied_stages if applied_stages is not None else "[]")
+            if argv[0] == "kubectl" and "get-contexts" in argv:
+                return _ok("kind-openlakeforge-local\n")
             if "get" in argv and "namespace" in argv and "lakehouse" in argv:
                 return _ok() if legacy_namespace_exists else _fail()
             if "namespace" in argv and "-l" in argv:
                 return _ok(labelled_namespaces)
+            if argv[0] == "kubectl" and "namespace" in argv and "get" in argv:
+                return _fail()
+            # A cache hit, so a platform apply reaching the guards never pulls
+            # or repacks a real chart.
+            if argv[0] == "helm" and argv[1:3] == ["show", "chart"]:
+                return _ok()
             return _ok()
 
     return _Runner()
+
+
+def _ready_for_platform_apply(config: Any) -> None:
+    """The preconditions every provider's platform apply checks before it
+    reaches the guards: an applied foundation, and a cached chart per release."""
+    config.paths.foundation_state_path.parent.mkdir(parents=True, exist_ok=True)
+    config.paths.foundation_state_path.write_text("{}", encoding="utf-8")
+    config.paths.helm_cache_dir.mkdir(parents=True, exist_ok=True)
+    for setting in config.charts.values():
+        if setting.package_path is not None:
+            Path(setting.package_path).parent.mkdir(parents=True, exist_ok=True)
+            Path(setting.package_path).write_text("cached", encoding="utf-8")
+
+
+def _platform_apply(provider: Provider, adapter: Any) -> None:
+    """Run this provider's platform apply, the call path the guards live on.
+
+    Dispatched per provider family rather than through `adapter.platform_up()`
+    because the cloud provider resolves live foundation facts first (a real
+    Terraform state and a reachable cluster) - `FakeCloudBackend` stands in for
+    that, and nothing else about the apply is stubbed. Calling the guards
+    directly instead would leave this suite green if a provider's apply stopped
+    calling them, which is the regression that matters.
+    """
+    if provider is Provider.LOCAL:
+        from olf.deployment.local import platform as local_platform
+
+        local_platform.platform_up(adapter.config, adapter.tools, env={})
+        return
+    if provider in (Provider.AWS, Provider.AZURE):
+        from olf.deployment.cloud import platform as cloud_platform
+
+        cloud_platform.platform_up(
+            adapter.config,
+            adapter.tools,
+            FakeCloudBackend(scope=provider.value),
+            _FOUNDATION_FACTS,
+            env={},
+        )
+        return
+    raise AssertionError(
+        f"{provider.value!r} has no platform apply wired into this suite. Every provider applies its platform "
+        f"through one entry point, and the destructive-apply guards live on it - a provider whose apply this "
+        f"suite cannot reach is a provider whose guards are unverified."
+    )
 
 
 @every_provider
@@ -259,16 +389,16 @@ def test_adapter_satisfies_the_deployment_provider_protocol(provider: Provider, 
             f"reads it on every provider; without it that code has to reach past the Protocol to keep working."
         )
     for method in _PROTOCOL_METHODS:
-        implementation = getattr(type(adapter), method, None)
-        assert implementation is not None, (
+        implementation = getattr(adapter, method, None)
+        assert callable(implementation), (
             f"{type(adapter).__name__} does not implement {method}(). Every DeploymentProvider member is a "
             f"lifecycle step `olf deploy`/`olf destroy` or a Make target delegate calls directly."
         )
-        expected = inspect.signature(getattr(DeploymentProvider, method))
-        actual = inspect.signature(implementation)
-        assert str(actual) == str(expected), (
-            f"{type(adapter).__name__}.{method}{actual} does not match DeploymentProvider.{method}{expected}. "
-            f"The engine calls every adapter through the same signature."
+        rejected = _calls_the_adapter_rejects(getattr(DeploymentProvider, method), implementation)
+        assert not rejected, (
+            f"{type(adapter).__name__}.{method}() rejects a call DeploymentProvider permits: {rejected!r}. "
+            f"Shared code calls every adapter the same way, so an adapter may add optional arguments but may "
+            f"not require its own or drop one the Protocol declares."
         )
 
 
@@ -381,48 +511,59 @@ def test_every_enabled_stage_resolves_from_the_contract(provider: Provider) -> N
 
 
 @every_provider
-def test_stage_scoped_identities_derive_from_stage_identity_alone(provider: Provider) -> None:
-    """AGENTS.md architectural rule 2: physical names are derived from logical
-    identity, never from the provider serving it. A provider name embedded in
-    a namespace, catalog, or bucket makes the same descriptor resolve to a
-    different physical object per provider."""
+def test_logical_stage_identities_derive_from_stage_identity_alone(provider: Provider) -> None:
+    """AGENTS.md architectural rule 2, on the names the rule actually governs.
+
+    Namespace, SQL catalog name, and activation prefix are computed by shared
+    provider-neutral code from the stage name, so each has exactly one correct
+    value on every provider. Physical object-store and catalog naming is
+    explicitly delegated to the provider contract and is deliberately not
+    pinned here - see the shape assertions below, and
+    `test_logical_stage_identities_are_identical_across_providers`.
+    """
     contract = _contract(provider)
     parsed = parse_provider_contracts(contract, _topology_of(contract))
 
     for name, stage in parsed.stages.items():
-        derived = {
-            "namespace": (stage.namespace, stage_namespace(name)),
-            "catalog.catalog_name": (stage.catalog["catalog_name"], f"lakehouse_{name.value}"),
-            "activation.prefix": (stage.activation["prefix"], f"activations/{name.value}"),
-        }
-        for field, (actual, canonical) in derived.items():
+        for field, actual, canonical in _logical_identities(name, stage):
             assert actual == canonical, (
                 f"{provider.value}'s {name.value!r} stage names its {field} {actual!r}, not the canonical "
-                f"{canonical!r}. It is derived from the stage's logical identity and nothing else, so it reads "
-                f"the same on every provider."
+                f"{canonical!r}. Shared code derives this name from the stage alone, so a provider that spells "
+                f"it differently is one shared code cannot address."
             )
-        identities = [stage.namespace, stage.catalog["catalog_name"], stage.activation["prefix"]]
-        identities.append(str(stage.runtime_identity["principal"]))
-        identities.extend(str(stage.storage[layer]["bucket_name"]) for layer in ("bronze", "silver", "gold"))
-        for identity in identities:
-            named = [token for token in _PROVIDER_TOKENS if token in identity.lower()]
-            assert not named, (
-                f"{provider.value}'s {name.value!r} stage carries {named!r} inside the identity {identity!r}. "
-                f"Physical names are derived from logical identity; naming the provider or its implementation "
-                f"there is what makes a descriptor stop being provider-neutral."
-            )
-        for layer in ("bronze", "silver", "gold"):
+
+
+@every_provider
+def test_physical_stage_storage_stays_isolated_per_stage(provider: Provider) -> None:
+    """The provider contract owns physical bucket naming (rule 2 delegates it),
+    so this asserts the property stage isolation depends on rather than the
+    spelling: each layer's bucket is distinct, and belongs to exactly one stage
+    and one layer."""
+    contract = _contract(provider)
+    parsed = parse_provider_contracts(contract, _topology_of(contract))
+
+    seen: dict[str, str] = {}
+    for name, stage in parsed.stages.items():
+        for layer in _MEDALLION_LAYERS:
             bucket = str(stage.storage[layer]["bucket_name"])
-            assert name.value in bucket and layer in bucket, (
-                f"{provider.value}'s {name.value!r} {layer} bucket is named {bucket!r}, which does not carry its "
-                f"own stage and layer. Stage data-plane isolation depends on those names never colliding."
+            owner = f"{name.value}/{layer}"
+            assert bucket not in seen, (
+                f"{provider.value} gives {owner} the same bucket as {seen[bucket]}: {bucket!r}. Stage data-plane "
+                f"isolation is what keeps DEV out of PROD's data; two stages sharing a bucket removes it."
             )
+            seen[bucket] = owner
 
 
-def test_stage_identities_are_identical_across_providers() -> None:
-    """The same profile, deployed to a different provider, resolves a stage to
-    the same logical identities. This is rule 2 stated as an equality rather
-    than as a naming convention: it is what makes an adapter swappable."""
+def test_logical_stage_identities_are_identical_across_providers() -> None:
+    """The same profile, deployed to a different provider, addresses a stage by
+    the same logical names. Deliberately limited to the logical identities:
+    physical bucket names and runtime principals may legitimately be
+    account-derived, and rule 2 delegates them to the provider contract.
+
+    The stages compared are declared here rather than intersected from the
+    fixtures, so a captured contract that quietly drops one fails instead of
+    being skipped.
+    """
     parsed = {}
     for provider in Provider:
         contract = _contract(provider)
@@ -432,105 +573,99 @@ def test_stage_identities_are_identical_across_providers() -> None:
         f"the captured contracts describe different Deployment Profiles ({profiles!r}), so nothing here compares "
         f"like with like. Capture every provider's contract from the same profile."
     )
+    for provider, contracts in parsed.items():
+        missing = sorted(stage.value for stage in _CONFORMANCE_STAGES if stage not in contracts.stages)
+        assert not missing, (
+            f"{provider.value}'s captured contract does not serve {missing!r}. Every provider must serve the "
+            f"same baseline stages for this suite to compare them; a provider missing one is the omission the "
+            f"suite exists to catch, not a case to skip."
+        )
 
-    shared_stages = set.intersection(*(set(contracts.stages) for contracts in parsed.values()))
-    assert shared_stages, "no stage is enabled on every provider's captured contract, so nothing is compared."
-    for stage in sorted(shared_stages, key=lambda name: name.value):
+    for stage in _CONFORMANCE_STAGES:
         identities = {
-            provider.value: (
-                contracts.for_stage(stage).namespace,
-                contracts.for_stage(stage).catalog["catalog_name"],
-                contracts.for_stage(stage).activation["prefix"],
-                contracts.for_stage(stage).runtime_identity["principal"],
-                tuple(
-                    contracts.for_stage(stage).storage[layer]["bucket_name"] for layer in ("bronze", "silver", "gold")
-                ),
+            provider.value: tuple(
+                actual for _, actual, _ in _logical_identities(stage, contracts.for_stage(stage))
             )
             for provider, contracts in parsed.items()
         }
         assert len(set(identities.values())) == 1, (
-            f"the {stage.value!r} stage resolves to different identities per provider: {identities!r}. A physical "
-            f"name that changes with the provider is one derived from the provider rather than from the "
-            f"descriptor."
+            f"the {stage.value!r} stage is addressed by different logical names per provider: {identities!r}. "
+            f"These are derived from the stage alone, so a difference here means shared code has to know which "
+            f"provider it is talking to."
         )
 
 
-@every_provider
-def test_removing_an_applied_stage_is_refused(provider: Provider, tmp_path: Path) -> None:
-    """The destructive-apply guard, exercised through each provider's own
-    config. It is called from both `local/platform.py` and `cloud/platform.py`
-    but declared once, against `LocalDeploymentConfig` - so on AWS and Azure it
-    works by duck typing, unchecked (#187, `docs/technical-debt.md`). What it
-    protects is an apply that is already deleting a namespace."""
+def _apply_ready_adapter(provider: Provider, tmp_path: Path, runner: RecordingRunner, **kwargs: Any):  # noqa: ANN202
+    """An adapter whose platform apply can run as far as the guards."""
     adapter = _adapter(
         provider,
         tmp_path,
-        runner=_guard_runner(applied_stages='["dev", "prod"]'),
+        runner=runner,
         topology=_single_stage_topology(provider, enabled=(StageName.DEV,)),
+        **kwargs,
     )
-
-    with pytest.raises(DeploymentPreconditionError, match="prod"):
-        require_no_stage_removal(adapter.config, adapter.tools, env={})
+    _ready_for_platform_apply(adapter.config)
+    return adapter
 
 
 @every_provider
-def test_a_stage_dropped_only_from_the_cluster_is_refused(provider: Provider, tmp_path: Path) -> None:
+def test_a_platform_apply_refuses_to_remove_an_applied_stage(provider: Provider, tmp_path: Path) -> None:
+    """Driven through the provider's platform apply, not by calling the guard:
+    a provider whose apply stops calling `require_no_stage_removal` has to fail
+    here. What it protects is an apply that is already deleting a namespace,
+    its services, and their credentials."""
+    adapter = _apply_ready_adapter(provider, tmp_path, _guard_runner(applied_stages='["dev", "prod"]'))
+
+    with pytest.raises(DeploymentPreconditionError, match="prod"):
+        _platform_apply(provider, adapter)
+
+
+@every_provider
+def test_a_platform_apply_refuses_a_stage_dropped_only_from_the_cluster(provider: Provider, tmp_path: Path) -> None:
     """The drift path: Terraform state is gone, so `stage_names` reports
     nothing applied, and the namespaces still labelled as this deployment's are
     the only signal left that a dropped stage is deployed."""
-    adapter = _adapter(
-        provider,
-        tmp_path,
-        runner=_guard_runner(labelled_namespaces="olf-system\nolf-dev\nolf-prod\n"),
-        topology=_single_stage_topology(provider, enabled=(StageName.DEV,)),
+    adapter = _apply_ready_adapter(
+        provider, tmp_path, _guard_runner(labelled_namespaces="olf-system\nolf-dev\nolf-prod\n")
     )
 
     with pytest.raises(DeploymentPreconditionError, match="prod"):
-        require_no_stage_removal(adapter.config, adapter.tools, env={})
+        _platform_apply(provider, adapter)
 
 
 @every_provider
-def test_stage_removal_proceeds_under_the_explicit_opt_in(provider: Provider, tmp_path: Path) -> None:
-    """`--allow-stage-removal` is the one thing that makes the apply proceed,
+def test_a_platform_apply_proceeds_past_removal_under_the_explicit_opt_in(
+    provider: Provider, tmp_path: Path
+) -> None:
+    """`--allow-stage-removal` is the one thing that lets the apply through,
     and it means the same on every provider."""
-    adapter = _adapter(
-        provider,
-        tmp_path,
-        runner=_guard_runner(applied_stages='["dev", "prod"]'),
-        topology=_single_stage_topology(provider, enabled=(StageName.DEV,)),
-        allow_stage_removal=True,
+    adapter = _apply_ready_adapter(
+        provider, tmp_path, _guard_runner(applied_stages='["dev", "prod"]'), allow_stage_removal=True
     )
 
-    require_no_stage_removal(adapter.config, adapter.tools, env={})
+    _platform_apply(provider, adapter)
 
 
 @every_provider
-def test_replacing_the_pre_v0_3_shared_namespace_is_refused(provider: Provider, tmp_path: Path) -> None:
+def test_a_platform_apply_refuses_to_replace_the_pre_v0_3_shared_namespace(
+    provider: Provider, tmp_path: Path
+) -> None:
     """Every root's shared-services namespace was `lakehouse` before the
     stage-aware rewrite. A namespace name is immutable, so an apply against an
     unmigrated cluster plans to destroy it - and the SeaweedFS, PostgreSQL, and
     Polaris state inside it - to create an empty `olf-system`."""
-    adapter = _adapter(
-        provider,
-        tmp_path,
-        runner=_guard_runner(legacy_namespace_exists=True),
-        topology=_single_stage_topology(provider, enabled=(StageName.DEV,)),
-    )
+    adapter = _apply_ready_adapter(provider, tmp_path, _guard_runner(legacy_namespace_exists=True))
 
     with pytest.raises(DeploymentPreconditionError, match="lakehouse"):
-        require_no_shared_namespace_replacement(adapter.config, adapter.tools, env={})
+        _platform_apply(provider, adapter)
 
 
 @every_provider
-def test_a_fresh_cluster_has_no_shared_namespace_to_replace(provider: Provider, tmp_path: Path) -> None:
-    adapter = _adapter(
-        provider,
-        tmp_path,
-        runner=_guard_runner(legacy_namespace_exists=False),
-        topology=_single_stage_topology(provider, enabled=(StageName.DEV,)),
-    )
+def test_a_platform_apply_proceeds_on_a_fresh_cluster(provider: Provider, tmp_path: Path) -> None:
+    """Neither guard fires where there is nothing deployed to destroy."""
+    adapter = _apply_ready_adapter(provider, tmp_path, _guard_runner())
 
-    require_no_shared_namespace_replacement(adapter.config, adapter.tools, env={})
+    _platform_apply(provider, adapter)
 
 
 def _record_steps(adapter_class: type, monkeypatch: pytest.MonkeyPatch, calls: list[str]) -> None:
