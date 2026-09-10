@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import inspect
 import json
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -411,14 +412,34 @@ def test_adapter_exposes_the_command_environment_shared_callers_use(provider: Pr
     here on what every adapter actually exposes, so a new adapter that omits
     it fails now rather than at activation time.
 
-    Read off the class: `env` resolves the Docker engine endpoint (and, on
-    cloud, the foundation's Terraform outputs) the first time it is touched.
+    The value is resolved, not just the attribute: an adapter whose `env` is
+    None, raises, or yields something Helm and Docker cannot take as an
+    environment would pass an attribute check and fail at activation. Cloud
+    adapters resolve the foundation's outputs on first touch, so the fake
+    facts are primed first rather than letting it reach a real Terraform.
     """
     adapter = _adapter(provider, tmp_path)
 
     assert hasattr(type(adapter), "env"), (
         f"{type(adapter).__name__} has no `env`. Stage activation drives Helm and Docker through the provider's "
         f"own command-environment overlay; without it, activation cannot run against this provider."
+    )
+    if provider is not Provider.LOCAL:
+        adapter.__dict__["_foundation_facts"] = _FOUNDATION_FACTS
+
+    env = adapter.env
+
+    assert isinstance(env, Mapping), (
+        f"{type(adapter).__name__}.env is {type(env).__name__}, not a mapping. Shared code hands it straight to "
+        f"the toolkit as a subprocess environment."
+    )
+    assert env and all(isinstance(key, str) and isinstance(value, str) for key, value in env.items()), (
+        f"{type(adapter).__name__}.env must be a non-empty mapping of str to str; a subprocess environment "
+        f"cannot carry anything else. Got {env!r}."
+    )
+    assert env.get("KUBE_CONTEXT"), (
+        f"{type(adapter).__name__}.env carries no KUBE_CONTEXT. Every adapter resolves the cluster its commands "
+        f"target into the command environment - on cloud from the foundation outputs, on local statically."
     )
 
 
@@ -672,6 +693,12 @@ def test_a_platform_apply_proceeds_on_a_fresh_cluster(provider: Provider, tmp_pa
 
 
 def _record_steps(adapter_class: type, monkeypatch: pytest.MonkeyPatch, calls: list[str]) -> None:
+    """Replace each ADR 0002 step with a recorder, asserting it exists first.
+
+    Recording is what keeps these two tests cluster-free, and is also their
+    limit: they check which step each phase selects and in what order, never
+    what a step does.
+    """
     for step in _PHASE_STEP.values():
         assert hasattr(adapter_class, step), (
             f"{adapter_class.__name__} does not implement {step}(). `olf deploy --phase` selects it by name on "
@@ -688,9 +715,14 @@ def _record_steps(adapter_class: type, monkeypatch: pytest.MonkeyPatch, calls: l
 def test_every_deploy_phase_selects_its_own_adapter_step(
     provider: Provider, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """ADR 0002: each phase is selectable with `--phase`, and selecting one
-    runs that phase alone - a platform apply that also ran an artifact step
-    would put user code inside the static lifecycle."""
+    """ADR 0002: each phase is selectable with `--phase` on every provider, and
+    selecting one dispatches that adapter's step alone.
+
+    Scope: the steps are recorded, so this proves the phase-to-step wiring and
+    that this adapter implements every step by name -- not that a step does
+    the right work. An adapter whose `platform_up` became a no-op, or started
+    doing artifact work, still passes here; only a real apply shows that, and
+    that is `olf e2e run`."""
     write_two_product_fixture(tmp_path, dashboards=(("widgets_overview", "widgets_alpha"),))
     adapter = _adapter(provider, tmp_path)
     calls: list[str] = []
@@ -713,7 +745,10 @@ def test_deploying_everything_runs_the_adr_0002_order(
 ) -> None:
     """foundation -> platform -> artifacts, identically on every provider.
     Static infrastructure is applied before anything derived from
-    `lakehouse_code/` exists, which is what keeps a code commit off Terraform."""
+    `lakehouse_code/` exists, which is what keeps a code commit off Terraform.
+
+    Ordering only, for the reason the phase-selection test above gives: the
+    steps are recorded rather than run."""
     write_two_product_fixture(tmp_path, dashboards=(("widgets_overview", "widgets_alpha"),))
     adapter = _adapter(provider, tmp_path)
     calls: list[str] = []
