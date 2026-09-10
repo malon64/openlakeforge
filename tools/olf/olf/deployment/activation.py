@@ -6,7 +6,8 @@ import hashlib
 import json
 import tarfile
 import tempfile
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -31,7 +32,7 @@ from olf.project_activation import ProjectActivation, ProjectActivationError, co
 from olf.project_activation import active as active_activation
 from olf.project_activation import publish as publish_activation
 from olf.project_revision import ProjectRevisionError, materialize, verify
-from olf.provider_contracts import ProviderContractError, parse_provider_contracts
+from olf.provider_contracts import CodeLocation, ProviderContractError, StageContract, parse_provider_contracts
 from olf.tooling import docker as docker_tooling
 
 _RELEASE = "openlakeforge-project"
@@ -73,6 +74,9 @@ _RUNTIME_ALIASES = (
     "OPENLINEAGE_URL",
 )
 _LOG_ARCHIVE_SCHEDULE = "*/15 * * * *"
+# The gRPC port the platform's workspace entries expect on every code-location
+# host (modules/orchestration/dagster/main.tf, local.workspace_servers).
+_CODE_SERVER_PORT = 3030
 
 
 class ActivationError(DeploymentPreconditionError):
@@ -101,16 +105,21 @@ def _plain(value: Any) -> Any:
     return value
 
 
-def provider_binding_digest(raw_contract: Mapping[str, Any], *, topology, stage: StageName) -> str:  # noqa: ANN001
-    """Hash the selected non-secret provider contract binding deterministically."""
+def _selected_stage(  # noqa: ANN001
+    raw_contract: Mapping[str, Any], *, topology, stage: StageName
+) -> tuple[Mapping[str, Any], StageContract]:
+    """The stage's parsed bindings, refusing a platform activation cannot serve."""
     parsed = parse_provider_contracts(raw_contract, topology)
     if parsed.compatibility_v2 or parsed.schema_version != "3.0.0":
         raise ActivationError(
             "olf project deploy requires a native provider-contract v3 platform; v2 is DEV compatibility only."
         )
-    selected = parsed.for_stage(stage)
+    return parsed.deployment, parsed.for_stage(stage)
+
+
+def _binding_digest(deployment: Mapping[str, Any], selected: StageContract) -> str:
     payload = {
-        "deployment": dict(parsed.deployment),
+        "deployment": dict(deployment),
         "shared": {
             "ops_storage": dict(selected.shared.values["ops_storage"]),
             "identity": dict(selected.shared.values["identity"]),
@@ -131,6 +140,19 @@ def provider_binding_digest(raw_contract: Mapping[str, Any], *, topology, stage:
     }
     rendered = json.dumps(_plain(payload), sort_keys=True, separators=(",", ":")).encode()
     return "sha256:" + hashlib.sha256(rendered).hexdigest()
+
+
+def stage_code_locations(
+    raw_contract: Mapping[str, Any], *, topology, stage: StageName  # noqa: ANN001
+) -> tuple[CodeLocation, ...]:
+    """The stage's contracted code locations, for callers comparing a release
+    against the set it is supposed to be running."""
+    return tuple(_selected_stage(raw_contract, topology=topology, stage=stage)[1].code_locations)
+
+
+def provider_binding_digest(raw_contract: Mapping[str, Any], *, topology, stage: StageName) -> str:  # noqa: ANN001
+    """Hash the selected non-secret provider contract binding deterministically."""
+    return _binding_digest(*_selected_stage(raw_contract, topology=topology, stage=stage))
 
 
 def _contract_dir(context: DeploymentContext, environ: Mapping[str, str]) -> Path:
@@ -211,8 +233,14 @@ def _user_values(
     namespace: str,
     platform_globals: Mapping[str, Any],
     floe_renderer: str,
+    code_locations: Sequence[CodeLocation],
+    image: str | None = None,
 ) -> dict[str, object]:
-    repository, digest = _image_parts(activation.project_code_image)
+    # `image` overrides the activation's own only on the rollback path, where
+    # the target is the release that was running rather than the one the
+    # pointer names. Image and modules must come from the same place: a
+    # digest that never shipped a module cannot load it.
+    repository, digest = _image_parts(image or activation.project_code_image)
     # Annotated rather than inferred: the initializer is all plain string
     # values, but the OPENLINEAGE_API_KEY entry below carries a nested
     # `valueFrom.secretKeyRef`, which a `dict[str, str]` inference rejects.
@@ -267,12 +295,18 @@ def _user_values(
                 secrets=[storage_secret] if storage_secret else [],
             )],
         "serviceAccount": {"create": False, "name": "dagster"},
+        # One deployment per contracted location, never a literal: the platform
+        # renders the webserver's workspace from the same list, and
+        # dagster-user-deployments names each Service after its deployment, so
+        # a second copy of the set here would point the workspace at hosts
+        # nothing creates. Every location runs the same revision on the same
+        # port -- each is its own Service, so the shared port does not collide.
         "deployments": [
             {
-                "name": "openlakeforge-dagster",
+                "name": location.name,
                 "image": {"repository": repository, "digest": digest, "pullPolicy": "IfNotPresent"},
-                "dagsterApiGrpcArgs": ["--module-name", "lakehouse_code.definitions"],
-                "port": 3030,
+                "dagsterApiGrpcArgs": ["--module-name", location.definitions_module],
+                "port": _CODE_SERVER_PORT,
                 "includeConfigInLaunchedRuns": {"enabled": True},
                 "env": env,
                 "envSecrets": [{"name": secret} for secret in secrets],
@@ -285,6 +319,7 @@ def _user_values(
                     _RENDERER_ANNOTATION: floe_renderer,
                 },
             }
+            for location in code_locations
         ],
     }
 
@@ -429,6 +464,91 @@ def _kube_context(provider: DeploymentProvider) -> str:
     return env.get("KUBE_CONTEXT") or provider.context.kube_context
 
 
+class _RollbackUncapturable(ActivationError):
+    """The live release's rollback target could not be read before an upgrade."""
+
+
+@dataclass(frozen=True)
+class _RollbackTarget:
+    """One coherent executable state: an image and the modules it shipped."""
+
+    image: str
+    locations: tuple[CodeLocation, ...]
+
+
+def _rollback_target(
+    provider: DeploymentProvider, *, namespace: str, env: Mapping[str, str]
+) -> _RollbackTarget | None:
+    """What the live release is running, or None when there is no release.
+
+    A rollback may only redeploy a state that existed. Taking the modules from
+    the live release but the image from `ACTIVE.json` -- or the modules from
+    the current contract -- can name a module that digest never shipped, and
+    the rollback then fails readiness. Helm restores the uncommitted new
+    release when it does, leaving the pointer naming an activation the cluster
+    is not running: the silent split brain this path exists to prevent. So
+    both halves come from the same observation.
+
+    None means no release was installed, so there is nothing to restore and a
+    failed activation is undone by removing what was just installed. That is
+    the honest answer even when `ACTIVE.json` still names an activation --
+    a pointer is not a running deployment.
+
+    Raises when an installed release cannot be read. This runs before the
+    upgrade, so refusing costs nothing.
+
+    The cost of restoring exactly what ran is that Terraform has already
+    rendered the webserver's workspace from the current contract, so after a
+    rollback that dropped or renamed a location the workspace names a Service
+    that is not there. That is the lesser failure and it heals: the pods run,
+    the release agrees with the pointer, and the next successful deploy
+    re-renders the workspace.
+    """
+    helm = provider.tools.helm
+    kube_context = _kube_context(provider)
+    if not helm.status(_RELEASE, namespace=namespace, kube_context=kube_context, env=env).ok:
+        return None
+    result = helm.get_values(_RELEASE, namespace=namespace, kube_context=kube_context, env=env)
+    if not result.ok:
+        raise _RollbackUncapturable(
+            f"cannot read the current {_RELEASE!r} release's values in {namespace}, so a failed activation "
+            "could not be rolled back onto what it is running. Refusing to upgrade."
+        )
+    try:
+        values = json.loads(result.stdout or "null")
+    except json.JSONDecodeError as exc:
+        raise _RollbackUncapturable(
+            f"the current {_RELEASE!r} release in {namespace} reported unreadable values, so a failed "
+            "activation could not be rolled back onto what it is running. Refusing to upgrade."
+        ) from exc
+    locations: list[CodeLocation] = []
+    images: set[str] = set()
+    for deployment in (values or {}).get("deployments") or []:
+        args = list(deployment.get("dagsterApiGrpcArgs") or [])
+        image = deployment.get("image") or {}
+        repository, digest = image.get("repository"), image.get("digest")
+        if "--module-name" not in args or args.index("--module-name") + 1 >= len(args):
+            continue
+        if not repository or not digest:
+            continue
+        locations.append(
+            CodeLocation(
+                name=str(deployment.get("name")),
+                definitions_module=args[args.index("--module-name") + 1],
+            )
+        )
+        images.add(f"{repository}@{digest}")
+    if not locations or len(images) != 1:
+        # One release runs one project image across however many locations it
+        # has. No location, or more than one image, is not a state this can
+        # put back coherently.
+        raise _RollbackUncapturable(
+            f"the current {_RELEASE!r} release in {namespace} does not declare one image and a readable module "
+            "per code location, so a failed activation could not be rolled back onto it. Refusing to upgrade."
+        )
+    return _RollbackTarget(image=images.pop(), locations=tuple(locations))
+
+
 def _floe_renderer(provider: DeploymentProvider) -> str:
     """What renders this stage's Floe manifests, as one comparable string.
 
@@ -446,6 +566,7 @@ def release_runs_activation(
     provider: DeploymentProvider,
     activation_revision: str,
     *,
+    code_locations: Sequence[CodeLocation],
     platform_globals: Mapping[str, Any] | None = None,
     env: Mapping[str, str],
 ) -> bool:
@@ -469,10 +590,19 @@ def release_runs_activation(
         values = json.loads(result.stdout or "{}") or {}
     except json.JSONDecodeError:
         return False
-    if not any(
-        (deployment.get("deploymentLabels") or {}).get(_ACTIVATION_LABEL) == activation_revision
+    # Every contracted location, not merely one of them: the contract can name
+    # several, and Terraform renders the webserver's workspace from the same
+    # set. A release carrying one correctly labelled deployment while another
+    # is missing or stale would otherwise be accepted, and the redeploy that
+    # would have repaired it skipped -- leaving the workspace pointing at a
+    # Service that does not exist.
+    deployed = {
+        deployment.get("name"): (deployment.get("deploymentLabels") or {}).get(_ACTIVATION_LABEL)
         for deployment in values.get("deployments") or []
-    ):
+    }
+    if set(deployed) != {location.name for location in code_locations}:
+        return False
+    if any(revision != activation_revision for revision in deployed.values()):
         return False
     # A platform apply can re-bind something the activation renders -- renaming
     # the Dagster credentials Secret, say -- without moving any input the
@@ -499,7 +629,9 @@ def deploy_revision(
     if raw_contract is None:
         raise ActivationError(f"provider contracts are unavailable from {contract_dir}; run olf platform apply first.")
     try:
-        binding = provider_binding_digest(raw_contract, topology=context.topology, stage=context.stage)
+        deployment, selected = _selected_stage(raw_contract, topology=context.topology, stage=context.stage)
+        binding = _binding_digest(deployment, selected)
+        code_locations = selected.code_locations
         manifest = verify(
             store,
             revision,
@@ -530,7 +662,11 @@ def deploy_revision(
             )
         )
         and release_runs_activation(
-            provider, previous.activation_revision, platform_globals=platform_globals, env=env
+            provider,
+            previous.activation_revision,
+            code_locations=code_locations,
+            platform_globals=platform_globals,
+            env=env,
         )
     ):
         # Reapplying the active revision must not touch the cluster or the ops
@@ -570,7 +706,11 @@ def deploy_revision(
                 capabilities=capabilities,
             ).resolved()
             if previous == activation and release_runs_activation(
-                provider, activation.activation_revision, platform_globals=platform_globals, env=env
+                provider,
+                activation.activation_revision,
+                code_locations=code_locations,
+                platform_globals=platform_globals,
+                env=env,
             ):
                 return activation
             if activation.capabilities["analytics"] or activation.capabilities["governance"]:
@@ -593,18 +733,34 @@ def deploy_revision(
                         namespace=context.namespace,
                         platform_globals=platform_globals,
                         floe_renderer=_floe_renderer(provider),
+                        code_locations=code_locations,
                     ),
                     sort_keys=False,
                 )
             )
             publish_activation(store, activation)
+            # Captured before the upgrade overwrites it: a rollback has to
+            # restore the image and the code locations that were deployed
+            # together. Re-rendering the previous activation against the
+            # current contract pairs the old image with a module that may
+            # exist only in the new one, and the failed readiness that
+            # follows lets Helm restore the uncommitted new release - leaving
+            # ACTIVE.json naming the old activation while the cluster runs
+            # the new one.
+            rollback = _rollback_target(provider, namespace=context.namespace, env=env) if previous else None
             provider.tools.helm.upgrade_install(
                 _RELEASE, chart, namespace=context.namespace, values=values, kube_context=kube_context, env=env
             )
             try:
                 commit_active(store, activation)
             except ProjectActivationError:
-                if previous is None:
+                # `previous` is redundant with `rollback` -- the target is only
+                # read when a pointer exists -- but stating it lets the type
+                # checker see that the branch below has an activation.
+                if rollback is None or previous is None:
+                    # Either nothing was active, or nothing was installed. In
+                    # both cases undoing this activation means removing what
+                    # it just installed, not restoring a state that never ran.
                     provider.tools.helm.uninstall(
                         _RELEASE, namespace=context.namespace, kube_context=kube_context, env=env
                     )
@@ -618,6 +774,8 @@ def deploy_revision(
                                 namespace=context.namespace,
                                 platform_globals=platform_globals,
                                 floe_renderer=_RENDERER_UNRECONCILED,
+                                code_locations=rollback.locations,
+                                image=rollback.image,
                             ),
                             sort_keys=False,
                         )

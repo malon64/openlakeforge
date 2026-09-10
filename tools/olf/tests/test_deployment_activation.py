@@ -15,11 +15,13 @@ from olf.deployment.context import DeploymentContext, Provider
 from olf.distribution import distribution_version_at
 from olf.profile import StageName, resolve_topology, validate_deployment_profile
 from olf.project import ProjectSpec
+from olf.provider_contracts import CodeLocation
 
 FIXTURES = Path(__file__).parent / "fixtures"
 ROOT = Path(__file__).resolve().parents[3]
 _IMAGE = "ghcr.io/openlakeforge/project-code@sha256:" + "a" * 64
 _FLOE = "sha256:" + "c" * 64
+_DEFAULT_LOCATIONS = (CodeLocation(name="openlakeforge-dagster", definitions_module="lakehouse_code.definitions"),)
 
 
 def _contract() -> dict:
@@ -161,6 +163,7 @@ def harness(external_project: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPa
 
     return SimpleNamespace(
         deploy=deploy,
+        contract=contract,
         store=store,
         helm=helm,
         manifest=manifest,
@@ -313,6 +316,7 @@ def test_rollout_keeps_contract_runtime_aliases(external_project: Path, tmp_path
         namespace="olf-dev",
         platform_globals={},
         floe_renderer="ghcr.io/malon64/floe:0.6.11|0.6.11|image",
+        code_locations=_DEFAULT_LOCATIONS,
     )
 
     env = {entry["name"]: entry["value"] for entry in values["deployments"][0]["env"]}
@@ -352,6 +356,7 @@ def _values(**capabilities: bool) -> dict:
         namespace="olf-dev",
         platform_globals={},
         floe_renderer="ghcr.io/malon64/floe:0.6.11|0.6.11|image",
+        code_locations=_DEFAULT_LOCATIONS,
     )
 
 
@@ -551,3 +556,289 @@ def test_cloud_pull_of_a_foreign_registry_falls_back_to_ambient_credentials() ->
 
     assert provider.backend.logins == []
     assert "DOCKER_CONFIG" not in provider.tools.docker.pulls[0][2]
+
+
+def _deployed_locations(values: dict) -> list[tuple[str, list[str], int]]:
+    return [(entry["name"], entry["dagsterApiGrpcArgs"], entry["port"]) for entry in values["deployments"]]
+
+
+def test_rollout_serves_the_default_merged_code_location(harness) -> None:  # noqa: ANN001
+    """ADR 0006's shipped default: one location aggregating every product."""
+    harness.deploy("dev")
+
+    _, values = harness.helm.rollouts[0]
+
+    assert _deployed_locations(values) == [
+        ("openlakeforge-dagster", ["--module-name", "lakehouse_code.definitions"], 3030)
+    ]
+
+
+def test_rollout_follows_a_renamed_code_location(harness) -> None:  # noqa: ANN001
+    """The platform's workspace names the location's host; a Service under the
+    old name would leave the webserver pointing at nothing."""
+    harness.contract["stages"]["dev"]["orchestration"]["code_locations"] = [
+        {"name": "acme-dagster", "definitions_module": "acme_code.definitions"}
+    ]
+
+    harness.deploy("dev")
+
+    _, values = harness.helm.rollouts[0]
+
+    assert _deployed_locations(values) == [("acme-dagster", ["--module-name", "acme_code.definitions"], 3030)]
+
+
+def test_rollout_creates_one_deployment_per_split_code_location(harness) -> None:  # noqa: ANN001
+    """Split locations render N workspace servers on the platform side, so N
+    Services have to exist -- rendering only the first leaves the rest unreachable."""
+    harness.contract["stages"]["dev"]["orchestration"]["code_locations"] = [
+        {"name": "sales", "definitions_module": "lakehouse_code.sales_definitions"},
+        {"name": "finance", "definitions_module": "lakehouse_code.finance_definitions"},
+    ]
+
+    harness.deploy("dev")
+
+    _, values = harness.helm.rollouts[0]
+
+    assert _deployed_locations(values) == [
+        ("sales", ["--module-name", "lakehouse_code.sales_definitions"], 3030),
+        ("finance", ["--module-name", "lakehouse_code.finance_definitions"], 3030),
+    ]
+    # Every location runs the activated revision, not just the first.
+    assert {entry["image"]["digest"] for entry in values["deployments"]} == {_IMAGE.split("@", 1)[1]}
+
+
+def test_each_stage_gets_its_own_contracted_code_locations(harness) -> None:  # noqa: ANN001
+    harness.contract["stages"]["prod"]["orchestration"]["code_locations"] = [
+        {"name": "sales", "definitions_module": "lakehouse_code.sales_definitions"}
+    ]
+
+    harness.deploy("dev")
+    harness.deploy("prod")
+
+    rendered = {
+        namespace: [entry["name"] for entry in values["deployments"]]
+        for namespace, values in harness.helm.rollouts
+    }
+
+    assert rendered == {"olf-dev": ["openlakeforge-dagster"], "olf-prod": ["sales"]}
+
+
+def test_changing_the_code_locations_rolls_the_stage_out_again(harness) -> None:  # noqa: ANN001
+    """Renaming a location moves nothing else about the revision, so without the
+    contract binding covering it a redeploy would skip as an idempotent no-op."""
+    first = harness.deploy("dev")
+    harness.contract["stages"]["dev"]["orchestration"]["code_locations"] = [
+        {"name": "acme-dagster", "definitions_module": "lakehouse_code.definitions"}
+    ]
+
+    second = harness.deploy("dev")
+
+    assert second.activation_revision != first.activation_revision
+    assert [entry["name"] for entry in harness.helm.rollouts[1][1]["deployments"]] == ["acme-dagster"]
+
+
+def test_a_rollback_restores_the_pairs_the_previous_release_ran(
+    harness, monkeypatch: pytest.MonkeyPatch
+) -> None:  # noqa: ANN001
+    """A deploy that changes `definitions_module` and then fails to commit must
+    put back the pair that was actually running.
+
+    Re-rendering the previous activation against the current contract would
+    give the old image a module that exists only in the new one. The rollback
+    then fails readiness, Helm restores the uncommitted new release, and
+    ACTIVE.json names an activation the cluster is not running."""
+    active = harness.deploy("dev")
+    harness.contract["stages"]["dev"]["orchestration"]["code_locations"] = [
+        {"name": "acme-dagster", "definitions_module": "lakehouse_code.next_definitions"}
+    ]
+    monkeypatch.setattr(
+        activation_module,
+        "commit_active",
+        lambda *a, **k: (_ for _ in ()).throw(project_activation.ProjectActivationError("pointer write failed")),
+    )
+
+    with pytest.raises(project_activation.ProjectActivationError):
+        harness.deploy("dev")
+
+    assert project_activation.active(harness.store, stage=StageName.DEV) == active
+    restored = harness.helm.installed["olf-dev"]["deployments"]
+    # Both halves come from the release that was running. Keeping the
+    # contract's name here would pair the previous image with a module it need
+    # not contain, and an unready rollback lets Helm restore the uncommitted
+    # new release while ACTIVE.json still names the old one.
+    assert [entry["dagsterApiGrpcArgs"] for entry in restored] == [["--module-name", "lakehouse_code.definitions"]]
+    assert [entry["name"] for entry in restored] == ["openlakeforge-dagster"]
+    annotations = restored[0]["deploymentAnnotations"]
+    assert annotations["openlakeforge.io/floe-renderer"] == activation_module._RENDERER_UNRECONCILED
+
+
+def test_a_release_missing_one_contracted_location_is_not_skipped(harness) -> None:  # noqa: ANN001
+    """A redeploy must repair a release that lost one of several code locations.
+
+    The label check accepted a release where any one deployment matched, which
+    was equivalent to all of them only while the contract named exactly one.
+    With several, a release carrying one correct deployment and one missing
+    would be read as up to date, and the reapply that would have restored it
+    skipped -- leaving Terraform's workspace pointing at a Service nobody
+    creates."""
+    harness.contract["stages"]["dev"]["orchestration"]["code_locations"] = [
+        {"name": "openlakeforge-dagster", "definitions_module": "lakehouse_code.definitions"},
+        {"name": "acme-dagster", "definitions_module": "lakehouse_code.acme"},
+    ]
+    harness.deploy("dev")
+    assert len(harness.helm.rollouts) == 1
+    harness.helm.installed["olf-dev"]["deployments"] = harness.helm.installed["olf-dev"]["deployments"][:1]
+
+    harness.deploy("dev")
+
+    assert len(harness.helm.rollouts) == 2
+    assert [entry["name"] for entry in harness.helm.rollouts[1][1]["deployments"]] == [
+        "openlakeforge-dagster",
+        "acme-dagster",
+    ]
+
+
+def test_a_rollback_matches_modules_by_name_not_position(harness, monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: ANN001
+    """Reordering a multi-location contract must not shuffle modules between hosts.
+
+    Pairing the contracted list with the release's by position hands each
+    Service another location's definitions when only the order changed: the
+    rollback stays healthy and serves the wrong code under each workspace
+    host, which is worse than failing."""
+    harness.contract["stages"]["dev"]["orchestration"]["code_locations"] = [
+        {"name": "alpha-dagster", "definitions_module": "lakehouse_code.alpha"},
+        {"name": "beta-dagster", "definitions_module": "lakehouse_code.beta"},
+    ]
+    harness.deploy("dev")
+    harness.contract["stages"]["dev"]["orchestration"]["code_locations"] = [
+        {"name": "beta-dagster", "definitions_module": "lakehouse_code.beta"},
+        {"name": "alpha-dagster", "definitions_module": "lakehouse_code.alpha"},
+    ]
+    monkeypatch.setattr(
+        activation_module,
+        "commit_active",
+        lambda *a, **k: (_ for _ in ()).throw(project_activation.ProjectActivationError("pointer write failed")),
+    )
+
+    with pytest.raises(project_activation.ProjectActivationError):
+        harness.deploy("dev")
+
+    restored = {
+        entry["name"]: entry["dagsterApiGrpcArgs"][1] for entry in harness.helm.installed["olf-dev"]["deployments"]
+    }
+    assert restored == {"alpha-dagster": "lakehouse_code.alpha", "beta-dagster": "lakehouse_code.beta"}
+
+
+def test_an_unreadable_release_refuses_the_upgrade_before_it_starts(
+    harness, monkeypatch: pytest.MonkeyPatch
+) -> None:  # noqa: ANN001
+    """With no way to learn what the release runs, there is no safe rollback.
+
+    Failing here costs nothing -- the upgrade has not begun. Proceeding would
+    leave the previous image paired with the current contract's modules if the
+    pointer write then failed, which is the mismatch this path exists to
+    prevent."""
+    harness.deploy("dev")
+    rollouts = len(harness.helm.rollouts)
+    original = harness.helm.get_values
+    # Only the activation's own release: the platform release is a different
+    # read on the same method, and failing that one is a different scenario.
+    monkeypatch.setattr(
+        harness.helm,
+        "get_values",
+        lambda release, **k: original(release, **k)
+        if release == "dagster"
+        else SimpleNamespace(ok=False, stdout=""),
+    )
+
+    with pytest.raises(activation_module.ActivationError, match="Refusing to upgrade"):
+        harness.deploy("dev")
+
+    assert len(harness.helm.rollouts) == rollouts
+
+
+def test_a_rollback_does_not_give_the_previous_image_a_new_module(
+    harness, monkeypatch: pytest.MonkeyPatch
+) -> None:  # noqa: ANN001
+    """Growing a stage from one code location to two must not break recovery.
+
+    The added name has no module in the running release, so pairing it with
+    the contract's would hand `previous`'s image a module introduced in the
+    new one. The rollback could not become ready, and Helm would restore the
+    uncommitted new release while ACTIVE.json still named the old activation."""
+    harness.deploy("dev")
+    harness.contract["stages"]["dev"]["orchestration"]["code_locations"] = [
+        {"name": "openlakeforge-dagster", "definitions_module": "lakehouse_code.definitions"},
+        {"name": "acme-dagster", "definitions_module": "lakehouse_code.brand_new"},
+    ]
+    monkeypatch.setattr(
+        activation_module,
+        "commit_active",
+        lambda *a, **k: (_ for _ in ()).throw(project_activation.ProjectActivationError("pointer write failed")),
+    )
+
+    with pytest.raises(project_activation.ProjectActivationError):
+        harness.deploy("dev")
+
+    restored = harness.helm.installed["olf-dev"]["deployments"]
+    assert [entry["name"] for entry in restored] == ["openlakeforge-dagster"]
+    assert all("lakehouse_code.brand_new" not in entry["dagsterApiGrpcArgs"] for entry in restored)
+
+
+def test_a_rollback_restores_the_image_that_ran_the_modules(
+    harness, monkeypatch: pytest.MonkeyPatch
+) -> None:  # noqa: ANN001
+    """The rollback target is one observation, not two sources spliced.
+
+    A release manually rolled back to another activation runs modules the
+    pointer's image need not contain. Taking modules from the release and the
+    image from `ACTIVE.json` can therefore name a module that digest never
+    shipped, and the rollback would not become ready."""
+    harness.deploy("dev")
+    live = harness.helm.installed["olf-dev"]["deployments"]
+    other = "ghcr.io/openlakeforge/project-code@sha256:" + "d" * 64
+    repository, digest = other.split("@", 1)
+    for entry in live:
+        entry["image"] = {"repository": repository, "digest": digest, "pullPolicy": "IfNotPresent"}
+        entry["dagsterApiGrpcArgs"] = ["--module-name", "lakehouse_code.other_definitions"]
+        # The label a manual rollback to another activation leaves behind;
+        # without it the redeploy reads the release as current and skips.
+        entry["deploymentLabels"]["openlakeforge.io/activation-revision"] = "sha256:" + "e" * 64
+    monkeypatch.setattr(
+        activation_module,
+        "commit_active",
+        lambda *a, **k: (_ for _ in ()).throw(project_activation.ProjectActivationError("pointer write failed")),
+    )
+
+    with pytest.raises(project_activation.ProjectActivationError):
+        harness.deploy("dev")
+
+    restored = harness.helm.installed["olf-dev"]["deployments"]
+    assert [entry["dagsterApiGrpcArgs"] for entry in restored] == [
+        ["--module-name", "lakehouse_code.other_definitions"]
+    ]
+    assert {entry["image"]["digest"] for entry in restored} == {digest}
+
+
+def test_a_deleted_release_is_uninstalled_rather_than_restored(
+    harness, monkeypatch: pytest.MonkeyPatch
+) -> None:  # noqa: ANN001
+    """A pointer is not a running deployment.
+
+    With `ACTIVE.json` naming an activation whose release was deleted, there is
+    no state to put back, and reconstructing one from the current contract
+    would pair its modules with the previous image. Undoing means removing what
+    was just installed."""
+    harness.deploy("dev")
+    harness.helm.installed.pop("olf-dev")
+    harness.helm.ready.discard("olf-dev")
+    monkeypatch.setattr(
+        activation_module,
+        "commit_active",
+        lambda *a, **k: (_ for _ in ()).throw(project_activation.ProjectActivationError("pointer write failed")),
+    )
+
+    with pytest.raises(project_activation.ProjectActivationError):
+        harness.deploy("dev")
+
+    assert harness.helm.uninstalled == ["olf-dev"]
