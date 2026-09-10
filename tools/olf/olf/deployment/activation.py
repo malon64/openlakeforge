@@ -141,6 +141,14 @@ def _binding_digest(deployment: Mapping[str, Any], selected: StageContract) -> s
     return "sha256:" + hashlib.sha256(rendered).hexdigest()
 
 
+def stage_code_locations(
+    raw_contract: Mapping[str, Any], *, topology, stage: StageName  # noqa: ANN001
+) -> tuple[CodeLocation, ...]:
+    """The stage's contracted code locations, for callers comparing a release
+    against the set it is supposed to be running."""
+    return tuple(_selected_stage(raw_contract, topology=topology, stage=stage)[1].code_locations)
+
+
 def provider_binding_digest(raw_contract: Mapping[str, Any], *, topology, stage: StageName) -> str:  # noqa: ANN001
     """Hash the selected non-secret provider contract binding deterministically."""
     return _binding_digest(*_selected_stage(raw_contract, topology=topology, stage=stage))

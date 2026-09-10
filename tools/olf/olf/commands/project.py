@@ -148,8 +148,13 @@ def status(
     json_output: bool = typer.Option(False, "--json", help="Render stable JSON."),
 ) -> None:
     """Compare each stage's immutable active pointer with its user deployment."""
+    from olf import contracts
     from olf.artifact_store import ArtifactStoreError, S3RevisionStore, artifact_bucket, artifact_storage_client
-    from olf.deployment.activation import read_platform_globals, release_runs_activation
+    from olf.deployment.activation import (
+        read_platform_globals,
+        release_runs_activation,
+        stage_code_locations,
+    )
     from olf.deployment.contract_env import applied_contract_environment
     from olf.profile import StageName
     from olf.project_activation import ProjectActivationError
@@ -227,11 +232,28 @@ def status(
                         kube_context=kube_context,
                         env=provider.env,
                     ).ok
-                    observed_ok = platform_globals is not None and release_runs_activation(
-                        provider,
-                        activation.activation_revision,
-                        platform_globals=platform_globals,
-                        env=provider.env,
+                    # The contracted set is part of the comparison: a release
+                    # missing one of several code locations runs the recorded
+                    # activation on the rest, and reporting that as `active`
+                    # would hide the drift status exists to surface. An
+                    # unreadable contract is an answer here too, for the same
+                    # reason the platform release is.
+                    raw_contract = contracts.load_provider_contracts(str(contract_dir), environ=provider.env)
+                    code_locations = (
+                        stage_code_locations(raw_contract, topology=context.topology, stage=item)
+                        if raw_contract is not None
+                        else ()
+                    )
+                    observed_ok = (
+                        platform_globals is not None
+                        and raw_contract is not None
+                        and release_runs_activation(
+                            provider,
+                            activation.activation_revision,
+                            code_locations=code_locations,
+                            platform_globals=platform_globals,
+                            env=provider.env,
+                        )
                     )
                     reports.append(
                         {
