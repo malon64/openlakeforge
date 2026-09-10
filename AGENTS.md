@@ -230,9 +230,32 @@ almost always the wrong answer to a new type error.
 may not lower it. Raise the floor when it rises; never lower it to go green.
 
 `olf check all` runs the check targets above plus the release-readiness
-gate. It runs on every pull request via `.github/workflows/checks.yml`. Note
-that `main` is currently unprotected, so no check is merge-blocking yet — see
-"Known gaps".
+gate. It runs on every pull request via `.github/workflows/checks.yml`.
+
+`main` is protected by the `main_protection` repository ruleset, so some of
+those checks are merge-blocking. Six contexts are required, and a pull request
+branch must be up to date with `main` before it merges:
+
+| Required to merge | Not required |
+| --- | --- |
+| Validate repository structure | Deploy slim kind smoke |
+| Validate infrastructure contracts | Validate release readiness |
+| Validate provider contracts | |
+| Validate project-code runtime | |
+| Validate deployment tooling | |
+| Validate product dbt projects | |
+
+The ruleset also **requires every review thread to be resolved**, which is what
+usually blocks an otherwise-green pull request: `mergeStateStatus` reads
+`BLOCKED` with each check passing. Approvals are not required, but a change
+GitHub cannot attribute to its author needs one. Merges are squash or rebase
+only, and `main` rejects deletion and force-pushes.
+
+Read the live rules with
+`gh api repos/malon64/openlakeforge/rules/branches/main`.
+The branch-protection endpoint (`.../branches/main/protection`) returns 404
+"Branch not protected" because this is a ruleset rather than classic branch
+protection — that 404 is not evidence that `main` is unprotected.
 
 When a change touches the deployed stack, verify at runtime as well:
 
@@ -262,7 +285,8 @@ confirms ops-bucket artifacts exist.
 ## Known gaps
 
 Governance artifacts — `CONTRIBUTING`, `SECURITY`, `SUPPORT`, `GOVERNANCE`, and
-`CODEOWNERS` — do not exist yet, and `main` is currently unprotected with no
-dependency-update automation. Tracked in
+`CODEOWNERS` — do not exist yet, and there is no dependency-update automation.
+`main` itself is protected; see "Gates" for what that ruleset enforces.
+Tracked in
 [#37](https://github.com/malon64/openlakeforge/issues/37). Until they land, this
 file is the contribution guide.
