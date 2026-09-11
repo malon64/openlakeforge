@@ -111,7 +111,9 @@ def test_superset_export_reports_requires_an_explicit_stage() -> None:
     """Export overwrites the checked-in bundle from whichever Superset it
     reads, and #130 forbids rebuilding report state from PROD's UI. Naming
     the source stage is therefore the operator's decision, never a default."""
-    result = runner.invoke(app, ["superset", "export-reports"])
+    # Typer wraps its usage error to the terminal width, which is narrower on
+    # a CI runner than on a workstation and truncated the option name there.
+    result = runner.invoke(app, ["superset", "export-reports"], env={"COLUMNS": "200"})
 
     assert result.exit_code != 0
     assert "--stage" in result.output
