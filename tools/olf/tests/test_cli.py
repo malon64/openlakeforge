@@ -42,6 +42,20 @@ def test_artifacts_deploy_optional_layers_skips_disabled_layers(monkeypatch: pyt
     assert "Skipping OpenMetadata governance metadata" in result.output
 
 
+def _hydrate_stage_contract(monkeypatch: pytest.MonkeyPatch, stage: str = "dev") -> None:
+    """Stand in for the stage bindings `provider_contract_environment` exports.
+
+    The report commands resolve their Superset and Trino target from those
+    bindings, so a test that stubs the contract hydration out has to supply
+    them; without this the command correctly refuses to guess a stage.
+    """
+    monkeypatch.setenv("OPENLAKEFORGE_KUBE_NAMESPACE", f"olf-{stage}")
+    monkeypatch.setenv("OPENLAKEFORGE_QUERY_TRINO_CATALOG", f"lakehouse_{stage}")
+    monkeypatch.setenv(
+        "OPENLAKEFORGE_QUERY_SQLALCHEMY_URI", f"trino://olf-{stage}@trino.olf-system:8080/lakehouse_{stage}"
+    )
+
+
 def test_superset_deploy_reports_hydrates_selected_provider_contracts(monkeypatch: pytest.MonkeyPatch) -> None:
     options: dict[str, str] = {}
     calls: list[str] = []
@@ -49,7 +63,7 @@ def test_superset_deploy_reports_hydrates_selected_provider_contracts(monkeypatc
         "olf.commands.runtime.provider_contract_environment",
         lambda **kwargs: options.update(kwargs) or nullcontext(),
     )
-    monkeypatch.setattr("olf.commands.superset.deploy_superset_reports", lambda: calls.append("reports"))
+    monkeypatch.setattr("olf.commands.superset.deploy_superset_reports", lambda **_: calls.append("reports"))
 
     result = runner.invoke(app, ["superset", "deploy-reports", "--provider", "aws"])
 
@@ -64,12 +78,67 @@ def test_superset_deploy_reports_threads_a_custom_project_root(monkeypatch: pyte
         "olf.commands.runtime.provider_contract_environment",
         lambda **kwargs: options.update(kwargs) or nullcontext(),
     )
-    monkeypatch.setattr("olf.commands.superset.deploy_superset_reports", lambda: None)
+    monkeypatch.setattr("olf.commands.superset.deploy_superset_reports", lambda **_: None)
 
     result = runner.invoke(app, ["superset", "deploy-reports", "--project-root", "/srv/my-project"])
 
     assert result.exit_code == 0
     assert options["project_root"] == "/srv/my-project"
+
+
+def test_superset_report_commands_hydrate_the_named_stage(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Both commands must select the stage they were told to, not a default.
+
+    `provider_contract_environment` is what resolves the stage's namespace,
+    Superset instance, and Trino catalog, so the stage has to reach it.
+    """
+    options: list[dict] = []
+    monkeypatch.setattr(
+        "olf.commands.runtime.provider_contract_environment",
+        lambda **kwargs: options.append(kwargs) or nullcontext(),
+    )
+    monkeypatch.setattr("olf.commands.superset.deploy_superset_reports", lambda **_: None)
+    monkeypatch.setattr("olf.commands.superset.export_superset_reports", lambda **_: None)
+
+    deployed = runner.invoke(app, ["superset", "deploy-reports", "--stage", "prod"])
+    exported = runner.invoke(app, ["superset", "export-reports", "--stage", "uat"])
+
+    assert (deployed.exit_code, exported.exit_code) == (0, 0)
+    assert [entry["stage"] for entry in options] == ["prod", "uat"]
+
+
+def test_superset_export_reports_requires_an_explicit_stage(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Export overwrites the checked-in bundle from whichever Superset it
+    reads, and #130 forbids rebuilding report state from PROD's UI. Naming
+    the source stage is therefore the operator's decision, never a default.
+
+    Asserted as the exit code rather than the message: Typer renders the
+    usage error through rich, which falls back to an 80-column width when
+    stdout is not a terminal and truncated the option name on a CI runner.
+    """
+    monkeypatch.setattr("olf.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
+    monkeypatch.setattr("olf.commands.superset.export_superset_reports", lambda **_: None)
+
+    missing = runner.invoke(app, ["superset", "export-reports"])
+    supplied = runner.invoke(app, ["superset", "export-reports", "--stage", "dev"])
+
+    # 2 is click's usage error: the argument parser refused the call.
+    assert missing.exit_code == 2
+    assert supplied.exit_code == 0
+
+
+def test_superset_deploy_reports_fails_closed_for_a_stage_without_analytics(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("olf.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
+    monkeypatch.setattr("olf.superset.deploy_reports", lambda *a, **k: pytest.fail("must not reach Superset"))
+    _hydrate_stage_contract(monkeypatch, "prod")
+    monkeypatch.setenv("OPENLAKEFORGE_ANALYTICS_ENABLED", "false")
+
+    result = runner.invoke(app, ["superset", "deploy-reports", "--stage", "prod"])
+
+    assert result.exit_code == 1
+    assert "analytics disabled" in result.output
 
 
 def test_openmetadata_deploy_hydrates_selected_provider_contracts(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -434,8 +503,9 @@ def test_superset_export_reports_defaults_come_from_the_first_dashboard(monkeypa
         lambda *args, **kwargs: calls.append(kwargs),
     )
     monkeypatch.setattr("olf.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
+    _hydrate_stage_contract(monkeypatch)
 
-    result = runner.invoke(app, ["superset", "export-reports"])
+    result = runner.invoke(app, ["superset", "export-reports", "--stage", "dev"])
 
     assert result.exit_code == 0
     assert calls[0]["report_source_dir"] == default_dashboard.report_source_dir
@@ -506,8 +576,9 @@ dashboards:
     calls: list[dict] = []
     monkeypatch.setattr("olf.superset.export_report", lambda *args, **kwargs: calls.append(kwargs))
     monkeypatch.setattr("olf.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
+    _hydrate_stage_contract(monkeypatch)
 
-    result = runner.invoke(app, ["superset", "export-reports"])
+    result = runner.invoke(app, ["superset", "export-reports", "--stage", "dev"])
 
     assert result.exit_code == 0
     assert calls[0]["dashboard_title"] == "The Actual Live Dashboard Title"

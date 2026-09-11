@@ -1,9 +1,109 @@
+import json
 from pathlib import Path
 from zipfile import ZipFile
 
 import pytest
 
 from olf import k8s, superset
+from olf.contracts import build_contract_env
+from olf.profile import resolve_topology, validate_deployment_profile
+
+FIXTURES = Path(__file__).parent / "fixtures"
+REPO_ROOT = Path(__file__).resolve().parents[3]
+
+
+def _stage_environment(fixture_name: str, stage: str, base: dict[str, str] | None = None) -> dict[str, str]:
+    """One stage's hydrated contract environment, as the CLI would see it.
+
+    Mirrors `deployment.contract_env.applied_contract_environment`: the
+    exports overlay the caller's own environment rather than replacing it,
+    which is what lets a caller-set OPENLAKEFORGE_QUERY_SQLALCHEMY_URI
+    survive (`olf.contracts` module docstring) and therefore what makes the
+    stale-URI case below reachable at all.
+    """
+    contract = json.loads((FIXTURES / fixture_name).read_text())
+    deployment = contract["deployment"]
+    topology = resolve_topology(
+        validate_deployment_profile(
+            {
+                "apiVersion": "openlakeforge.io/v1alpha1",
+                "kind": "DeploymentProfile",
+                "metadata": {"name": deployment["profile_name"]},
+                "spec": {
+                    "provider": {
+                        "type": deployment["provider"],
+                        **({"region": deployment["region"]} if deployment["region"] else {}),
+                    },
+                    "preset": "slim",
+                    "stages": {
+                        name: {
+                            "enabled": True,
+                            "capabilities": {
+                                "analytics": "reporting" in payload,
+                                "governance": "governance" in payload,
+                            },
+                        }
+                        for name, payload in contract["stages"].items()
+                    },
+                },
+            }
+        )
+    )
+    resolved = dict(base or {})
+    exports, unsets = build_contract_env(resolved, contract, repo_root=REPO_ROOT, topology=topology, stage=stage)
+    resolved.update(exports)
+    for name in unsets:
+        resolved.pop(name, None)
+    return resolved
+
+
+def test_resolve_stage_report_target_reads_the_named_stages_own_bindings() -> None:
+    dev = superset.resolve_stage_report_target(
+        _stage_environment("aws-provider-contracts-v3.json", "dev"), stage="dev"
+    )
+    prod = superset.resolve_stage_report_target(
+        _stage_environment("aws-provider-contracts-v3.json", "prod"), stage="prod"
+    )
+
+    assert (dev.namespace, prod.namespace) == ("olf-dev", "olf-prod")
+    assert dev.sqlalchemy_uri.endswith("/lakehouse_dev")
+    assert prod.sqlalchemy_uri.endswith("/lakehouse_prod")
+    assert (dev.schema_prefix, prod.schema_prefix) == ("lakehouse_dev_", "lakehouse_prod_")
+
+
+def test_resolve_stage_report_target_names_the_stage_its_catalog_serves() -> None:
+    target = superset.resolve_stage_report_target(_stage_environment("aws-provider-contracts-v3.json", "uat"))
+
+    assert target.stage == "uat"
+
+
+def test_resolve_stage_report_target_fails_closed_without_analytics() -> None:
+    environ = _stage_environment("local-provider-contracts-v3.json", "dev")
+
+    with pytest.raises(superset.ReportStageError, match="analytics disabled"):
+        superset.resolve_stage_report_target(environ, stage="dev")
+
+
+def test_resolve_stage_report_target_rejects_another_stages_exported_query_uri() -> None:
+    """A shell still carrying `olf contracts env` output for another stage.
+
+    `build_contract_env` honours a caller-set
+    OPENLAKEFORGE_QUERY_SQLALCHEMY_URI even when the contract disagrees, so
+    without this check a PROD import would build its bundle against the DEV
+    catalog and serve DEV Gold from Superset PROD.
+    """
+    stale = _stage_environment("aws-provider-contracts-v3.json", "dev")["OPENLAKEFORGE_QUERY_SQLALCHEMY_URI"]
+    environ = _stage_environment(
+        "aws-provider-contracts-v3.json", "prod", base={"OPENLAKEFORGE_QUERY_SQLALCHEMY_URI": stale}
+    )
+
+    with pytest.raises(superset.ReportStageError, match="addresses catalog 'lakehouse_dev'.*serves 'lakehouse_prod'"):
+        superset.resolve_stage_report_target(environ, stage="prod")
+
+
+def test_resolve_stage_report_target_rejects_an_unhydrated_environment() -> None:
+    with pytest.raises(superset.ReportStageError, match="OPENLAKEFORGE_KUBE_NAMESPACE"):
+        superset.resolve_stage_report_target({}, stage="dev")
 
 
 def test_bundle_identity_from_source_dir() -> None:
@@ -124,3 +224,33 @@ def test_exec_pod_python_resolves_kubectl_through_the_managed_toolchain(monkeypa
     superset._exec_pod_python("superset-pod", "lakehouse", "print('hi')", [])
 
     assert calls[0][0] == "/managed/bin/kubectl"
+
+
+def test_a_stage_without_an_applied_contract_is_refused() -> None:
+    """`build_contract_env` synthesizes a complete dev-shaped environment when
+    the Terraform output is unavailable, so presence alone proves nothing.
+
+    Without this, `--stage prod` would resolve the synthesized DEV namespace
+    and operate on DEV's Superset while reporting PROD."""
+    synthesized = {
+        "OPENLAKEFORGE_ANALYTICS_ENABLED": "true",
+        "OPENLAKEFORGE_KUBE_NAMESPACE": "olf-dev",
+        "OPENLAKEFORGE_QUERY_TRINO_CATALOG": "iceberg",
+        "OPENLAKEFORGE_QUERY_SQLALCHEMY_URI": "trino://olf-dev@trino.olf-system:8080/iceberg",
+    }
+
+    with pytest.raises(superset.ReportStageError, match="no applied contract"):
+        superset.resolve_stage_report_target(synthesized, stage="prod")
+
+
+def test_a_stage_whose_contract_belongs_to_another_stage_is_refused() -> None:
+    """A shell still carrying another stage's `olf contracts env` output."""
+    other = {
+        "OPENLAKEFORGE_ANALYTICS_ENABLED": "true",
+        "OPENLAKEFORGE_KUBE_NAMESPACE": "olf-dev",
+        "OPENLAKEFORGE_QUERY_TRINO_CATALOG": "lakehouse_dev",
+        "OPENLAKEFORGE_QUERY_SQLALCHEMY_URI": "trino://olf-dev@trino.olf-system:8080/lakehouse_dev",
+    }
+
+    with pytest.raises(superset.ReportStageError, match="no applied contract"):
+        superset.resolve_stage_report_target(other, stage="prod")

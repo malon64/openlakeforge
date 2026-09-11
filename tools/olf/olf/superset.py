@@ -12,14 +12,17 @@ from __future__ import annotations
 import re
 import shutil
 import subprocess
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
+from urllib.parse import urlsplit
 from zipfile import ZIP_DEFLATED, ZipFile
 
-from olf import k8s, log
+from olf import k8s, layers, log
 
 REPORTS_MOUNT_PATH_DEFAULT = "/app/openlakeforge/reports"
+
+STAGE_CATALOG_PREFIX = "lakehouse_"
 
 # In-pod importer. Runs in the Superset interpreter; argv: <remote_bundle> <username>.
 _IMPORT_SCRIPT = """
@@ -95,6 +98,87 @@ with app.app_context():
             with bundle.open(f"{bundle_root}/{file_name}", "w") as fp:
                 fp.write(content.encode())
 """
+
+
+class ReportStageError(RuntimeError):
+    """A stage cannot serve a report import or export."""
+
+
+@dataclass(frozen=True)
+class StageReportTarget:
+    """One stage's own Superset instance and Gold connection."""
+
+    stage: str
+    namespace: str
+    sqlalchemy_uri: str
+    schema_prefix: str
+
+
+def resolve_stage_report_target(environ: Mapping[str, str], *, stage: str = "") -> StageReportTarget:
+    """Resolve one stage's Superset target from that stage's own contract bindings.
+
+    Reads `OPENLAKEFORGE_KUBE_NAMESPACE` rather than `config.namespace()`,
+    whose `NAMESPACE` fallback a caller can export, and rejects a
+    `OPENLAKEFORGE_QUERY_SQLALCHEMY_URI` addressing a catalog other than the
+    stage's own: `contracts.build_contract_env` deliberately leaves a
+    caller-exported URI untouched (`query_uri_user_set`), so a shell still
+    carrying another stage's `olf contracts env` output would otherwise
+    import this stage's dashboards against that stage's Gold. That is the
+    hazard `e2e._dagster.dagster_webserver_service_name` documents, and the
+    reason nothing here derives a target from a selected-stage value.
+
+    Analytics is a per-stage capability (ADR 0011): the v3 stage index emits
+    `stages.<name>.reporting` only for an analytics-enabled stage, which
+    reaches this environment as `OPENLAKEFORGE_ANALYTICS_ENABLED`. A stage
+    without it has no Superset to talk to at all.
+    """
+    catalog = environ.get("OPENLAKEFORGE_QUERY_TRINO_CATALOG", "")
+    resolved_stage = stage or catalog.removeprefix(STAGE_CATALOG_PREFIX)
+    if not layers.enabled(environ, "analytics"):
+        raise ReportStageError(
+            f"stage {resolved_stage!r} has analytics disabled: it provisions no Superset instance."
+        )
+    namespace = environ.get("OPENLAKEFORGE_KUBE_NAMESPACE", "")
+    sqlalchemy_uri = environ.get("OPENLAKEFORGE_QUERY_SQLALCHEMY_URI", "")
+    missing = [
+        name
+        for name, value in (
+            ("OPENLAKEFORGE_KUBE_NAMESPACE", namespace),
+            ("OPENLAKEFORGE_QUERY_TRINO_CATALOG", catalog),
+            ("OPENLAKEFORGE_QUERY_SQLALCHEMY_URI", sqlalchemy_uri),
+        )
+        if not value
+    ]
+    if missing:
+        raise ReportStageError(
+            f"stage {resolved_stage!r} resolved no {', '.join(missing)}: deploy the platform for this stage first."
+        )
+    # The catalog must be the named stage's own. `build_contract_env`
+    # synthesizes a whole dev-shaped environment when
+    # `terraform output provider_contracts` is missing or unreadable --
+    # namespace `olf-dev`, catalog `iceberg`, a matching URI, analytics on --
+    # so every value above is present and none of it came from an applied
+    # contract. `lakehouse_<stage>` is canonical on every provider
+    # (`provider_contracts._parse_stage`), so requiring it is what
+    # distinguishes a real binding from a default that merely looks like one.
+    if catalog != f"{STAGE_CATALOG_PREFIX}{resolved_stage}":
+        raise ReportStageError(
+            f"stage {resolved_stage!r} resolved catalog {catalog!r}, not "
+            f"{STAGE_CATALOG_PREFIX}{resolved_stage!s}: this environment carries no applied contract for it. "
+            "Deploy the platform for this stage first."
+        )
+    addressed = urlsplit(sqlalchemy_uri).path.strip("/").split("/", 1)[0]
+    if addressed != catalog:
+        raise ReportStageError(
+            f"OPENLAKEFORGE_QUERY_SQLALCHEMY_URI addresses catalog {addressed!r}, but stage {resolved_stage!r} "
+            f"serves {catalog!r}. Unset it so the stage contract resolves the connection."
+        )
+    return StageReportTarget(
+        stage=resolved_stage,
+        namespace=namespace,
+        sqlalchemy_uri=sqlalchemy_uri,
+        schema_prefix=environ.get("OPENLAKEFORGE_CATALOG_SCHEMA_PREFIX", ""),
+    )
 
 
 @dataclass(frozen=True)
