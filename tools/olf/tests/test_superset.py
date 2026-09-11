@@ -224,3 +224,33 @@ def test_exec_pod_python_resolves_kubectl_through_the_managed_toolchain(monkeypa
     superset._exec_pod_python("superset-pod", "lakehouse", "print('hi')", [])
 
     assert calls[0][0] == "/managed/bin/kubectl"
+
+
+def test_a_stage_without_an_applied_contract_is_refused() -> None:
+    """`build_contract_env` synthesizes a complete dev-shaped environment when
+    the Terraform output is unavailable, so presence alone proves nothing.
+
+    Without this, `--stage prod` would resolve the synthesized DEV namespace
+    and operate on DEV's Superset while reporting PROD."""
+    synthesized = {
+        "OPENLAKEFORGE_ANALYTICS_ENABLED": "true",
+        "OPENLAKEFORGE_KUBE_NAMESPACE": "olf-dev",
+        "OPENLAKEFORGE_QUERY_TRINO_CATALOG": "iceberg",
+        "OPENLAKEFORGE_QUERY_SQLALCHEMY_URI": "trino://olf-dev@trino.olf-system:8080/iceberg",
+    }
+
+    with pytest.raises(superset.ReportStageError, match="no applied contract"):
+        superset.resolve_stage_report_target(synthesized, stage="prod")
+
+
+def test_a_stage_whose_contract_belongs_to_another_stage_is_refused() -> None:
+    """A shell still carrying another stage's `olf contracts env` output."""
+    other = {
+        "OPENLAKEFORGE_ANALYTICS_ENABLED": "true",
+        "OPENLAKEFORGE_KUBE_NAMESPACE": "olf-dev",
+        "OPENLAKEFORGE_QUERY_TRINO_CATALOG": "lakehouse_dev",
+        "OPENLAKEFORGE_QUERY_SQLALCHEMY_URI": "trino://olf-dev@trino.olf-system:8080/lakehouse_dev",
+    }
+
+    with pytest.raises(superset.ReportStageError, match="no applied contract"):
+        superset.resolve_stage_report_target(other, stage="prod")

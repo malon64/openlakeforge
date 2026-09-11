@@ -153,6 +153,20 @@ def resolve_stage_report_target(environ: Mapping[str, str], *, stage: str = "") 
         raise ReportStageError(
             f"stage {resolved_stage!r} resolved no {', '.join(missing)}: deploy the platform for this stage first."
         )
+    # The catalog must be the named stage's own. `build_contract_env`
+    # synthesizes a whole dev-shaped environment when
+    # `terraform output provider_contracts` is missing or unreadable --
+    # namespace `olf-dev`, catalog `iceberg`, a matching URI, analytics on --
+    # so every value above is present and none of it came from an applied
+    # contract. `lakehouse_<stage>` is canonical on every provider
+    # (`provider_contracts._parse_stage`), so requiring it is what
+    # distinguishes a real binding from a default that merely looks like one.
+    if catalog != f"{STAGE_CATALOG_PREFIX}{resolved_stage}":
+        raise ReportStageError(
+            f"stage {resolved_stage!r} resolved catalog {catalog!r}, not "
+            f"{STAGE_CATALOG_PREFIX}{resolved_stage!s}: this environment carries no applied contract for it. "
+            "Deploy the platform for this stage first."
+        )
     addressed = urlsplit(sqlalchemy_uri).path.strip("/").split("/", 1)[0]
     if addressed != catalog:
         raise ReportStageError(

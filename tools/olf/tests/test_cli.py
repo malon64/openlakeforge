@@ -107,16 +107,24 @@ def test_superset_report_commands_hydrate_the_named_stage(monkeypatch: pytest.Mo
     assert [entry["stage"] for entry in options] == ["prod", "uat"]
 
 
-def test_superset_export_reports_requires_an_explicit_stage() -> None:
+def test_superset_export_reports_requires_an_explicit_stage(monkeypatch: pytest.MonkeyPatch) -> None:
     """Export overwrites the checked-in bundle from whichever Superset it
     reads, and #130 forbids rebuilding report state from PROD's UI. Naming
-    the source stage is therefore the operator's decision, never a default."""
-    # Typer wraps its usage error to the terminal width, which is narrower on
-    # a CI runner than on a workstation and truncated the option name there.
-    result = runner.invoke(app, ["superset", "export-reports"], env={"COLUMNS": "200"})
+    the source stage is therefore the operator's decision, never a default.
 
-    assert result.exit_code != 0
-    assert "--stage" in result.output
+    Asserted as the exit code rather than the message: Typer renders the
+    usage error through rich, which falls back to an 80-column width when
+    stdout is not a terminal and truncated the option name on a CI runner.
+    """
+    monkeypatch.setattr("olf.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
+    monkeypatch.setattr("olf.commands.superset.export_superset_reports", lambda **_: None)
+
+    missing = runner.invoke(app, ["superset", "export-reports"])
+    supplied = runner.invoke(app, ["superset", "export-reports", "--stage", "dev"])
+
+    # 2 is click's usage error: the argument parser refused the call.
+    assert missing.exit_code == 2
+    assert supplied.exit_code == 0
 
 
 def test_superset_deploy_reports_fails_closed_for_a_stage_without_analytics(
