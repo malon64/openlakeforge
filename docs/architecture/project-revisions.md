@@ -58,6 +58,33 @@ provider contract. It writes an immutable `ProjectActivation` beneath
 the stage's `openlakeforge-project` Helm release is ready. Project revisions
 remain equal across stages; activation and Floe revisions intentionally differ.
 
+## Schedules are not a promotion side effect
+
+The same revision is deployed to every stage, so nothing about a schedule can
+be decided at build time. `libs.product_dagster.build_stage_schedules` decides
+it at load time from `OPENLAKEFORGE_STAGE`, which activation puts on the
+code-server container:
+`DeploymentContext.command_env` sets it, `applied_contract_environment` carries
+it into the contract environment, and `_user_values` forwards every
+`OPENLAKEFORGE_*` key onto the deployment.
+
+| Stage the pod reports | Schedules in the code location |
+| --- | --- |
+| `prod` | One `<product>_daily` per product, every one `STOPPED` |
+| `dev`, `uat` | None |
+| Unset or unrecognised | None |
+
+Two properties matter, and `olf check project-code` fails the build if either
+stops holding. DEV and UAT define no schedule at all, so the production-shaped
+daily job is not present to be switched on by mistake against the DEV catalog.
+The PROD schedules default to `STOPPED`, so deploying or promoting a revision
+never starts a run — enabling one is a deliberate act in the Dagster UI, and
+Dagster keeps that choice in the stage's own metadata database, which is not
+part of the revision.
+
+Asset keys are identical in every stage regardless: the stage is a runtime and
+catalog boundary, never part of an asset's identity.
+
 ## What is frozen
 
 | Component | Source | Notes |

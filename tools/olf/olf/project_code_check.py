@@ -119,6 +119,7 @@ def validate(root: Path) -> None:
         _fail("merged definitions do not contain every product asset")
     _verify_immutable_manifest_replay(root, products[0], product_dagster_lib, load_manifest)
     _verify_shared_assets(inventory, merged_keys_list)
+    _verify_stage_schedules(inventory, product_dagster_lib)
     Definitions.validate_loadable(merged_defs)
     merged_defs.get_repository_def().load_all_definitions()
 
@@ -156,6 +157,42 @@ def _verify_sequential_floe_orchestration(product: object, manifest: object, job
         _fail(f"{product.job_name} is missing Floe orchestration concurrency")
     if max_concurrent != 1:
         _fail(f"{product.job_name} did not inherit Floe orchestration concurrency")
+
+
+def _verify_stage_schedules(inventory: object, library: object) -> None:
+    """Require the daily scaffold to exist only where a stage asks for it, and never to start itself.
+
+    Every stage runs the same immutable revision, so this is the only thing
+    standing between a promotion and a recurring production-shaped workload
+    appearing in DEV.
+    """
+    for product in inventory.products:
+        spec = library.ProductDefinitionSpec(
+            domain=product.domain_name,
+            product=product.id,
+            silver_inputs=(),
+            bronze_inputs=(),
+            gold_assets=(),
+        )
+        for stage in ("dev", "uat", ""):
+            if library.build_stage_schedules(spec, stage=stage):
+                _fail(f"stage {stage!r} must define no schedule for {product.job_name}")
+        schedules = library.build_stage_schedules(spec, stage="prod")
+        if len(schedules) != 1:
+            _fail(f"prod must define exactly one daily schedule for {product.job_name}")
+        schedule = schedules[0]
+        if schedule.job_name != product.job_name:
+            _fail(f"{schedule.name} targets {schedule.job_name}, not the descriptor job {product.job_name}")
+        status = getattr(schedule.default_status, "value", schedule.default_status)
+        if status != "STOPPED":
+            _fail(f"{schedule.name} defaults to {status}; deploying a revision must not start a schedule")
+        _verify_daily_cron(schedule)
+
+
+def _verify_daily_cron(schedule: object) -> None:
+    fields = str(schedule.cron_schedule).split()
+    if len(fields) != 5 or fields[2:] != ["*", "*", "*"] or not all(field.isdigit() for field in fields[:2]):
+        _fail(f"{schedule.name} must run once a day; got {schedule.cron_schedule!r}")
 
 
 def _verify_immutable_manifest_replay(root: Path, product: object, library: object, load_manifest: object) -> None:

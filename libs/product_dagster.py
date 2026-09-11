@@ -13,9 +13,11 @@ from dagster import (
     AssetKey,
     AssetOut,
     AssetSelection,
+    DefaultScheduleStatus,
     Definitions,
     MetadataValue,
     Output,
+    ScheduleDefinition,
     define_asset_job,
     multi_asset,
 )
@@ -35,6 +37,15 @@ _FLOE_MANIFEST_ACCESS_MODE_ENV = "OPENLAKEFORGE_FLOE_MANIFEST_ACCESS_MODE"
 _FLOE_MANIFEST_ACCESS_MODE_REMOTE = "remote"
 _FLOE_MANIFEST_ACCESS_MODE_LOCAL = "local"
 _FLOE_S3_REPORT_LOADER_INSTALLED = False
+
+_STAGE_ENV = "OPENLAKEFORGE_STAGE"
+# Only PROD carries the recurring-schedule scaffold. DEV and UAT stay manual:
+# the same immutable revision is deployed to every stage, so a schedule that
+# merely defaulted to stopped would still be present in the DEV instance for
+# someone to switch on, and the run it then launched would be a
+# production-shaped daily workload against the DEV catalog.
+_SCHEDULED_STAGES = frozenset({"prod"})
+_DAILY_SCHEDULE_CRON = "0 3 * * *"
 
 
 @dataclass(frozen=True)
@@ -213,7 +224,35 @@ def build_product_definitions(spec: ProductDefinitionSpec) -> Definitions:
     return Definitions(
         assets=[dbt_gold_assets],
         jobs=[product_pipeline],
+        schedules=build_stage_schedules(spec),
     )
+
+
+def build_stage_schedules(
+    spec: ProductDefinitionSpec, *, stage: str | None = None
+) -> list[ScheduleDefinition]:
+    """Build the daily schedule scaffold a stage is entitled to.
+
+    `stage` defaults to the deployed stage the activation release puts on the
+    pod. Anything else -- an unset variable, a workstation run, a stage this
+    scaffold does not cover -- gets no schedule at all, which is the safe
+    direction: a stage cannot acquire recurring runs by being unrecognised.
+
+    The schedule is `STOPPED` even where it exists, so deploying a revision
+    never starts it. Enabling it is a deliberate act in the Dagster UI.
+    """
+    resolved = (os.environ.get(_STAGE_ENV, "") if stage is None else stage).strip().lower()
+    if resolved not in _SCHEDULED_STAGES:
+        return []
+    return [
+        ScheduleDefinition(
+            name=f"{spec.product}_daily",
+            job_name=spec.job_name,
+            cron_schedule=_DAILY_SCHEDULE_CRON,
+            execution_timezone="UTC",
+            default_status=DefaultScheduleStatus.STOPPED,
+        )
+    ]
 
 
 def _install_floe_s3_report_loader() -> None:

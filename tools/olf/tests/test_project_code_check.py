@@ -49,3 +49,48 @@ def test_sequential_floe_orchestration_requires_serial_manifest_and_job_config()
     job.run_config["execution"]["config"]["multiprocess"]["max_concurrent"] = 2
     with pytest.raises(RuntimeError, match="did not inherit Floe orchestration concurrency"):
         project_code_check._verify_sequential_floe_orchestration(product, manifest, job)
+
+
+def _schedule_library(
+    *,
+    stages: tuple[str, ...] = ("prod",),
+    job_name: str = "order_revenue_pipeline",
+    cron: str = "0 3 * * *",
+    status: str = "STOPPED",
+    count: int = 1,
+) -> SimpleNamespace:
+    schedule = SimpleNamespace(
+        name="order_revenue_daily",
+        job_name=job_name,
+        cron_schedule=cron,
+        default_status=SimpleNamespace(value=status),
+    )
+    return SimpleNamespace(
+        ProductDefinitionSpec=lambda **fields: SimpleNamespace(**fields),
+        build_stage_schedules=lambda spec, *, stage: [schedule] * count if stage in stages else [],
+    )
+
+
+def _inventory() -> SimpleNamespace:
+    product = SimpleNamespace(id="order_revenue", domain_name="sales", job_name="order_revenue_pipeline")
+    return SimpleNamespace(products=(product,))
+
+
+def test_stage_schedules_accept_a_stopped_daily_scaffold_in_prod_only() -> None:
+    project_code_check._verify_stage_schedules(_inventory(), _schedule_library())
+
+
+@pytest.mark.parametrize(
+    ("overrides", "message"),
+    [
+        ({"stages": ("dev", "prod")}, "must define no schedule"),
+        ({"stages": ("", "prod")}, "must define no schedule"),
+        ({"count": 2}, "exactly one daily schedule"),
+        ({"job_name": "hand_written_job"}, "not the descriptor job"),
+        ({"status": "RUNNING"}, "must not start a schedule"),
+        ({"cron": "*/5 * * * *"}, "must run once a day"),
+    ],
+)
+def test_stage_schedules_reject_anything_a_promotion_could_start(overrides: dict, message: str) -> None:
+    with pytest.raises(RuntimeError, match=message):
+        project_code_check._verify_stage_schedules(_inventory(), _schedule_library(**overrides))

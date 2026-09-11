@@ -99,3 +99,22 @@ def test_uses_the_scoped_environment_for_contract_terraform(monkeypatch: pytest.
 
     assert observed["OLF_DISTRIBUTION_ROOT"] == str(tmp_path / "payload")
     assert observed["OPENLAKEFORGE_TERRAFORM_STATE_ROOT"] == str(tmp_path / "state/aws")
+
+
+def test_selected_stage_survives_into_the_contract_environment(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """`libs.product_dagster.build_stage_schedules` reads OPENLAKEFORGE_STAGE in the code-server
+    pod, and the only thing that puts it there is this environment: activation forwards every
+    `OPENLAKEFORGE_*` key it yields onto the container. A contract that dropped the key would
+    silently give PROD the unrecognised-stage behaviour, which is no schedules at all."""
+    from olf.deployment.context import DeploymentContext
+
+    monkeypatch.setattr(contracts_module, "load_provider_contracts", lambda terraform_dir, *, environ: None)
+    monkeypatch.setattr(contracts_module, "build_contract_env", lambda *args, **kwargs: ({}, []))
+    context = DeploymentContext.local(repo_root=tmp_path, stage="dev")
+
+    with contract_env.applied_contract_environment(
+        **_kwargs(tmp_path), environ=context.command_env()
+    ) as env:
+        assert env["OPENLAKEFORGE_STAGE"] == "dev"
