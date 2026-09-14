@@ -23,8 +23,6 @@ from olf.contracts import CONTRACT_STAGE_ENV
 
 REPORTS_MOUNT_PATH_DEFAULT = "/app/openlakeforge/reports"
 
-STAGE_CATALOG_PREFIX = "lakehouse_"
-
 # In-pod importer. Runs in the Superset interpreter; argv: <remote_bundle> <username>.
 _IMPORT_SCRIPT = """
 import sys
@@ -134,7 +132,7 @@ def resolve_stage_report_target(environ: Mapping[str, str], *, stage: str = "") 
     without it has no Superset to talk to at all.
     """
     catalog = environ.get("OPENLAKEFORGE_QUERY_TRINO_CATALOG", "")
-    resolved_stage = stage or catalog.removeprefix(STAGE_CATALOG_PREFIX)
+    resolved_stage = stage or environ.get(CONTRACT_STAGE_ENV, "")
     if not layers.enabled(environ, "analytics"):
         raise ReportStageError(
             f"stage {resolved_stage!r} has analytics disabled: it provisions no Superset instance."
@@ -167,15 +165,24 @@ def resolve_stage_report_target(environ: Mapping[str, str], *, stage: str = "") 
             + (f" (the applied contract serves {applied!r})" if applied else "")
             + ". Deploy the platform for this stage first."
         )
-    if catalog != f"{STAGE_CATALOG_PREFIX}{resolved_stage}":
+    # The contract overwrites the query host, port, and catalog, but
+    # `build_contract_env` keeps a caller-exported SQLAlchemy URI on purpose
+    # (`query_uri_user_set`). With a real contract applied, a shell still
+    # holding another deployment's URI for the same stage would otherwise
+    # import this stage's dashboards against that deployment's Trino, so the
+    # URI must address exactly the contract's endpoint and catalog.
+    uri = urlsplit(sqlalchemy_uri)
+    addressed = (uri.hostname or "", str(uri.port or ""), uri.path.strip("/").split("/", 1)[0])
+    expected = (
+        environ.get("OPENLAKEFORGE_QUERY_TRINO_HOST", ""),
+        environ.get("OPENLAKEFORGE_QUERY_TRINO_PORT", ""),
+        catalog,
+    )
+    if addressed != expected:
         raise ReportStageError(
-            f"stage {resolved_stage!r} resolved catalog {catalog!r}, not {STAGE_CATALOG_PREFIX}{resolved_stage!s}."
-        )
-    addressed = urlsplit(sqlalchemy_uri).path.strip("/").split("/", 1)[0]
-    if addressed != catalog:
-        raise ReportStageError(
-            f"OPENLAKEFORGE_QUERY_SQLALCHEMY_URI addresses catalog {addressed!r}, but stage {resolved_stage!r} "
-            f"serves {catalog!r}. Unset it so the stage contract resolves the connection."
+            f"OPENLAKEFORGE_QUERY_SQLALCHEMY_URI addresses {addressed[0]}:{addressed[1]}/{addressed[2]}, but stage "
+            f"{resolved_stage!r}'s contract serves {expected[0]}:{expected[1]}/{expected[2]}. "
+            "Unset it so the stage contract resolves the connection."
         )
     return StageReportTarget(
         stage=resolved_stage,

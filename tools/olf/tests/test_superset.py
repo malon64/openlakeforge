@@ -97,7 +97,9 @@ def test_resolve_stage_report_target_rejects_another_stages_exported_query_uri()
         "aws-provider-contracts-v3.json", "prod", base={"OPENLAKEFORGE_QUERY_SQLALCHEMY_URI": stale}
     )
 
-    with pytest.raises(superset.ReportStageError, match="addresses catalog 'lakehouse_dev'.*serves 'lakehouse_prod'"):
+    with pytest.raises(
+        superset.ReportStageError, match="addresses trino:8080/lakehouse_dev.*serves trino:8080/lakehouse_prod"
+    ):
         superset.resolve_stage_report_target(environ, stage="prod")
 
 
@@ -254,3 +256,31 @@ def test_a_contract_applied_for_another_stage_is_refused() -> None:
 
     with pytest.raises(superset.ReportStageError, match="serves 'dev'"):
         superset.resolve_stage_report_target(environ, stage="prod")
+
+
+def test_a_same_stage_uri_for_another_deployment_is_refused() -> None:
+    """The contract applied and marked the stage, but the caller's shell still
+    carries another deployment's URI for that same stage. Catalog and stage
+    agree; only the endpoint gives it away."""
+    foreign = "trino://olf-prod@trino.deployment-a:8080/lakehouse_prod"
+    environ = _stage_environment(
+        "aws-provider-contracts-v3.json", "prod", base={"OPENLAKEFORGE_QUERY_SQLALCHEMY_URI": foreign}
+    )
+
+    with pytest.raises(superset.ReportStageError, match="addresses trino.deployment-a:8080/lakehouse_prod"):
+        superset.resolve_stage_report_target(environ, stage="prod")
+
+
+def test_the_v2_dev_compatibility_contract_still_resolves() -> None:
+    """Pre-v3 platform state is DEV-only and names its catalog `iceberg`.
+    The v2 adapter exists so report commands keep working against it until
+    the next platform apply; the resolver must not demand a v3 catalog name."""
+    from olf.contracts import build_contract_env
+
+    contract = json.loads((FIXTURES / "local-provider-contracts.json").read_text())
+    exports, _ = build_contract_env({}, contract, repo_root=Path(__file__).resolve().parents[3])
+
+    target = superset.resolve_stage_report_target(exports, stage="dev")
+
+    assert target.stage == "dev"
+    assert target.sqlalchemy_uri.endswith("/iceberg")

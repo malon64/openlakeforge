@@ -52,6 +52,8 @@ def _hydrate_stage_contract(monkeypatch: pytest.MonkeyPatch, stage: str = "dev")
     monkeypatch.setenv("OPENLAKEFORGE_CONTRACT_STAGE", stage)
     monkeypatch.setenv("OPENLAKEFORGE_KUBE_NAMESPACE", f"olf-{stage}")
     monkeypatch.setenv("OPENLAKEFORGE_QUERY_TRINO_CATALOG", f"lakehouse_{stage}")
+    monkeypatch.setenv("OPENLAKEFORGE_QUERY_TRINO_HOST", "trino.olf-system")
+    monkeypatch.setenv("OPENLAKEFORGE_QUERY_TRINO_PORT", "8080")
     monkeypatch.setenv(
         "OPENLAKEFORGE_QUERY_SQLALCHEMY_URI", f"trino://olf-{stage}@trino.olf-system:8080/lakehouse_{stage}"
     )
