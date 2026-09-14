@@ -231,6 +231,42 @@ def test_hcl_structured_contracts_requires_the_stage_topology_locals_of_every_pr
     assert "stage_databases" in result.detail
 
 
+@pytest.mark.parametrize("env", ["azure-poc", "aws-poc"])
+def test_hcl_structured_contracts_rejects_a_dagster_module_given_one_shared_catalog(
+    tmp_path: Path, env: str
+) -> None:
+    """#134: the Dagster container's catalog and Trino bindings are rendered
+    inside the module from `var.catalog_contract`/`var.query_contract`, so a
+    root that passed one stage's contract to every instance would hand DEV's
+    code server the PROD catalog while each instance kept its own namespace and
+    metadata database -- leaving every other gate here green."""
+    repo_root = _repo_with_local_contracts(tmp_path, "valid_local_contracts.tf")
+    main_tf = repo_root / "infra/terraform/environments" / env / "main.tf"
+    main_tf.write_text(
+        main_tf.read_text().replace(
+            "catalog_contract               = local.stage_catalog_contracts[each.key]",
+            'catalog_contract               = local.stage_catalog_contracts["prod"]',
+        )
+    )
+
+    result = contracts_check._check_hcl_structured_contracts(repo_root)
+
+    assert not result.ok
+    assert f"{env}/main.tf" in result.detail
+    assert "catalog_contract" in result.detail
+
+
+def test_hcl_structured_contracts_rejects_a_root_with_no_dagster_module(tmp_path: Path) -> None:
+    repo_root = _repo_with_local_contracts(tmp_path, "valid_local_contracts.tf")
+    main_tf = repo_root / "infra/terraform/environments/aws-poc/main.tf"
+    main_tf.write_text(main_tf.read_text().replace('module "dagster" {', 'module "renamed" {'))
+
+    result = contracts_check._check_hcl_structured_contracts(repo_root)
+
+    assert not result.ok
+    assert "no module 'dagster'" in result.detail
+
+
 def test_hcl_structured_contracts_rejects_forbidden_phase2_field(tmp_path: Path) -> None:
     repo_root = _repo_with_local_contracts(tmp_path, "invalid_forbidden_phase2_field.tf")
 

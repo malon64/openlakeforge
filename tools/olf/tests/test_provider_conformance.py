@@ -33,8 +33,10 @@ derives, never physical names the provider contract owns.
 
 from __future__ import annotations
 
+import copy
 import inspect
 import json
+import re
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -606,20 +608,48 @@ def test_physical_stage_storage_stays_isolated_per_stage(provider: Provider) -> 
             seen[bucket] = owner
 
 
-@every_provider
-def test_generated_runtime_environment_names_only_the_stage_it_was_built_for(provider: Provider) -> None:
-    """#134: the Dagster code server reads its catalog, buckets, and activation
-    prefix from this environment and nothing else, so "DEV cannot reach the PROD
-    catalog through normal generated configuration" is a property of what
-    `build_contract_env` emits, not of the contract it emits it from.
+def _identity_tokens(text: str) -> list[str]:
+    """Split on everything that cannot occur inside a provider-chosen name.
 
-    Two assertions, because neither alone proves stage isolation. The equality
-    pass pins every binding a run resolves data through to the selected stage's
-    own value: an environment that handed all three stages the generic
+    `-` and `_` stay inside tokens on purpose: physical naming is delegated to
+    the provider (AGENTS.md rule 2), so `acme-data` and `acme-data-prod` are
+    both legal and are different names. Matching them as substrings reports the
+    second as leaking the first.
+    """
+    return [token for token in re.split(r"[^A-Za-z0-9_-]+", text) if token]
+
+
+def _names_identity(value: str, identity: str) -> bool:
+    """True when `value` contains `identity` as a whole run of name tokens.
+
+    A run rather than a single token because some identities are themselves
+    multi-token -- an activation prefix is `activations/<stage>`, and it must
+    match inside `s3://bucket/activations/dev` without matching a bucket that
+    merely starts with the same characters.
+    """
+    haystack, needle = _identity_tokens(value), _identity_tokens(identity)
+    return any(haystack[i : i + len(needle)] == needle for i in range(len(haystack) - len(needle) + 1))
+
+
+@every_provider
+def test_contract_environment_resolves_only_the_stage_it_was_built_for(provider: Provider) -> None:
+    """#134, at the layer `olf` itself owns: the environment `build_contract_env`
+    resolves for one stage names that stage's bindings and no other's. Every
+    `olf` command and the activation rollout configure themselves from it.
+
+    Scope, stated because the criterion is broader than this test: the Dagster
+    container's own environment is rendered independently inside
+    `infra/terraform/modules/orchestration/dagster/main.tf` from the contracts
+    the root passes it, and nothing here evaluates that. `olf check contracts`
+    guards the root wiring as expression text; asserting the rendered values
+    needs an applied plan and is not covered anywhere yet.
+
+    Two assertions, because neither alone proves isolation. The equality pass
+    pins every binding a run resolves data through to the selected stage's own
+    value: an environment that handed all three stages the generic
     `lakehouse-bronze`/`-silver`/`-gold` defaults would name no other stage, so
     an absence check alone stays green while DEV and PROD share every bucket.
-    The absence pass then covers the exports not enumerated here, where a leak
-    shows up as another stage's identity appearing in some value.
+    The absence pass then covers the exports not enumerated here.
     """
     contract = _contract(provider)
     topology = _topology_of(contract)
@@ -657,12 +687,45 @@ def test_generated_runtime_environment_names_only_the_stage_it_was_built_for(pro
 
         foreign = set().union(*(identities[other] for other in parsed.stages if other != name)) - identities[name]
         leaked = sorted(
-            (key, identity) for key, value in exports.items() for identity in foreign if identity in value
+            (key, identity)
+            for key, value in exports.items()
+            for identity in foreign
+            if _names_identity(value, identity)
         )
         assert not leaked, (
-            f"{provider.value}'s {name.value!r} runtime environment carries {leaked!r}. A code server handed "
-            f"another stage's catalog or bucket reads and writes that stage's data whatever namespace it runs in."
+            f"{provider.value}'s {name.value!r} runtime environment carries {leaked!r}. A command or rollout "
+            f"handed another stage's catalog or bucket reads and writes that stage's data."
         )
+
+
+def test_a_stage_bucket_that_extends_another_stages_name_is_not_a_leak() -> None:
+    """Physical bucket naming is the provider's to choose (AGENTS.md rule 2), so
+    a deployment whose DEV bucket is a prefix of its PROD bucket is legal and
+    its two bindings are distinct. Scanning for one name inside the other
+    reports PROD's own bucket as carrying DEV's -- a false positive that fails
+    a correct provider.
+    """
+    contract = copy.deepcopy(_contract(Provider.LOCAL))
+    for stage_name, suffix in (("dev", ""), ("prod", "-prod")):
+        for layer in _MEDALLION_LAYERS:
+            bucket = f"acme-data-{layer}{suffix}"
+            contract["stages"][stage_name]["storage"][layer] = {
+                "physical_id": bucket,
+                "bucket_name": bucket,
+                "uri": f"s3://{bucket}",
+            }
+    topology = _topology_of(contract)
+    parsed = parse_provider_contracts(contract, topology)
+
+    for name, stage in parsed.stages.items():
+        exports, _ = build_contract_env({}, contract, repo_root=REPO_ROOT, topology=topology, stage=name)
+        assert exports["OPENLAKEFORGE_STORAGE_BRONZE_BUCKET"] == str(stage.storage["bronze"]["bucket_name"])
+
+    prod_exports, _ = build_contract_env({}, contract, repo_root=REPO_ROOT, topology=topology, stage=StageName.PROD)
+    leaked = sorted(key for key, value in prod_exports.items() if _names_identity(value, "acme-data-bronze"))
+    assert not leaked, (
+        f"PROD's own 'acme-data-bronze-prod' bucket was reported as naming DEV's 'acme-data-bronze' in {leaked!r}."
+    )
 
 
 def test_logical_stage_identities_are_identical_across_providers() -> None:

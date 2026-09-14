@@ -93,6 +93,27 @@ _REQUIRED_STAGE_CONTRACT_CHECKS = (
     "stage_metadata_state_is_not_shared",
 )
 
+# Arguments every root's stage-scoped `module "dagster"` must index by the
+# stage it is being instantiated for. The Dagster container's environment is
+# rendered inside the module from exactly these (modules/orchestration/dagster
+# /main.tf renders OPENLAKEFORGE_CATALOG_NAME from `var.catalog_contract` and
+# OPENLAKEFORGE_QUERY_TRINO_CATALOG from `var.query_contract`), so a root that
+# handed every instance one stage's contract would give DEV's code server the
+# PROD catalog -- with each instance still in its own namespace and its own
+# metadata database, so every other gate here stays green (#134).
+#
+# Matched as expression text: hcl2 parses syntax, not Terraform semantics, so
+# this asserts the argument is written per stage, not what it resolves to. The
+# rendered value needs an applied plan and is not checked anywhere yet.
+_STAGE_SCOPED_DAGSTER_ARGUMENTS = (
+    ("for_each", "local.enabled_stages"),
+    ("storage_contract", "local.stage_storage_contracts[each.key]"),
+    ("catalog_contract", "local.stage_catalog_contracts[each.key]"),
+    ("postgresql_contract", "local.stage_metadata_database_contracts[each.key]"),
+    ("query_contract", "local.stage_catalog_contracts[each.key].catalog_name"),
+    ("namespace", "[each.key]"),
+)
+
 # The "adapters are explicit" check is named per-provider; the OpenMetadata
 # FQN check only applies where a Polaris-backed catalog names a database.
 _REQUIRED_CONTRACT_CHECKS_BY_ENV = {
@@ -360,16 +381,29 @@ def _check_hcl_structured_contracts(repo_root: Path) -> CheckResult:
         for forbidden_field in _FORBIDDEN_PHASE_TWO_FIELDS:
             if forbidden_field in main_locals:
                 errors.append(f"{env}/main.tf: locals must not declare Phase-2-owned field {forbidden_field!r}")
+        dagster_module: dict[str, Any] | None = None
         for module_block in main_document.get("module", []):
             for module_name, module_body in module_block.items():
                 if not isinstance(module_body, dict):
                     continue
+                if module_name == "dagster":
+                    dagster_module = module_body
                 for forbidden_field in _FORBIDDEN_PHASE_TWO_FIELDS:
                     if forbidden_field in module_body:
                         errors.append(
                             f"{env}/main.tf: module {module_name!r} must not receive Phase-2-owned "
                             f"argument {forbidden_field!r}"
                         )
+        if dagster_module is None:
+            errors.append(f"{env}/main.tf: no module 'dagster' to instantiate one orchestrator per stage")
+        else:
+            for argument, expected in _STAGE_SCOPED_DAGSTER_ARGUMENTS:
+                if expected not in str(dagster_module.get(argument, "")):
+                    errors.append(
+                        f"{env}/main.tf: module 'dagster' argument {argument!r} must be scoped to the stage "
+                        f"being instantiated ({expected!r}); a shared binding gives every stage's Dagster the "
+                        f"same catalog, storage, or metadata state"
+                    )
 
     glue_main_path = repo_root / "infra/terraform/modules/catalog/aws-glue/main.tf"
     if glue_main_path.is_file():
