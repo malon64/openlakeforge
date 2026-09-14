@@ -254,3 +254,15 @@ def test_a_v2_contract_refuses_to_answer_for_another_stage() -> None:
     # The DEV stage still resolves, as does the unselected default.
     build_contract_env({}, contracts, repo_root=REPO_ROOT, topology=topology, stage=StageName.DEV)
     build_contract_env({}, contracts, repo_root=REPO_ROOT)
+
+
+def test_provenance_is_recorded_only_for_an_applied_contract() -> None:
+    """A stage marker left in the caller's shell must not survive a run whose
+    Terraform output was unavailable, or a consumer would read it as proof
+    that the synthesized defaults came from a real contract."""
+    exports, unsets = build_contract_env(
+        {"OPENLAKEFORGE_CONTRACT_STAGE": "prod"}, None, repo_root=REPO_ROOT
+    )
+
+    assert "OPENLAKEFORGE_CONTRACT_STAGE" not in exports
+    assert "OPENLAKEFORGE_CONTRACT_STAGE" in unsets

@@ -1,9 +1,92 @@
+import json
 from pathlib import Path
 from zipfile import ZipFile
 
 import pytest
 
 from olf import k8s, superset
+from olf.contracts import build_contract_env
+from olf.profile import resolve_topology, validate_deployment_profile
+
+FIXTURES = Path(__file__).parent / "fixtures"
+REPO_ROOT = Path(__file__).resolve().parents[3]
+
+
+def _stage_environment(fixture_name: str, stage: str, base: dict[str, str] | None = None) -> dict[str, str]:
+    """One stage's hydrated contract environment, as the CLI would see it.
+
+    Mirrors `deployment.contract_env.applied_contract_environment`: the
+    exports overlay the caller's own environment rather than replacing it,
+    which is what lets a caller-set OPENLAKEFORGE_QUERY_SQLALCHEMY_URI
+    survive (`olf.contracts` module docstring) and therefore what makes the
+    stale-URI case below reachable at all.
+    """
+    contract = json.loads((FIXTURES / fixture_name).read_text())
+    deployment = contract["deployment"]
+    topology = resolve_topology(
+        validate_deployment_profile(
+            {
+                "apiVersion": "openlakeforge.io/v1alpha1",
+                "kind": "DeploymentProfile",
+                "metadata": {"name": deployment["profile_name"]},
+                "spec": {
+                    "provider": {
+                        "type": deployment["provider"],
+                        **({"region": deployment["region"]} if deployment["region"] else {}),
+                    },
+                    "preset": "slim",
+                    "stages": {
+                        name: {
+                            "enabled": True,
+                            "capabilities": {
+                                "analytics": "reporting" in payload,
+                                "governance": "governance" in payload,
+                            },
+                        }
+                        for name, payload in contract["stages"].items()
+                    },
+                },
+            }
+        )
+    )
+    resolved = dict(base or {})
+    exports, unsets = build_contract_env(resolved, contract, repo_root=REPO_ROOT, topology=topology, stage=stage)
+    resolved.update(exports)
+    for name in unsets:
+        resolved.pop(name, None)
+    return resolved
+
+
+def test_resolve_stage_report_target_reads_the_named_stages_own_bindings() -> None:
+    dev = superset.resolve_stage_report_target(
+        _stage_environment("aws-provider-contracts-v3.json", "dev"), stage="dev"
+    )
+    prod = superset.resolve_stage_report_target(
+        _stage_environment("aws-provider-contracts-v3.json", "prod"), stage="prod"
+    )
+
+    assert (dev.namespace, prod.namespace) == ("olf-dev", "olf-prod")
+    assert dev.sqlalchemy_uri.endswith("/lakehouse_dev")
+    assert prod.sqlalchemy_uri.endswith("/lakehouse_prod")
+    assert (dev.schema_prefix, prod.schema_prefix) == ("lakehouse_dev_", "lakehouse_prod_")
+
+
+def test_resolve_stage_report_target_names_the_stage_its_catalog_serves() -> None:
+    target = superset.resolve_stage_report_target(_stage_environment("aws-provider-contracts-v3.json", "uat"))
+
+    assert target.stage == "uat"
+
+
+def test_resolve_stage_report_target_fails_closed_without_analytics() -> None:
+    environ = _stage_environment("local-provider-contracts-v3.json", "dev")
+
+    with pytest.raises(superset.ReportStageError, match="analytics disabled"):
+        superset.resolve_stage_report_target(environ, stage="dev")
+
+
+def test_resolve_stage_report_target_rejects_an_unhydrated_environment() -> None:
+    with pytest.raises(superset.ReportStageError, match="OPENLAKEFORGE_KUBE_NAMESPACE"):
+        superset.resolve_stage_report_target({}, stage="dev")
 
 
 def test_bundle_identity_from_source_dir() -> None:
@@ -124,3 +207,82 @@ def test_exec_pod_python_resolves_kubectl_through_the_managed_toolchain(monkeypa
     superset._exec_pod_python("superset-pod", "lakehouse", "print('hi')", [])
 
     assert calls[0][0] == "/managed/bin/kubectl"
+
+
+def test_a_stage_without_an_applied_contract_is_refused() -> None:
+    """Values alone prove nothing: `build_contract_env` synthesizes a
+    dev-shaped environment and keeps caller-exported values when the
+    Terraform output is unavailable. A shell still holding deployment A's
+    canonical `lakehouse_prod` bindings would otherwise import into
+    deployment B's Superset with A's Trino URI."""
+    stale = {
+        "OPENLAKEFORGE_ANALYTICS_ENABLED": "true",
+        "OPENLAKEFORGE_KUBE_NAMESPACE": "olf-prod",
+        "OPENLAKEFORGE_DBT_TRINO_USER": "olf-prod-runtime",
+        "OPENLAKEFORGE_QUERY_TRINO_HOST": "trino.deployment-a",
+        "OPENLAKEFORGE_QUERY_TRINO_PORT": "8080",
+        "OPENLAKEFORGE_QUERY_TRINO_CATALOG": "lakehouse_prod",
+        "OPENLAKEFORGE_QUERY_SQLALCHEMY_URI": "trino://olf-prod@trino.deployment-a:8080/lakehouse_prod",
+    }
+
+    with pytest.raises(superset.ReportStageError, match="no applied provider contract"):
+        superset.resolve_stage_report_target(stale, stage="prod")
+
+
+def test_a_contract_applied_for_another_stage_is_refused() -> None:
+    environ = {
+        "OPENLAKEFORGE_ANALYTICS_ENABLED": "true",
+        "OPENLAKEFORGE_CONTRACT_STAGE": "dev",
+        "OPENLAKEFORGE_KUBE_NAMESPACE": "olf-dev",
+        "OPENLAKEFORGE_DBT_TRINO_USER": "olf-dev-runtime",
+        "OPENLAKEFORGE_QUERY_TRINO_HOST": "trino.olf-system",
+        "OPENLAKEFORGE_QUERY_TRINO_PORT": "8080",
+        "OPENLAKEFORGE_QUERY_TRINO_CATALOG": "lakehouse_dev",
+        "OPENLAKEFORGE_QUERY_SQLALCHEMY_URI": "trino://olf-dev@trino.olf-system:8080/lakehouse_dev",
+    }
+
+    with pytest.raises(superset.ReportStageError, match="serves 'dev'"):
+        superset.resolve_stage_report_target(environ, stage="prod")
+
+
+def test_the_v2_dev_compatibility_contract_still_resolves() -> None:
+    """Pre-v3 platform state is DEV-only and names its catalog `iceberg`.
+    The v2 adapter exists so report commands keep working against it until
+    the next platform apply; the resolver must not demand a v3 catalog name."""
+    from olf.contracts import build_contract_env
+
+    contract = json.loads((FIXTURES / "local-provider-contracts.json").read_text())
+    exports, _ = build_contract_env({}, contract, repo_root=Path(__file__).resolve().parents[3])
+
+    target = superset.resolve_stage_report_target(exports, stage="dev")
+
+    assert target.stage == "dev"
+    assert target.sqlalchemy_uri.endswith("/iceberg")
+
+
+@pytest.mark.parametrize(
+    "stale",
+    [
+        pytest.param(None, id="another-stage"),
+        pytest.param("trino://olf-prod-runtime@trino.deployment-a:8080/lakehouse_prod", id="another-deployment"),
+        pytest.param("trino://olf-dev-runtime@trino:8080/lakehouse_prod", id="a-sibling-stage-user"),
+    ],
+)
+def test_a_caller_exported_query_uri_never_reaches_the_target(stale: str | None) -> None:
+    """`build_contract_env` keeps a caller-exported
+    OPENLAKEFORGE_QUERY_SQLALCHEMY_URI even with a contract applied, and any
+    of its parts can belong elsewhere: another stage's catalog, another
+    deployment's endpoint, or a sibling stage's Trino user -- whose catalog
+    rules would decide what SQL Lab on the imported connection can read.
+    None of it is used; the URI comes from the applied contract."""
+    if stale is None:
+        stale = _stage_environment("aws-provider-contracts-v3.json", "dev")["OPENLAKEFORGE_QUERY_SQLALCHEMY_URI"]
+    contract = _stage_environment("aws-provider-contracts-v3.json", "prod")
+    environ = _stage_environment(
+        "aws-provider-contracts-v3.json", "prod", base={"OPENLAKEFORGE_QUERY_SQLALCHEMY_URI": stale}
+    )
+
+    target = superset.resolve_stage_report_target(environ, stage="prod")
+
+    assert environ["OPENLAKEFORGE_QUERY_SQLALCHEMY_URI"] == stale
+    assert target.sqlalchemy_uri == contract["OPENLAKEFORGE_QUERY_SQLALCHEMY_URI"]

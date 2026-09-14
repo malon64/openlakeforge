@@ -57,7 +57,7 @@ superset-load:
 superset-reports-deploy:
 	@$(OLF_BIN) superset deploy-reports --provider local --profile $(LOCAL_PROFILE) --cluster-name $(CLUSTER_NAME) --kubeconfig-path "$(LOCAL_KUBECONFIG_PATH)"
 superset-reports-export:
-	@$(OLF_BIN) superset export-reports --provider local --profile $(LOCAL_PROFILE) --cluster-name $(CLUSTER_NAME) --kubeconfig-path "$(LOCAL_KUBECONFIG_PATH)"
+	@$(OLF_BIN) superset export-reports --provider local --stage dev --profile $(LOCAL_PROFILE) --cluster-name $(CLUSTER_NAME) --kubeconfig-path "$(LOCAL_KUBECONFIG_PATH)"
 openmetadata-metadata-deploy:
 	@$(OLF_BIN) openmetadata deploy-metadata --provider local --profile $(LOCAL_PROFILE) --cluster-name $(CLUSTER_NAME) --kubeconfig-path "$(LOCAL_KUBECONFIG_PATH)"
 

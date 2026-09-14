@@ -12,12 +12,13 @@ from __future__ import annotations
 import re
 import shutil
 import subprocess
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from zipfile import ZIP_DEFLATED, ZipFile
 
-from olf import k8s, log
+from olf import k8s, layers, log
+from olf.contracts import CONTRACT_STAGE_ENV
 
 REPORTS_MOUNT_PATH_DEFAULT = "/app/openlakeforge/reports"
 
@@ -95,6 +96,87 @@ with app.app_context():
             with bundle.open(f"{bundle_root}/{file_name}", "w") as fp:
                 fp.write(content.encode())
 """
+
+
+class ReportStageError(RuntimeError):
+    """A stage cannot serve a report import or export."""
+
+
+@dataclass(frozen=True)
+class StageReportTarget:
+    """One stage's own Superset instance and Gold connection."""
+
+    stage: str
+    namespace: str
+    sqlalchemy_uri: str
+    schema_prefix: str
+
+
+def resolve_stage_report_target(environ: Mapping[str, str], *, stage: str = "") -> StageReportTarget:
+    """Resolve one stage's Superset target from that stage's own contract bindings.
+
+    Reads `OPENLAKEFORGE_KUBE_NAMESPACE` rather than `config.namespace()`,
+    whose `NAMESPACE` fallback a caller can export, and builds the Trino URI
+    from the contract rather than accepting a caller-exported one. Nothing
+    derives a target from a selected-stage value -- the hazard
+    `e2e._dagster.dagster_webserver_service_name` documents.
+
+    Analytics is a per-stage capability (ADR 0011): the v3 stage index emits
+    `stages.<name>.reporting` only for an analytics-enabled stage, which
+    reaches this environment as `OPENLAKEFORGE_ANALYTICS_ENABLED`. A stage
+    without it has no Superset to talk to at all.
+    """
+    resolved_stage = stage or environ.get(CONTRACT_STAGE_ENV, "")
+    if not layers.enabled(environ, "analytics"):
+        raise ReportStageError(
+            f"stage {resolved_stage!r} has analytics disabled: it provisions no Superset instance."
+        )
+    namespace = environ.get("OPENLAKEFORGE_KUBE_NAMESPACE", "")
+    connection = {
+        name: environ.get(name, "")
+        for name in (
+            "OPENLAKEFORGE_DBT_TRINO_USER",
+            "OPENLAKEFORGE_QUERY_TRINO_HOST",
+            "OPENLAKEFORGE_QUERY_TRINO_PORT",
+            "OPENLAKEFORGE_QUERY_TRINO_CATALOG",
+        )
+    }
+    missing = [name for name, value in (("OPENLAKEFORGE_KUBE_NAMESPACE", namespace), *connection.items()) if not value]
+    if missing:
+        raise ReportStageError(
+            f"stage {resolved_stage!r} resolved no {', '.join(missing)}: deploy the platform for this stage first."
+        )
+    # Only a contract that was actually applied for this stage counts.
+    # `build_contract_env` synthesizes a dev-shaped environment, and keeps any
+    # caller-exported value, when the Terraform output is unavailable -- so a
+    # shell still holding another deployment's `lakehouse_<stage>` bindings
+    # would pass any check on the values themselves. The provenance marker is
+    # written only when a contract was applied and unset otherwise.
+    applied = environ.get(CONTRACT_STAGE_ENV, "")
+    if not applied or applied != resolved_stage:
+        raise ReportStageError(
+            f"stage {resolved_stage!r} has no applied provider contract in this environment"
+            + (f" (the applied contract serves {applied!r})" if applied else "")
+            + ". Deploy the platform for this stage first."
+        )
+    # Built here from the contract's own fields rather than read from
+    # OPENLAKEFORGE_QUERY_SQLALCHEMY_URI, which `build_contract_env` keeps
+    # when the caller exported one. Any component of a kept URI can belong to
+    # another stage or deployment -- the endpoint, the catalog, or the Trino
+    # user whose catalog rules decide what SQL Lab on this connection can
+    # read -- so none of it is trusted. Same shape `build_contract_env` uses.
+    sqlalchemy_uri = "trino://{user}@{host}:{port}/{catalog}".format(
+        user=connection["OPENLAKEFORGE_DBT_TRINO_USER"],
+        host=connection["OPENLAKEFORGE_QUERY_TRINO_HOST"],
+        port=connection["OPENLAKEFORGE_QUERY_TRINO_PORT"],
+        catalog=connection["OPENLAKEFORGE_QUERY_TRINO_CATALOG"],
+    )
+    return StageReportTarget(
+        stage=resolved_stage,
+        namespace=namespace,
+        sqlalchemy_uri=sqlalchemy_uri,
+        schema_prefix=environ.get("OPENLAKEFORGE_CATALOG_SCHEMA_PREFIX", ""),
+    )
 
 
 @dataclass(frozen=True)

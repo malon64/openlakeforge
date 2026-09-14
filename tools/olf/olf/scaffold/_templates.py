@@ -365,6 +365,6 @@ this one:
 ```bash
 SUPERSET_REPORT_SOURCE_DIR={report_source_dir} \\
 SUPERSET_DASHBOARD_TITLE="<the title you gave it in Superset>" \\
-uv run --project tools/olf olf superset export-reports
+uv run --project tools/olf olf superset export-reports --stage dev
 ```
 """
