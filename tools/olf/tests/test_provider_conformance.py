@@ -45,6 +45,7 @@ from _cloud_support import FakeCloudBackend
 from _tooling_support import RecordedCall, RecordingRunner
 from conftest import write_two_product_fixture
 
+from olf.contracts import build_contract_env
 from olf.deployment.cloud.backend import FoundationFacts
 from olf.deployment.context import DeploymentContext, Provider, stage_namespace
 from olf.deployment.engine import (
@@ -603,6 +604,38 @@ def test_physical_stage_storage_stays_isolated_per_stage(provider: Provider) -> 
                 f"isolation is what keeps DEV out of PROD's data; two stages sharing a bucket removes it."
             )
             seen[bucket] = owner
+
+
+@every_provider
+def test_generated_runtime_environment_names_only_the_stage_it_was_built_for(provider: Provider) -> None:
+    """#134: the Dagster code server reads its catalog, buckets, and activation
+    prefix from this environment and nothing else, so "DEV cannot reach the PROD
+    catalog through normal generated configuration" is a property of what
+    `build_contract_env` emits, not of the contract it emits it from.
+
+    Asserted as absence rather than equality: a value pinned per stage passes
+    either way, but a binding that leaks through unresolved -- the whole stage
+    index, a hardcoded default, another stage's bucket -- only shows up here.
+    """
+    contract = _contract(provider)
+    topology = _topology_of(contract)
+    parsed = parse_provider_contracts(contract, topology)
+    identities = {
+        name: {actual for _, actual, _ in _logical_identities(name, stage)}
+        | {str(stage.storage[layer]["bucket_name"]) for layer in _MEDALLION_LAYERS}
+        for name, stage in parsed.stages.items()
+    }
+
+    for name in parsed.stages:
+        exports, _ = build_contract_env({}, contract, repo_root=REPO_ROOT, topology=topology, stage=name)
+        foreign = set().union(*(identities[other] for other in parsed.stages if other != name)) - identities[name]
+        leaked = sorted(
+            (key, identity) for key, value in exports.items() for identity in foreign if identity in value
+        )
+        assert not leaked, (
+            f"{provider.value}'s {name.value!r} runtime environment carries {leaked!r}. A code server handed "
+            f"another stage's catalog or bucket reads and writes that stage's data whatever namespace it runs in."
+        )
 
 
 def test_logical_stage_identities_are_identical_across_providers() -> None:
