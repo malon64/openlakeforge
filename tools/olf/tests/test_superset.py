@@ -538,3 +538,54 @@ def test_a_shared_database_may_still_carry_a_stage_resolved_uri(tmp_path: Path) 
     )
 
     assert superset.validate_report_bundles(tmp_path, [_REPORT_DIR, _SECOND_REPORT_DIR]) == []
+
+
+_HEX_UUID = "3a3b3c3d-3333-5333-8333-3333333333ff"
+
+
+def test_two_bundles_may_not_claim_one_identity_in_different_cases(tmp_path: Path) -> None:
+    """Superset resolves both spellings to the same asset, so comparing raw
+    strings would let the second import overwrite the first."""
+    _write_report_bundle(tmp_path, chart_uuid=_HEX_UUID)
+    _write_report_bundle(
+        tmp_path,
+        _SECOND_REPORT_DIR,
+        dataset_uuid="52222222-2222-5222-8222-222222222222",
+        chart_uuid=_HEX_UUID.upper(),
+        dashboard_uuid="54444444-4444-5444-8444-444444444444",
+    )
+
+    errors = superset.validate_report_bundles(tmp_path, [_REPORT_DIR, _SECOND_REPORT_DIR])
+
+    assert any("is already used by" in error for error in errors), errors
+
+
+def test_a_reference_resolves_whatever_case_it_is_spelled_in(tmp_path: Path) -> None:
+    bundle = _write_report_bundle(tmp_path, dataset_uuid=_HEX_UUID)
+    (bundle / "charts" / "chart.yaml").write_text(
+        f"slice_name: Orders\nuuid: {_CHART_UUID}\ndataset_uuid: {_HEX_UUID.upper()}\n"
+    )
+
+    assert superset.report_bundle_errors(tmp_path, _REPORT_DIR) == []
+
+
+def test_malformed_yaml_is_reported_against_its_own_path(tmp_path: Path) -> None:
+    """An editing or merge mistake must name the file and leave the rest of
+    the run intact, not abort the validator with a traceback."""
+    bundle = _write_report_bundle(tmp_path)
+    (bundle / "charts" / "chart.yaml").write_text("slice_name: [unterminated\n")
+    other = "lakehouse_code/dashboards/superset/other"
+
+    errors = superset.validate_report_bundles(tmp_path, [_REPORT_DIR, other])
+
+    assert any(error.startswith(f"{_REPORT_DIR}/charts/chart.yaml: is not valid YAML") for error in errors), errors
+    assert f"{other}/metadata.yaml: missing" in errors
+
+
+def test_malformed_bundle_metadata_is_reported_against_its_own_path(tmp_path: Path) -> None:
+    bundle = _write_report_bundle(tmp_path)
+    (bundle / "metadata.yaml").write_text("type: [unterminated\n")
+
+    errors = superset.report_bundle_errors(tmp_path, _REPORT_DIR)
+
+    assert [error.startswith(f"{_REPORT_DIR}/metadata.yaml: is not valid YAML") for error in errors] == [True]

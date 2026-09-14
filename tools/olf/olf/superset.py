@@ -360,6 +360,28 @@ _FORBIDDEN_BUNDLE_VALUES: tuple[tuple[re.Pattern[str], str], ...] = (
 )
 
 
+def _canonical_uuid(value: object) -> str | None:
+    """A uuid in its canonical spelling, or None if it is not one.
+
+    Normalized rather than rejected: Superset resolves `A1B2-...` and
+    `a1b2-...` to the same asset, so a bundle spelling one in either case is
+    legitimate and must not be refused. Comparing the raw strings instead
+    would let two bundles claim one identity in different cases and pass as
+    distinct, which is the collision the uniqueness rule exists to catch.
+    """
+    if not isinstance(value, str):
+        return None
+    try:
+        return str(UUID(value))
+    except ValueError:
+        return None
+
+
+def _yaml_problem(exc: Exception) -> str:
+    """A YAML parse error as one line, for a violation a user reads in a list."""
+    return " ".join(str(exc).split())
+
+
 def _shared_database_definition(document: Mapping[str, Any]) -> dict[str, Any]:
     """The part of a database document two bundles must agree on.
 
@@ -394,7 +416,10 @@ def report_bundle_errors(
     # command and would fail in the pod rather than here. `_EXPORT_SCRIPT`
     # rewrites the type for exactly that reason, so a bundle that lost it was
     # hand-edited.
-    metadata = yaml.safe_load(metadata_path.read_text(encoding="utf-8"))
+    try:
+        metadata = yaml.safe_load(metadata_path.read_text(encoding="utf-8"))
+    except yaml.YAMLError as exc:
+        return [f"{report_dir}/metadata.yaml: is not valid YAML ({_yaml_problem(exc)})"]
     if not isinstance(metadata, dict):
         return [f"{report_dir}/metadata.yaml: is not a YAML mapping"]
     if metadata.get("type") != "assets":
@@ -411,7 +436,14 @@ def report_bundle_errors(
             if not path.is_file() or path.suffix.lower() not in REPORT_YAML_SUFFIXES:
                 continue
             name = f"{report_dir}/{path.relative_to(bundle_dir).as_posix()}"
-            document = yaml.safe_load(path.read_text(encoding="utf-8"))
+            # A hand-edit or a merge leaves invalid YAML behind often enough
+            # that dying on it would make the validator useless exactly when
+            # it is needed: the point is to name the file and keep collecting.
+            try:
+                document = yaml.safe_load(path.read_text(encoding="utf-8"))
+            except yaml.YAMLError as exc:
+                errors.append(f"{name}: is not valid YAML ({_yaml_problem(exc)})")
+                continue
             if not isinstance(document, dict):
                 errors.append(f"{name}: is not a YAML mapping")
                 continue
@@ -420,25 +452,24 @@ def report_bundle_errors(
             if not isinstance(identity, str) or not identity:
                 errors.append(f"{name}: has no stable uuid")
                 continue
-            try:
-                # Superset's import schema expects a real UUID. An arbitrary
-                # string matches its own references and would pass every check
-                # here, then fail at import into whichever stage runs first.
-                UUID(identity)
-            except ValueError:
+            # Superset's import schema expects a real UUID. An arbitrary
+            # string matches its own references and would pass every check
+            # here, then fail at import into whichever stage runs first.
+            canonical = _canonical_uuid(identity)
+            if canonical is None:
                 errors.append(f"{name}: uuid {identity!r} is not a UUID")
                 continue
-            identities[kind].add(identity)
-            claimed = owner_of.get(identity)
+            identities[kind].add(canonical)
+            claimed = owner_of.get(canonical)
             if claimed is None:
-                owner_of[identity] = (kind, name, document)
+                owner_of[canonical] = (kind, name, document)
                 continue
             claimed_kind, claimed_name, claimed_document = claimed
             if kind not in _SHAREABLE_ASSET_DIRS or claimed_kind not in _SHAREABLE_ASSET_DIRS:
-                errors.append(f"{name}: uuid {identity} is already used by {claimed_name}")
+                errors.append(f"{name}: uuid {canonical} is already used by {claimed_name}")
             elif _shared_database_definition(document) != _shared_database_definition(claimed_document):
                 errors.append(
-                    f"{name}: uuid {identity} defines a different database than {claimed_name}; "
+                    f"{name}: uuid {canonical} defines a different database than {claimed_name}; "
                     "a shared connection must be declared identically in every bundle"
                 )
 
@@ -446,7 +477,7 @@ def report_bundle_errors(
         if kind in _ASSET_REFERENCES:
             field, target = _ASSET_REFERENCES[kind]
             reference = document.get(field)
-            if not isinstance(reference, str) or reference not in identities[target]:
+            if _canonical_uuid(reference) not in identities[target]:
                 errors.append(f"{name}: {field} {reference!r} does not resolve inside the bundle")
             continue
         if kind != "dashboards":
@@ -457,7 +488,7 @@ def report_bundle_errors(
                 continue
             meta = block.get("meta")
             reference = meta.get("uuid") if isinstance(meta, dict) else None
-            if not isinstance(reference, str) or reference not in identities["charts"]:
+            if _canonical_uuid(reference) not in identities["charts"]:
                 errors.append(f"{name}: position block {key} references chart {reference!r} the bundle does not define")
 
     for path in sorted(bundle_dir.rglob("*")):
