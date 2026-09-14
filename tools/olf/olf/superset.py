@@ -15,10 +15,12 @@ import subprocess
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
+from typing import Any
 from zipfile import ZIP_DEFLATED, ZipFile
 
 from olf import k8s, layers, log
 from olf.contracts import CONTRACT_STAGE_ENV
+from olf.profile import StageName
 
 REPORTS_MOUNT_PATH_DEFAULT = "/app/openlakeforge/reports"
 
@@ -259,10 +261,14 @@ def unpack_export_bundle(bundle_path: Path, target_dir: Path) -> None:
 
     with ZipFile(bundle_path) as bundle:
         for member in bundle.namelist():
-            path = PurePosixPath(member)
-            if len(path.parts) < 2 or path.name.startswith(".") or path.suffix.lower() not in {".yaml", ".yml"}:
+            member_path = PurePosixPath(member)
+            if (
+                len(member_path.parts) < 2
+                or member_path.name.startswith(".")
+                or member_path.suffix.lower() not in {".yaml", ".yml"}
+            ):
                 continue
-            relative = PurePosixPath(*path.parts[1:])
+            relative = PurePosixPath(*member_path.parts[1:])
             destination = target_dir / Path(relative.as_posix())
             destination.parent.mkdir(parents=True, exist_ok=True)
             destination.write_bytes(bundle.read(member))
@@ -308,6 +314,102 @@ def validate_report_registry(repo_root: Path, declared_report_dirs: Sequence[str
             details.append("mounted but not declared: " + ", ".join(undeclared))
         raise RuntimeError("Superset dashboard registry mismatch (" + "; ".join(details) + ")")
     return sorted(declared)
+
+
+# The promotion contract for a source-controlled bundle (#130). Superset
+# matches assets across instances by `uuid`, so a bundle whose identities are
+# missing, duplicated, or dangling imports into DEV and then silently forks or
+# fails in PROD -- the one stage nothing re-exports from. These directories are
+# what `unpack_export_bundle` manages and `build_report_bundle` packs.
+_MANAGED_ASSET_DIRS: tuple[str, ...] = ("databases", "datasets", "charts", "dashboards")
+_ASSET_REFERENCES = {"datasets": ("database_uuid", "databases"), "charts": ("dataset_uuid", "datasets")}
+# A promotable bundle is stage-neutral: target connectivity is resolved at
+# import time by `build_report_bundle`, so a checked-in stage-bound physical
+# name (`lakehouse_<stage>` catalogs, `olf-<stage>` namespaces) would survive
+# promotion and point PROD at another stage's data. `ws_<user>_` is a personal
+# workspace identity, which #111 excludes from promotable dependencies
+# outright. `s3://`, `http://`, and credential literals are already rejected
+# for every revision component by olf.project_revision.
+_FORBIDDEN_BUNDLE_VALUES: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"\bws_[a-z0-9][a-z0-9-]*_", re.IGNORECASE), "a personal workspace identifier"),
+    (
+        re.compile(
+            r"\b(?:lakehouse|olf)[_-](?:" + "|".join(stage.value for stage in StageName) + r")\b", re.IGNORECASE
+        ),
+        "a stage-bound physical name",
+    ),
+)
+
+
+def report_bundle_errors(repo_root: Path, report_dir: str) -> list[str]:
+    """Check one source-controlled report bundle against the promotion contract.
+
+    Returns every violation rather than raising on the first: an analyst
+    re-exporting a bundle wants the whole list, not one round trip per
+    problem.
+    """
+    import yaml
+
+    bundle_dir = repo_root / report_dir
+    if not (bundle_dir / "metadata.yaml").is_file():
+        return [f"{report_dir}/metadata.yaml: missing"]
+
+    errors: list[str] = []
+    owner_of: dict[str, str] = {}
+    identities: dict[str, set[str]] = {kind: set() for kind in _MANAGED_ASSET_DIRS}
+    documents: list[tuple[str, str, dict[str, Any]]] = []
+    for kind in _MANAGED_ASSET_DIRS:
+        for path in sorted((bundle_dir / kind).rglob("*")):
+            if not path.is_file() or path.suffix.lower() not in REPORT_YAML_SUFFIXES:
+                continue
+            name = f"{report_dir}/{path.relative_to(bundle_dir).as_posix()}"
+            document = yaml.safe_load(path.read_text(encoding="utf-8"))
+            if not isinstance(document, dict):
+                errors.append(f"{name}: is not a YAML mapping")
+                continue
+            documents.append((kind, name, document))
+            identity = document.get("uuid")
+            if not isinstance(identity, str) or not identity:
+                errors.append(f"{name}: has no stable uuid")
+            elif identity in owner_of:
+                errors.append(f"{name}: uuid {identity} is already used by {owner_of[identity]}")
+            else:
+                owner_of[identity] = name
+                identities[kind].add(identity)
+
+    for kind, name, document in documents:
+        if kind in _ASSET_REFERENCES:
+            field, target = _ASSET_REFERENCES[kind]
+            reference = document.get(field)
+            if not isinstance(reference, str) or reference not in identities[target]:
+                errors.append(f"{name}: {field} {reference!r} does not resolve inside the bundle")
+            continue
+        if kind != "dashboards":
+            continue
+        position = document.get("position")
+        for key, block in position.items() if isinstance(position, dict) else ():
+            if not isinstance(block, dict) or block.get("type") != "CHART":
+                continue
+            meta = block.get("meta")
+            reference = meta.get("uuid") if isinstance(meta, dict) else None
+            if not isinstance(reference, str) or reference not in identities["charts"]:
+                errors.append(f"{name}: position block {key} references chart {reference!r} the bundle does not define")
+
+    for path in sorted(bundle_dir.rglob("*")):
+        if not path.is_file() or path.suffix.lower() not in REPORT_YAML_SUFFIXES:
+            continue
+        text = path.read_text(encoding="utf-8")
+        name = f"{report_dir}/{path.relative_to(bundle_dir).as_posix()}"
+        for pattern, detail in _FORBIDDEN_BUNDLE_VALUES:
+            match = pattern.search(text)
+            if match is not None:
+                errors.append(f"{name}: contains {detail} ({match.group(0)!r})")
+    return errors
+
+
+def validate_report_bundles(repo_root: Path, report_dirs: Sequence[str]) -> list[str]:
+    """Collect promotion-contract violations across several bundles."""
+    return [error for report_dir in report_dirs for error in report_bundle_errors(repo_root, report_dir)]
 
 
 def _exec_pod_python(pod: str, namespace: str, script: str, args: list[str]) -> None:

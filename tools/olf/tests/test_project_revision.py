@@ -656,3 +656,11 @@ def test_ambient_registry_env_restores_the_callers_docker_config(monkeypatch: py
     resolved = ambient_registry_env(scoped)
     assert "DOCKER_CONFIG" not in resolved
     assert resolved["AWS_REGION"] == "eu-west-3"
+
+
+def test_build_rejects_a_report_bundle_with_a_dangling_identity(external_project: Path) -> None:
+    chart = next((external_project / "lakehouse_code/dashboards/superset").glob("*/charts/*.yaml"))
+    chart.unlink()
+
+    with pytest.raises(project_revision.ProjectRevisionError, match="not promotable"):
+        _build(external_project)

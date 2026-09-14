@@ -93,9 +93,33 @@ catalog boundary, never part of an asset's identity.
 | `floe` | `silver/<domain>/contracts/floe/<domain>.yml` | The contract, never the rendered manifest |
 | `dbt` | `gold/<product>/dbt/**` | Excludes `target/` and `dbt_packages/` |
 | `dagster` | `pipelines/dagster/<product>.py`, `bronze/<source>/dlt/<source>.py` | Orchestration and extract code |
-| `reports` | `dashboards/superset/<dashboard>/**` | Only when at least one dashboard is declared |
+| `reports` | `dashboards/superset/<dashboard>/**` | Only when at least one dashboard is declared; validated first |
 | `image` | The project-code repository, plus an immutable `@sha256:` digest | A mutable tag is rejected |
 | `distribution` | The running distribution's version | Gates activation against an incompatible distribution |
+
+## The report bundle contract
+
+A Superset report bundle is the one component promotion never re-derives:
+PROD imports what DEV exported, and nothing exports from PROD to repair it.
+`olf project build` therefore refuses a bundle that could not survive that
+trip, and `olf report validate` runs the same rules on demand:
+
+- **Every database, dataset, chart, and dashboard carries a `uuid`.**
+  Superset matches assets across instances by UUID, so an asset without one
+  is recreated rather than updated in each stage.
+- **No UUID appears twice.** Two assets claiming one identity overwrite each
+  other on import.
+- **Every reference resolves inside the bundle** — a dataset's
+  `database_uuid`, a chart's `dataset_uuid`, and each `CHART` position UUID
+  in a dashboard. A dangling one imports into DEV and breaks in PROD.
+- **No `ws_<user>_` identifier.** A personal workspace is not a promotable
+  dependency (#111).
+- **No `lakehouse_<stage>` or `olf-<stage>` name.** Target connectivity is
+  resolved at import time, so a checked-in stage name would survive
+  promotion and point PROD at another stage.
+
+`s3://` paths, `http://` endpoints, and credential literals are rejected for
+every component, reports included, by the revision's own scan.
 
 ## What is never frozen
 

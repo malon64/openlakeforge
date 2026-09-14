@@ -816,3 +816,26 @@ def test_platform_surfaces_a_provider_it_cannot_build_as_a_failure(monkeypatch: 
 
     assert result.exit_code != 0
     assert "no changes" not in result.output
+
+
+def test_report_validate_accepts_the_reference_project_bundles(external_project: Path) -> None:
+    result = runner.invoke(app, ["report", "validate", "--project-root", str(external_project)])
+
+    assert result.exit_code == 0
+    assert "promotable" in result.output
+
+
+def test_report_validate_exits_nonzero_for_a_stage_bound_bundle(external_project: Path) -> None:
+    database = next((external_project / "lakehouse_code/dashboards/superset").glob("*/databases/*.yaml"))
+    database.write_text(database.read_text().replace("/iceberg", "/lakehouse_prod"))
+
+    result = runner.invoke(app, ["report", "validate", "--project-root", str(external_project)])
+
+    assert result.exit_code == 1
+    assert "stage-bound physical name" in result.output
+
+
+def test_report_validate_rejects_an_undeclared_dashboard(external_project: Path) -> None:
+    result = runner.invoke(app, ["report", "validate", "nope", "--project-root", str(external_project)])
+
+    assert result.exit_code != 0

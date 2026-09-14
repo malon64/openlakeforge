@@ -286,3 +286,118 @@ def test_a_caller_exported_query_uri_never_reaches_the_target(stale: str | None)
 
     assert environ["OPENLAKEFORGE_QUERY_SQLALCHEMY_URI"] == stale
     assert target.sqlalchemy_uri == contract["OPENLAKEFORGE_QUERY_SQLALCHEMY_URI"]
+
+
+_REPORT_DIR = "lakehouse_code/dashboards/superset/demo"
+_DATABASE_UUID = "11111111-1111-5111-8111-111111111111"
+_DATASET_UUID = "22222222-2222-5222-8222-222222222222"
+_CHART_UUID = "33333333-3333-5333-8333-333333333333"
+_DASHBOARD_UUID = "44444444-4444-5444-8444-444444444444"
+
+
+def _write_report_bundle(root: Path) -> Path:
+    """A minimal promotable bundle shaped like a real Superset asset export."""
+    bundle = root / _REPORT_DIR
+    for kind in ("databases", "datasets", "charts", "dashboards"):
+        (bundle / kind).mkdir(parents=True)
+    (bundle / "metadata.yaml").write_text("version: 1.0.0\ntype: assets\n")
+    (bundle / "databases" / "trino.yaml").write_text(
+        f"database_name: Trino\nsqlalchemy_uri: trino://superset@trino:8080/iceberg\nuuid: {_DATABASE_UUID}\n"
+    )
+    (bundle / "datasets" / "mart.yaml").write_text(
+        f"table_name: mart_orders\nschema: order_revenue_gold\nuuid: {_DATASET_UUID}\n"
+        f"database_uuid: {_DATABASE_UUID}\n"
+    )
+    (bundle / "charts" / "chart.yaml").write_text(
+        f"slice_name: Orders\nuuid: {_CHART_UUID}\ndataset_uuid: {_DATASET_UUID}\n"
+    )
+    (bundle / "dashboards" / "dash.yaml").write_text(
+        f"dashboard_title: Orders\nslug: orders\nuuid: {_DASHBOARD_UUID}\n"
+        "position:\n"
+        "  CHART-ORDERS:\n"
+        "    id: CHART-ORDERS\n"
+        "    type: CHART\n"
+        "    meta:\n"
+        f"      uuid: {_CHART_UUID}\n"
+    )
+    return bundle
+
+
+def test_report_bundle_errors_accepts_a_promotable_bundle(tmp_path: Path) -> None:
+    _write_report_bundle(tmp_path)
+
+    assert superset.report_bundle_errors(tmp_path, _REPORT_DIR) == []
+
+
+def test_report_bundle_errors_reports_a_missing_bundle(tmp_path: Path) -> None:
+    assert superset.report_bundle_errors(tmp_path, _REPORT_DIR) == [f"{_REPORT_DIR}/metadata.yaml: missing"]
+
+
+def test_report_bundle_errors_rejects_an_asset_without_a_stable_uuid(tmp_path: Path) -> None:
+    bundle = _write_report_bundle(tmp_path)
+    (bundle / "charts" / "chart.yaml").write_text(f"slice_name: Orders\ndataset_uuid: {_DATASET_UUID}\n")
+
+    errors = superset.report_bundle_errors(tmp_path, _REPORT_DIR)
+
+    assert any("has no stable uuid" in error for error in errors)
+
+
+def test_report_bundle_errors_rejects_a_duplicated_uuid(tmp_path: Path) -> None:
+    bundle = _write_report_bundle(tmp_path)
+    (bundle / "charts" / "second.yaml").write_text(
+        f"slice_name: Copy\nuuid: {_CHART_UUID}\ndataset_uuid: {_DATASET_UUID}\n"
+    )
+
+    errors = superset.report_bundle_errors(tmp_path, _REPORT_DIR)
+
+    assert any("is already used by" in error for error in errors)
+
+
+def test_report_bundle_errors_rejects_a_dangling_dataset_reference(tmp_path: Path) -> None:
+    bundle = _write_report_bundle(tmp_path)
+    (bundle / "charts" / "chart.yaml").write_text(
+        f"slice_name: Orders\nuuid: {_CHART_UUID}\ndataset_uuid: {_DASHBOARD_UUID}\n"
+    )
+
+    errors = superset.report_bundle_errors(tmp_path, _REPORT_DIR)
+
+    assert any("dataset_uuid" in error and "does not resolve inside the bundle" in error for error in errors)
+
+
+def test_report_bundle_errors_rejects_a_dashboard_referencing_an_absent_chart(tmp_path: Path) -> None:
+    bundle = _write_report_bundle(tmp_path)
+    (bundle / "charts" / "chart.yaml").unlink()
+
+    errors = superset.report_bundle_errors(tmp_path, _REPORT_DIR)
+
+    assert any("the bundle does not define" in error for error in errors)
+
+
+def test_report_bundle_errors_rejects_a_personal_workspace_dependency(tmp_path: Path) -> None:
+    bundle = _write_report_bundle(tmp_path)
+    (bundle / "datasets" / "mart.yaml").write_text(
+        f"table_name: mart_orders\nschema: ws_alice_order_revenue_gold\nuuid: {_DATASET_UUID}\n"
+        f"database_uuid: {_DATABASE_UUID}\n"
+    )
+
+    errors = superset.report_bundle_errors(tmp_path, _REPORT_DIR)
+
+    assert any("personal workspace identifier" in error for error in errors)
+
+
+def test_report_bundle_errors_rejects_a_stage_bound_physical_name(tmp_path: Path) -> None:
+    bundle = _write_report_bundle(tmp_path)
+    (bundle / "databases" / "trino.yaml").write_text(
+        f"database_name: Trino\nsqlalchemy_uri: trino://superset@trino:8080/lakehouse_prod\nuuid: {_DATABASE_UUID}\n"
+    )
+
+    errors = superset.report_bundle_errors(tmp_path, _REPORT_DIR)
+
+    assert any("stage-bound physical name" in error for error in errors)
+
+
+def test_validate_report_bundles_spans_every_declared_bundle(tmp_path: Path) -> None:
+    _write_report_bundle(tmp_path)
+    other = "lakehouse_code/dashboards/superset/other"
+
+    assert superset.validate_report_bundles(tmp_path, [_REPORT_DIR, other]) == [f"{other}/metadata.yaml: missing"]
