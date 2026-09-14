@@ -104,14 +104,19 @@ PROD imports what DEV exported, and nothing exports from PROD to repair it.
 `olf project build` therefore refuses a bundle that could not survive that
 trip, and `olf report validate` runs the same rules on demand:
 
-- **Every database, dataset, chart, and dashboard carries a `uuid`.**
+- **`metadata.yaml` declares `type: assets` and a format version.** That type
+  is what selects the import command the deploy path runs; anything else
+  fails in the pod instead of here.
+- **Every database, dataset, chart, and dashboard carries a real `uuid`.**
   Superset matches assets across instances by UUID, so an asset without one
-  is recreated rather than updated in each stage.
+  is recreated rather than updated in each stage, and an arbitrary string
+  only fails once a stage tries to import it.
 - **No chart, dataset, or dashboard UUID appears twice across the declared
   bundles.** Every bundle is imported into the same stage's Superset, so a
   reused identity makes the second import overwrite the first asset. Database
   UUIDs are the exception and are meant to be shared: one Trino connection
-  serves every dashboard.
+  serves every dashboard — but the bundles sharing one must define it
+  identically, apart from the `sqlalchemy_uri` that is rewritten at import.
 - **Every reference resolves inside the bundle** — a dataset's
   `database_uuid`, a chart's `dataset_uuid`, and each `CHART` position UUID
   in a dashboard. A dangling one imports into DEV and breaks in PROD.

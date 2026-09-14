@@ -16,6 +16,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
+from uuid import UUID
 from zipfile import ZIP_DEFLATED, ZipFile
 
 from olf import k8s, layers, log
@@ -342,16 +343,35 @@ _SHAREABLE_ASSET_DIRS = frozenset({"databases"})
 _FORBIDDEN_BUNDLE_VALUES: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"\bws_[a-z0-9][a-z0-9-]*_", re.IGNORECASE), "a personal workspace identifier"),
     (
+        # `\b` after the stage token would be wrong on exactly the case that
+        # matters most: `_` is a word character, so `lakehouse_dev` matches
+        # while AWS's prefixed schema `lakehouse_dev_order_revenue_gold` --
+        # what `build_report_bundle`'s `schema_prefix` produces -- would not.
+        # A negative lookahead on letters and digits admits the suffix while
+        # still refusing `lakehouse_development`.
         re.compile(
-            r"\b(?:lakehouse|olf)[_-](?:" + "|".join(stage.value for stage in StageName) + r")\b", re.IGNORECASE
+            r"(?<![a-z0-9])(?:lakehouse|olf)[_-](?:"
+            + "|".join(stage.value for stage in StageName)
+            + r")(?![a-z0-9])",
+            re.IGNORECASE,
         ),
         "a stage-bound physical name",
     ),
 )
 
 
+def _shared_database_definition(document: Mapping[str, Any]) -> dict[str, Any]:
+    """The part of a database document two bundles must agree on.
+
+    `sqlalchemy_uri` is excluded because `build_report_bundle` rewrites it to
+    the target stage's own connection while packaging, so its checked-in
+    value is a placeholder rather than part of the shared definition.
+    """
+    return {key: value for key, value in document.items() if key != "sqlalchemy_uri"}
+
+
 def report_bundle_errors(
-    repo_root: Path, report_dir: str, *, owner_of: dict[str, tuple[str, str]] | None = None
+    repo_root: Path, report_dir: str, *, owner_of: dict[str, tuple[str, str, dict[str, Any]]] | None = None
 ) -> list[str]:
     """Check one source-controlled report bundle against the promotion contract.
 
@@ -359,15 +379,28 @@ def report_bundle_errors(
     re-exporting a bundle wants the whole list, not one round trip per
     problem.
 
-    `owner_of` maps each claimed uuid to the (kind, file) that claimed it.
-    Pass one across several calls to check identity uniqueness over a whole
-    set of bundles -- see `validate_report_bundles`.
+    `owner_of` maps each claimed uuid to the (kind, file, document) that
+    claimed it. Pass one across several calls to check identity uniqueness
+    over a whole set of bundles -- see `validate_report_bundles`.
     """
     import yaml
 
     bundle_dir = repo_root / report_dir
-    if not (bundle_dir / "metadata.yaml").is_file():
+    metadata_path = bundle_dir / "metadata.yaml"
+    if not metadata_path.is_file():
         return [f"{report_dir}/metadata.yaml: missing"]
+    # `_IMPORT_SCRIPT` runs `ImportAssetsCommand`, which is what `type:
+    # assets` selects -- a dashboard-type export imports through a different
+    # command and would fail in the pod rather than here. `_EXPORT_SCRIPT`
+    # rewrites the type for exactly that reason, so a bundle that lost it was
+    # hand-edited.
+    metadata = yaml.safe_load(metadata_path.read_text(encoding="utf-8"))
+    if not isinstance(metadata, dict):
+        return [f"{report_dir}/metadata.yaml: is not a YAML mapping"]
+    if metadata.get("type") != "assets":
+        return [f"{report_dir}/metadata.yaml: declares type {metadata.get('type')!r}, not 'assets'"]
+    if not isinstance(metadata.get("version"), str) or not metadata["version"]:
+        return [f"{report_dir}/metadata.yaml: has no export format version"]
 
     errors: list[str] = []
     owner_of = {} if owner_of is None else owner_of
@@ -387,12 +420,27 @@ def report_bundle_errors(
             if not isinstance(identity, str) or not identity:
                 errors.append(f"{name}: has no stable uuid")
                 continue
+            try:
+                # Superset's import schema expects a real UUID. An arbitrary
+                # string matches its own references and would pass every check
+                # here, then fail at import into whichever stage runs first.
+                UUID(identity)
+            except ValueError:
+                errors.append(f"{name}: uuid {identity!r} is not a UUID")
+                continue
             identities[kind].add(identity)
             claimed = owner_of.get(identity)
             if claimed is None:
-                owner_of[identity] = (kind, name)
-            elif claimed[0] not in _SHAREABLE_ASSET_DIRS or kind not in _SHAREABLE_ASSET_DIRS:
-                errors.append(f"{name}: uuid {identity} is already used by {claimed[1]}")
+                owner_of[identity] = (kind, name, document)
+                continue
+            claimed_kind, claimed_name, claimed_document = claimed
+            if kind not in _SHAREABLE_ASSET_DIRS or claimed_kind not in _SHAREABLE_ASSET_DIRS:
+                errors.append(f"{name}: uuid {identity} is already used by {claimed_name}")
+            elif _shared_database_definition(document) != _shared_database_definition(claimed_document):
+                errors.append(
+                    f"{name}: uuid {identity} defines a different database than {claimed_name}; "
+                    "a shared connection must be declared identically in every bundle"
+                )
 
     for kind, name, document in documents:
         if kind in _ASSET_REFERENCES:
@@ -431,7 +479,7 @@ def validate_report_bundles(repo_root: Path, report_dirs: Sequence[str]) -> list
     at a time, because the hazard is per Superset instance rather than per
     bundle: `deploy_reports` imports them all into the same one.
     """
-    owner_of: dict[str, tuple[str, str]] = {}
+    owner_of: dict[str, tuple[str, str, dict[str, Any]]] = {}
     return [
         error for report_dir in report_dirs for error in report_bundle_errors(repo_root, report_dir, owner_of=owner_of)
     ]

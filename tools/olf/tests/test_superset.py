@@ -446,3 +446,95 @@ def test_two_bundles_may_not_share_a_chart_dataset_or_dashboard_identity(tmp_pat
 
     assert any(_REPORT_DIR in error for error in errors), errors
     assert all(error.startswith(_SECOND_REPORT_DIR) for error in errors), errors
+
+
+def test_report_bundle_errors_rejects_a_stage_prefixed_physical_schema(tmp_path: Path) -> None:
+    """AWS prefixes every schema with the stage's catalog name, which is what
+    `build_report_bundle`'s `schema_prefix` produces. A trailing word boundary
+    would miss it, because `_` is a word character."""
+    bundle = _write_report_bundle(tmp_path)
+    (bundle / "datasets" / "mart.yaml").write_text(
+        f"table_name: mart_orders\nschema: lakehouse_dev_order_revenue_gold\nuuid: {_DATASET_UUID}\n"
+        f"database_uuid: {_DATABASE_UUID}\n"
+    )
+
+    errors = superset.report_bundle_errors(tmp_path, _REPORT_DIR)
+
+    assert any("stage-bound physical name" in error for error in errors)
+
+
+def test_report_bundle_errors_allows_a_word_that_merely_starts_with_a_stage_name(tmp_path: Path) -> None:
+    bundle = _write_report_bundle(tmp_path)
+    (bundle / "charts" / "chart.yaml").write_text(
+        f"slice_name: Lakehouse Development Notes\nuuid: {_CHART_UUID}\ndataset_uuid: {_DATASET_UUID}\n"
+    )
+
+    assert superset.report_bundle_errors(tmp_path, _REPORT_DIR) == []
+
+
+def test_report_bundle_errors_rejects_an_identity_that_is_not_a_uuid(tmp_path: Path) -> None:
+    bundle = _write_report_bundle(tmp_path)
+    (bundle / "charts" / "chart.yaml").write_text(
+        f"slice_name: Orders\nuuid: not-a-uuid\ndataset_uuid: {_DATASET_UUID}\n"
+    )
+
+    errors = superset.report_bundle_errors(tmp_path, _REPORT_DIR)
+
+    assert any("is not a UUID" in error for error in errors)
+
+
+@pytest.mark.parametrize(
+    ("metadata", "expected"),
+    [
+        ("version: 1.0.0\ntype: Dashboard\n", "not 'assets'"),
+        ("version: 1.0.0\n", "not 'assets'"),
+        ("type: assets\n", "no export format version"),
+        ("- not a mapping\n", "not a YAML mapping"),
+    ],
+)
+def test_report_bundle_errors_rejects_metadata_the_importer_would_refuse(
+    tmp_path: Path, metadata: str, expected: str
+) -> None:
+    bundle = _write_report_bundle(tmp_path)
+    (bundle / "metadata.yaml").write_text(metadata)
+
+    assert [expected in error for error in superset.report_bundle_errors(tmp_path, _REPORT_DIR)] == [True]
+
+
+def test_two_bundles_may_not_define_one_shared_database_differently(tmp_path: Path) -> None:
+    """A shared uuid means one connection; letting the definitions diverge
+    lets the later import replace what every earlier dashboard reads."""
+    _write_report_bundle(tmp_path)
+    second = _write_report_bundle(
+        tmp_path,
+        _SECOND_REPORT_DIR,
+        dataset_uuid="52222222-2222-5222-8222-222222222222",
+        chart_uuid="53333333-3333-5333-8333-333333333333",
+        dashboard_uuid="54444444-4444-5444-8444-444444444444",
+    )
+    (second / "databases" / "trino.yaml").write_text(
+        f"database_name: Trino\nsqlalchemy_uri: trino://superset@trino:8080/iceberg\n"
+        f"allow_dml: true\nuuid: {_DATABASE_UUID}\n"
+    )
+
+    errors = superset.validate_report_bundles(tmp_path, [_REPORT_DIR, _SECOND_REPORT_DIR])
+
+    assert any("defines a different database" in error for error in errors), errors
+
+
+def test_a_shared_database_may_still_carry_a_stage_resolved_uri(tmp_path: Path) -> None:
+    """`build_report_bundle` rewrites `sqlalchemy_uri` while packaging, so its
+    checked-in value is a placeholder and cannot be part of the comparison."""
+    _write_report_bundle(tmp_path)
+    second = _write_report_bundle(
+        tmp_path,
+        _SECOND_REPORT_DIR,
+        dataset_uuid="52222222-2222-5222-8222-222222222222",
+        chart_uuid="53333333-3333-5333-8333-333333333333",
+        dashboard_uuid="54444444-4444-5444-8444-444444444444",
+    )
+    (second / "databases" / "trino.yaml").write_text(
+        f"database_name: Trino\nsqlalchemy_uri: trino://other@trino:8080/iceberg\nuuid: {_DATABASE_UUID}\n"
+    )
+
+    assert superset.validate_report_bundles(tmp_path, [_REPORT_DIR, _SECOND_REPORT_DIR]) == []
