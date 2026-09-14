@@ -25,6 +25,15 @@ from olf.profile import StageName
 
 REPORTS_MOUNT_PATH_DEFAULT = "/app/openlakeforge/reports"
 
+# `build_report_bundle` prefixes a dataset's physical schema textually rather
+# than by rewriting the parsed document, so this pattern decides both what
+# gets rewritten and what a promotable dataset may look like. The two uses
+# share one constant deliberately: a guard written against a copy of the
+# expression would stop agreeing with the packager the first time either
+# changed. `report_bundle_errors` uses it as the oracle for which YAML forms
+# survive packaging -- see `_dataset_schema_errors`.
+_DATASET_SCHEMA_LINE = re.compile(r"^schema:\s*(\S+)$", re.MULTILINE)
+
 # In-pod importer. Runs in the Superset interpreter; argv: <remote_bundle> <username>.
 _IMPORT_SCRIPT = """
 import sys
@@ -238,11 +247,9 @@ def build_report_bundle(
                 bundle.writestr(archive_name, text)
             elif schema_prefix and relative.startswith("datasets/"):
                 text = path.read_text(encoding="utf-8")
-                text = re.sub(
-                    r"^schema:\s*(\S+)$",
+                text = _DATASET_SCHEMA_LINE.sub(
                     lambda match: f"schema: {schema_prefix}{match.group(1)}",
                     text,
-                    flags=re.MULTILINE,
                 )
                 bundle.writestr(archive_name, text)
             else:
@@ -382,14 +389,50 @@ def _yaml_problem(exc: Exception) -> str:
     return " ".join(str(exc).split())
 
 
-def _shared_database_definition(document: Mapping[str, Any]) -> dict[str, Any]:
-    """The part of a database document two bundles must agree on.
+_UNCOMPARED_DATABASE_FIELDS = frozenset(
+    {
+        # `build_report_bundle` rewrites it to the target stage's own
+        # connection while packaging, so the checked-in value is a
+        # placeholder rather than part of the shared definition.
+        "sqlalchemy_uri",
+        # The canonical identity is already this comparison's map key, so the
+        # raw spelling adds nothing -- and comparing it would report two
+        # identical databases as conflicting whenever they merely differ in
+        # case, which `_canonical_uuid` exists to treat as the same asset.
+        "uuid",
+    }
+)
 
-    `sqlalchemy_uri` is excluded because `build_report_bundle` rewrites it to
-    the target stage's own connection while packaging, so its checked-in
-    value is a placeholder rather than part of the shared definition.
+
+def _shared_database_definition(document: Mapping[str, Any]) -> dict[str, Any]:
+    """The part of a database document two bundles sharing a uuid must agree on."""
+    return {key: value for key, value in document.items() if key not in _UNCOMPARED_DATABASE_FIELDS}
+
+
+def _dataset_schema_errors(name: str, document: Mapping[str, Any], text: str) -> list[str]:
+    """Reject a dataset whose `schema` the packager would mangle or skip.
+
+    `build_report_bundle` applies the stage prefix with a textual
+    substitution, so only a plain unquoted scalar on its own line survives:
+    `schema: "gold"` becomes `schema: lakehouse_dev_"gold"`, naming a schema
+    that does not exist, and a form the pattern misses entirely is left
+    unprefixed and queries another stage's catalog. Comparing the parsed
+    value against what the packager's own pattern captures catches both
+    without this guard having to enumerate the YAML forms itself.
+
+    This is a compensating control, not the fix: it keeps a corruptible
+    bundle out of a revision but still refuses YAML that is perfectly valid.
+    #204 tracks rewriting the schema structurally, which retires this.
     """
-    return {key: value for key, value in document.items() if key != "sqlalchemy_uri"}
+    if "schema" not in document:
+        return []
+    captured = _DATASET_SCHEMA_LINE.findall(text)
+    if captured == [str(document["schema"])]:
+        return []
+    return [
+        f"{name}: schema {document['schema']!r} is not written as a plain scalar on its own line, "
+        "so packaging it for a prefixed stage catalog would not reproduce it"
+    ]
 
 
 def report_bundle_errors(
@@ -439,8 +482,9 @@ def report_bundle_errors(
             # A hand-edit or a merge leaves invalid YAML behind often enough
             # that dying on it would make the validator useless exactly when
             # it is needed: the point is to name the file and keep collecting.
+            text = path.read_text(encoding="utf-8")
             try:
-                document = yaml.safe_load(path.read_text(encoding="utf-8"))
+                document = yaml.safe_load(text)
             except yaml.YAMLError as exc:
                 errors.append(f"{name}: is not valid YAML ({_yaml_problem(exc)})")
                 continue
@@ -448,6 +492,8 @@ def report_bundle_errors(
                 errors.append(f"{name}: is not a YAML mapping")
                 continue
             documents.append((kind, name, document))
+            if kind == "datasets":
+                errors.extend(_dataset_schema_errors(name, document, text))
             identity = document.get("uuid")
             if not isinstance(identity, str) or not identity:
                 errors.append(f"{name}: has no stable uuid")
@@ -472,6 +518,18 @@ def report_bundle_errors(
                     f"{name}: uuid {canonical} defines a different database than {claimed_name}; "
                     "a shared connection must be declared identically in every bundle"
                 )
+
+    # A bundle carrying only a database and its datasets is what `olf product
+    # new --with-report` leaves behind: the scaffold cannot invent a dashboard
+    # layout, so the analyst authors one in Superset and exports it back. That
+    # state is legitimate on disk and not promotable, and `e2e._assertions`
+    # already refuses it at runtime -- accepting it here would publish an
+    # incomplete revision and surface the omission only after promotion.
+    if not any(kind == "dashboards" for kind, _, _ in documents):
+        errors.append(
+            f"{report_dir}: exports no Superset dashboard; author it in Superset "
+            "and export it back into this bundle before promoting"
+        )
 
     for kind, name, document in documents:
         if kind in _ASSET_REFERENCES:

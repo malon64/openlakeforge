@@ -107,6 +107,10 @@ trip, and `olf report validate` runs the same rules on demand:
 - **`metadata.yaml` declares `type: assets` and a format version.** That type
   is what selects the import command the deploy path runs; anything else
   fails in the pod instead of here.
+- **The bundle exports at least one dashboard.** A scaffold from `olf product
+  new --with-report` carries a database and its datasets but no dashboard
+  until an analyst authors one in Superset and exports it back, and a
+  revision frozen in that state fails only once a stage imports it.
 - **Every database, dataset, chart, and dashboard carries a real `uuid`.**
   Superset matches assets across instances by UUID, so an asset without one
   is recreated rather than updated in each stage, and an arbitrary string
@@ -125,6 +129,11 @@ trip, and `olf report validate` runs the same rules on demand:
 - **No `lakehouse_<stage>` or `olf-<stage>` name.** Target connectivity is
   resolved at import time, so a checked-in stage name would survive
   promotion and point PROD at another stage.
+- **A dataset's `schema` is a plain scalar on its own line.** Packaging
+  prefixes it textually for a stage-prefixed catalog, so a quoted or folded
+  scalar would be rewritten into a schema nothing can query. This rule
+  compensates for the packager rather than describing the format; #204
+  tracks rewriting it structurally and retiring the rule.
 
 `s3://` paths, `http://` endpoints, and credential literals are rejected for
 every component, reports included, by the revision's own scan.

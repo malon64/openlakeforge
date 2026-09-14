@@ -589,3 +589,73 @@ def test_malformed_bundle_metadata_is_reported_against_its_own_path(tmp_path: Pa
     errors = superset.report_bundle_errors(tmp_path, _REPORT_DIR)
 
     assert [error.startswith(f"{_REPORT_DIR}/metadata.yaml: is not valid YAML") for error in errors] == [True]
+
+
+def test_a_bundle_exporting_no_dashboard_is_not_promotable(tmp_path: Path) -> None:
+    """What `olf product new --with-report` leaves behind: a database and its
+    datasets, awaiting a dashboard authored in Superset. `e2e._assertions`
+    already refuses it at runtime, so freezing it would publish an incomplete
+    revision and surface the omission only after promotion."""
+    bundle = _write_report_bundle(tmp_path)
+    (bundle / "dashboards" / "dash.yaml").unlink()
+    (bundle / "charts" / "chart.yaml").unlink()
+
+    errors = superset.report_bundle_errors(tmp_path, _REPORT_DIR)
+
+    assert [f"{_REPORT_DIR}: exports no Superset dashboard" in error for error in errors] == [True]
+
+
+@pytest.mark.parametrize(
+    "schema_line",
+    [
+        pytest.param('schema: "order_revenue_gold"', id="double-quoted"),
+        pytest.param("schema: 'order_revenue_gold'", id="single-quoted"),
+        pytest.param("schema: order_revenue_gold  # the Gold mart", id="trailing-comment"),
+        pytest.param("schema: >-\n  order_revenue_gold", id="block-scalar"),
+    ],
+)
+def test_a_dataset_schema_the_packager_would_mangle_is_rejected(tmp_path: Path, schema_line: str) -> None:
+    """`build_report_bundle` prefixes the schema textually, so a quoted or
+    folded scalar becomes `lakehouse_dev_"order_revenue_gold"` and a form its
+    pattern misses is left querying another stage's catalog."""
+    bundle = _write_report_bundle(tmp_path)
+    (bundle / "datasets" / "mart.yaml").write_text(
+        f"table_name: mart_orders\n{schema_line}\nuuid: {_DATASET_UUID}\ndatabase_uuid: {_DATABASE_UUID}\n"
+    )
+
+    errors = superset.report_bundle_errors(tmp_path, _REPORT_DIR)
+
+    assert any("is not written as a plain scalar" in error for error in errors), errors
+
+
+def test_the_packager_reproduces_every_schema_validation_accepts(tmp_path: Path) -> None:
+    """The guard's whole claim: what it accepts survives packaging intact.
+    Pins the two against each other so neither can drift alone."""
+    bundle = _write_report_bundle(tmp_path)
+    assert superset.report_bundle_errors(tmp_path, _REPORT_DIR) == []
+
+    bundle_path = tmp_path / "bundle.zip"
+    superset.build_report_bundle(bundle, bundle_path, "root", "trino://x", schema_prefix="lakehouse_dev_")
+
+    with ZipFile(bundle_path) as packaged:
+        dataset = packaged.read("root/datasets/mart.yaml").decode()
+    assert "schema: lakehouse_dev_order_revenue_gold" in dataset
+
+
+def test_two_bundles_may_share_a_database_spelled_in_different_cases(tmp_path: Path) -> None:
+    """`_canonical_uuid` treats the two spellings as one asset, so comparing
+    the raw `uuid` would report identical databases as conflicting."""
+    _write_report_bundle(tmp_path, database_uuid=_HEX_UUID)
+    second = _write_report_bundle(
+        tmp_path,
+        _SECOND_REPORT_DIR,
+        database_uuid=_HEX_UUID,
+        dataset_uuid="52222222-2222-5222-8222-222222222222",
+        chart_uuid="53333333-3333-5333-8333-333333333333",
+        dashboard_uuid="54444444-4444-5444-8444-444444444444",
+    )
+    (second / "databases" / "trino.yaml").write_text(
+        f"database_name: Trino\nsqlalchemy_uri: trino://superset@trino:8080/iceberg\nuuid: {_HEX_UUID.upper()}\n"
+    )
+
+    assert superset.validate_report_bundles(tmp_path, [_REPORT_DIR, _SECOND_REPORT_DIR]) == []
