@@ -107,8 +107,11 @@ trip, and `olf report validate` runs the same rules on demand:
 - **Every database, dataset, chart, and dashboard carries a `uuid`.**
   Superset matches assets across instances by UUID, so an asset without one
   is recreated rather than updated in each stage.
-- **No UUID appears twice.** Two assets claiming one identity overwrite each
-  other on import.
+- **No chart, dataset, or dashboard UUID appears twice across the declared
+  bundles.** Every bundle is imported into the same stage's Superset, so a
+  reused identity makes the second import overwrite the first asset. Database
+  UUIDs are the exception and are meant to be shared: one Trino connection
+  serves every dashboard.
 - **Every reference resolves inside the bundle** — a dataset's
   `database_uuid`, a chart's `dataset_uuid`, and each `CHART` position UUID
   in a dashboard. A dangling one imports into DEV and breaks in PROD.

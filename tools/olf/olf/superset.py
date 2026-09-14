@@ -323,6 +323,15 @@ def validate_report_registry(repo_root: Path, declared_report_dirs: Sequence[str
 # what `unpack_export_bundle` manages and `build_report_bundle` packs.
 _MANAGED_ASSET_DIRS: tuple[str, ...] = ("databases", "datasets", "charts", "dashboards")
 _ASSET_REFERENCES = {"datasets": ("database_uuid", "databases"), "charts": ("dataset_uuid", "datasets")}
+# The database is the one identity several bundles are meant to hold in
+# common: every dashboard reads the same Gold through one Trino connection,
+# and the reference project's bundles all declare the same
+# `openlakeforge_trino` uuid deliberately. Nothing else is shareable --
+# `deploy_reports` imports every declared bundle into one Superset instance in
+# turn, so a chart, dataset, or dashboard uuid reused across two bundles makes
+# the second import overwrite the first asset and leaves the earlier dashboard
+# pointing at someone else's chart.
+_SHAREABLE_ASSET_DIRS = frozenset({"databases"})
 # A promotable bundle is stage-neutral: target connectivity is resolved at
 # import time by `build_report_bundle`, so a checked-in stage-bound physical
 # name (`lakehouse_<stage>` catalogs, `olf-<stage>` namespaces) would survive
@@ -341,12 +350,18 @@ _FORBIDDEN_BUNDLE_VALUES: tuple[tuple[re.Pattern[str], str], ...] = (
 )
 
 
-def report_bundle_errors(repo_root: Path, report_dir: str) -> list[str]:
+def report_bundle_errors(
+    repo_root: Path, report_dir: str, *, owner_of: dict[str, tuple[str, str]] | None = None
+) -> list[str]:
     """Check one source-controlled report bundle against the promotion contract.
 
     Returns every violation rather than raising on the first: an analyst
     re-exporting a bundle wants the whole list, not one round trip per
     problem.
+
+    `owner_of` maps each claimed uuid to the (kind, file) that claimed it.
+    Pass one across several calls to check identity uniqueness over a whole
+    set of bundles -- see `validate_report_bundles`.
     """
     import yaml
 
@@ -355,7 +370,7 @@ def report_bundle_errors(repo_root: Path, report_dir: str) -> list[str]:
         return [f"{report_dir}/metadata.yaml: missing"]
 
     errors: list[str] = []
-    owner_of: dict[str, str] = {}
+    owner_of = {} if owner_of is None else owner_of
     identities: dict[str, set[str]] = {kind: set() for kind in _MANAGED_ASSET_DIRS}
     documents: list[tuple[str, str, dict[str, Any]]] = []
     for kind in _MANAGED_ASSET_DIRS:
@@ -371,11 +386,13 @@ def report_bundle_errors(repo_root: Path, report_dir: str) -> list[str]:
             identity = document.get("uuid")
             if not isinstance(identity, str) or not identity:
                 errors.append(f"{name}: has no stable uuid")
-            elif identity in owner_of:
-                errors.append(f"{name}: uuid {identity} is already used by {owner_of[identity]}")
-            else:
-                owner_of[identity] = name
-                identities[kind].add(identity)
+                continue
+            identities[kind].add(identity)
+            claimed = owner_of.get(identity)
+            if claimed is None:
+                owner_of[identity] = (kind, name)
+            elif claimed[0] not in _SHAREABLE_ASSET_DIRS or kind not in _SHAREABLE_ASSET_DIRS:
+                errors.append(f"{name}: uuid {identity} is already used by {claimed[1]}")
 
     for kind, name, document in documents:
         if kind in _ASSET_REFERENCES:
@@ -408,8 +425,16 @@ def report_bundle_errors(repo_root: Path, report_dir: str) -> list[str]:
 
 
 def validate_report_bundles(repo_root: Path, report_dirs: Sequence[str]) -> list[str]:
-    """Collect promotion-contract violations across several bundles."""
-    return [error for report_dir in report_dirs for error in report_bundle_errors(repo_root, report_dir)]
+    """Collect promotion-contract violations across every declared bundle.
+
+    Identity uniqueness is checked over the whole set rather than one bundle
+    at a time, because the hazard is per Superset instance rather than per
+    bundle: `deploy_reports` imports them all into the same one.
+    """
+    owner_of: dict[str, tuple[str, str]] = {}
+    return [
+        error for report_dir in report_dirs for error in report_bundle_errors(repo_root, report_dir, owner_of=owner_of)
+    ]
 
 
 def _exec_pod_python(pod: str, namespace: str, script: str, args: list[str]) -> None:

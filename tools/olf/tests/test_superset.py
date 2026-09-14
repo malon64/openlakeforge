@@ -295,30 +295,38 @@ _CHART_UUID = "33333333-3333-5333-8333-333333333333"
 _DASHBOARD_UUID = "44444444-4444-5444-8444-444444444444"
 
 
-def _write_report_bundle(root: Path) -> Path:
+def _write_report_bundle(
+    root: Path,
+    report_dir: str = _REPORT_DIR,
+    *,
+    database_uuid: str = _DATABASE_UUID,
+    dataset_uuid: str = _DATASET_UUID,
+    chart_uuid: str = _CHART_UUID,
+    dashboard_uuid: str = _DASHBOARD_UUID,
+) -> Path:
     """A minimal promotable bundle shaped like a real Superset asset export."""
-    bundle = root / _REPORT_DIR
+    bundle = root / report_dir
     for kind in ("databases", "datasets", "charts", "dashboards"):
         (bundle / kind).mkdir(parents=True)
     (bundle / "metadata.yaml").write_text("version: 1.0.0\ntype: assets\n")
     (bundle / "databases" / "trino.yaml").write_text(
-        f"database_name: Trino\nsqlalchemy_uri: trino://superset@trino:8080/iceberg\nuuid: {_DATABASE_UUID}\n"
+        f"database_name: Trino\nsqlalchemy_uri: trino://superset@trino:8080/iceberg\nuuid: {database_uuid}\n"
     )
     (bundle / "datasets" / "mart.yaml").write_text(
-        f"table_name: mart_orders\nschema: order_revenue_gold\nuuid: {_DATASET_UUID}\n"
-        f"database_uuid: {_DATABASE_UUID}\n"
+        f"table_name: mart_orders\nschema: order_revenue_gold\nuuid: {dataset_uuid}\n"
+        f"database_uuid: {database_uuid}\n"
     )
     (bundle / "charts" / "chart.yaml").write_text(
-        f"slice_name: Orders\nuuid: {_CHART_UUID}\ndataset_uuid: {_DATASET_UUID}\n"
+        f"slice_name: Orders\nuuid: {chart_uuid}\ndataset_uuid: {dataset_uuid}\n"
     )
     (bundle / "dashboards" / "dash.yaml").write_text(
-        f"dashboard_title: Orders\nslug: orders\nuuid: {_DASHBOARD_UUID}\n"
+        f"dashboard_title: Orders\nslug: orders\nuuid: {dashboard_uuid}\n"
         "position:\n"
         "  CHART-ORDERS:\n"
         "    id: CHART-ORDERS\n"
         "    type: CHART\n"
         "    meta:\n"
-        f"      uuid: {_CHART_UUID}\n"
+        f"      uuid: {chart_uuid}\n"
     )
     return bundle
 
@@ -401,3 +409,40 @@ def test_validate_report_bundles_spans_every_declared_bundle(tmp_path: Path) -> 
     other = "lakehouse_code/dashboards/superset/other"
 
     assert superset.validate_report_bundles(tmp_path, [_REPORT_DIR, other]) == [f"{other}/metadata.yaml: missing"]
+
+
+_SECOND_REPORT_DIR = "lakehouse_code/dashboards/superset/second"
+
+
+def test_two_bundles_may_share_one_database_identity(tmp_path: Path) -> None:
+    """Every dashboard reads the same Gold through one Trino connection, so
+    the shared database uuid is the intended arrangement, not a collision."""
+    _write_report_bundle(tmp_path)
+    _write_report_bundle(
+        tmp_path,
+        _SECOND_REPORT_DIR,
+        dataset_uuid="52222222-2222-5222-8222-222222222222",
+        chart_uuid="53333333-3333-5333-8333-333333333333",
+        dashboard_uuid="54444444-4444-5444-8444-444444444444",
+    )
+
+    assert superset.validate_report_bundles(tmp_path, [_REPORT_DIR, _SECOND_REPORT_DIR]) == []
+
+
+@pytest.mark.parametrize("shared", ["dataset_uuid", "chart_uuid", "dashboard_uuid"])
+def test_two_bundles_may_not_share_a_chart_dataset_or_dashboard_identity(tmp_path: Path, shared: str) -> None:
+    """`deploy_reports` imports every declared bundle into one Superset, so a
+    reused identity makes the second import overwrite the first asset."""
+    distinct = {
+        "dataset_uuid": "52222222-2222-5222-8222-222222222222",
+        "chart_uuid": "53333333-3333-5333-8333-333333333333",
+        "dashboard_uuid": "54444444-4444-5444-8444-444444444444",
+    }
+    del distinct[shared]
+    _write_report_bundle(tmp_path)
+    _write_report_bundle(tmp_path, _SECOND_REPORT_DIR, **distinct)
+
+    errors = superset.validate_report_bundles(tmp_path, [_REPORT_DIR, _SECOND_REPORT_DIR])
+
+    assert any(_REPORT_DIR in error for error in errors), errors
+    assert all(error.startswith(_SECOND_REPORT_DIR) for error in errors), errors
