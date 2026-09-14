@@ -613,9 +613,13 @@ def test_generated_runtime_environment_names_only_the_stage_it_was_built_for(pro
     catalog through normal generated configuration" is a property of what
     `build_contract_env` emits, not of the contract it emits it from.
 
-    Asserted as absence rather than equality: a value pinned per stage passes
-    either way, but a binding that leaks through unresolved -- the whole stage
-    index, a hardcoded default, another stage's bucket -- only shows up here.
+    Two assertions, because neither alone proves stage isolation. The equality
+    pass pins every binding a run resolves data through to the selected stage's
+    own value: an environment that handed all three stages the generic
+    `lakehouse-bronze`/`-silver`/`-gold` defaults would name no other stage, so
+    an absence check alone stays green while DEV and PROD share every bucket.
+    The absence pass then covers the exports not enumerated here, where a leak
+    shows up as another stage's identity appearing in some value.
     """
     contract = _contract(provider)
     topology = _topology_of(contract)
@@ -626,8 +630,31 @@ def test_generated_runtime_environment_names_only_the_stage_it_was_built_for(pro
         for name, stage in parsed.stages.items()
     }
 
-    for name in parsed.stages:
+    for name, stage in parsed.stages.items():
         exports, _ = build_contract_env({}, contract, repo_root=REPO_ROOT, topology=topology, stage=name)
+        expected = {
+            "OPENLAKEFORGE_CATALOG_NAME": str(stage.catalog["catalog_name"]),
+            "OPENLAKEFORGE_QUERY_TRINO_CATALOG": str(stage.query["catalog_name"]),
+            "OPENLAKEFORGE_KUBE_NAMESPACE": stage.namespace,
+            **{
+                f"OPENLAKEFORGE_STORAGE_{layer.upper()}_BUCKET": str(stage.storage[layer]["bucket_name"])
+                for layer in _MEDALLION_LAYERS
+            },
+        }
+        wrong = {key: (exports.get(key), value) for key, value in expected.items() if exports.get(key) != value}
+        assert not wrong, (
+            f"{provider.value}'s {name.value!r} runtime environment binds {wrong!r} as (emitted, contracted). "
+            f"Every one of these is how a run reaches data, so a binding that is not this stage's own is one "
+            f"stage reading or writing another's -- including the case where every stage is handed the same "
+            f"generic default."
+        )
+        artifact_base = exports["OPENLAKEFORGE_ARTIFACT_BASE_URI"]
+        assert artifact_base.endswith(f"/{stage.activation['prefix']}"), (
+            f"{provider.value}'s {name.value!r} activation artifacts land at {artifact_base!r}, outside its "
+            f"contracted {stage.activation['prefix']!r} prefix. Stages share the ops bucket; the prefix is the "
+            f"only thing keeping one stage's manifests and run artifacts out of another's."
+        )
+
         foreign = set().union(*(identities[other] for other in parsed.stages if other != name)) - identities[name]
         leaked = sorted(
             (key, identity) for key, value in exports.items() for identity in foreign if identity in value
