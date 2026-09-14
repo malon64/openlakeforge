@@ -19,6 +19,7 @@ from urllib.parse import urlsplit
 from zipfile import ZIP_DEFLATED, ZipFile
 
 from olf import k8s, layers, log
+from olf.contracts import CONTRACT_STAGE_ENV
 
 REPORTS_MOUNT_PATH_DEFAULT = "/app/openlakeforge/reports"
 
@@ -153,19 +154,22 @@ def resolve_stage_report_target(environ: Mapping[str, str], *, stage: str = "") 
         raise ReportStageError(
             f"stage {resolved_stage!r} resolved no {', '.join(missing)}: deploy the platform for this stage first."
         )
-    # The catalog must be the named stage's own. `build_contract_env`
-    # synthesizes a whole dev-shaped environment when
-    # `terraform output provider_contracts` is missing or unreadable --
-    # namespace `olf-dev`, catalog `iceberg`, a matching URI, analytics on --
-    # so every value above is present and none of it came from an applied
-    # contract. `lakehouse_<stage>` is canonical on every provider
-    # (`provider_contracts._parse_stage`), so requiring it is what
-    # distinguishes a real binding from a default that merely looks like one.
+    # Only a contract that was actually applied for this stage counts.
+    # `build_contract_env` synthesizes a dev-shaped environment, and keeps any
+    # caller-exported value, when the Terraform output is unavailable -- so a
+    # shell still holding another deployment's `lakehouse_<stage>` bindings
+    # would pass any check on the values themselves. The provenance marker is
+    # written only when a contract was applied and unset otherwise.
+    applied = environ.get(CONTRACT_STAGE_ENV, "")
+    if not applied or applied != resolved_stage:
+        raise ReportStageError(
+            f"stage {resolved_stage!r} has no applied provider contract in this environment"
+            + (f" (the applied contract serves {applied!r})" if applied else "")
+            + ". Deploy the platform for this stage first."
+        )
     if catalog != f"{STAGE_CATALOG_PREFIX}{resolved_stage}":
         raise ReportStageError(
-            f"stage {resolved_stage!r} resolved catalog {catalog!r}, not "
-            f"{STAGE_CATALOG_PREFIX}{resolved_stage!s}: this environment carries no applied contract for it. "
-            "Deploy the platform for this stage first."
+            f"stage {resolved_stage!r} resolved catalog {catalog!r}, not {STAGE_CATALOG_PREFIX}{resolved_stage!s}."
         )
     addressed = urlsplit(sqlalchemy_uri).path.strip("/").split("/", 1)[0]
     if addressed != catalog:

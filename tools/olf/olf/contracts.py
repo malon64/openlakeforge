@@ -112,6 +112,9 @@ def load_provider_contracts(terraform_dir: str, *, environ: Mapping[str, str] | 
     return contracts
 
 
+CONTRACT_STAGE_ENV = "OPENLAKEFORGE_CONTRACT_STAGE"
+
+
 class _Env:
     """Mutable environment view that records exports and unsets."""
 
@@ -498,6 +501,13 @@ def build_contract_env(
         )
         _apply_provider_contracts(env, resolved_contract)
         _apply_default_contract_env(env, base, repo_root)
+        # Provenance, not a binding: which stage an applied contract actually
+        # served. Set here and unset below, never defaulted, so a value left
+        # in the caller's shell cannot outlive a run whose Terraform output
+        # was unavailable.
+        env.set(CONTRACT_STAGE_ENV, StageName(stage).value if stage is not None else StageName.DEV.value)
+    elif env.raw(CONTRACT_STAGE_ENV) is not None:
+        env.unset(CONTRACT_STAGE_ENV)
     if env.get("OPENLAKEFORGE_STORAGE_IMPLEMENTATION") == "storage.aws_s3":
         env.set("OPENLAKEFORGE_STORAGE_ENDPOINT", "")
         env.set("OPENLAKEFORGE_STORAGE_VIRTUAL_HOST_ENDPOINT", "")

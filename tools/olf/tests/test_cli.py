@@ -49,6 +49,7 @@ def _hydrate_stage_contract(monkeypatch: pytest.MonkeyPatch, stage: str = "dev")
     bindings, so a test that stubs the contract hydration out has to supply
     them; without this the command correctly refuses to guess a stage.
     """
+    monkeypatch.setenv("OPENLAKEFORGE_CONTRACT_STAGE", stage)
     monkeypatch.setenv("OPENLAKEFORGE_KUBE_NAMESPACE", f"olf-{stage}")
     monkeypatch.setenv("OPENLAKEFORGE_QUERY_TRINO_CATALOG", f"lakehouse_{stage}")
     monkeypatch.setenv(
