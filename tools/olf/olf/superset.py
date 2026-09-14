@@ -15,7 +15,6 @@ import subprocess
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from urllib.parse import urlsplit
 from zipfile import ZIP_DEFLATED, ZipFile
 
 from olf import k8s, layers, log
@@ -117,37 +116,32 @@ def resolve_stage_report_target(environ: Mapping[str, str], *, stage: str = "") 
     """Resolve one stage's Superset target from that stage's own contract bindings.
 
     Reads `OPENLAKEFORGE_KUBE_NAMESPACE` rather than `config.namespace()`,
-    whose `NAMESPACE` fallback a caller can export, and rejects a
-    `OPENLAKEFORGE_QUERY_SQLALCHEMY_URI` addressing a catalog other than the
-    stage's own: `contracts.build_contract_env` deliberately leaves a
-    caller-exported URI untouched (`query_uri_user_set`), so a shell still
-    carrying another stage's `olf contracts env` output would otherwise
-    import this stage's dashboards against that stage's Gold. That is the
-    hazard `e2e._dagster.dagster_webserver_service_name` documents, and the
-    reason nothing here derives a target from a selected-stage value.
+    whose `NAMESPACE` fallback a caller can export, and builds the Trino URI
+    from the contract rather than accepting a caller-exported one. Nothing
+    derives a target from a selected-stage value -- the hazard
+    `e2e._dagster.dagster_webserver_service_name` documents.
 
     Analytics is a per-stage capability (ADR 0011): the v3 stage index emits
     `stages.<name>.reporting` only for an analytics-enabled stage, which
     reaches this environment as `OPENLAKEFORGE_ANALYTICS_ENABLED`. A stage
     without it has no Superset to talk to at all.
     """
-    catalog = environ.get("OPENLAKEFORGE_QUERY_TRINO_CATALOG", "")
     resolved_stage = stage or environ.get(CONTRACT_STAGE_ENV, "")
     if not layers.enabled(environ, "analytics"):
         raise ReportStageError(
             f"stage {resolved_stage!r} has analytics disabled: it provisions no Superset instance."
         )
     namespace = environ.get("OPENLAKEFORGE_KUBE_NAMESPACE", "")
-    sqlalchemy_uri = environ.get("OPENLAKEFORGE_QUERY_SQLALCHEMY_URI", "")
-    missing = [
-        name
-        for name, value in (
-            ("OPENLAKEFORGE_KUBE_NAMESPACE", namespace),
-            ("OPENLAKEFORGE_QUERY_TRINO_CATALOG", catalog),
-            ("OPENLAKEFORGE_QUERY_SQLALCHEMY_URI", sqlalchemy_uri),
+    connection = {
+        name: environ.get(name, "")
+        for name in (
+            "OPENLAKEFORGE_DBT_TRINO_USER",
+            "OPENLAKEFORGE_QUERY_TRINO_HOST",
+            "OPENLAKEFORGE_QUERY_TRINO_PORT",
+            "OPENLAKEFORGE_QUERY_TRINO_CATALOG",
         )
-        if not value
-    ]
+    }
+    missing = [name for name, value in (("OPENLAKEFORGE_KUBE_NAMESPACE", namespace), *connection.items()) if not value]
     if missing:
         raise ReportStageError(
             f"stage {resolved_stage!r} resolved no {', '.join(missing)}: deploy the platform for this stage first."
@@ -165,25 +159,18 @@ def resolve_stage_report_target(environ: Mapping[str, str], *, stage: str = "") 
             + (f" (the applied contract serves {applied!r})" if applied else "")
             + ". Deploy the platform for this stage first."
         )
-    # The contract overwrites the query host, port, and catalog, but
-    # `build_contract_env` keeps a caller-exported SQLAlchemy URI on purpose
-    # (`query_uri_user_set`). With a real contract applied, a shell still
-    # holding another deployment's URI for the same stage would otherwise
-    # import this stage's dashboards against that deployment's Trino, so the
-    # URI must address exactly the contract's endpoint and catalog.
-    uri = urlsplit(sqlalchemy_uri)
-    addressed = (uri.hostname or "", str(uri.port or ""), uri.path.strip("/").split("/", 1)[0])
-    expected = (
-        environ.get("OPENLAKEFORGE_QUERY_TRINO_HOST", ""),
-        environ.get("OPENLAKEFORGE_QUERY_TRINO_PORT", ""),
-        catalog,
+    # Built here from the contract's own fields rather than read from
+    # OPENLAKEFORGE_QUERY_SQLALCHEMY_URI, which `build_contract_env` keeps
+    # when the caller exported one. Any component of a kept URI can belong to
+    # another stage or deployment -- the endpoint, the catalog, or the Trino
+    # user whose catalog rules decide what SQL Lab on this connection can
+    # read -- so none of it is trusted. Same shape `build_contract_env` uses.
+    sqlalchemy_uri = "trino://{user}@{host}:{port}/{catalog}".format(
+        user=connection["OPENLAKEFORGE_DBT_TRINO_USER"],
+        host=connection["OPENLAKEFORGE_QUERY_TRINO_HOST"],
+        port=connection["OPENLAKEFORGE_QUERY_TRINO_PORT"],
+        catalog=connection["OPENLAKEFORGE_QUERY_TRINO_CATALOG"],
     )
-    if addressed != expected:
-        raise ReportStageError(
-            f"OPENLAKEFORGE_QUERY_SQLALCHEMY_URI addresses {addressed[0]}:{addressed[1]}/{addressed[2]}, but stage "
-            f"{resolved_stage!r}'s contract serves {expected[0]}:{expected[1]}/{expected[2]}. "
-            "Unset it so the stage contract resolves the connection."
-        )
     return StageReportTarget(
         stage=resolved_stage,
         namespace=namespace,
