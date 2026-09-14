@@ -9,16 +9,3 @@ locals {
   stage_databases        = {}
   selected_stage         = "dev"
 }
-
-module "dagster" {
-  source   = "../../modules/orchestration/dagster"
-  for_each = local.enabled_stages
-
-  namespace           = kubernetes_namespace_v1.stage[each.key].metadata[0].name
-  storage_contract    = local.stage_storage_contracts[each.key]
-  catalog_contract    = local.stage_catalog_contracts[each.key]
-  postgresql_contract = local.stage_metadata_database_contracts[each.key]
-  query_contract = merge(local.query_contract, {
-    catalog_name = local.stage_catalog_contracts[each.key].catalog_name
-  })
-}
