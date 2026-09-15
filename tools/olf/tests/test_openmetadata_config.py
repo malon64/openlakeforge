@@ -7,6 +7,15 @@ import pytest
 from olf import openmetadata as om
 from olf.openmetadata._config import OpenMetadataConfig
 
+# `build_contract_env` writes these only where a provider contract was
+# actually applied for the stage being deployed; `OpenMetadataConfig` refuses
+# an environment that carries neither.
+APPLIED_DEV_CONTRACT = {
+    "OPENLAKEFORGE_CONTRACT_STAGE": "dev",
+    "OPENLAKEFORGE_CATALOG_NAME": "lakehouse_dev",
+}
+
+
 
 def _write_lakehouse(root: Path, name: str = "override", domain: str = "sales", product_id: str = "widgets") -> Path:
     """Write a canonical lakehouse layout: lakehouse.yaml plus one bronze source."""
@@ -64,6 +73,7 @@ resources:
 
 def test_config_from_environment_reads_schema_fqns() -> None:
     environ = {
+        **APPLIED_DEV_CONTRACT,
         "OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON": '{"order_revenue": "svc.db.order_revenue_silver"}',
         "OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON": "{}",
         "OPENLAKEFORGE_STORAGE_OM_SERVICE": "aws_s3",
@@ -102,7 +112,7 @@ def test_config_from_environment_defaults_seed_schema_fqns_for_direct_cli(tmp_pa
     _write_lakehouse(tmp_path)
 
     cfg = OpenMetadataConfig.from_environment(
-        {},
+        dict(APPLIED_DEV_CONTRACT),
         base_url="http://x",
         admin_email="a",
         admin_password="p",
@@ -131,7 +141,7 @@ def test_config_from_environment_derives_defaults_from_metadata_source_dir_overr
     lakehouse_path = _write_lakehouse(source_dir)
 
     cfg = OpenMetadataConfig.from_environment(
-        {},
+        dict(APPLIED_DEV_CONTRACT),
         base_url="http://x",
         admin_email="a",
         admin_password="p",
@@ -162,7 +172,7 @@ def test_config_from_environment_accepts_a_standalone_lakehouse_directory_overri
     lakehouse_path = _write_lakehouse(metadata_dir, name="sales")
 
     cfg = OpenMetadataConfig.from_environment(
-        {},
+        dict(APPLIED_DEV_CONTRACT),
         base_url="http://x",
         admin_email="a",
         admin_password="p",
@@ -191,7 +201,7 @@ def test_config_from_environment_accepts_a_standalone_lakehouse_file_override(tm
     lakehouse_path = _write_lakehouse(metadata_dir, name="sales")
 
     cfg = OpenMetadataConfig.from_environment(
-        {},
+        dict(APPLIED_DEV_CONTRACT),
         base_url="http://x",
         admin_email="a",
         admin_password="p",
@@ -211,6 +221,7 @@ def test_config_from_environment_accepts_a_standalone_lakehouse_file_override(tm
 def test_config_from_environment_preserves_explicit_empty_schema_contract() -> None:
     cfg = OpenMetadataConfig.from_environment(
         {
+            **APPLIED_DEV_CONTRACT,
             "OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON": "{}",
             "OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON": "{}",
         },
@@ -267,6 +278,8 @@ def test_database_root_follows_the_selected_catalog_database_not_a_stale_fqn() -
     the stage being deployed must not define what this deploy may write."""
     cfg = OpenMetadataConfig.from_environment(
         {
+            "OPENLAKEFORGE_CONTRACT_STAGE": "prod",
+            "OPENLAKEFORGE_CATALOG_NAME": "lakehouse_prod",
             "OPENLAKEFORGE_CATALOG_DATABASE_FQN": "polaris.lakehouse_dev",
             "OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON": '{"sales": "polaris.lakehouse_dev.sales_silver"}',
             "OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON": "{}",
@@ -283,3 +296,50 @@ def test_database_root_follows_the_selected_catalog_database_not_a_stale_fqn() -
     )
 
     assert cfg.catalog_database_fqn == "polaris.lakehouse_prod"
+
+
+def _config_from(environ: dict[str, str], *, catalog_database: str) -> OpenMetadataConfig:
+    return OpenMetadataConfig.from_environment(
+        environ,
+        base_url="http://x",
+        admin_email="a",
+        admin_password="p",
+        metadata_root="domains",
+        metadata_source_dir="",
+        allow_missing_assets=False,
+        catalog_service="polaris",
+        catalog_database=catalog_database,
+        cleanup_legacy_default_database=False,
+    )
+
+
+def test_deploy_is_refused_when_no_contract_was_applied_for_this_environment() -> None:
+    """The Terraform output being unreadable leaves every catalog value the
+    calling shell carried in place, so a run intended for one stage resolves
+    the stage whose environment it inherited. Nothing in those values says
+    which; the absent provenance marker does."""
+    stale_dev_environment = {
+        "OPENLAKEFORGE_CATALOG_NAME": "lakehouse_dev",
+        "OPENLAKEFORGE_CATALOG_DATABASE_FQN": "polaris.lakehouse_dev",
+        "OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON": '{"sales": "polaris.lakehouse_dev.sales_silver"}',
+        "OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON": "{}",
+    }
+
+    with pytest.raises(om.OpenMetadataError, match="No applied provider contract"):
+        _config_from(stale_dev_environment, catalog_database="lakehouse_dev")
+
+
+def test_deploy_is_refused_when_the_selected_database_is_not_the_applied_one() -> None:
+    """OPENMETADATA_CATALOG_DATABASE is only defaulted from the contract, so a
+    value inherited from an earlier stage outlives the contract that replaced
+    it."""
+    with pytest.raises(om.OpenMetadataError, match="is not an override"):
+        _config_from(
+            {
+                "OPENLAKEFORGE_CONTRACT_STAGE": "prod",
+                "OPENLAKEFORGE_CATALOG_NAME": "lakehouse_prod",
+                "OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON": "{}",
+                "OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON": "{}",
+            },
+            catalog_database="lakehouse_dev",
+        )

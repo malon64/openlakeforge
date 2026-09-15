@@ -6,6 +6,15 @@ from olf.clients.openmetadata import OpenMetadataClient, OpenMetadataError
 from olf.openmetadata._config import OpenMetadataConfig
 from olf.openmetadata._reconciliation import OpenMetadataReconciler
 
+# `build_contract_env` writes these only where a provider contract was
+# actually applied for the stage being deployed; `OpenMetadataConfig` refuses
+# an environment that carries neither.
+APPLIED_DEV_CONTRACT = {
+    "OPENLAKEFORGE_CONTRACT_STAGE": "dev",
+    "OPENLAKEFORGE_CATALOG_NAME": "lakehouse_dev",
+}
+
+
 
 def _single_product_reconciler(tmp_path: Path) -> OpenMetadataReconciler:
     (tmp_path / "bronze" / "crm").mkdir(parents=True)
@@ -52,7 +61,7 @@ dashboards: []
 """
     )
     cfg = OpenMetadataConfig.from_environment(
-        {},
+        dict(APPLIED_DEV_CONTRACT),
         base_url="http://x",
         admin_email="a",
         admin_password="p",
