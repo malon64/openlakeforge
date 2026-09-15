@@ -193,6 +193,44 @@ def test_hcl_structured_contracts_rejects_missing_check_block(tmp_path: Path) ->
     assert "local_contract_adapters_are_explicit" in result.detail
 
 
+@pytest.mark.parametrize("env", ["azure-poc", "aws-poc"])
+def test_hcl_structured_contracts_requires_the_stage_isolation_invariants_of_every_provider(
+    tmp_path: Path, env: str
+) -> None:
+    """#134: a cloud root that stops pinning each stage's services to their own
+    namespace and metadata database is one where DEV and PROD share a Dagster
+    control plane. The invariant was only demanded of `local` while the split
+    was landing, so a cloud regression passed every gate."""
+    repo_root = _repo_with_local_contracts(tmp_path, "valid_local_contracts.tf")
+    contracts_tf = repo_root / "infra/terraform/environments" / env / "contracts.tf"
+    contracts_tf.write_text(
+        contracts_tf.read_text().replace('check "stage_metadata_state_is_not_shared"', 'check "renamed"')
+    )
+
+    result = contracts_check._check_hcl_structured_contracts(repo_root)
+
+    assert not result.ok
+    assert f"{env}/contracts.tf" in result.detail
+    assert "stage_metadata_state_is_not_shared" in result.detail
+
+
+@pytest.mark.parametrize("env", ["azure-poc", "aws-poc"])
+def test_hcl_structured_contracts_requires_the_stage_topology_locals_of_every_provider(
+    tmp_path: Path, env: str
+) -> None:
+    """The per-stage service instances are indexed off these, so a root that
+    drops one cannot express one Dagster instance per stage at all."""
+    repo_root = _repo_with_local_contracts(tmp_path, "valid_local_contracts.tf")
+    main_tf = repo_root / "infra/terraform/environments" / env / "main.tf"
+    main_tf.write_text(main_tf.read_text().replace("stage_databases = merge(", "renamed_databases = merge("))
+
+    result = contracts_check._check_hcl_structured_contracts(repo_root)
+
+    assert not result.ok
+    assert f"{env}/main.tf" in result.detail
+    assert "stage_databases" in result.detail
+
+
 def test_hcl_structured_contracts_rejects_forbidden_phase2_field(tmp_path: Path) -> None:
     repo_root = _repo_with_local_contracts(tmp_path, "invalid_forbidden_phase2_field.tf")
 

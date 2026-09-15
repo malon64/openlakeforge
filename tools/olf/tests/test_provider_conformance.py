@@ -33,8 +33,10 @@ derives, never physical names the provider contract owns.
 
 from __future__ import annotations
 
+import copy
 import inspect
 import json
+import re
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -45,6 +47,7 @@ from _cloud_support import FakeCloudBackend
 from _tooling_support import RecordedCall, RecordingRunner
 from conftest import write_two_product_fixture
 
+from olf.contracts import build_contract_env
 from olf.deployment.cloud.backend import FoundationFacts
 from olf.deployment.context import DeploymentContext, Provider, stage_namespace
 from olf.deployment.engine import (
@@ -603,6 +606,231 @@ def test_physical_stage_storage_stays_isolated_per_stage(provider: Provider) -> 
                 f"isolation is what keeps DEV out of PROD's data; two stages sharing a bucket removes it."
             )
             seen[bucket] = owner
+
+
+def _names_stage(value: str, stage_name: str) -> bool:
+    """True when `value` mentions `stage_name` as a whole alphanumeric word.
+
+    Scanning for the *stage name* rather than for a whole derived identity is
+    what makes this catch names built out of one: `olf-prod-runtime` and
+    `lakehouse_prod_sales_silver` both contain the word `prod`, while a scan
+    keyed to `olf-prod` or `lakehouse_prod` misses both, because `-` and `_`
+    keep them inside a single token.
+
+    Splitting on every non-alphanumeric byte is safe here for the same reason
+    it would not be for a whole identity: a provider that names DEV's bucket
+    `acme-data` and PROD's `acme-data-prod` (AGENTS.md rule 2 delegates that
+    choice) yields words `acme|data|bronze` for DEV, which contains no other
+    stage's name.
+    """
+    return stage_name in re.split(r"[^A-Za-z0-9]+", value)
+
+
+# Every export whose value is one of the selected stage's contracted bindings,
+# with the binding it must equal. Derived from the emit sites in
+# `olf/contracts.py`, not from memory: each of these differs between stages on
+# at least one provider, so each is a value a run reaches data or Trino
+# through. `OPENLAKEFORGE_DBT_TRINO_USER` is the authentication boundary --
+# Trino's catalog access rules tell stages apart by this principal.
+# `warehouse` is Polaris-only; where a catalog does not name one the catalog
+# name is the warehouse, which is what the emitter falls back to.
+def _warehouse(stage: Any) -> str:
+    return str(stage.catalog.get("warehouse") or stage.catalog["catalog_name"])
+
+
+def _bucket(stage: Any, layer: str) -> str:
+    return str(stage.storage[layer]["bucket_name"])
+
+
+_STAGE_BINDINGS: tuple[tuple[str, Any], ...] = (
+    ("OPENLAKEFORGE_CONTRACT_STAGE", lambda stage: stage.name.value),
+    ("OPENLAKEFORGE_KUBE_NAMESPACE", lambda stage: stage.namespace),
+    ("OPENLAKEFORGE_CATALOG_NAME", lambda stage: str(stage.catalog["catalog_name"])),
+    ("OPENMETADATA_CATALOG_DATABASE", lambda stage: str(stage.catalog["catalog_name"])),
+    ("OPENLAKEFORGE_CATALOG_WAREHOUSE", _warehouse),
+    ("POLARIS_WAREHOUSE", _warehouse),
+    ("OPENLAKEFORGE_QUERY_TRINO_CATALOG", lambda stage: str(stage.query["catalog_name"])),
+    ("OPENLAKEFORGE_DBT_TRINO_USER", lambda stage: str(stage.runtime_identity["principal"])),
+    ("OPENLAKEFORGE_STORAGE_BUCKET", lambda stage: _bucket(stage, "bronze")),
+    ("OPENLAKEFORGE_STORAGE_BRONZE_BUCKET", lambda stage: _bucket(stage, "bronze")),
+    ("OPENLAKEFORGE_STORAGE_SILVER_BUCKET", lambda stage: _bucket(stage, "silver")),
+    ("OPENLAKEFORGE_STORAGE_GOLD_BUCKET", lambda stage: _bucket(stage, "gold")),
+)
+
+# Exports that must land under the stage's own activation prefix, mapped to the
+# suffix each adds. Stages share one ops bucket, so the prefix is the only
+# thing keeping one stage's manifests, logs and run artifacts out of another's.
+_ACTIVATION_URIS = {
+    "OPENLAKEFORGE_ARTIFACT_BASE_URI": "",
+    "OPENLAKEFORGE_FLOE_MANIFEST_BASE_URI": "/floe/manifests",
+    "OPENLAKEFORGE_FLOE_REPORT_BASE_URI": "/floe/reports",
+    "OPENLAKEFORGE_LOG_BASE_URI": "/logs",
+    "OPENLAKEFORGE_RUN_ARTIFACT_BASE_URI": "/run-artifacts",
+}
+
+# Exports that vary by stage but are *built from* a binding above rather than
+# equal to one -- catalog FQNs, the per-product namespace and schema JSON
+# blobs, Glue's stage-qualified ids, and the SQLAlchemy URI that concatenates
+# principal and catalog. Restating their derivation here would test the
+# implementation; the stage-word scan is what holds them, and listing them
+# means a new stage-carrying export is a deliberate classification rather than
+# something nobody noticed.
+_STAGE_DERIVED_EXPORTS = frozenset(
+    {
+        "OPENLAKEFORGE_CATALOG_DATABASE_FQN",
+        "OPENLAKEFORGE_CATALOG_GLUE_CATALOG_ID",
+        "OPENLAKEFORGE_CATALOG_GLUE_REST_WAREHOUSE",
+        "OPENLAKEFORGE_CATALOG_GOLD_NAMESPACES_JSON",
+        "OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON",
+        "OPENLAKEFORGE_CATALOG_NAMESPACES_JSON",
+        "OPENLAKEFORGE_CATALOG_SCHEMA_PREFIX",
+        "OPENLAKEFORGE_CATALOG_SILVER_NAMESPACES_JSON",
+        "OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON",
+        "OPENLAKEFORGE_QUERY_SQLALCHEMY_URI",
+    }
+)
+
+# Exports that differ between stages because a stage turned a *capability* off
+# (ADR 0011), not because they name a stage: an ungoverned stage gets no
+# lineage endpoint and no ingestion-bot credential at all. Their values carry
+# no stage identity, so there is nothing to compare them against here.
+_CAPABILITY_GATED_EXPORTS = frozenset(
+    {
+        "OPENLAKEFORGE_GOVERNANCE_ENABLED",
+        "OPENLAKEFORGE_GOVERNANCE_INGESTION_BOT_JWT_KEY",
+        "OPENLAKEFORGE_GOVERNANCE_INGESTION_BOT_SECRET_NAME",
+        "OPENLINEAGE_ENDPOINT",
+        "OPENLINEAGE_NAMESPACE",
+        "OPENLINEAGE_URL",
+    }
+)
+
+
+@every_provider
+def test_contract_environment_resolves_only_the_stage_it_was_built_for(provider: Provider) -> None:
+    """#134, at the layer `olf` itself owns: the environment `build_contract_env`
+    resolves for one stage names that stage's bindings and no other's. Every
+    `olf` command and the activation rollout configure themselves from it.
+
+    Scope, stated because the criterion is broader than this test: the Dagster
+    container's own environment is rendered independently inside
+    `infra/terraform/modules/orchestration/dagster/main.tf` from the contracts
+    the root passes it, and nothing here evaluates that. `olf check contracts`
+    guards the root wiring as expression text; asserting the rendered values
+    needs an applied plan and is not covered anywhere yet.
+
+    Three passes, because no one of them holds on its own.
+
+    Equality pins each contracted binding in `_STAGE_BINDINGS` to the selected
+    stage's own value. Absence alone would not: an environment handing all
+    three stages the generic `lakehouse-bronze`/`-silver`/`-gold` defaults
+    names no other stage while DEV and PROD share every bucket.
+
+    The stage-word scan then covers everything built out of those bindings --
+    catalog FQNs, the schema JSON blobs, the SQLAlchemy URI -- which equality
+    cannot check without restating their derivation.
+
+    Classification completeness is the third: any export that varies between
+    stages and is in none of the three lists fails here. Without it, a
+    stage-carrying variable added later is simply unasserted, which is how
+    `OPENLAKEFORGE_DBT_TRINO_USER` -- Trino's authentication boundary between
+    stages -- went uncovered until a review caught it.
+    """
+    contract = _contract(provider)
+    topology = _topology_of(contract)
+    parsed = parse_provider_contracts(contract, topology)
+    per_stage = {
+        name: build_contract_env({}, contract, repo_root=REPO_ROOT, topology=topology, stage=name)[0]
+        for name in parsed.stages
+    }
+
+    for name, stage in parsed.stages.items():
+        exports = per_stage[name]
+        wrong = {
+            key: (exports.get(key), str(expected(stage)))
+            for key, expected in _STAGE_BINDINGS
+            if key in exports and exports[key] != str(expected(stage))
+        }
+        assert not wrong, (
+            f"{provider.value}'s {name.value!r} environment binds {wrong!r} as (emitted, contracted). Every one "
+            f"of these is how a run reaches data or authenticates to Trino, so a binding that is not this "
+            f"stage's own is one stage reading or writing another's -- including the case where every stage is "
+            f"handed the same generic default."
+        )
+        prefix = str(stage.activation["prefix"])
+        astray = {
+            key: exports[key]
+            for key, suffix in _ACTIVATION_URIS.items()
+            if key in exports and not exports[key].endswith(f"/{prefix}{suffix}")
+        }
+        assert not astray, (
+            f"{provider.value}'s {name.value!r} activation artifacts land at {astray!r}, outside its contracted "
+            f"{prefix!r} prefix. Stages share the ops bucket; the prefix is the only thing keeping one stage's "
+            f"manifests, logs and run artifacts out of another's."
+        )
+
+        others = {other.value for other in parsed.stages if other != name}
+        leaked = sorted(
+            (key, other)
+            for key, value in exports.items()
+            for other in others
+            if _names_stage(value, other)
+        )
+        assert not leaked, (
+            f"{provider.value}'s {name.value!r} environment carries {leaked!r} as (export, stage named). A "
+            f"command or rollout handed another stage's catalog, bucket or principal reads, writes or "
+            f"authenticates as that stage."
+        )
+
+    varying = {
+        key
+        for key in set().union(*(set(exports) for exports in per_stage.values()))
+        if len({exports.get(key) for exports in per_stage.values()}) > 1
+    }
+    unclassified = sorted(
+        varying
+        - {key for key, _ in _STAGE_BINDINGS}
+        - set(_ACTIVATION_URIS)
+        - _STAGE_DERIVED_EXPORTS
+        - _CAPABILITY_GATED_EXPORTS
+    )
+    assert not unclassified, (
+        f"{provider.value} emits {unclassified!r} with a different value per stage, and nothing in this module "
+        f"classifies them. Add each to _STAGE_BINDINGS with the contracted binding it must equal, to "
+        f"_STAGE_DERIVED_EXPORTS if it is built from one, or to _CAPABILITY_GATED_EXPORTS if it varies because "
+        f"a stage turned a capability off. Leaving it here means a stage-carrying value nobody asserts."
+    )
+
+
+def test_a_stage_bucket_that_extends_another_stages_name_is_not_a_leak() -> None:
+    """Physical bucket naming is the provider's to choose (AGENTS.md rule 2), so
+    a deployment whose DEV bucket is a prefix of its PROD bucket is legal and
+    its two bindings are distinct. Scanning for one whole name inside the other
+    reports PROD's own bucket as carrying DEV's -- a false positive that fails
+    a correct provider. Scanning for the stage *word* is what avoids it, since
+    `acme-data-bronze-prod` contains no word `dev`.
+    """
+    contract = copy.deepcopy(_contract(Provider.LOCAL))
+    for stage_name, suffix in (("dev", ""), ("prod", "-prod")):
+        for layer in _MEDALLION_LAYERS:
+            bucket = f"acme-data-{layer}{suffix}"
+            contract["stages"][stage_name]["storage"][layer] = {
+                "physical_id": bucket,
+                "bucket_name": bucket,
+                "uri": f"s3://{bucket}",
+            }
+    topology = _topology_of(contract)
+    parsed = parse_provider_contracts(contract, topology)
+
+    for name, stage in parsed.stages.items():
+        exports, _ = build_contract_env({}, contract, repo_root=REPO_ROOT, topology=topology, stage=name)
+        assert exports["OPENLAKEFORGE_STORAGE_BRONZE_BUCKET"] == str(stage.storage["bronze"]["bucket_name"])
+
+    prod_exports, _ = build_contract_env({}, contract, repo_root=REPO_ROOT, topology=topology, stage=StageName.PROD)
+    leaked = sorted(key for key, value in prod_exports.items() if _names_stage(value, StageName.DEV.value))
+    assert not leaked, (
+        f"PROD's own 'acme-data-<layer>-prod' buckets were reported as naming the DEV stage in {leaked!r}."
+    )
 
 
 def test_logical_stage_identities_are_identical_across_providers() -> None:
