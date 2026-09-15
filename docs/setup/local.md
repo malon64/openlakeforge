@@ -8,10 +8,15 @@ OpenLakeForge creates an isolated [`kind`](https://kind.sigs.k8s.io/) cluster ba
 
 ## What gets deployed?
 
-`--profile slim|full` below is a deprecated shorthand for the single-DEV-stage
-case of the typed Deployment Profile at `openlakeforge.yaml` — see
+The preset is a field of the Deployment Profile at `openlakeforge.yaml`
+(`spec.preset`), so the commands below take no preset flag — see
 [ADR 0011](../adr/0011-deployment-profile-and-stages.md) and
-`olf profile validate`/`resolve`. It keeps working exactly as documented here.
+`olf profile validate`/`resolve`. Switching preset means editing that one
+field and redeploying.
+
+`--profile slim|full` still works as the deprecated v0.2 shorthand, but it
+resolves a topology named `legacy` that no `olf e2e run -f` can name, so a
+deployment made that way cannot be validated with the commands below.
 
 The local environment is available in two presets:
 
@@ -100,10 +105,10 @@ For a first installation, **Slim is recommended**.
 
 It keeps the complete data-engineering path while leaving OpenMetadata and Superset out of the deployment.
 
-Run:
+`olf init` writes a Slim profile, so this needs no preset flag:
 
 ```bash
-olf deploy --provider local --profile slim
+olf deploy --provider local
 ```
 
 This command performs the complete local deployment. It will:
@@ -201,7 +206,7 @@ OpenLakeForge services are not exposed outside Kubernetes by default.
 Start local port forwarding with:
 
 ```bash
-olf forward --provider local --profile slim
+olf forward --provider local
 ```
 
 Keep this command running in its terminal.
@@ -269,13 +274,14 @@ If you currently have a Slim deployment, tear it down first:
 olf destroy --provider local
 ```
 
-Then deploy Full:
+Then set `preset: full` in `openlakeforge.yaml` and deploy:
 
 ```bash
-olf deploy --provider local --profile full
+olf deploy --provider local
 ```
 
-Validate it:
+Validate it — the same profile file decides the topology for both commands,
+so they cannot disagree:
 
 ```bash
 olf e2e run --env local --suite full
@@ -284,7 +290,7 @@ olf e2e run --env local --suite full
 And start the port forwards:
 
 ```bash
-olf forward --provider local --profile full
+olf forward --provider local
 ```
 
 The additional services are then available at:
@@ -356,18 +362,12 @@ Running the command again is safe: Terraform reconciles the existing foundation 
 ## 2. Platform
 
 ```bash
-olf deploy --provider local --profile full --phase platform
-```
-
-or, for Slim:
-
-```bash
-olf deploy --provider local --profile slim --phase platform
+olf deploy --provider local --phase platform
 ```
 
 This phase uses Terraform and Helm to deploy the long-lived OpenLakeForge platform services.
 
-Depending on the selected profile, these include:
+Depending on the profile's preset, these include:
 
 * SeaweedFS
 * PostgreSQL
@@ -386,13 +386,7 @@ The platform phase only manages the relatively static infrastructure and platfor
 ## 3. Artifacts
 
 ```bash
-olf deploy --provider local --profile full --phase artifacts
-```
-
-or, for Slim:
-
-```bash
-olf deploy --provider local --profile slim --phase artifacts
+olf deploy --provider local --phase artifacts
 ```
 
 The artifact phase deploys the parts of OpenLakeForge that change with data-product code.
@@ -428,13 +422,7 @@ olf status --provider local
 If you changed domain code, contracts, pipelines or dbt models without changing the infrastructure:
 
 ```bash
-olf deploy --provider local --profile full --phase artifacts
-```
-
-For Slim:
-
-```bash
-olf deploy --provider local --profile slim --phase artifacts
+olf deploy --provider local --phase artifacts
 ```
 
 ## Promote a project revision between stages
@@ -466,7 +454,11 @@ Promoting to another enabled stage reuses that revision and never rebuilds it:
 ```bash
 olf project deploy -f openlakeforge.yaml --stage prod --revision sha256:<digest>
 olf project status -f openlakeforge.yaml --json
+olf e2e run --env local -f openlakeforge.yaml --stage prod --suite full
 ```
+
+`olf e2e run -f` takes the profile the platform was applied from, so the
+topology it validates is the one the v3 contract recorded.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
@@ -479,19 +471,12 @@ a tag rather than a digest, so its output cannot seed `olf project build`.
 ## Reapply platform infrastructure
 
 ```bash
-olf deploy --provider local --profile full --phase platform
+olf deploy --provider local --phase platform
 ```
 
-For Slim:
-
-```bash
-olf deploy --provider local --profile slim --phase platform
-```
-
-This is useful after changing Terraform or Helm configuration. Match the
-profile to what you actually deployed — the default is `full`, and applying
-it against a Slim platform adds OpenMetadata and Superset instead of
-reconciling the stack you have.
+This is useful after changing Terraform or Helm configuration. It reapplies
+whatever `openlakeforge.yaml` resolves to, so it reconciles the stack you
+have rather than switching its preset underneath you.
 
 ## Run the complete validation suite
 
@@ -595,7 +580,7 @@ If `olf` itself reports it cannot provision a managed tool, run `olf doctor`
 for the actionable reason:
 
 ```bash
-olf doctor --provider local --profile slim
+olf doctor --provider local
 ```
 
 If you set `OLF_TOOLCHAIN_MODE=host` to use your own host-installed
@@ -617,11 +602,11 @@ If the cluster does not exist, recreate the foundation:
 olf deploy --provider local --phase foundation
 ```
 
-Then continue with (matching whichever profile you deployed):
+Then continue with:
 
 ```bash
-olf deploy --provider local --profile full --phase platform     # or --profile slim
-olf deploy --provider local --profile full --phase artifacts    # or --profile slim
+olf deploy --provider local --phase platform
+olf deploy --provider local --phase artifacts
 ```
 
 Or simply rerun:
@@ -726,13 +711,12 @@ olf deploy --provider local
 
 Terraform will reconcile resources where possible.
 
-If you want to recreate only the platform while keeping the kind cluster
-(matching whichever profile you deployed):
+If you want to recreate only the platform while keeping the kind cluster:
 
 ```bash
 olf destroy --provider local --phase platform
-olf deploy --provider local --profile full --phase platform     # or --profile slim
-olf deploy --provider local --profile full --phase artifacts    # or --profile slim
+olf deploy --provider local --phase platform
+olf deploy --provider local --phase artifacts
 ```
 
 For a completely clean environment, use the full teardown described below.
@@ -758,11 +742,11 @@ If you only want to remove platform services while keeping the Kubernetes cluste
 olf destroy --provider local --phase platform
 ```
 
-You can later reinstall them with (matching whichever profile you had):
+You can later reinstall them with:
 
 ```bash
-olf deploy --provider local --profile full --phase platform     # or --profile slim
-olf deploy --provider local --profile full --phase artifacts    # or --profile slim
+olf deploy --provider local --phase platform
+olf deploy --provider local --phase artifacts
 ```
 
 ---
@@ -773,7 +757,7 @@ Contributors working from a source checkout of the repository use the same
 `olf` commands above, run through `uv`:
 
 ```bash
-uv run --project tools/olf --locked olf deploy --provider local --profile slim
+uv run --project tools/olf --locked olf deploy --provider local
 ```
 
 That workflow additionally needs Git and uv on `PATH`:
@@ -794,7 +778,7 @@ git clone https://github.com/malon64/openlakeforge.git
 cd openlakeforge
 ```
 
-`Make` targets such as `make local-slim-up` remain as thin, deprecated
+`Make` targets such as `make local-up` remain as thin, deprecated
 delegates to the exact `olf` commands documented above — see
 [AGENTS.md](../../AGENTS.md) for the full contributor workflow and gates.
 

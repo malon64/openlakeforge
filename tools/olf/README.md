@@ -38,7 +38,7 @@ See [ADR 0008](../../docs/adr/0008-olf-owns-orchestration-and-toolchain.md).
 | `olf openmetadata deploy-metadata` | Seed OpenMetadata domains, data products, and medallion containers over REST. |
 | `olf k8s set-project-code-image --image X` | Point every Dagster surface at a pushed project-code image, trigger one coordinated restart, and wait for its rollout. |
 | `olf smoke run` | Deploy a bounded Slim environment and validate one product pipeline through to a queryable Gold table. |
-| `olf e2e run --env local\|azure\|aws [--suite full\|smoke]` | Run shared end-to-end validation. All environments default to `full`; use `--suite smoke` for preflight-only checks. |
+| `olf e2e run --env local\|azure\|aws [-f <profile>] [--stage <stage>] [--suite full\|smoke]` | Run shared end-to-end validation. All environments default to `full`; use `--suite smoke` for preflight-only checks. `-f` names the Deployment Profile the deployment was applied from, as `olf platform apply -f` does; without it the project-root `openlakeforge.yaml` is authoritative. |
 | `olf release manifest\|checksums\|compatibility-matrix\|check\|build-bundle\|verify-install` | Build release metadata, run the release-readiness gate, assemble the release bundle, and verify a clean-checkout install. |
 | `olf distribution list\|path\|verify\|clean` | Inspect or verify the embedded platform payload shipped inside the `openlakeforge` wheel/sdist. |
 

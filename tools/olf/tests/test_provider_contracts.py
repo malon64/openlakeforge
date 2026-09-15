@@ -998,3 +998,34 @@ def test_renaming_a_code_location_moves_the_binding_digest() -> None:
     renamed["stages"]["dev"]["orchestration"]["code_locations"][0]["name"] = "sales"
 
     assert _binding(contract, "dev") != _binding(renamed, "dev")
+
+
+def test_deployment_profile_name_mismatch_names_both_values() -> None:
+    """The nightly full e2e failed on this check for eleven runs: `olf deploy
+    --profile full` records the "legacy" shorthand topology while `olf e2e
+    run` re-resolved the project profile. A message without the two names
+    sends the reader to the CI log rather than to the two profiles that
+    disagree."""
+    contract = _fixture("local-provider-contracts-v3.json")
+    topology = _topology(contract)
+    contract["deployment"]["profile_name"] = "legacy"
+
+    with pytest.raises(ProviderContractError) as excinfo:
+        parse_provider_contracts(contract, topology)
+
+    message = str(excinfo.value)
+    assert "'legacy'" in message
+    assert repr(topology.profile_name) in message
+
+
+def test_deployment_region_mismatch_names_both_values() -> None:
+    contract = _fixture("aws-provider-contracts-v3.json")
+    topology = _topology(contract)
+    contract["deployment"]["region"] = "eu-west-9"
+
+    with pytest.raises(ProviderContractError) as excinfo:
+        parse_provider_contracts(contract, topology)
+
+    message = str(excinfo.value)
+    assert "'eu-west-9'" in message
+    assert repr(topology.region) in message

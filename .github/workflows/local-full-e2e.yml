@@ -12,7 +12,7 @@ name: Local full e2e (nightly and manual)
 #
 # It reuses the kind-smoke plumbing from checks.yml (same managed-toolchain
 # provisioning and `olf diagnostics collect` on failure) but
-# deploys the full profile by default and runs the complete assertion suite:
+# deploys the full preset by default and runs the complete assertion suite:
 # Polaris namespaces, Dagster product pipelines, Silver and Gold tables,
 # Polaris restart recovery, Superset dashboards, OpenMetadata assets, and
 # ops-bucket artifacts -- discovered dynamically from the domain inventory.
@@ -22,10 +22,10 @@ on:
     inputs:
       suite:
         description: >
-          Suite to run. 'full' deploys the full profile (governance and
-          analytics enabled) and runs every product pipeline and assertion.
-          'smoke' deploys the slim profile and validates one product pipeline
-          through a queryable Gold table.
+          Suite to run. 'full' deploys a full-preset Deployment Profile
+          (governance and analytics enabled) and runs every product pipeline
+          and assertion. 'smoke' deploys the checked-in slim profile and
+          validates one product pipeline through a queryable Gold table.
         type: choice
         options:
           - full
@@ -33,7 +33,7 @@ on:
         default: full
       timeout_minutes:
         description: >
-          Hard wall-clock budget for the whole job. The full profile builds the
+          Hard wall-clock budget for the whole job. The full preset builds the
           project-code and Superset images and deploys OpenMetadata, so 120
           minutes is the default; raise it if the run needs more.
         type: number
@@ -98,8 +98,35 @@ jobs:
       - name: Provision OpenLakeForge toolchain
         run: uv run --project tools/olf --locked olf toolchain install
 
+      - name: Select the full-preset Deployment Profile
+        # Deploy and validate must resolve one and the same profile: a v3
+        # contract records the profile name the deployment resolved, and
+        # `_parse_v3` refuses a contract whose name disagrees. Both steps
+        # below therefore read the project-root `openlakeforge.yaml`, which
+        # is checked in as slim -- only the full suite needs its own, and it
+        # has to live at the project root because a profile's directory is
+        # what resolves `lakehouse_code/`.
+        if: inputs.suite != 'smoke'
+        run: |
+          cat > openlakeforge.yaml <<'PROFILE'
+          apiVersion: openlakeforge.io/v1alpha1
+          kind: DeploymentProfile
+
+          metadata:
+            name: nightly-full
+
+          spec:
+            provider:
+              type: local
+            preset: full
+            stages:
+              dev:
+                enabled: true
+          PROFILE
+          uv run --project tools/olf --locked olf profile validate --project .
+
       - name: Deploy the local stack (fresh foundation)
-        run: uv run --project tools/olf --locked olf deploy --provider local --profile ${{ inputs.suite == 'smoke' && 'slim' || 'full' }} --cluster-name ${{ env.CLUSTER_NAME }} --kubeconfig-path ${{ env.LOCAL_KUBECONFIG_PATH }}
+        run: uv run --project tools/olf --locked olf deploy --provider local --cluster-name ${{ env.CLUSTER_NAME }} --kubeconfig-path ${{ env.LOCAL_KUBECONFIG_PATH }}
 
       - name: Negative-test failure injection
         if: inputs.debug_fail_after_deploy == 'true'
@@ -109,7 +136,7 @@ jobs:
           exit 1
 
       - name: Run the local e2e suite
-        run: uv run --project tools/olf --locked olf e2e run --env local --suite ${{ inputs.suite || 'full' }}
+        run: uv run --project tools/olf --locked olf e2e run --env local -f openlakeforge.yaml --suite ${{ inputs.suite || 'full' }}
 
       - name: Write run summary
         if: always()

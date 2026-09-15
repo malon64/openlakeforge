@@ -12,15 +12,50 @@ runner = CliRunner()
 
 
 @pytest.fixture(autouse=True)
-def _no_real_contract_resolution(monkeypatch: pytest.MonkeyPatch) -> None:
+def contract_env_calls(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
     """`applied_contract_environment` shells out to `terraform output`; every test here mocks
     the contracts module so no real subprocess runs.
+
+    The recorded `topology` is what a v3 contract is parsed against, so it is
+    the only observable that says which Deployment Profile this command
+    resolved.
     """
     from olf import contracts as contracts_module
 
+    calls: list[dict] = []
+
+    def _build_contract_env(base, contracts_value, *, repo_root, topology=None, stage=None, **_):  # noqa: ANN001, ANN202, ARG001
+        calls.append({"repo_root": repo_root, "topology": topology, "stage": stage})
+        return ({}, [])
+
     monkeypatch.setattr(contracts_module, "load_provider_contracts", lambda terraform_dir, *, environ=None: None)
-    monkeypatch.setattr(
-        contracts_module, "build_contract_env", lambda base, contracts_value, *, repo_root, **_: ({}, [])
+    monkeypatch.setattr(contracts_module, "build_contract_env", _build_contract_env)
+    return calls
+
+
+def _write_profile(
+    path: Path,
+    *,
+    name: str,
+    preset: str,
+    provider: str = "local",
+    region: str = "",
+    stages: tuple[str, ...] = ("dev",),
+) -> None:
+    provider_block = f"    type: {provider}\n" + (f"    region: {region}\n" if region else "")
+    stage_block = "".join(f"    {stage}:\n      enabled: true\n" for stage in stages)
+    path.write_text(
+        "apiVersion: openlakeforge.io/v1alpha1\n"
+        "kind: DeploymentProfile\n"
+        "metadata:\n"
+        f"  name: {name}\n"
+        "spec:\n"
+        "  provider:\n"
+        f"{provider_block}"
+        f"  preset: {preset}\n"
+        "  stages:\n"
+        f"{stage_block}",
+        encoding="utf-8",
     )
 
 
@@ -219,3 +254,81 @@ def test_e2e_run_surfaces_a_toolchain_failure_from_contract_resolution_cleanly(
     assert result.exit_code != 0
     assert not isinstance(result.exception, ToolchainError)
     assert "digest mismatch" in result.output
+
+
+def test_e2e_run_rejects_a_profile_file_for_another_provider(tmp_path: Path) -> None:
+    profile = tmp_path / "openlakeforge.yaml"
+    _write_profile(profile, name="cloud-project", provider="aws", preset="slim", region="eu-west-3")
+
+    result = runner.invoke(app, ["e2e", "run", "--env", "local", "-f", str(profile)])
+
+    assert result.exit_code == 1
+    assert "targets provider 'aws'" in result.output
+
+
+def test_e2e_run_file_selects_the_topology_that_reaches_contract_parsing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, contract_env_calls: list[dict]
+) -> None:
+    """`olf platform apply -f <profile>` records that profile's name in the v3
+    contract, and `_parse_v3` refuses a contract parsed against a topology that
+    disagrees - the nightly full e2e failure this option exists for. Asserting
+    the resolved topology rather than the accepted flag is what makes reverting
+    the forwarding fail this test.
+    """
+    deployed = tmp_path / "deployed"
+    deployed.mkdir()
+    _write_profile(deployed / "openlakeforge.yaml", name="nightly-full", preset="full")
+    _write_profile(tmp_path / "openlakeforge.yaml", name="project-default", preset="slim")
+
+    monkeypatch.setenv("OPENLAKEFORGE_REPO_ROOT", str(tmp_path))
+    monkeypatch.setattr("olf.e2e.run", lambda *a, **k: None)
+
+    result = runner.invoke(app, ["e2e", "run", "--env", "local", "-f", str(deployed / "openlakeforge.yaml")])
+
+    assert result.exit_code == 0, result.output
+    topology = contract_env_calls[0]["topology"]
+    assert (topology.profile_name, topology.preset.value) == ("nightly-full", "full")
+    assert contract_env_calls[0]["repo_root"] == deployed
+
+
+def test_e2e_run_without_a_profile_file_keeps_resolving_the_project_root(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, contract_env_calls: list[dict]
+) -> None:
+    _write_profile(tmp_path / "openlakeforge.yaml", name="project-default", preset="slim")
+
+    monkeypatch.setenv("OPENLAKEFORGE_REPO_ROOT", str(tmp_path))
+    monkeypatch.setattr("olf.e2e.run", lambda *a, **k: None)
+
+    result = runner.invoke(app, ["e2e", "run", "--env", "local"])
+
+    assert result.exit_code == 0, result.output
+    assert contract_env_calls[0]["topology"].profile_name == "project-default"
+
+
+def test_e2e_run_stage_selects_a_stage_of_the_profile_file(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, contract_env_calls: list[dict]
+) -> None:
+    from olf.profile import StageName
+
+    profile = tmp_path / "openlakeforge.yaml"
+    _write_profile(profile, name="two-stage", preset="slim", stages=("dev", "prod"))
+
+    monkeypatch.setenv("OPENLAKEFORGE_REPO_ROOT", str(tmp_path))
+    namespaces: list[str] = []
+    monkeypatch.setattr("olf.e2e.run", lambda *a, **k: namespaces.append(k["namespace"]))
+
+    result = runner.invoke(app, ["e2e", "run", "--env", "local", "-f", str(profile), "--stage", "prod"])
+
+    assert result.exit_code == 0, result.output
+    assert contract_env_calls[0]["stage"] == StageName.PROD
+    assert namespaces == ["olf-prod"]
+
+
+def test_e2e_run_rejects_a_stage_the_profile_file_does_not_enable(tmp_path: Path) -> None:
+    profile = tmp_path / "openlakeforge.yaml"
+    _write_profile(profile, name="dev-only", preset="slim")
+
+    result = runner.invoke(app, ["e2e", "run", "--env", "local", "-f", str(profile), "--stage", "prod"])
+
+    assert result.exit_code == 1
+    assert "stage 'prod' is not enabled" in result.output

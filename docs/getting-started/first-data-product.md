@@ -107,10 +107,11 @@ This tutorial assumes you already have the local **Slim** environment running.
 If not:
 
 ```bash
-olf deploy --provider local --profile slim
+olf deploy --provider local
 ```
 
-In a contributor checkout, use `make local-slim-up` instead.
+The preset comes from `openlakeforge.yaml`, which `olf init` writes as Slim.
+In a contributor checkout, use `make local-up` instead.
 
 See the [local installation guide](../setup/local.md) for the complete setup.
 

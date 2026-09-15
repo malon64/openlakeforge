@@ -100,10 +100,11 @@ Use `olf init --empty` to start from a
 bare project instead — it has no source or product yet, so scaffold both with
 `olf source new` and `olf product new` before deploying.
 
-Start the **Slim** profile:
+`olf init` writes a Slim profile, so deploying needs no preset flag — the
+profile is what `olf deploy` and `olf e2e run` both resolve:
 
 ```bash
-olf deploy --provider local --profile slim
+olf deploy --provider local
 ```
 
 For a stage-aware v0.3 deployment, apply the profile-owned platform first,
@@ -140,7 +141,7 @@ olf e2e run --env local --suite full
 Start local port forwarding:
 
 ```bash
-olf forward --provider local --profile slim
+olf forward --provider local
 ```
 
 Dagster is then available at:
@@ -153,12 +154,14 @@ From there you can inspect the asset graph and launch the example pipelines.
 
 ### Run the complete platform
 
-To include **OpenMetadata** and **Superset**, use the Full profile:
+To include **OpenMetadata** and **Superset**, set `preset: full` in
+`openlakeforge.yaml` and redeploy. The preset is a profile field, not a flag,
+so the deployment and its validation cannot name different topologies:
 
 ```bash
-olf deploy --provider local --profile full
+olf deploy --provider local
 olf e2e run --env local --suite full
-olf forward --provider local --profile full
+olf forward --provider local
 ```
 
 ### Slim or Full?

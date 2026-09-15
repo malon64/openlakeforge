@@ -768,12 +768,25 @@ def _parse_v3(payload: Mapping[str, Any], topology: DeploymentTopology | None) -
         provider = Provider(_string(deployment["provider"], where="deployment.provider"))
     except ValueError as exc:
         raise ProviderContractError("deployment.provider is unsupported") from exc
+    # Name both sides: the mismatch a caller actually hits is a command
+    # resolving a different Deployment Profile than the deployment recorded,
+    # and a message without the two values sends them to the CI log instead
+    # of to the profile they need to name.
     if provider != topology.provider:
-        raise ProviderContractError("deployment.provider must match DeploymentTopology.provider")
+        raise ProviderContractError(
+            f"deployment.provider {provider.value!r} does not match DeploymentTopology.provider "
+            f"{topology.provider.value!r}"
+        )
     if deployment["profile_name"] != topology.profile_name:
-        raise ProviderContractError("deployment.profile_name must match DeploymentTopology.profile_name")
+        raise ProviderContractError(
+            f"deployment.profile_name {deployment['profile_name']!r} does not match "
+            f"DeploymentTopology.profile_name {topology.profile_name!r}"
+        )
     if deployment["region"] != topology.region:
-        raise ProviderContractError("deployment.region must match DeploymentTopology.region")
+        raise ProviderContractError(
+            f"deployment.region {deployment['region']!r} does not match DeploymentTopology.region "
+            f"{topology.region!r}"
+        )
     shared = _parse_shared(document["shared"])
     stages_document = _mapping(document["stages"], where="stages")
     expected_names = {stage.name.value for stage in topology.stages if stage.enabled}
