@@ -7,12 +7,12 @@ verbs share the exact same code path.
 
 The one wrinkle local does not have: `DeploymentContext.kube_context` is
 unknown until the foundation's Terraform outputs are read (local's is the
-static `kind-<cluster>`), so `_foundation_facts` MUST resolve before `env`
+static `kind-<cluster>`), so `foundation_facts` MUST resolve before `env`
 is built - `env` bakes `KUBE_CONTEXT` into the command environment via
 `DeploymentContext.command_env`, and a context built before `foundation_up`
 has run has no `kube_context` to bake in yet. `_base_env` (no kube_context)
 is what `foundation_up`/`foundation_down` use instead; every phase after
-foundation reads `env`, which resolves `_foundation_facts` first.
+foundation reads `env`, which resolves `foundation_facts` first.
 """
 
 from __future__ import annotations
@@ -89,7 +89,7 @@ class CloudProvider:
         }
 
     @cached_property
-    def _foundation_facts(self) -> FoundationFacts:
+    def foundation_facts(self) -> FoundationFacts:
         from olf.deployment.cloud import foundation
 
         return foundation.require_foundation_facts(self.config, self.tools, self.backend, env=self._base_env)
@@ -100,7 +100,7 @@ class CloudProvider:
 
         Must not be read before the foundation phase has run.
         """
-        facts = self._foundation_facts
+        facts = self.foundation_facts
         resolved_context = replace(self.context, kube_context=facts.kube_context)
         return resolved_context.command_env(base=self._base_env, docker_host=self._base_env.get("DOCKER_HOST"))
 
@@ -108,7 +108,7 @@ class CloudProvider:
         from olf.deployment.cloud import foundation
 
         foundation.foundation_up(self.config, self.tools, self.backend, environ=self._environ, env=self._base_env)
-        self.__dict__.pop("_foundation_facts", None)
+        self.__dict__.pop("foundation_facts", None)
         self.__dict__.pop("env", None)
 
     def foundation_down(self, *, force: bool = False) -> None:
@@ -149,28 +149,28 @@ class CloudProvider:
                 "the cluster pulls the project-code image from its registry."
             )
         return images.build_and_push_project_code_image(
-            self.config, self.tools, self.backend, self._foundation_facts, env=self.env, revision="manual"
+            self.config, self.tools, self.backend, self.foundation_facts, env=self.env, revision="manual"
         )
 
     def platform_up(self) -> None:
         from olf.deployment.cloud import platform
 
-        platform.platform_up(self.config, self.tools, self.backend, self._foundation_facts, env=self.env)
+        platform.platform_up(self.config, self.tools, self.backend, self.foundation_facts, env=self.env)
 
     def platform_down(self) -> None:
         from olf.deployment.cloud import teardown
 
-        teardown.platform_down(self.config, self.tools, self.backend, self._foundation_facts, env=self.env)
+        teardown.platform_down(self.config, self.tools, self.backend, self.foundation_facts, env=self.env)
 
     def artifacts_deploy(self) -> None:
         from olf.deployment.cloud import artifacts
 
-        artifacts.artifacts_deploy(self.config, self.tools, self.backend, self._foundation_facts, env=self.env)
+        artifacts.artifacts_deploy(self.config, self.tools, self.backend, self.foundation_facts, env=self.env)
 
     def status(self) -> StatusReport:
         from olf.deployment.status import collect_status
 
-        facts = self._foundation_facts
+        facts = self.foundation_facts
         return collect_status(
             self.tools.kubectl,
             namespaces=self.context.owned_namespaces,
@@ -183,7 +183,7 @@ class CloudProvider:
         from olf.deployment.cloud import forward as forward_module
         from olf.deployment.portforward import PortForwardSupervisor
 
-        facts = self._foundation_facts
+        facts = self.foundation_facts
         spec = forward_module.cloud_forward_spec(self.config, self.backend, kube_context=facts.kube_context)
         for line in spec.banner:
             print(line)  # noqa: T201 - user-facing CLI banner
@@ -214,7 +214,7 @@ class CloudProvider:
                 if phase == DeploymentPhase.PLATFORM:
                     raise DeploymentPreconditionError("foundation state is required before planning the cloud platform")
                 return changes
-            facts = self._foundation_facts
+            facts = self.foundation_facts
             platform_dir = self.config.paths.platform_terraform_dir
             platform.prepare_charts(self.config, self.tools, env=self.env)
             self.tools.terraform.init(platform_dir, env=self.env)

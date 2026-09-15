@@ -619,7 +619,7 @@ def _check_helm_values_as_data(repo_root: Path) -> CheckResult:
 # since #124 (local) and #125 (AWS/Azure) they delegate to
 # `olf forward --provider <provider>`, which resolves KUBECONFIG/kube-context
 # internally - local through `DeploymentContext.local()`, cloud through
-# `CloudProvider._foundation_facts` reading the foundation's Terraform
+# `CloudProvider.foundation_facts` reading the foundation's Terraform
 # outputs - rather than embedding them in the Make recipe text; that wiring
 # is covered by `tools/olf/tests/test_deployment_context.py`,
 # `tools/olf/tests/test_local_forward.py`, `tools/olf/tests/

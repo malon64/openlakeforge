@@ -23,7 +23,7 @@ from olf.deployment.artifact_steps import (
 )
 from olf.deployment.charts import prepare_chart
 from olf.deployment.context import DeploymentContext, Provider
-from olf.deployment.engine import DeploymentProvider
+from olf.deployment.engine import DeploymentProvider, is_cloud_provider, is_local_provider
 from olf.deployment.errors import DeploymentPreconditionError
 from olf.deployment.floe_manifests import generate_aws_manifests, generate_local_manifests
 from olf.distribution import distribution_version_at
@@ -398,28 +398,22 @@ def _ensure_image(provider: DeploymentProvider, image: str, *, env: Mapping[str,
     # authenticated here; for anything else the scoped Docker config holds no
     # credentials at all, so the pull has to use the caller's own.
     pull_env = docker_tooling.ambient_registry_env(env)
-    if provider.context.provider is not Provider.LOCAL:
-        facts = provider._foundation_facts  # type: ignore[attr-defined]
+    if is_cloud_provider(provider):
+        facts = provider.foundation_facts
         repository = _image_parts(image)[0]
         if _registry_host(repository) == _registry_host(facts.project_code_repository):
             # Cloud command environments deliberately use a scoped Docker
             # config, so authenticate it rather than relying on ambient
             # credentials. Logging into a foreign host with an ECR password,
             # or as if it were an ACR, fails before the pull.
-            provider.backend.registry_login(  # type: ignore[attr-defined]
-                provider.tools, facts, repository=repository, env=env
-            )
+            provider.backend.registry_login(provider.tools, facts, repository=repository, env=env)
             pull_env = dict(env)
-        platform = provider.config.images.image_platform  # type: ignore[attr-defined]
+        platform = provider.config.images.image_platform
     provider.tools.docker.pull(image, platform=platform, env=pull_env)
-    if provider.context.provider is Provider.LOCAL:
+    if is_local_provider(provider):
         from olf.deployment.local.images import load_image_into_kind
 
-        # Loading into kind needs the kind cluster name, which only
-        # `LocalDeploymentConfig` carries -- as `images.image_platform` just
-        # above is cloud-only. Narrowing the shared surface back to a
-        # provider's own config is #187 Group C, not this slice.
-        load_image_into_kind(image, provider.config, provider.tools, env=env)  # type: ignore[arg-type]
+        load_image_into_kind(image, provider.config, provider.tools, env=env)
 
 
 def read_platform_globals(

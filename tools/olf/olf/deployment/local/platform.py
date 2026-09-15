@@ -15,7 +15,7 @@ from olf.deployment import kube_ops
 from olf.deployment.charts import TERRAFORM_VARIABLE_KEY, prepare_chart
 from olf.deployment.context import stage_namespace
 from olf.deployment.context import topology_variables as _topology_variables
-from olf.deployment.engine import Toolkit
+from olf.deployment.engine import DeploymentConfig, Toolkit
 from olf.deployment.errors import CommandExecutionError, DeploymentPreconditionError
 from olf.deployment.local.config import LocalDeploymentConfig
 from olf.deployment.retry import RetryPolicy, run_with_retry
@@ -130,7 +130,7 @@ _NO_APPLIED_OUTPUT_MARKERS = (
 )
 
 
-def applied_stage_names(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[str, str]) -> tuple[str, ...]:
+def applied_stage_names(config: DeploymentConfig, tools: Toolkit, *, env: Mapping[str, str]) -> tuple[str, ...]:
     """Stages the platform root has already applied, empty before any apply.
 
     Only a positively identified "there is no such output" answer counts as
@@ -152,7 +152,11 @@ def applied_stage_names(config: LocalDeploymentConfig, tools: Toolkit, *, env: M
 
 
 def deployed_stages_the_topology_dropped(
-    config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[str, str]
+    config: DeploymentConfig,
+    tools: Toolkit,
+    *,
+    kube_context: str,
+    env: Mapping[str, str],
 ) -> tuple[str, ...]:
     """Stages that are deployed but no longer in the resolved topology.
 
@@ -172,7 +176,7 @@ def deployed_stages_the_topology_dropped(
     for namespace in kube_ops.managed_namespaces(
         tools.kubectl,
         profile_name=config.context.topology.profile_name,
-        context=config.kube_context,
+        context=kube_context,
         kubeconfig=config.paths.kubeconfig_path,
         env=env,
     ):
@@ -182,7 +186,7 @@ def deployed_stages_the_topology_dropped(
     return tuple(sorted(dropped))
 
 
-def _stage_for_namespace(config: LocalDeploymentConfig, namespace: str) -> str | None:
+def _stage_for_namespace(config: DeploymentConfig, namespace: str) -> str | None:
     """The stage a namespace belongs to, from the resolved topology -- which
     carries every stage the resolver knows, disabled ones included."""
     return next(
@@ -191,7 +195,13 @@ def _stage_for_namespace(config: LocalDeploymentConfig, namespace: str) -> str |
     )
 
 
-def require_no_stage_removal(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[str, str]) -> None:
+def require_no_stage_removal(
+    config: DeploymentConfig,
+    tools: Toolkit,
+    *,
+    kube_context: str,
+    env: Mapping[str, str],
+) -> None:
     """Refuse an ordinary apply that would drop an already-deployed stage.
 
     Disabling a stage in the Deployment Profile is a destructive operation:
@@ -207,7 +217,7 @@ def require_no_stage_removal(config: LocalDeploymentConfig, tools: Toolkit, *, e
     label, so with state missing it would otherwise delete a dropped stage's
     namespace under a guard that had nothing to read.
     """
-    removed = deployed_stages_the_topology_dropped(config, tools, env=env)
+    removed = deployed_stages_the_topology_dropped(config, tools, kube_context=kube_context, env=env)
     if not removed or config.context.allow_stage_removal:
         return
     raise DeploymentPreconditionError(
@@ -218,7 +228,11 @@ def require_no_stage_removal(config: LocalDeploymentConfig, tools: Toolkit, *, e
 
 
 def require_no_shared_namespace_replacement(
-    config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[str, str]
+    config: DeploymentConfig,
+    tools: Toolkit,
+    *,
+    kube_context: str,
+    env: Mapping[str, str],
 ) -> None:
     """Refuse an apply that would silently replace the pre-v0.3 shared namespace.
 
@@ -240,7 +254,7 @@ def require_no_shared_namespace_replacement(
     if not kube_ops.namespace_exists(
         tools.kubectl,
         _LEGACY_SHARED_NAMESPACE,
-        context=config.kube_context,
+        context=kube_context,
         kubeconfig=config.paths.kubeconfig_path,
         env=env,
     ):
@@ -319,8 +333,8 @@ def platform_up(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[s
     log.step("Initializing Terraform...")
     tools.terraform.init(platform_dir, env=env)
 
-    require_no_stage_removal(config, tools, env=env)
-    require_no_shared_namespace_replacement(config, tools, env=env)
+    require_no_stage_removal(config, tools, kube_context=config.kube_context, env=env)
+    require_no_shared_namespace_replacement(config, tools, kube_context=config.kube_context, env=env)
     reset_drifted_platform_if_needed(config, tools, env=env)
 
     variables = platform_apply_variables(config)

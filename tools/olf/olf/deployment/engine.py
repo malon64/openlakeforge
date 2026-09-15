@@ -15,7 +15,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Protocol, TypeGuard
 
 from olf.deployment.context import DeploymentContext, Provider
 from olf.deployment.errors import DeploymentPreconditionError, UnsupportedProviderError
@@ -32,8 +32,11 @@ from olf.tooling.terraform import Terraform
 
 if TYPE_CHECKING:
     from olf.deployment.charts import ChartSetting
+    from olf.deployment.cloud.backend import CloudBackend, FoundationFacts
+    from olf.deployment.cloud.config import CloudDeploymentConfig
     from olf.deployment.context import DeploymentPaths
     from olf.deployment.floe_manifests import FloeManifestSettings
+    from olf.deployment.local.config import LocalDeploymentConfig
     from olf.deployment.retry import RetryPolicy
     from olf.deployment.status import StatusReport
 
@@ -166,6 +169,28 @@ class DeploymentProvider(Protocol):
     def doctor(self, phase: DeploymentPhase) -> DoctorReport: ...
 
 
+class CloudDeploymentProvider(DeploymentProvider, Protocol):
+    backend: CloudBackend
+
+    @property
+    def config(self) -> CloudDeploymentConfig: ...
+    @property
+    def foundation_facts(self) -> FoundationFacts: ...
+
+
+class LocalDeploymentProvider(DeploymentProvider, Protocol):
+    @property
+    def config(self) -> LocalDeploymentConfig: ...
+
+
+def is_cloud_provider(provider: DeploymentProvider) -> TypeGuard[CloudDeploymentProvider]:
+    return provider.context.provider in (Provider.AWS, Provider.AZURE)
+
+
+def is_local_provider(provider: DeploymentProvider) -> TypeGuard[LocalDeploymentProvider]:
+    return provider.context.provider is Provider.LOCAL
+
+
 @dataclass
 class DeploymentEngine:
     """Sequences a provider's lifecycle steps for a given phase."""
@@ -253,8 +278,8 @@ def build_provider(
         from olf.deployment.local.config import LocalDeploymentConfig
         from olf.deployment.local.provider import LocalProvider
 
-        config = LocalDeploymentConfig.from_environment(environ or {}, context=context, var_file=var_file)
-        return LocalProvider.create(config, toolkit=toolkit, environ=environ)
+        local_config = LocalDeploymentConfig.from_environment(environ or {}, context=context, var_file=var_file)
+        return LocalProvider.create(local_config, toolkit=toolkit, environ=environ)
 
     if context.provider in (Provider.AWS, Provider.AZURE):
         from olf.deployment.cloud.aws import AwsBackend
@@ -262,8 +287,8 @@ def build_provider(
         from olf.deployment.cloud.config import CloudDeploymentConfig
         from olf.deployment.cloud.provider import CloudProvider
 
-        config = CloudDeploymentConfig.from_environment(environ or {}, context=context, var_file=var_file)
+        cloud_config = CloudDeploymentConfig.from_environment(environ or {}, context=context, var_file=var_file)
         backend = AwsBackend() if context.provider == Provider.AWS else AzureBackend()
-        return CloudProvider.create(config, backend, toolkit=toolkit, environ=environ)
+        return CloudProvider.create(cloud_config, backend, toolkit=toolkit, environ=environ)
 
     raise UnsupportedProviderError(f"provider {context.provider!r} is not supported")

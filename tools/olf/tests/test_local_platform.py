@@ -377,21 +377,21 @@ def test_shared_namespace_replacement_fails_closed_when_the_legacy_namespace_exi
     tools = _toolkit(_legacy_namespace_runner(legacy_namespace_exists=True))
 
     with pytest.raises(DeploymentPreconditionError, match="lakehouse"):
-        platform.require_no_shared_namespace_replacement(config, tools, env={})
+        platform.require_no_shared_namespace_replacement(config, tools, kube_context=config.kube_context, env={})
 
 
 def test_shared_namespace_replacement_is_allowed_with_the_explicit_opt_in(tmp_path: Path) -> None:
     config = _config(tmp_path, topology=_topology(dev=True), allow_stage_removal=True)
     tools = _toolkit(_legacy_namespace_runner(legacy_namespace_exists=True))
 
-    platform.require_no_shared_namespace_replacement(config, tools, env={})
+    platform.require_no_shared_namespace_replacement(config, tools, kube_context=config.kube_context, env={})
 
 
 def test_shared_namespace_replacement_is_a_no_op_on_a_fresh_cluster(tmp_path: Path) -> None:
     config = _config(tmp_path, topology=_topology(dev=True))
     tools = _toolkit(_legacy_namespace_runner(legacy_namespace_exists=False))
 
-    platform.require_no_shared_namespace_replacement(config, tools, env={})
+    platform.require_no_shared_namespace_replacement(config, tools, kube_context=config.kube_context, env={})
 
 
 def _stage_names_runner(applied: str | None, *, labelled_namespaces: str = "") -> RecordingRunner:
@@ -419,28 +419,28 @@ def test_removing_an_applied_stage_fails_closed(tmp_path: Path) -> None:
     tools = _toolkit(_stage_names_runner('["dev", "prod"]'))
 
     with pytest.raises(DeploymentPreconditionError, match="prod"):
-        platform.require_no_stage_removal(config, tools, env={})
+        platform.require_no_stage_removal(config, tools, kube_context=config.kube_context, env={})
 
 
 def test_removing_an_applied_stage_is_allowed_with_the_explicit_opt_in(tmp_path: Path) -> None:
     config = _config(tmp_path, topology=_topology(dev=True), allow_stage_removal=True)
     tools = _toolkit(_stage_names_runner('["dev", "prod"]'))
 
-    platform.require_no_stage_removal(config, tools, env={})
+    platform.require_no_stage_removal(config, tools, kube_context=config.kube_context, env={})
 
 
 def test_an_unapplied_root_has_no_stage_to_remove(tmp_path: Path) -> None:
     config = _config(tmp_path, topology=_topology(dev=True))
     tools = _toolkit(_stage_names_runner(None))
 
-    platform.require_no_stage_removal(config, tools, env={})
+    platform.require_no_stage_removal(config, tools, kube_context=config.kube_context, env={})
 
 
 def test_adding_a_stage_is_not_a_removal(tmp_path: Path) -> None:
     config = _config(tmp_path, topology=_topology(dev=True, prod=True))
     tools = _toolkit(_stage_names_runner('["dev"]'))
 
-    platform.require_no_stage_removal(config, tools, env={})
+    platform.require_no_stage_removal(config, tools, kube_context=config.kube_context, env={})
 
 
 def test_an_unreadable_state_does_not_read_as_no_stages(tmp_path: Path) -> None:
@@ -457,7 +457,9 @@ def test_an_unreadable_state_does_not_read_as_no_stages(tmp_path: Path) -> None:
             return _ok()
 
     with pytest.raises(CommandExecutionError):
-        platform.require_no_stage_removal(config, _toolkit(_Runner()), env={})
+        platform.require_no_stage_removal(
+            config, _toolkit(_Runner()), kube_context=config.kube_context, env={}
+        )
 
 
 def test_a_dropped_stage_still_in_the_cluster_fails_closed_without_state(tmp_path: Path) -> None:
@@ -469,25 +471,27 @@ def test_a_dropped_stage_still_in_the_cluster_fails_closed_without_state(tmp_pat
     tools = _toolkit(_stage_names_runner(None, labelled_namespaces="olf-system\nolf-dev\nolf-prod\n"))
 
     with pytest.raises(DeploymentPreconditionError, match="prod"):
-        platform.require_no_stage_removal(config, tools, env={})
+        platform.require_no_stage_removal(config, tools, kube_context=config.kube_context, env={})
 
 
 def test_a_dropped_stage_in_the_cluster_is_allowed_with_the_explicit_opt_in(tmp_path: Path) -> None:
     config = _config(tmp_path, topology=_topology(dev=True), allow_stage_removal=True)
     tools = _toolkit(_stage_names_runner(None, labelled_namespaces="olf-system\nolf-dev\nolf-prod\n"))
 
-    platform.require_no_stage_removal(config, tools, env={})
+    platform.require_no_stage_removal(config, tools, kube_context=config.kube_context, env={})
 
 
 def test_the_cluster_namespaces_of_enabled_stages_are_not_removals(tmp_path: Path) -> None:
     config = _config(tmp_path, topology=_topology(dev=True, prod=True))
     tools = _toolkit(_stage_names_runner('["dev", "prod"]', labelled_namespaces="olf-system\nolf-dev\nolf-prod\n"))
 
-    platform.require_no_stage_removal(config, tools, env={})
+    platform.require_no_stage_removal(config, tools, kube_context=config.kube_context, env={})
 
 
 def test_a_stage_named_by_both_signals_is_reported_once(tmp_path: Path) -> None:
     config = _config(tmp_path, topology=_topology(dev=True))
     tools = _toolkit(_stage_names_runner('["dev", "prod"]', labelled_namespaces="olf-system\nolf-dev\nolf-prod\n"))
 
-    assert platform.deployed_stages_the_topology_dropped(config, tools, env={}) == ("prod",)
+    assert platform.deployed_stages_the_topology_dropped(
+        config, tools, kube_context=config.kube_context, env={}
+    ) == ("prod",)

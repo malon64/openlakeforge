@@ -37,10 +37,10 @@ def generate_manifests(
     from olf.commands.deployment import _build_context, _build_engine
     from olf.commands.runtime import _contract_terraform_dir
     from olf.deployment import contract_env
+    from olf.deployment.engine import is_cloud_provider, is_local_provider
     from olf.deployment.errors import DeploymentError
     from olf.deployment.floe_manifests import generate_local_manifests
     from olf.deployment.local.artifacts import applied_contract_environment
-    from olf.deployment.local.provider import LocalProvider
 
     try:
         context = _build_context(
@@ -53,7 +53,7 @@ def generate_manifests(
         )
         engine = _build_engine(context, var_file="")
         deployment_provider = engine.provider
-        if isinstance(deployment_provider, LocalProvider):
+        if is_local_provider(deployment_provider):
             # environ=deployment_provider.env: an installed distribution's
             # state/data roots live under OLF_HOME, not next to the
             # contract Terraform dir - without this, the contract read
@@ -74,8 +74,8 @@ def generate_manifests(
                     environ=contract_environ,
                     env=deployment_provider.env,
                 )
-        else:
-            facts = deployment_provider._foundation_facts  # noqa: SLF001 - provider resolves cloud context once.
+        elif is_cloud_provider(deployment_provider):
+            facts = deployment_provider.foundation_facts
             with contract_env.applied_contract_environment(
                 contract_terraform_dir=_contract_terraform_dir(context.paths.platform_terraform_dir),
                 repo_root=context.paths.repo_root,

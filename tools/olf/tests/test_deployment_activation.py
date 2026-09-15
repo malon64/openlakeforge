@@ -475,7 +475,7 @@ def _image_provider(provider_kind, *, project_code_repository: str = ""):  # noq
         tools=SimpleNamespace(docker=docker),
         backend=backend,
         config=SimpleNamespace(images=SimpleNamespace(image_platform="linux/amd64")),
-        _foundation_facts=SimpleNamespace(project_code_repository=project_code_repository),
+        foundation_facts=SimpleNamespace(project_code_repository=project_code_repository),
     )
 
 
