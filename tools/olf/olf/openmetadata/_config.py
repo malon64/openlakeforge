@@ -50,9 +50,17 @@ class OpenMetadataConfig:
     ) -> OpenMetadataConfig:
         catalog_service = catalog_service or "polaris"
         catalog_database = catalog_database or "lakehouse_dev"
-        catalog_database_fqn = environ.get(
-            "OPENLAKEFORGE_CATALOG_DATABASE_FQN", f"{catalog_service}.{catalog_database}"
-        )
+        # The root every entity this deploy writes has to sit under. Derived
+        # from the catalog database the command was invoked with, never read
+        # from OPENLAKEFORGE_CATALOG_DATABASE_FQN: that variable only restates
+        # the same root, and `build_contract_env` fills it, the schema-FQN
+        # maps, and OPENMETADATA_CATALOG_DATABASE alone when each is unset --
+        # so a set of them carried over together from an earlier stage's
+        # contract environment agrees with itself while naming that stage's
+        # catalog (#131). Deriving the root instead keeps it on the stage
+        # being deployed, and a schema FQN map left behind by another one is
+        # then rejected against it rather than trusted for defining it.
+        catalog_database_fqn = f"{catalog_service}.{catalog_database}"
         silver_schema_fqns_raw = environ.get("OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON")
         gold_schema_fqns_raw = environ.get("OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON")
         return cls(

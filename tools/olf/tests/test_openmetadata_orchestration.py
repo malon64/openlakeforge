@@ -509,6 +509,10 @@ def test_deploy_refuses_another_stages_schemas_before_any_write(
     deployer = _single_product_deployer(
         tmp_path,
         environ={
+            # The database FQN a DEV contract environment also leaves behind:
+            # it agrees with the stale maps below, and must not be what the
+            # guard trusts.
+            "OPENLAKEFORGE_CATALOG_DATABASE_FQN": "polaris.lakehouse_dev",
             "OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON": '{"sales": "polaris.lakehouse_dev.sales_silver"}',
             "OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON": (
                 '{"order_revenue": "polaris.lakehouse_dev.order_revenue_gold"}'

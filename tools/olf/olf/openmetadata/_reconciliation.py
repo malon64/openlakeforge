@@ -42,22 +42,23 @@ class OpenMetadataReconciler:
 
         One OpenMetadata deployment represents every governed stage, and the
         only thing separating their catalog entities is the
-        `<service>.lakehouse_<stage>` database root (#131). That root, the
-        schema-FQN maps, and a descriptor's own asset FQNs reach this process
-        as independent environment channels, so an `OPENMETADATA_CATALOG_
-        DATABASE` left over from another stage's contract env is enough to
-        aim a deploy's upserts at that stage's tables while it reports the
-        stage the operator asked for. Fail closed: reconciling one stage must
-        never write over another stage's entities.
+        `<service>.lakehouse_<stage>` database root (#131). The schemas and
+        tables a deploy seeds arrive on their own environment channel
+        (OPENLAKEFORGE_CATALOG_{SILVER,GOLD}_SCHEMA_FQNS_JSON), which
+        `build_contract_env` leaves alone once it is set; one left behind by
+        an earlier stage would otherwise seed that stage's catalog while this
+        deploy reports the stage it was asked for. Check them against the
+        root `OpenMetadataConfig` derives from the selected catalog database,
+        so reconciling one stage never writes over another stage's entities.
         """
         root = self.config.catalog_database_fqn
         if fqn == root or fqn.startswith(f"{root}."):
             return
         raise OpenMetadataError(
             f"Refusing to reconcile {entity} {fqn!r}: it belongs to another stage. This deploy is scoped to the "
-            f"database root {root!r}; check that OPENMETADATA_CATALOG_DATABASE, "
-            "OPENLAKEFORGE_CATALOG_DATABASE_FQN, and OPENLAKEFORGE_CATALOG_{SILVER,GOLD}_SCHEMA_FQNS_JSON all "
-            "come from the same stage's contract environment."
+            f"database root {root!r}; check that OPENMETADATA_CATALOG_DATABASE and "
+            "OPENLAKEFORGE_CATALOG_{SILVER,GOLD}_SCHEMA_FQNS_JSON come from the same stage's contract "
+            "environment."
         )
 
     def resolve_table_asset(self, asset):

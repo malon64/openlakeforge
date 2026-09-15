@@ -64,7 +64,6 @@ resources:
 
 def test_config_from_environment_reads_schema_fqns() -> None:
     environ = {
-        "OPENLAKEFORGE_CATALOG_DATABASE_FQN": "aws_glue.lakehouse_dev",
         "OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON": '{"order_revenue": "svc.db.order_revenue_silver"}',
         "OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON": "{}",
         "OPENLAKEFORGE_STORAGE_OM_SERVICE": "aws_s3",
@@ -88,7 +87,7 @@ def test_config_from_environment_reads_schema_fqns() -> None:
         cleanup_legacy_default_database=True,
     )
     assert cfg.base_url == "http://127.0.0.1:18585"
-    assert cfg.catalog_database_fqn == "aws_glue.lakehouse_dev"
+    assert cfg.catalog_database_fqn == "polaris.lakehouse_dev"
     assert cfg.catalog_silver_schema_fqns == {"order_revenue": "svc.db.order_revenue_silver"}
     assert cfg.storage_service == "aws_s3"
     assert cfg.storage_display_name == "AWS S3"
@@ -260,3 +259,27 @@ def test_openmetadata_command_anchors_its_default_metadata_root_to_the_project(
     command.deploy_openmetadata_metadata()
 
     assert captured["metadata_root"] == str(project / "lakehouse_code")
+
+
+def test_database_root_follows_the_selected_catalog_database_not_a_stale_fqn() -> None:
+    """A whole contract environment carries over from stage to stage together,
+    so a database FQN that agrees with the stale schema maps rather than with
+    the stage being deployed must not define what this deploy may write."""
+    cfg = OpenMetadataConfig.from_environment(
+        {
+            "OPENLAKEFORGE_CATALOG_DATABASE_FQN": "polaris.lakehouse_dev",
+            "OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON": '{"sales": "polaris.lakehouse_dev.sales_silver"}',
+            "OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON": "{}",
+        },
+        base_url="http://x",
+        admin_email="a",
+        admin_password="p",
+        metadata_root="domains",
+        metadata_source_dir="",
+        allow_missing_assets=False,
+        catalog_service="polaris",
+        catalog_database="lakehouse_prod",
+        cleanup_legacy_default_database=False,
+    )
+
+    assert cfg.catalog_database_fqn == "polaris.lakehouse_prod"
