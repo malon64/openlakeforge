@@ -364,7 +364,7 @@ def _user_chart(chart: Path, work_root: Path) -> Path:
 def _generate_floe(
     provider: DeploymentProvider, *, repo_root: Path, contract_environ: Mapping[str, str], env: Mapping[str, str]
 ) -> str:
-    config = provider.config  # type: ignore[attr-defined]
+    config = provider.config
     context = provider.context
     if context.provider is Provider.AWS:
         generate_aws_manifests(config.floe, provider.tools, repo_root=repo_root, environ=contract_environ, env=env)
@@ -415,7 +415,11 @@ def _ensure_image(provider: DeploymentProvider, image: str, *, env: Mapping[str,
     if provider.context.provider is Provider.LOCAL:
         from olf.deployment.local.images import load_image_into_kind
 
-        load_image_into_kind(image, provider.config, provider.tools, env=env)  # type: ignore[attr-defined]
+        # Loading into kind needs the kind cluster name, which only
+        # `LocalDeploymentConfig` carries -- as `images.image_platform` just
+        # above is cloud-only. Narrowing the shared surface back to a
+        # provider's own config is #187 Group C, not this slice.
+        load_image_into_kind(image, provider.config, provider.tools, env=env)  # type: ignore[arg-type]
 
 
 def read_platform_globals(
@@ -460,7 +464,7 @@ def _kube_context(provider: DeploymentProvider) -> str:
     holds the resolved value. Reading the context directly leaves every
     kubectl-backed step of an activation without a cluster to talk to.
     """
-    env = provider.env  # type: ignore[attr-defined]
+    env = provider.env
     return env.get("KUBE_CONTEXT") or provider.context.kube_context
 
 
@@ -558,7 +562,7 @@ def _floe_renderer(provider: DeploymentProvider) -> str:
     release rather than in the activation record: it describes how the stage
     was rendered, not what was activated, and the record's schema stays put.
     """
-    floe = provider.config.floe  # type: ignore[attr-defined]
+    floe = provider.config.floe
     return f"{floe.image}|{floe.version}|{floe.runtime}"
 
 
@@ -621,7 +625,7 @@ def deploy_revision(
 ) -> ProjectActivation:
     """Verify, render, roll out, then atomically make a revision active."""
     context = provider.context
-    env = provider.env  # type: ignore[attr-defined]
+    env = provider.env
     contract_dir = _contract_dir(context, env)
     kube_context = _kube_context(provider)
     platform_globals = _platform_globals(provider, kube_context=kube_context, env=env)
@@ -715,7 +719,7 @@ def deploy_revision(
                 return activation
             if activation.capabilities["analytics"] or activation.capabilities["governance"]:
                 deploy_optional_layer_artifacts(contract_environ)
-            config = provider.config  # type: ignore[attr-defined]
+            config = provider.config
             prepare_chart(
                 config.charts["dagster"],
                 helm=provider.tools.helm,
