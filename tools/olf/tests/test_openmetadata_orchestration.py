@@ -390,7 +390,9 @@ dashboards: []
     assert seeded_containers[-1][3] == "Raw sales orders."
 
 
-def _single_product_deployer(tmp_path: Path) -> om.OpenMetadataDeployer:
+def _single_product_deployer(
+    tmp_path: Path, *, environ: dict[str, str] | None = None, catalog_database: str = "lakehouse_dev"
+) -> om.OpenMetadataDeployer:
     (tmp_path / "bronze" / "crm").mkdir(parents=True)
     (tmp_path / "bronze" / "crm" / "source.yaml").write_text(
         """apiVersion: openlakeforge.io/v1alpha3
@@ -439,7 +441,7 @@ dashboards: []
 """
     )
     cfg = om.OpenMetadataConfig.from_environment(
-        {},
+        environ or {},
         base_url="http://x",
         admin_email="a",
         admin_password="p",
@@ -447,7 +449,7 @@ dashboards: []
         metadata_source_dir="",
         allow_missing_assets=False,
         catalog_service="polaris",
-        catalog_database="lakehouse_dev",
+        catalog_database=catalog_database,
         cleanup_legacy_default_database=False,
     )
     return om.OpenMetadataDeployer(cfg, om.OpenMetadataClient(cfg.base_url))
@@ -496,3 +498,39 @@ def test_deploy_creates_each_schema_before_seeding_its_tables(
         f"schema:{gold}",
         f"table:{gold}.mart_order_revenue",
     ]
+
+
+def test_deploy_refuses_another_stages_schemas_before_any_write(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One OpenMetadata deployment holds every governed stage, so a deploy that
+    resolved its schema FQNs from one stage's contract environment and its
+    database from another's would seed the wrong stage's catalog."""
+    deployer = _single_product_deployer(
+        tmp_path,
+        environ={
+            "OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON": '{"sales": "polaris.lakehouse_dev.sales_silver"}',
+            "OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON": (
+                '{"order_revenue": "polaris.lakehouse_dev.order_revenue_gold"}'
+            ),
+        },
+        catalog_database="lakehouse_prod",
+    )
+    requests: list[tuple[str, str]] = []
+
+    monkeypatch.setattr(deployer, "wait_for_openmetadata", lambda: None)
+    monkeypatch.setattr(deployer, "login", lambda: None)
+    def request(method: str, path: str, **_kwargs):
+        requests.append((method, path))
+        return {"id": "t", "fullyQualifiedName": "t"}
+
+    monkeypatch.setattr(deployer.client, "request", request)
+    monkeypatch.setattr(deployer, "ensure_container", lambda *args, **kwargs: None)
+    monkeypatch.setattr(deployer, "ensure_storage_service", lambda: None)
+
+    with pytest.raises(om.OpenMetadataError) as excinfo:
+        deployer.deploy()
+
+    assert "polaris.lakehouse_dev.sales_silver" in str(excinfo.value)
+    assert "polaris.lakehouse_prod" in str(excinfo.value)
+    assert requests == []

@@ -111,3 +111,27 @@ def test_ensure_database_schema_rejects_a_malformed_fqn(tmp_path: Path) -> None:
 
     with pytest.raises(OpenMetadataError, match="Malformed schema FQN"):
         reconciler.ensure_database_schema("sales_order_revenue_silver")
+
+
+def test_write_primitives_refuse_another_stages_entities(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Every governed stage shares one OpenMetadata, separated only by the
+    `<service>.lakehouse_<stage>` database root, so a reconcile scoped to one
+    stage must not create or claim entities under another's."""
+    reconciler = _single_product_reconciler(tmp_path)
+    requests: list[str] = []
+
+    monkeypatch.setattr(
+        reconciler.client, "request", lambda method, path, **_kwargs: requests.append(path) or {}
+    )
+
+    for call in (
+        lambda: reconciler.ensure_database_schema("polaris.lakehouse_prod.sales_silver"),
+        lambda: reconciler.ensure_table_stub("polaris.lakehouse_prod.sales_silver", "raw_orders", ""),
+        lambda: reconciler.resolve_table_asset("polaris.lakehouse_prod.sales_silver.raw_orders"),
+    ):
+        with pytest.raises(OpenMetadataError, match="belongs to another stage"):
+            call()
+
+    assert requests == []

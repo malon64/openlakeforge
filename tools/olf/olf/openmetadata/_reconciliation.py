@@ -37,6 +37,29 @@ class OpenMetadataReconciler:
                 time.sleep(2)
         raise OpenMetadataError(f"OpenMetadata did not become reachable: {last_error}")
 
+    def require_stage_scoped(self, fqn: str, entity: str) -> None:
+        """Reject an entity FQN that lies outside this stage's database root.
+
+        One OpenMetadata deployment represents every governed stage, and the
+        only thing separating their catalog entities is the
+        `<service>.lakehouse_<stage>` database root (#131). That root, the
+        schema-FQN maps, and a descriptor's own asset FQNs reach this process
+        as independent environment channels, so an `OPENMETADATA_CATALOG_
+        DATABASE` left over from another stage's contract env is enough to
+        aim a deploy's upserts at that stage's tables while it reports the
+        stage the operator asked for. Fail closed: reconciling one stage must
+        never write over another stage's entities.
+        """
+        root = self.config.catalog_database_fqn
+        if fqn == root or fqn.startswith(f"{root}."):
+            return
+        raise OpenMetadataError(
+            f"Refusing to reconcile {entity} {fqn!r}: it belongs to another stage. This deploy is scoped to the "
+            f"database root {root!r}; check that OPENMETADATA_CATALOG_DATABASE, "
+            "OPENLAKEFORGE_CATALOG_DATABASE_FQN, and OPENLAKEFORGE_CATALOG_{SILVER,GOLD}_SCHEMA_FQNS_JSON all "
+            "come from the same stage's contract environment."
+        )
+
     def resolve_table_asset(self, asset):
         if isinstance(asset, str):
             asset_type = "table"
@@ -53,6 +76,7 @@ class OpenMetadataReconciler:
             )
         if not fqn:
             raise OpenMetadataError(f"OpenMetadata data-product asset is missing 'fqn': {asset!r}")
+        self.require_stage_scoped(fqn, "table")
 
         encoded_fqn = urllib.parse.quote(fqn, safe="")
         try:
@@ -164,6 +188,7 @@ class OpenMetadataReconciler:
         database_fqn, _, name = schema_fqn.rpartition(".")
         if not database_fqn or not name:
             raise OpenMetadataError(f"Malformed schema FQN {schema_fqn!r}: expected '<service>.<database>.<schema>'")
+        self.require_stage_scoped(schema_fqn, "database schema")
         if schema_fqn in self._ensured_schema_fqns:
             return
         self.client.request(
@@ -176,6 +201,7 @@ class OpenMetadataReconciler:
         print(f"Upserted OpenMetadata database schema: {schema_fqn}")
 
     def ensure_table_stub(self, schema_fqn, name, description) -> None:
+        self.require_stage_scoped(schema_fqn, "table")
         payload = {"name": name, "databaseSchema": schema_fqn, "columns": []}
         if description:
             payload["description"] = description

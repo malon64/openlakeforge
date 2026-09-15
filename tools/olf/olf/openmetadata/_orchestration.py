@@ -102,6 +102,11 @@ class OpenMetadataDeployer:
 
     def validate_deployment_inputs(self, domain_specs: list[tuple[Path, dict]]) -> None:
         """Resolve every declared table and logical asset before metadata writes."""
+        for schema_fqn in (
+            *self.config.catalog_silver_schema_fqns.values(),
+            *self.config.catalog_gold_schema_fqns.values(),
+        ):
+            self._reconciler.require_stage_scoped(schema_fqn, "database schema")
         for _, domain in domain_specs:
             for product in product_entries(domain):
                 list(self.product_asset_entries(product))
