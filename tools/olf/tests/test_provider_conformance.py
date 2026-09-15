@@ -51,6 +51,7 @@ from olf.contracts import build_contract_env
 from olf.deployment.cloud.backend import FoundationFacts
 from olf.deployment.context import DeploymentContext, Provider, stage_namespace
 from olf.deployment.engine import (
+    DeploymentConfig,
     DeploymentEngine,
     DeploymentPhase,
     DeploymentProvider,
@@ -89,7 +90,20 @@ _FOUNDATION_FACTS = FoundationFacts(
 # `DeploymentProvider`'s own members, read off the Protocol rather than
 # restated: a member added there has to be implemented by every adapter, and
 # this suite is where that becomes true rather than a review comment.
-_PROTOCOL_ATTRIBUTES = tuple(sorted(DeploymentProvider.__annotations__))
+# Read-only members count: most of the Protocol is declared as properties,
+# because that is what every adapter actually offers, and annotations alone
+# would silently cover only the settable remainder.
+_PROTOCOL_ATTRIBUTES = tuple(
+    sorted(
+        set(DeploymentProvider.__annotations__)
+        | {name for name, value in vars(DeploymentProvider).items() if isinstance(value, property)}
+    )
+)
+# The provider-neutral settings surface `DeploymentProvider.config` promises,
+# read off `DeploymentConfig` the same way.
+_CONFIG_ATTRIBUTES = tuple(
+    sorted(name for name, value in vars(DeploymentConfig).items() if isinstance(value, property))
+)
 _PROTOCOL_METHODS = tuple(
     sorted(
         name
@@ -411,7 +425,12 @@ def test_adapter_satisfies_the_deployment_provider_protocol(provider: Provider, 
     adapter = _adapter(provider, tmp_path)
 
     for attribute in _PROTOCOL_ATTRIBUTES:
-        assert hasattr(adapter, attribute), (
+        # Class before instance: a cloud adapter resolves `env` by reading the
+        # foundation's Terraform outputs on first touch, so a presence check
+        # made on the instance would try to reach a cluster. Plain dataclass
+        # fields have no class attribute, which is why the instance is still
+        # the fallback.
+        assert hasattr(type(adapter), attribute) or hasattr(adapter, attribute), (
             f"{type(adapter).__name__} has no {attribute!r}. DeploymentProvider declares it, so shared code "
             f"reads it on every provider; without it that code has to reach past the Protocol to keep working."
         )
@@ -434,10 +453,9 @@ def test_adapter_exposes_the_command_environment_shared_callers_use(
     provider: Provider, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """`olf.deployment.activation` reads `provider.env` on whichever provider
-    it is handed. It is not a `DeploymentProvider` member yet, which is why
-    those reads carry `# type: ignore[attr-defined]` (#187 Group A) - asserted
-    here on what every adapter actually exposes, so a new adapter that omits
-    it fails now rather than at activation time.
+    it is handed. `DeploymentProvider` declares it, so the presence check
+    above already covers the attribute; what this adds is that the value
+    resolves, which no Protocol can state.
 
     The value is resolved, not just the attribute: an adapter whose `env` is
     None, raises, or yields something Helm and Docker cannot take as an
@@ -472,6 +490,37 @@ def test_adapter_exposes_the_command_environment_shared_callers_use(
         f"target into the command environment - on cloud from the foundation outputs, on local statically."
     )
 
+
+@every_provider
+def test_adapter_config_carries_the_shared_settings_surface(provider: Provider, tmp_path: Path) -> None:
+    """Stage activation renders Floe, prepares the Dagster chart, and retries
+    the apply off `provider.config`, whichever provider it was handed. The
+    two concrete configs diverge, so `DeploymentConfig` names the subset
+    shared callers may rely on - asserted here per adapter, because a
+    Protocol only states the shape and an adapter can still resolve it to
+    something activation cannot use.
+    """
+    config = _adapter(provider, tmp_path).config
+
+    for attribute in _CONFIG_ATTRIBUTES:
+        assert hasattr(config, attribute), (
+            f"{type(config).__name__} has no {attribute!r}. DeploymentConfig declares it, so provider-neutral "
+            f"code reads it on every provider's config; without it that code reaches past the Protocol again."
+        )
+    assert config.charts["dagster"] is not None, (
+        f"{type(config).__name__} resolves no 'dagster' chart. Stage activation installs the user-deployments "
+        f"subchart out of that chart's own archive on every provider."
+    )
+    assert all((config.floe.image, config.floe.version, config.floe.runtime)), (
+        f"{type(config).__name__}.floe leaves part of the renderer identity empty "
+        f"({config.floe.image!r}, {config.floe.version!r}, {config.floe.runtime!r}). Activation compares those "
+        f"three as one string to decide whether a release's manifests are stale."
+    )
+    assert config.terraform.apply_retry.max_attempts >= 1, (
+        f"{type(config).__name__}.terraform.apply_retry allows "
+        f"{config.terraform.apply_retry.max_attempts} attempts; a policy that never runs the command is not a "
+        f"retry policy."
+    )
 
 @every_provider
 def test_platform_root_declares_a_v3_stage_indexed_contract_surface(provider: Provider) -> None:

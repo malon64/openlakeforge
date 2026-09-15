@@ -31,6 +31,10 @@ from olf.tooling.resolver import ExecutableResolver, build_resolver
 from olf.tooling.terraform import Terraform
 
 if TYPE_CHECKING:
+    from olf.deployment.charts import ChartSetting
+    from olf.deployment.context import DeploymentPaths
+    from olf.deployment.floe_manifests import FloeManifestSettings
+    from olf.deployment.retry import RetryPolicy
     from olf.deployment.status import StatusReport
 
 
@@ -79,6 +83,47 @@ class Toolkit:
         )
 
 
+class ChartCatalog(Protocol):
+    """A resolved chart per name, however a provider stores them."""
+
+    def __getitem__(self, name: str) -> ChartSetting: ...
+
+
+class TerraformSurface(Protocol):
+    """The platform apply settings shared callers read.
+
+    Only the retry policy: `var_file` is provider-specific (Azure's platform
+    root must never be handed one; see `cloud.config.CloudTerraformSettings`).
+    """
+
+    @property
+    def apply_retry(self) -> RetryPolicy: ...
+
+
+class DeploymentConfig(Protocol):
+    """The resolved settings every provider carries, as shared code reads them.
+
+    `LocalDeploymentConfig` and `CloudDeploymentConfig` diverge on purpose --
+    a kind cluster and an image platform have no counterpart on the other
+    side. This is the intersection provider-neutral callers actually use, so
+    they can go through `DeploymentProvider.config` instead of reaching into
+    whichever concrete config happens to be behind it. Members are read-only
+    properties because the concrete settings types are narrower than the
+    surface named here.
+    """
+
+    @property
+    def context(self) -> DeploymentContext: ...
+    @property
+    def paths(self) -> DeploymentPaths: ...
+    @property
+    def floe(self) -> FloeManifestSettings: ...
+    @property
+    def charts(self) -> ChartCatalog: ...
+    @property
+    def terraform(self) -> TerraformSurface: ...
+
+
 class DeploymentProvider(Protocol):
     """A provider's granular lifecycle operations.
 
@@ -88,13 +133,25 @@ class DeploymentProvider(Protocol):
     duplicated between the two call paths.
     """
 
-    context: DeploymentContext
     # Stage activation (`olf.deployment.activation`) drives Helm and Docker
     # through the provider instead of building its own toolkit, so the toolkit
     # is part of what a provider promises its callers. Leaving it off meant
     # every shared caller reached past this Protocol into the concrete
     # provider, and the contract stopped describing what callers actually use.
     tools: Toolkit
+
+    # Read-only, because every adapter resolves these rather than storing
+    # them settably: `context` and `config` are properties over the config an
+    # adapter is built from, and `env` is a cached overlay a cloud adapter
+    # cannot even compute until the foundation outputs are read. Declared as
+    # settable variables, no adapter satisfies this Protocol at all -- which
+    # `engine`'s own place on the mypy baseline had been hiding.
+    @property
+    def context(self) -> DeploymentContext: ...
+    @property
+    def config(self) -> DeploymentConfig: ...
+    @property
+    def env(self) -> Mapping[str, str]: ...
 
     def foundation_up(self) -> None: ...
     def foundation_down(self, *, force: bool = False) -> None: ...
