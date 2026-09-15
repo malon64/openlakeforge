@@ -27,6 +27,7 @@ REQUIRED_PATHS: tuple[str, ...] = (
     "AGENTS.md",
     "CLAUDE.md",
     "openlakeforge.yaml",
+    "openlakeforge.conformance.yaml",
     "Makefile",
     ".gitignore",
     ".github/workflows/checks.yml",

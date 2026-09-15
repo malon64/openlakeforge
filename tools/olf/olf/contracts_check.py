@@ -257,28 +257,31 @@ def _check_descriptor_schema_conformance(repo_root: Path, *, schema_root: Path |
     return CheckResult(name, ok=True, detail=f"{descriptor_count} descriptor(s) validated")
 
 
-def profile_schema_errors(repo_root: Path, *, schema_root: Path | None = None) -> list[str]:
-    """Validate the project-root `openlakeforge.yaml` Deployment Profile
-    against the canonical model and its versioned JSON Schema. Mirrors
-    `descriptor_schema_errors`: the two validators run independently: neither
-    substitutes for the other. `schema_root` points at the distribution
-    payload's `docs/schema/` for an installed project (ADR 0009)."""
+def profile_schema_errors(
+    repo_root: Path, *, schema_root: Path | None = None, profile_path: Path | None = None
+) -> list[str]:
+    """Validate a Deployment Profile with the canonical model and JSON Schema.
+
+    `schema_root` may point at an installed distribution's schemas, and
+    `profile_path` may select a profile other than the project default.
+    """
     from olf.profile import DeploymentProfileError, load_deployment_profile
 
-    profile_path = repo_root / "openlakeforge.yaml"
+    profile_path = profile_path or repo_root / "openlakeforge.yaml"
+    label = profile_path.name
     if not profile_path.is_file():
-        return [f"no openlakeforge.yaml found under {repo_root}"]
+        return [f"no {label} found under {repo_root}"]
 
     try:
         document = yaml.safe_load(profile_path.read_text(encoding="utf-8"))
     except yaml.YAMLError as exc:
-        return [f"openlakeforge.yaml: {exc}"]
+        return [f"{label}: {exc}"]
 
     errors: list[str] = []
     try:
         load_deployment_profile(profile_path)
     except DeploymentProfileError as exc:
-        errors.append(f"openlakeforge.yaml: canonical model rejected profile: {exc}")
+        errors.append(f"{label}: canonical model rejected profile: {exc}")
 
     schema_path = (
         schema_root / "deployment-profile.schema.json"
@@ -290,7 +293,7 @@ def profile_schema_errors(repo_root: Path, *, schema_root: Path | None = None) -
     schema_errors = sorted(validator.iter_errors(document), key=lambda e: list(e.absolute_path))
     for error in schema_errors:
         location = "/".join(str(part) for part in error.absolute_path) or "<root>"
-        errors.append(f"openlakeforge.yaml: schema violation at {location}: {error.message}")
+        errors.append(f"{label}: schema violation at {location}: {error.message}")
 
     return errors
 

@@ -1,0 +1,17 @@
+# Slim DEV+PROD profile for local multi-stage conformance (#155).
+# Runtime orchestration and cross-stage assertions are tracked in #208.
+apiVersion: openlakeforge.io/v1alpha1
+kind: DeploymentProfile
+
+metadata:
+  name: olf-conformance
+
+spec:
+  provider:
+    type: local
+  preset: slim
+  stages:
+    dev:
+      enabled: true
+    prod:
+      enabled: true
