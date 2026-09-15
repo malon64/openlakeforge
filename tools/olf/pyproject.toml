@@ -86,8 +86,9 @@ module = [
 ]
 ignore_missing_imports = true
 
-# _BASELINE -- the 26 modules that already had type errors when the gate was
-# introduced (135 errors, 2026-09-04). The other 121 modules are checked and
+# _BASELINE -- the modules that already had type errors when the gate was
+# introduced (26 modules, 135 errors, 2026-09-04). Every other module is
+# checked and
 # must stay clean. This list only ever shrinks: adding a module to it needs a
 # reason in the pull request body, and removing one needs no justification at
 # all. Tracked in `docs/technical-debt.md`.
@@ -117,7 +118,6 @@ module = [
   "olf.openmetadata._reconciliation",
   "olf.project_code_check",
   "olf.provider_contracts",
-  "olf.superset",
   "olf.toolchain.manager",
 ]
 ignore_errors = true

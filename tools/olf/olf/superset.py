@@ -15,12 +15,24 @@ import subprocess
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
+from typing import Any
+from uuid import UUID
 from zipfile import ZIP_DEFLATED, ZipFile
 
 from olf import k8s, layers, log
 from olf.contracts import CONTRACT_STAGE_ENV
+from olf.profile import StageName
 
 REPORTS_MOUNT_PATH_DEFAULT = "/app/openlakeforge/reports"
+
+# `build_report_bundle` prefixes a dataset's physical schema textually rather
+# than by rewriting the parsed document, so this pattern decides both what
+# gets rewritten and what a promotable dataset may look like. The two uses
+# share one constant deliberately: a guard written against a copy of the
+# expression would stop agreeing with the packager the first time either
+# changed. `report_bundle_errors` uses it as the oracle for which YAML forms
+# survive packaging -- see `_dataset_schema_errors`.
+_DATASET_SCHEMA_LINE = re.compile(r"^schema:\s*(\S+)$", re.MULTILINE)
 
 # In-pod importer. Runs in the Superset interpreter; argv: <remote_bundle> <username>.
 _IMPORT_SCRIPT = """
@@ -235,11 +247,9 @@ def build_report_bundle(
                 bundle.writestr(archive_name, text)
             elif schema_prefix and relative.startswith("datasets/"):
                 text = path.read_text(encoding="utf-8")
-                text = re.sub(
-                    r"^schema:\s*(\S+)$",
+                text = _DATASET_SCHEMA_LINE.sub(
                     lambda match: f"schema: {schema_prefix}{match.group(1)}",
                     text,
-                    flags=re.MULTILINE,
                 )
                 bundle.writestr(archive_name, text)
             else:
@@ -259,10 +269,14 @@ def unpack_export_bundle(bundle_path: Path, target_dir: Path) -> None:
 
     with ZipFile(bundle_path) as bundle:
         for member in bundle.namelist():
-            path = PurePosixPath(member)
-            if len(path.parts) < 2 or path.name.startswith(".") or path.suffix.lower() not in {".yaml", ".yml"}:
+            member_path = PurePosixPath(member)
+            if (
+                len(member_path.parts) < 2
+                or member_path.name.startswith(".")
+                or member_path.suffix.lower() not in {".yaml", ".yml"}
+            ):
                 continue
-            relative = PurePosixPath(*path.parts[1:])
+            relative = PurePosixPath(*member_path.parts[1:])
             destination = target_dir / Path(relative.as_posix())
             destination.parent.mkdir(parents=True, exist_ok=True)
             destination.write_bytes(bundle.read(member))
@@ -308,6 +322,256 @@ def validate_report_registry(repo_root: Path, declared_report_dirs: Sequence[str
             details.append("mounted but not declared: " + ", ".join(undeclared))
         raise RuntimeError("Superset dashboard registry mismatch (" + "; ".join(details) + ")")
     return sorted(declared)
+
+
+# The promotion contract for a source-controlled bundle (#130). Superset
+# matches assets across instances by `uuid`, so a bundle whose identities are
+# missing, duplicated, or dangling imports into DEV and then silently forks or
+# fails in PROD -- the one stage nothing re-exports from. These directories are
+# what `unpack_export_bundle` manages and `build_report_bundle` packs.
+_MANAGED_ASSET_DIRS: tuple[str, ...] = ("databases", "datasets", "charts", "dashboards")
+_ASSET_REFERENCES = {"datasets": ("database_uuid", "databases"), "charts": ("dataset_uuid", "datasets")}
+# The database is the one identity several bundles are meant to hold in
+# common: every dashboard reads the same Gold through one Trino connection,
+# and the reference project's bundles all declare the same
+# `openlakeforge_trino` uuid deliberately. Nothing else is shareable --
+# `deploy_reports` imports every declared bundle into one Superset instance in
+# turn, so a chart, dataset, or dashboard uuid reused across two bundles makes
+# the second import overwrite the first asset and leaves the earlier dashboard
+# pointing at someone else's chart.
+_SHAREABLE_ASSET_DIRS = frozenset({"databases"})
+# A promotable bundle is stage-neutral: target connectivity is resolved at
+# import time by `build_report_bundle`, so a checked-in stage-bound physical
+# name (`lakehouse_<stage>` catalogs, `olf-<stage>` namespaces) would survive
+# promotion and point PROD at another stage's data. `ws_<user>_` is a personal
+# workspace identity, which #111 excludes from promotable dependencies
+# outright. `s3://`, `http://`, and credential literals are already rejected
+# for every revision component by olf.project_revision.
+_FORBIDDEN_BUNDLE_VALUES: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"\bws_[a-z0-9][a-z0-9-]*_", re.IGNORECASE), "a personal workspace identifier"),
+    (
+        # `\b` after the stage token would be wrong on exactly the case that
+        # matters most: `_` is a word character, so `lakehouse_dev` matches
+        # while AWS's prefixed schema `lakehouse_dev_order_revenue_gold` --
+        # what `build_report_bundle`'s `schema_prefix` produces -- would not.
+        # A negative lookahead on letters and digits admits the suffix while
+        # still refusing `lakehouse_development`.
+        re.compile(
+            r"(?<![a-z0-9])(?:lakehouse|olf)[_-](?:"
+            + "|".join(stage.value for stage in StageName)
+            + r")(?![a-z0-9])",
+            re.IGNORECASE,
+        ),
+        "a stage-bound physical name",
+    ),
+)
+
+
+def _canonical_uuid(value: object) -> str | None:
+    """A uuid in its canonical spelling, or None if it is not one.
+
+    Normalized rather than rejected: Superset resolves `A1B2-...` and
+    `a1b2-...` to the same asset, so a bundle spelling one in either case is
+    legitimate and must not be refused. Comparing the raw strings instead
+    would let two bundles claim one identity in different cases and pass as
+    distinct, which is the collision the uniqueness rule exists to catch.
+    """
+    if not isinstance(value, str):
+        return None
+    try:
+        return str(UUID(value))
+    except ValueError:
+        return None
+
+
+def _yaml_problem(exc: Exception) -> str:
+    """A YAML parse error as one line, for a violation a user reads in a list."""
+    return " ".join(str(exc).split())
+
+
+_UNCOMPARED_DATABASE_FIELDS = frozenset(
+    {
+        # `build_report_bundle` rewrites it to the target stage's own
+        # connection while packaging, so the checked-in value is a
+        # placeholder rather than part of the shared definition.
+        "sqlalchemy_uri",
+        # The canonical identity is already this comparison's map key, so the
+        # raw spelling adds nothing -- and comparing it would report two
+        # identical databases as conflicting whenever they merely differ in
+        # case, which `_canonical_uuid` exists to treat as the same asset.
+        "uuid",
+    }
+)
+
+
+def _shared_database_definition(document: Mapping[str, Any]) -> dict[str, Any]:
+    """The part of a database document two bundles sharing a uuid must agree on."""
+    return {key: value for key, value in document.items() if key not in _UNCOMPARED_DATABASE_FIELDS}
+
+
+def _dataset_schema_errors(name: str, document: Mapping[str, Any], text: str) -> list[str]:
+    """Reject a dataset whose `schema` the packager would mangle or skip.
+
+    `build_report_bundle` applies the stage prefix with a textual
+    substitution, so only a plain unquoted scalar on its own line survives:
+    `schema: "gold"` becomes `schema: lakehouse_dev_"gold"`, naming a schema
+    that does not exist, and a form the pattern misses entirely is left
+    unprefixed and queries another stage's catalog. Comparing the parsed
+    value against what the packager's own pattern captures catches both
+    without this guard having to enumerate the YAML forms itself.
+
+    This is a compensating control, not the fix: it keeps a corruptible
+    bundle out of a revision but still refuses YAML that is perfectly valid.
+    #204 tracks rewriting the schema structurally, which retires this.
+    """
+    if "schema" not in document:
+        return []
+    captured = _DATASET_SCHEMA_LINE.findall(text)
+    if captured == [str(document["schema"])]:
+        return []
+    return [
+        f"{name}: schema {document['schema']!r} is not written as a plain scalar on its own line, "
+        "so packaging it for a prefixed stage catalog would not reproduce it"
+    ]
+
+
+def report_bundle_errors(
+    repo_root: Path, report_dir: str, *, owner_of: dict[str, tuple[str, str, dict[str, Any]]] | None = None
+) -> list[str]:
+    """Check one source-controlled report bundle against the promotion contract.
+
+    Returns every violation rather than raising on the first: an analyst
+    re-exporting a bundle wants the whole list, not one round trip per
+    problem.
+
+    `owner_of` maps each claimed uuid to the (kind, file, document) that
+    claimed it. Pass one across several calls to check identity uniqueness
+    over a whole set of bundles -- see `validate_report_bundles`.
+    """
+    import yaml
+
+    bundle_dir = repo_root / report_dir
+    metadata_path = bundle_dir / "metadata.yaml"
+    if not metadata_path.is_file():
+        return [f"{report_dir}/metadata.yaml: missing"]
+    # `_IMPORT_SCRIPT` runs `ImportAssetsCommand`, which is what `type:
+    # assets` selects -- a dashboard-type export imports through a different
+    # command and would fail in the pod rather than here. `_EXPORT_SCRIPT`
+    # rewrites the type for exactly that reason, so a bundle that lost it was
+    # hand-edited.
+    try:
+        metadata = yaml.safe_load(metadata_path.read_text(encoding="utf-8"))
+    except yaml.YAMLError as exc:
+        return [f"{report_dir}/metadata.yaml: is not valid YAML ({_yaml_problem(exc)})"]
+    if not isinstance(metadata, dict):
+        return [f"{report_dir}/metadata.yaml: is not a YAML mapping"]
+    if metadata.get("type") != "assets":
+        return [f"{report_dir}/metadata.yaml: declares type {metadata.get('type')!r}, not 'assets'"]
+    if not isinstance(metadata.get("version"), str) or not metadata["version"]:
+        return [f"{report_dir}/metadata.yaml: has no export format version"]
+
+    errors: list[str] = []
+    owner_of = {} if owner_of is None else owner_of
+    identities: dict[str, set[str]] = {kind: set() for kind in _MANAGED_ASSET_DIRS}
+    documents: list[tuple[str, str, dict[str, Any]]] = []
+    for kind in _MANAGED_ASSET_DIRS:
+        for path in sorted((bundle_dir / kind).rglob("*")):
+            if not path.is_file() or path.suffix.lower() not in REPORT_YAML_SUFFIXES:
+                continue
+            name = f"{report_dir}/{path.relative_to(bundle_dir).as_posix()}"
+            # A hand-edit or a merge leaves invalid YAML behind often enough
+            # that dying on it would make the validator useless exactly when
+            # it is needed: the point is to name the file and keep collecting.
+            text = path.read_text(encoding="utf-8")
+            try:
+                document = yaml.safe_load(text)
+            except yaml.YAMLError as exc:
+                errors.append(f"{name}: is not valid YAML ({_yaml_problem(exc)})")
+                continue
+            if not isinstance(document, dict):
+                errors.append(f"{name}: is not a YAML mapping")
+                continue
+            documents.append((kind, name, document))
+            if kind == "datasets":
+                errors.extend(_dataset_schema_errors(name, document, text))
+            identity = document.get("uuid")
+            if not isinstance(identity, str) or not identity:
+                errors.append(f"{name}: has no stable uuid")
+                continue
+            # Superset's import schema expects a real UUID. An arbitrary
+            # string matches its own references and would pass every check
+            # here, then fail at import into whichever stage runs first.
+            canonical = _canonical_uuid(identity)
+            if canonical is None:
+                errors.append(f"{name}: uuid {identity!r} is not a UUID")
+                continue
+            identities[kind].add(canonical)
+            claimed = owner_of.get(canonical)
+            if claimed is None:
+                owner_of[canonical] = (kind, name, document)
+                continue
+            claimed_kind, claimed_name, claimed_document = claimed
+            if kind not in _SHAREABLE_ASSET_DIRS or claimed_kind not in _SHAREABLE_ASSET_DIRS:
+                errors.append(f"{name}: uuid {canonical} is already used by {claimed_name}")
+            elif _shared_database_definition(document) != _shared_database_definition(claimed_document):
+                errors.append(
+                    f"{name}: uuid {canonical} defines a different database than {claimed_name}; "
+                    "a shared connection must be declared identically in every bundle"
+                )
+
+    # A bundle carrying only a database and its datasets is what `olf product
+    # new --with-report` leaves behind: the scaffold cannot invent a dashboard
+    # layout, so the analyst authors one in Superset and exports it back. That
+    # state is legitimate on disk and not promotable, and `e2e._assertions`
+    # already refuses it at runtime -- accepting it here would publish an
+    # incomplete revision and surface the omission only after promotion.
+    if not any(kind == "dashboards" for kind, _, _ in documents):
+        errors.append(
+            f"{report_dir}: exports no Superset dashboard; author it in Superset "
+            "and export it back into this bundle before promoting"
+        )
+
+    for kind, name, document in documents:
+        if kind in _ASSET_REFERENCES:
+            field, target = _ASSET_REFERENCES[kind]
+            reference = document.get(field)
+            if _canonical_uuid(reference) not in identities[target]:
+                errors.append(f"{name}: {field} {reference!r} does not resolve inside the bundle")
+            continue
+        if kind != "dashboards":
+            continue
+        position = document.get("position")
+        for key, block in position.items() if isinstance(position, dict) else ():
+            if not isinstance(block, dict) or block.get("type") != "CHART":
+                continue
+            meta = block.get("meta")
+            reference = meta.get("uuid") if isinstance(meta, dict) else None
+            if _canonical_uuid(reference) not in identities["charts"]:
+                errors.append(f"{name}: position block {key} references chart {reference!r} the bundle does not define")
+
+    for path in sorted(bundle_dir.rglob("*")):
+        if not path.is_file() or path.suffix.lower() not in REPORT_YAML_SUFFIXES:
+            continue
+        text = path.read_text(encoding="utf-8")
+        name = f"{report_dir}/{path.relative_to(bundle_dir).as_posix()}"
+        for pattern, detail in _FORBIDDEN_BUNDLE_VALUES:
+            match = pattern.search(text)
+            if match is not None:
+                errors.append(f"{name}: contains {detail} ({match.group(0)!r})")
+    return errors
+
+
+def validate_report_bundles(repo_root: Path, report_dirs: Sequence[str]) -> list[str]:
+    """Collect promotion-contract violations across every declared bundle.
+
+    Identity uniqueness is checked over the whole set rather than one bundle
+    at a time, because the hazard is per Superset instance rather than per
+    bundle: `deploy_reports` imports them all into the same one.
+    """
+    owner_of: dict[str, tuple[str, str, dict[str, Any]]] = {}
+    return [
+        error for report_dir in report_dirs for error in report_bundle_errors(repo_root, report_dir, owner_of=owner_of)
+    ]
 
 
 def _exec_pod_python(pod: str, namespace: str, script: str, args: list[str]) -> None:

@@ -417,6 +417,18 @@ def _dagster_component(project: ProjectSpec, inventory: Any) -> ComponentEntries
 def _reports_component(project: ProjectSpec, inventory: Any) -> ComponentEntries | None:
     if not inventory.dashboards:
         return None
+    from olf.superset import validate_report_bundles
+
+    # Report bundles are the one component promotion never re-derives: PROD
+    # imports what DEV exported, and #130 forbids exporting from PROD to
+    # repair it. A bundle with a dangling or duplicated identity has to be
+    # rejected before it is frozen into a revision, not after it fails to
+    # import into the stage that has no other source of truth.
+    violations = validate_report_bundles(
+        project.root, [dashboard.report_source_dir for dashboard in inventory.dashboards]
+    )
+    if violations:
+        raise ProjectRevisionError("report bundles are not promotable: " + "; ".join(violations))
     entries: dict[str, str] = {}
     for dashboard in inventory.dashboards:
         for path in _walk_files(project.root / dashboard.report_source_dir):

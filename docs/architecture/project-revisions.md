@@ -93,9 +93,50 @@ catalog boundary, never part of an asset's identity.
 | `floe` | `silver/<domain>/contracts/floe/<domain>.yml` | The contract, never the rendered manifest |
 | `dbt` | `gold/<product>/dbt/**` | Excludes `target/` and `dbt_packages/` |
 | `dagster` | `pipelines/dagster/<product>.py`, `bronze/<source>/dlt/<source>.py` | Orchestration and extract code |
-| `reports` | `dashboards/superset/<dashboard>/**` | Only when at least one dashboard is declared |
+| `reports` | `dashboards/superset/<dashboard>/**` | Only when at least one dashboard is declared; validated first |
 | `image` | The project-code repository, plus an immutable `@sha256:` digest | A mutable tag is rejected |
 | `distribution` | The running distribution's version | Gates activation against an incompatible distribution |
+
+## The report bundle contract
+
+A Superset report bundle is the one component promotion never re-derives:
+PROD imports what DEV exported, and nothing exports from PROD to repair it.
+`olf project build` therefore refuses a bundle that could not survive that
+trip, and `olf report validate` runs the same rules on demand:
+
+- **`metadata.yaml` declares `type: assets` and a format version.** That type
+  is what selects the import command the deploy path runs; anything else
+  fails in the pod instead of here.
+- **The bundle exports at least one dashboard.** A scaffold from `olf product
+  new --with-report` carries a database and its datasets but no dashboard
+  until an analyst authors one in Superset and exports it back, and a
+  revision frozen in that state fails only once a stage imports it.
+- **Every database, dataset, chart, and dashboard carries a real `uuid`.**
+  Superset matches assets across instances by UUID, so an asset without one
+  is recreated rather than updated in each stage, and an arbitrary string
+  only fails once a stage tries to import it.
+- **No chart, dataset, or dashboard UUID appears twice across the declared
+  bundles.** Every bundle is imported into the same stage's Superset, so a
+  reused identity makes the second import overwrite the first asset. Database
+  UUIDs are the exception and are meant to be shared: one Trino connection
+  serves every dashboard — but the bundles sharing one must define it
+  identically, apart from the `sqlalchemy_uri` that is rewritten at import.
+- **Every reference resolves inside the bundle** — a dataset's
+  `database_uuid`, a chart's `dataset_uuid`, and each `CHART` position UUID
+  in a dashboard. A dangling one imports into DEV and breaks in PROD.
+- **No `ws_<user>_` identifier.** A personal workspace is not a promotable
+  dependency (#111).
+- **No `lakehouse_<stage>` or `olf-<stage>` name.** Target connectivity is
+  resolved at import time, so a checked-in stage name would survive
+  promotion and point PROD at another stage.
+- **A dataset's `schema` is a plain scalar on its own line.** Packaging
+  prefixes it textually for a stage-prefixed catalog, so a quoted or folded
+  scalar would be rewritten into a schema nothing can query. This rule
+  compensates for the packager rather than describing the format; #204
+  tracks rewriting it structurally and retiring the rule.
+
+`s3://` paths, `http://` endpoints, and credential literals are rejected for
+every component, reports included, by the revision's own scan.
 
 ## What is never frozen
 
