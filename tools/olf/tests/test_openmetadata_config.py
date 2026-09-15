@@ -3,6 +3,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import typer
 
 from olf import openmetadata as om
 from olf.openmetadata._config import OpenMetadataConfig
@@ -94,7 +95,6 @@ def test_config_from_environment_reads_schema_fqns() -> None:
         allow_missing_assets=True,
         catalog_service="polaris",
         catalog_database="lakehouse_dev",
-        cleanup_legacy_default_database=True,
     )
     assert cfg.base_url == "http://127.0.0.1:18585"
     assert cfg.catalog_database_fqn == "polaris.lakehouse_dev"
@@ -121,7 +121,6 @@ def test_config_from_environment_defaults_seed_schema_fqns_for_direct_cli(tmp_pa
         allow_missing_assets=False,
         catalog_service="",
         catalog_database="",
-        cleanup_legacy_default_database=False,
     )
 
     assert cfg.catalog_service == "polaris"
@@ -150,7 +149,6 @@ def test_config_from_environment_derives_defaults_from_metadata_source_dir_overr
         allow_missing_assets=False,
         catalog_service="polaris",
         catalog_database="lakehouse_dev",
-        cleanup_legacy_default_database=False,
     )
 
     assert cfg.catalog_silver_schema_fqns == {"sales": "polaris.lakehouse_dev.sales_silver"}
@@ -181,7 +179,6 @@ def test_config_from_environment_accepts_a_standalone_lakehouse_directory_overri
         allow_missing_assets=False,
         catalog_service="polaris",
         catalog_database="lakehouse_dev",
-        cleanup_legacy_default_database=False,
     )
 
     assert cfg.catalog_silver_schema_fqns == {"sales": "polaris.lakehouse_dev.sales_silver"}
@@ -210,7 +207,6 @@ def test_config_from_environment_accepts_a_standalone_lakehouse_file_override(tm
         allow_missing_assets=False,
         catalog_service="polaris",
         catalog_database="lakehouse_dev",
-        cleanup_legacy_default_database=False,
     )
 
     assert cfg.catalog_silver_schema_fqns == {"sales": "polaris.lakehouse_dev.sales_silver"}
@@ -233,7 +229,6 @@ def test_config_from_environment_preserves_explicit_empty_schema_contract() -> N
         allow_missing_assets=False,
         catalog_service="polaris",
         catalog_database="lakehouse_dev",
-        cleanup_legacy_default_database=False,
     )
 
     assert cfg.catalog_silver_schema_fqns == {}
@@ -272,6 +267,31 @@ def test_openmetadata_command_anchors_its_default_metadata_root_to_the_project(
     assert captured["metadata_root"] == str(project / "lakehouse_code")
 
 
+def test_openmetadata_command_reports_configuration_errors(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from olf import k8s, openmetadata
+    from olf.commands import openmetadata as command
+
+    monkeypatch.setattr(k8s, "wait_for_rollout", lambda *_args: None)
+
+    @contextmanager
+    def _port_forward(*_args, **_kwargs):  # noqa: ANN002, ANN003, ANN202
+        yield 18585
+
+    def _invalid_config(*_args, **_kwargs):  # noqa: ANN002, ANN003, ANN202
+        raise openmetadata.OpenMetadataError("bad contract")
+
+    monkeypatch.setattr(k8s, "port_forward", _port_forward)
+    monkeypatch.setattr(openmetadata.OpenMetadataConfig, "from_environment", _invalid_config)
+
+    with pytest.raises(typer.Exit) as exc_info:
+        command.deploy_openmetadata_metadata()
+
+    assert exc_info.value.exit_code == 1
+    assert "ERROR: bad contract" in capsys.readouterr().err
+
+
 def test_database_root_follows_the_selected_catalog_database_not_a_stale_fqn() -> None:
     """A whole contract environment carries over from stage to stage together,
     so a database FQN that agrees with the stale schema maps rather than with
@@ -292,7 +312,6 @@ def test_database_root_follows_the_selected_catalog_database_not_a_stale_fqn() -
         allow_missing_assets=False,
         catalog_service="polaris",
         catalog_database="lakehouse_prod",
-        cleanup_legacy_default_database=False,
     )
 
     assert cfg.catalog_database_fqn == "polaris.lakehouse_prod"
@@ -309,7 +328,6 @@ def _config_from(environ: dict[str, str], *, catalog_database: str) -> OpenMetad
         allow_missing_assets=False,
         catalog_service="polaris",
         catalog_database=catalog_database,
-        cleanup_legacy_default_database=False,
     )
 
 

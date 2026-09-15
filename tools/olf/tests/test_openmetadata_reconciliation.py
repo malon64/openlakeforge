@@ -70,7 +70,6 @@ dashboards: []
         allow_missing_assets=False,
         catalog_service="polaris",
         catalog_database="lakehouse_dev",
-        cleanup_legacy_default_database=False,
     )
     return OpenMetadataReconciler(cfg, OpenMetadataClient(cfg.base_url))
 

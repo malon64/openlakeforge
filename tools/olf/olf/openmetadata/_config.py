@@ -22,7 +22,6 @@ class OpenMetadataConfig:
     allow_missing_assets: bool
     catalog_service: str
     catalog_database: str
-    cleanup_legacy_default_database: bool
     catalog_database_fqn: str
     catalog_silver_schema_fqns: dict
     catalog_gold_schema_fqns: dict
@@ -47,7 +46,6 @@ class OpenMetadataConfig:
         allow_missing_assets: bool,
         catalog_service: str,
         catalog_database: str,
-        cleanup_legacy_default_database: bool,
     ) -> OpenMetadataConfig:
         catalog_service = catalog_service or "polaris"
         catalog_database = catalog_database or "lakehouse_dev"
@@ -71,7 +69,6 @@ class OpenMetadataConfig:
             allow_missing_assets=allow_missing_assets,
             catalog_service=catalog_service,
             catalog_database=catalog_database,
-            cleanup_legacy_default_database=cleanup_legacy_default_database,
             catalog_database_fqn=catalog_database_fqn,
             catalog_silver_schema_fqns=(
                 _parse_json_env("OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON", silver_schema_fqns_raw)

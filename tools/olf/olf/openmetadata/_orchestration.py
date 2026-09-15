@@ -64,9 +64,6 @@ class OpenMetadataDeployer:
     def ensure_table_stub(self, schema_fqn, name, description) -> None:
         self._reconciler.ensure_table_stub(schema_fqn, name, description)
 
-    def cleanup_legacy_default_database(self) -> None:
-        self._reconciler.cleanup_legacy_default_database()
-
     # --- product/table spec helpers ---------------------------------------
 
     def schema_fqn_for_product(self, product: dict, table_group_key: str) -> str | None:
@@ -402,8 +399,6 @@ class OpenMetadataDeployer:
                         continue
                     self.ensure_database_schema(schema_fqn)
                     self.ensure_table_stub(schema_fqn, table["name"], table.get("description", ""))
-        self.cleanup_legacy_default_database()
-
         # Phase D: Upsert domains and data products from governance YAML.
         missing_assets = []
         for _, domain in domain_specs:

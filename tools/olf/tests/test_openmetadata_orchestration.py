@@ -29,7 +29,6 @@ def test_storage_bucket_specs_dedup() -> None:
         allow_missing_assets=False,
         catalog_service="polaris",
         catalog_database="lakehouse_dev",
-        cleanup_legacy_default_database=False,
     )
     deployer = om.OpenMetadataDeployer(cfg, om.OpenMetadataClient(cfg.base_url))
     names = [spec["name"] for spec in deployer.storage_bucket_specs()]
@@ -55,7 +54,6 @@ def test_product_assets_use_provider_schema_fqns_and_dedup() -> None:
         allow_missing_assets=False,
         catalog_service="aws_glue",
         catalog_database="lakehouse_dev",
-        cleanup_legacy_default_database=False,
     )
     deployer = om.OpenMetadataDeployer(cfg, om.OpenMetadataClient(cfg.base_url))
     product = {
@@ -108,7 +106,6 @@ def test_logical_asset_name_resolves_through_provider_contract() -> None:
         allow_missing_assets=False,
         catalog_service="aws_glue",
         catalog_database="lakehouse_dev",
-        cleanup_legacy_default_database=False,
     )
     deployer = om.OpenMetadataDeployer(cfg, om.OpenMetadataClient(cfg.base_url))
     product = {
@@ -137,7 +134,6 @@ def test_deployment_input_validation_rejects_new_product_without_contract() -> N
         allow_missing_assets=False,
         catalog_service="polaris",
         catalog_database="lakehouse_dev",
-        cleanup_legacy_default_database=False,
     )
     deployer = om.OpenMetadataDeployer(cfg, om.OpenMetadataClient(cfg.base_url))
     domain_specs = [
@@ -177,7 +173,6 @@ def test_deployment_input_validation_rejects_unknown_logical_asset() -> None:
         allow_missing_assets=False,
         catalog_service="polaris",
         catalog_database="lakehouse_dev",
-        cleanup_legacy_default_database=False,
     )
     deployer = om.OpenMetadataDeployer(cfg, om.OpenMetadataClient(cfg.base_url))
     domain_specs = [
@@ -216,7 +211,6 @@ def test_deployment_input_validation_rejects_malformed_bronze_before_writes() ->
         allow_missing_assets=False,
         catalog_service="polaris",
         catalog_database="lakehouse_dev",
-        cleanup_legacy_default_database=False,
     )
     deployer = om.OpenMetadataDeployer(cfg, om.OpenMetadataClient(cfg.base_url))
     domain_specs = [
@@ -294,7 +288,6 @@ dashboards: []
         allow_missing_assets=False,
         catalog_service="polaris",
         catalog_database="lakehouse_dev",
-        cleanup_legacy_default_database=False,
     )
 
     with pytest.raises(
@@ -361,7 +354,6 @@ dashboards: []
         allow_missing_assets=False,
         catalog_service="polaris",
         catalog_database="lakehouse_dev",
-        cleanup_legacy_default_database=False,
     )
     deployer = om.OpenMetadataDeployer(cfg, om.OpenMetadataClient(cfg.base_url))
     seeded_containers = []
@@ -466,9 +458,30 @@ dashboards: []
         allow_missing_assets=False,
         catalog_service="polaris",
         catalog_database=catalog_database,
-        cleanup_legacy_default_database=False,
     )
     return om.OpenMetadataDeployer(cfg, om.OpenMetadataClient(cfg.base_url))
+
+
+def test_deploy_does_not_touch_the_unscoped_legacy_database(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    deployer = _single_product_deployer(tmp_path)
+    requests: list[tuple[str, str]] = []
+
+    monkeypatch.setattr(deployer, "wait_for_openmetadata", lambda: None)
+    monkeypatch.setattr(deployer, "login", lambda: None)
+    monkeypatch.setattr(deployer, "_domain_specs", lambda: [])
+    monkeypatch.setattr(deployer, "ensure_storage_service", lambda: None)
+    monkeypatch.setattr(deployer, "storage_bucket_specs", lambda: [])
+    monkeypatch.setattr(
+        deployer.client,
+        "request",
+        lambda method, path, **_kwargs: requests.append((method, path)) or {"id": "legacy"},
+    )
+
+    deployer.deploy()
+
+    assert requests == []
 
 
 def test_deploy_creates_each_schema_before_seeding_its_tables(
