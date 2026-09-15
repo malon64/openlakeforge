@@ -129,12 +129,6 @@ trip, and `olf report validate` runs the same rules on demand:
 - **No `lakehouse_<stage>` or `olf-<stage>` name.** Target connectivity is
   resolved at import time, so a checked-in stage name would survive
   promotion and point PROD at another stage.
-- **A dataset's `schema` is a plain scalar on its own line.** Packaging
-  prefixes it textually for a stage-prefixed catalog, so a quoted or folded
-  scalar would be rewritten into a schema nothing can query. This rule
-  compensates for the packager rather than describing the format; #204
-  tracks rewriting it structurally and retiring the rule.
-
 `s3://` paths, `http://` endpoints, and credential literals are rejected for
 every component, reports included, by the revision's own scan.
 
