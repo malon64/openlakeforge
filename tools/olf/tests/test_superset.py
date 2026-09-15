@@ -3,6 +3,7 @@ from pathlib import Path
 from zipfile import ZipFile
 
 import pytest
+import yaml
 
 from olf import k8s, superset
 from olf.contracts import build_contract_env
@@ -107,12 +108,26 @@ def test_validate_report_registry_rejects_declared_mounted_mismatch(tmp_path: Pa
         )
 
 
-def test_build_report_bundle_rewrites_database_uri(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "source_uri",
+    [
+        "sqlalchemy_uri: trino://old@host:8080/iceberg",
+        'sqlalchemy_uri: "trino://old@host:8080/iceberg"',
+        "sqlalchemy_uri: 'trino://old@host:8080/iceberg'",
+        "sqlalchemy_uri: >-\n  trino://old@host:8080/iceberg",
+        "sqlalchemy_uri: |-\n  trino://old@host:8080/iceberg",
+        "sqlalchemy_uri: trino://old@host:8080/iceberg  # old connection",
+        "sqlalchemy_uri:",
+        "",
+    ],
+    ids=("plain", "double-quoted", "single-quoted", "folded", "literal", "trailing-comment", "empty", "missing"),
+)
+def test_build_report_bundle_rewrites_database_uri(tmp_path: Path, source_uri: str) -> None:
     source = tmp_path / "report"
     (source / "databases").mkdir(parents=True)
     (source / "dashboards").mkdir()
     (source / "databases" / "trino.yaml").write_text(
-        "database_name: trino\nsqlalchemy_uri: trino://old@host:8080/iceberg\n"
+        f"database_name: trino\n{source_uri}\nuuid: database-id\n"
     )
     (source / "dashboards" / "d.yaml").write_text("dashboard_title: X\n")
     (source / "README.md").write_text("ignored")
@@ -123,12 +138,23 @@ def test_build_report_bundle_rewrites_database_uri(tmp_path: Path) -> None:
     with ZipFile(bundle_path) as bundle:
         names = set(bundle.namelist())
         assert names == {"my_bundle/databases/trino.yaml", "my_bundle/dashboards/d.yaml"}
-        db = bundle.read("my_bundle/databases/trino.yaml").decode()
-        assert "sqlalchemy_uri: trino://superset@trino:8080/iceberg" in db
-        assert "old@host" not in db
+        database = yaml.safe_load(bundle.read("my_bundle/databases/trino.yaml"))
+        assert database["sqlalchemy_uri"] == "trino://superset@trino:8080/iceberg"
+        assert database["uuid"] == "database-id"
 
 
-def test_build_report_bundle_prefixes_dataset_schemas_when_given_a_prefix(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "schema",
+    [
+        "schema: order_revenue_gold",
+        'schema: "order_revenue_gold"',
+        "schema: 'order_revenue_gold'",
+        "schema: >-\n  order_revenue_gold",
+        "schema: order_revenue_gold  # the Gold mart",
+    ],
+    ids=("plain", "double-quoted", "single-quoted", "folded", "trailing-comment"),
+)
+def test_build_report_bundle_prefixes_dataset_schemas(tmp_path: Path, schema: str) -> None:
     source = tmp_path / "report"
     (source / "databases").mkdir(parents=True)
     (source / "datasets" / "OpenLakeForge_Trino").mkdir(parents=True)
@@ -137,7 +163,7 @@ def test_build_report_bundle_prefixes_dataset_schemas_when_given_a_prefix(tmp_pa
         "database_name: trino\nsqlalchemy_uri: trino://old@host:8080/iceberg\n"
     )
     (source / "datasets" / "OpenLakeForge_Trino" / "mart_x.yaml").write_text(
-        "table_name: mart_x\nschema: order_revenue_gold\nuuid: abc\n"
+        f"table_name: mart_x\n{schema}\nuuid: abc\n"
     )
     (source / "dashboards" / "d.yaml").write_text("dashboard_title: X\n")
 
@@ -147,8 +173,24 @@ def test_build_report_bundle_prefixes_dataset_schemas_when_given_a_prefix(tmp_pa
     )
 
     with ZipFile(bundle_path) as bundle:
-        dataset = bundle.read("my_bundle/datasets/OpenLakeForge_Trino/mart_x.yaml").decode()
-        assert "schema: lakehouse_dev_order_revenue_gold" in dataset
+        dataset = yaml.safe_load(bundle.read("my_bundle/datasets/OpenLakeForge_Trino/mart_x.yaml"))
+        assert dataset["schema"] == "lakehouse_dev_order_revenue_gold"
+
+
+@pytest.mark.parametrize("schema", ["schema:", ""], ids=("empty", "missing"))
+def test_build_report_bundle_rejects_a_dataset_without_a_schema(tmp_path: Path, schema: str) -> None:
+    source = tmp_path / "report"
+    (source / "datasets").mkdir(parents=True)
+    (source / "datasets" / "mart_x.yaml").write_text(f"table_name: mart_x\n{schema}\nuuid: abc\n")
+
+    with pytest.raises(ValueError, match="has no schema to prefix"):
+        superset.build_report_bundle(
+            source,
+            tmp_path / "bundle.zip",
+            "my_bundle",
+            "trino://superset@trino:8080/iceberg",
+            schema_prefix="lakehouse_dev_",
+        )
 
 
 def test_build_report_bundle_leaves_dataset_schemas_alone_without_a_prefix(tmp_path: Path) -> None:
@@ -614,32 +656,13 @@ def test_a_bundle_exporting_no_dashboard_is_not_promotable(tmp_path: Path) -> No
         pytest.param("schema: >-\n  order_revenue_gold", id="block-scalar"),
     ],
 )
-def test_a_dataset_schema_the_packager_would_mangle_is_rejected(tmp_path: Path, schema_line: str) -> None:
-    """`build_report_bundle` prefixes the schema textually, so a quoted or
-    folded scalar becomes `lakehouse_dev_"order_revenue_gold"` and a form its
-    pattern misses is left querying another stage's catalog."""
+def test_report_bundle_errors_accepts_valid_yaml_schema_styles(tmp_path: Path, schema_line: str) -> None:
     bundle = _write_report_bundle(tmp_path)
     (bundle / "datasets" / "mart.yaml").write_text(
         f"table_name: mart_orders\n{schema_line}\nuuid: {_DATASET_UUID}\ndatabase_uuid: {_DATABASE_UUID}\n"
     )
 
-    errors = superset.report_bundle_errors(tmp_path, _REPORT_DIR)
-
-    assert any("is not written as a plain scalar" in error for error in errors), errors
-
-
-def test_the_packager_reproduces_every_schema_validation_accepts(tmp_path: Path) -> None:
-    """The guard's whole claim: what it accepts survives packaging intact.
-    Pins the two against each other so neither can drift alone."""
-    bundle = _write_report_bundle(tmp_path)
     assert superset.report_bundle_errors(tmp_path, _REPORT_DIR) == []
-
-    bundle_path = tmp_path / "bundle.zip"
-    superset.build_report_bundle(bundle, bundle_path, "root", "trino://x", schema_prefix="lakehouse_dev_")
-
-    with ZipFile(bundle_path) as packaged:
-        dataset = packaged.read("root/datasets/mart.yaml").decode()
-    assert "schema: lakehouse_dev_order_revenue_gold" in dataset
 
 
 def test_two_bundles_may_share_a_database_spelled_in_different_cases(tmp_path: Path) -> None:
