@@ -107,10 +107,25 @@ def test_kubeconfig_compatibility_arguments_preserve_whitespace() -> None:
             assert f'--kubeconfig-path "{expected_path}"' in expanded, f"{target}: {expanded}"
 
 
-def test_local_slim_e2e_preserves_the_requested_complete_suite() -> None:
-    expanded = _dry_run("local-slim-e2e", "E2E_SUITE=full")
+def test_local_e2e_delegates_validate_the_profile_the_deploy_targets_resolved() -> None:
+    """A v3 contract records the profile name the deployment resolved, and
+    parsing refuses a topology that disagrees. The deploy targets take no
+    preset flag, so they resolve the project-root Deployment Profile - and
+    these must name that same file, or the pair cannot validate at all.
+    """
+    for target in ("local-e2e", "local-slim-e2e"):
+        expanded = _dry_run(target, "E2E_SUITE=full")
 
-    assert "olf e2e run --env local --suite full" in expanded
+        assert "olf e2e run --env local -f openlakeforge.yaml --suite full" in expanded
+
+
+def test_local_deploy_targets_resolve_the_project_profile_unless_a_preset_is_asked_for() -> None:
+    for target in ("local-up", "local-slim-up", "local-platform-up", "local-artifacts-deploy", "local-down"):
+        expanded = _dry_run(target)
+
+        assert "--profile" not in expanded, f"{target}: {expanded}"
+
+    assert "--profile slim" in _dry_run("local-up", "LOCAL_PROFILE=slim")
 
 
 def test_local_terraform_targets_forward_custom_var_file() -> None:

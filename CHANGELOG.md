@@ -42,6 +42,16 @@ for how a release is cut and verified.
 
 ### Changed
 
+- `olf e2e run` takes `-f/--file`, the Deployment Profile path every other
+  profile-driven command already accepts. It names the profile the deployment
+  was applied from, so validation resolves the topology the v3 contract
+  recorded instead of re-resolving the project root. The nightly local e2e,
+  the `local-e2e` Make delegate, and the documented local workflow now derive
+  their topology from one profile file on both the deploy and the validate
+  side; the documented `olf deploy --profile slim|full` steps drop the
+  deprecated shorthand, whose `legacy` topology no profile file can name. The
+  three `deployment.*` contract-mismatch errors name both values.
+
 - The local stack no longer runs in one `lakehouse` namespace. Shared services
   move to `olf-system` and stage services to `olf-<stage>`, and every service
   endpoint in the provider contract is namespace-qualified. Upgrading a v0.2

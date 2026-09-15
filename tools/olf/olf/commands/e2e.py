@@ -8,7 +8,7 @@ from pathlib import Path
 import typer
 
 from olf import config
-from olf.commands._shared import deployment_context, fail
+from olf.commands._shared import deployment_context, deployment_context_for_profile, fail
 
 app = typer.Typer(help="End-to-end environment validation.")
 
@@ -59,6 +59,13 @@ def e2e_run(
     env: str = typer.Option(..., "--env", help="Environment to validate: local, azure, or aws."),
     suite: str = typer.Option("", "--suite", help="Suite to run: full or smoke. Defaults to full."),
     stage: str = typer.Option("", "--stage", help="Stage to validate: dev, uat, or prod. Defaults to dev."),
+    profile_file: str = typer.Option(
+        "",
+        "--file",
+        "-f",
+        help="Deployment Profile v1 path the deployment was created from. Omit when the project-root "
+        "openlakeforge.yaml is authoritative.",
+    ),
     project_root: str = typer.Option(
         "", "--project-root", help="Writable project root; defaults to the current directory."
     ),
@@ -75,6 +82,9 @@ def e2e_run(
     kubeconfig, and descriptors live under `OLF_HOME`/the extracted payload,
     not the caller's current directory, so validating the deployment just
     created requires the identical path resolution `olf deploy` used.
+
+    `-f` names the Deployment Profile the deployment was applied from, the
+    same way `olf platform apply -f` and `olf project deploy -f` do.
     """
     from olf import e2e
     from olf.deployment import contract_env
@@ -87,9 +97,21 @@ def e2e_run(
     if suite not in valid_suites:
         raise typer.Exit(code=fail(f"unknown --suite {suite!r}; expected 'full' or 'smoke'."))
 
-    context = deployment_context(
-        env, profile="", namespace="", cluster_name="", project_root=project_root, stage=stage
-    )
+    # A v3 contract records the profile name the deployment resolved, and
+    # `_parse_v3` refuses a contract whose name disagrees with the topology
+    # this command resolves. `-f` is what lets a deployment driven from a
+    # profile elsewhere - `olf platform apply -f`, `olf project deploy -f` -
+    # be validated against that same file instead of the project root.
+    if profile_file:
+        context = deployment_context_for_profile(profile_file, stage=stage)
+        if context.provider.value != env:
+            raise typer.Exit(
+                code=fail(f"{profile_file} targets provider {context.provider.value!r}, not --env {env!r}.")
+            )
+    else:
+        context = deployment_context(
+            env, profile="", namespace="", cluster_name="", project_root=project_root, stage=stage
+        )
     repo_root = context.paths.repo_root
     distribution_root = context.paths.distribution_root
     contract_dir = Path(
