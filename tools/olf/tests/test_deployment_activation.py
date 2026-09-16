@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 import yaml
+from openlakeforge_domain import load_lakehouse_inventory
 
 from olf import project_activation, project_revision
 from olf.artifact_store import FilesystemRevisionStore
@@ -172,6 +173,183 @@ def harness(external_project: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPa
         providers=providers,
         catalog_calls=catalog_calls,
     )
+
+
+def _contract_with_reporting() -> dict:
+    """The default fixture contract has no `reporting` binding on any stage
+    (`test_analytics_disabled_stage_skips_reports_without_failing_activation`
+    below exercises that default directly) -- report-import tests need a
+    stage whose contract actually resolves a Superset/Trino target."""
+    contract = _contract()
+    for name in ("dev", "prod"):
+        stage = contract["stages"][name]
+        stage["reporting"] = {
+            "service_ref": f"stage/{name}/reporting",
+            "endpoint_ref": f"stage/{name}/endpoints/reporting",
+        }
+        stage["endpoints"]["reporting"] = f"stage/{name}/endpoints/reporting"
+    return contract
+
+
+_MUTATION_MARKER = "MUTATED AFTER PUBLISH -- must never reach Superset"
+
+
+def _build_report_harness(
+    contract: dict, *, external_project: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """Publish before mutating the checkout so its report bundle differs from the revision."""
+    monkeypatch.setenv("OPENLAKEFORGE_REPO_ROOT", str(external_project))
+    monkeypatch.setenv("OPENLAKEFORGE_PROJECT_ROOT", str(external_project))
+
+    topology = _topology(contract)
+    store = FilesystemRevisionStore(tmp_path / "store")
+    spec = ProjectSpec(root=external_project, distribution_root=ROOT)
+    manifest = project_revision.build_project_revision(
+        spec, image=_IMAGE, distribution_version=distribution_version_at(ROOT)
+    )
+    project_revision.publish(store, manifest, spec)
+
+    inventory = load_lakehouse_inventory(external_project)
+    expected_dashboard_dirs = sorted(Path(dashboard.report_source_dir).name for dashboard in inventory.dashboards)
+    mutation_target = next(
+        path.relative_to(external_project)
+        for dashboard in inventory.dashboards
+        for path in sorted((external_project / dashboard.report_source_dir / "dashboards").glob("*.yaml"))
+    )
+    target = external_project / mutation_target
+    document = yaml.safe_load(target.read_text())
+    original_description = document["description"]
+    document["description"] = _MUTATION_MARKER
+    target.write_text(yaml.safe_dump(document, sort_keys=False))
+
+    helm = _Helm()
+
+    monkeypatch.setattr(activation_module.contracts, "load_provider_contracts", lambda *a, **k: contract)
+    monkeypatch.setattr(activation_module, "_ensure_image", lambda provider, image, **k: None)
+    monkeypatch.setattr(activation_module, "prepare_chart", lambda *a, **k: None)
+    monkeypatch.setattr(activation_module, "_user_chart", lambda chart, work_root: work_root)
+    monkeypatch.setattr(activation_module, "sync_catalog_namespaces", lambda: None)
+    monkeypatch.setattr(activation_module, "_generate_floe", lambda *a, **k: _FLOE)
+
+    import olf.commands.openmetadata as openmetadata_commands
+    import olf.superset as superset_module
+
+    report_calls: list[dict] = []
+
+    def _fake_deploy_reports(repo_root, namespace, sqlalchemy_uri, **kwargs):  # noqa: ANN001, ANN202
+        # `repo_root` is a scratch directory that `deploy_revision`'s own
+        # `TemporaryDirectory` removes once this call returns, so what the
+        # bundle actually contained has to be captured now, not after.
+        bundle_dirs = sorted(
+            path.name for path in Path(repo_root).glob("lakehouse_code/dashboards/superset/*") if path.is_dir()
+        )
+        dashboard_file = Path(repo_root) / mutation_target
+        description = yaml.safe_load(dashboard_file.read_text())["description"] if dashboard_file.is_file() else None
+        report_calls.append(
+            {
+                "repo_root": Path(repo_root),
+                "namespace": namespace,
+                "sqlalchemy_uri": sqlalchemy_uri,
+                "bundle_dirs": bundle_dirs,
+                "dashboard_description": description,
+                **kwargs,
+            }
+        )
+
+    monkeypatch.setattr(superset_module, "deploy_reports", _fake_deploy_reports)
+    metadata_calls: list[None] = []
+    monkeypatch.setattr(openmetadata_commands, "deploy_openmetadata_metadata", lambda: metadata_calls.append(None))
+
+    def deploy(stage: str):  # noqa: ANN202
+        context = DeploymentContext.local(
+            repo_root=external_project, topology=topology, stage=stage, work_root=tmp_path / "work"
+        )
+        context.paths.work_root.mkdir(parents=True, exist_ok=True)
+        provider = _Provider(context, helm)
+        return activation_module.deploy_revision(
+            provider, revision=manifest.revision, store=store, profile_name="acceptance"
+        )
+
+    return SimpleNamespace(
+        deploy=deploy,
+        store=store,
+        helm=helm,
+        manifest=manifest,
+        report_calls=report_calls,
+        metadata_calls=metadata_calls,
+        external_project=external_project,
+        expected_dashboard_dirs=expected_dashboard_dirs,
+        original_dashboard_description=original_description,
+    )
+
+
+@pytest.fixture
+def report_harness(external_project: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):  # noqa: ANN201
+    """`_build_report_harness` against a contract with `reporting` enabled for dev/prod."""
+    return _build_report_harness(
+        _contract_with_reporting(), external_project=external_project, tmp_path=tmp_path, monkeypatch=monkeypatch
+    )
+
+
+def test_activating_a_revision_imports_the_frozen_reports_not_the_checkout(report_harness) -> None:  # noqa: ANN001
+    report_harness.deploy("prod")
+
+    assert len(report_harness.report_calls) == 1
+    call = report_harness.report_calls[0]
+    assert call["bundle_dirs"] == report_harness.expected_dashboard_dirs
+    # The frozen revision's content, not the checkout's -- which was mutated
+    # to a different description *after* the revision was published.
+    assert call["dashboard_description"] == report_harness.original_dashboard_description
+    assert call["dashboard_description"] != _MUTATION_MARKER
+
+
+def test_activating_a_revision_imports_into_the_activated_stages_superset(report_harness) -> None:  # noqa: ANN001
+    report_harness.deploy("dev")
+    report_harness.deploy("prod")
+
+    assert [call["namespace"] for call in report_harness.report_calls] == ["olf-dev", "olf-prod"]
+    # Each stage's own Gold connection and runtime principal -- not merely
+    # "different from each other", which a DEV/PROD swap would also satisfy.
+    assert [call["sqlalchemy_uri"] for call in report_harness.report_calls] == [
+        "trino://olf-dev-runtime@trino:8080/lakehouse_dev",
+        "trino://olf-prod-runtime@trino:8080/lakehouse_prod",
+    ]
+
+
+def test_reactivating_the_same_revision_does_not_reimport_reports(report_harness) -> None:  # noqa: ANN001
+    """Re-promoting an already-active revision imports its reports once, not
+    twice -- promotion is replayed routinely, and a second import is how
+    dashboards get duplicated."""
+    report_harness.deploy("prod")
+    report_harness.deploy("prod")
+
+    assert len(report_harness.report_calls) == 1
+
+
+def test_governance_enabled_analytics_disabled_stage_skips_reports_without_failing_activation(
+    external_project: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Governance still dispatches metadata while the disabled analytics layer skips reports."""
+    contract = _contract()
+    contract["shared"]["governance_service"] = {
+        "ref": "shared/governance_service",
+        "implementation": "governance.openmetadata",
+    }
+    stage = contract["stages"]["prod"]
+    stage["governance"] = {
+        "service_ref": "shared/governance_service",
+        "endpoint_ref": "stage/prod/endpoints/governance",
+    }
+    stage["endpoints"]["governance"] = "stage/prod/endpoints/governance"
+    disabled = _build_report_harness(
+        contract, external_project=external_project, tmp_path=tmp_path, monkeypatch=monkeypatch
+    )
+
+    activation = disabled.deploy("prod")
+
+    assert activation is not None
+    assert disabled.report_calls == []
+    assert disabled.metadata_calls == [None]
 
 
 def test_reapplying_the_active_revision_changes_nothing(harness) -> None:  # noqa: ANN001

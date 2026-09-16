@@ -711,6 +711,11 @@ def deploy_revision(
                 env=env,
             ):
                 return activation
+            # Report import (#130) must run inside this stage-scoped contract
+            # environment: it is what makes `deploy_optional_layer_artifacts`
+            # below read the revision `materialize()`d above, under `root`,
+            # rather than the operator's checkout -- move this call outside
+            # the `with` block and it silently imports the checkout again.
             if activation.capabilities["analytics"] or activation.capabilities["governance"]:
                 deploy_optional_layer_artifacts(contract_environ)
             config = provider.config
