@@ -38,8 +38,7 @@ There is **no tracked shell**. `olf check structure` rejects shell scripts in th
 repository, so this is enforced rather than conventional. `olf` is the only
 orchestration surface: there is no `Makefile` and no other entry point. Every
 target it once carried was a one-line delegate to an `olf` command, so deleting
-it removed nothing but a second, untested surface that could drift from the
-CLI it wrapped.
+it removed a duplicated compatibility surface that drifted despite its tests.
 
 The substrate is a `DeploymentEngine` sequencing a `DeploymentProvider`, with
 typed adapters per external tool under `tools/olf/olf/tooling/`. Cloud providers
@@ -97,9 +96,9 @@ orchestration, which fully superseded ADR 0017's shell/Python split after ADRs
 toolchain), and 0030 (SDK-managed cloud authentication).
 
 Issue #212 deleted the `Makefile`: every target was a one-line `olf` delegate,
-so its only remaining function was a second, untested surface that had
-already drifted once (PR #207 fixed `local-e2e`/`local-slim-e2e` invocations
-that could not have worked). `olf` is now the only orchestration surface, not
-merely the supported one; `_check_makefile_target_wiring` in
+so its only remaining function was a duplicated compatibility surface that had
+drifted despite its tests (PR #207 fixed `local-e2e`/`local-slim-e2e`
+invocations that could not have worked). `olf` is now the only orchestration
+surface, not merely the supported one; `_check_makefile_target_wiring` in
 `tools/olf/olf/contracts_check.py` and its test coverage were removed along
 with it.
