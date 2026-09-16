@@ -134,9 +134,16 @@ def test_stage_generated_configuration_addresses_only_that_stage() -> None:
     contracted variable to that stage's own value, keeps every activation
     artifact under that stage's own prefix, and carries no export naming the
     sibling stage -- reusing exactly the classification
-    `test_provider_conformance.py` proves this shape with, driven here by
-    the conformance profile's two real stages rather than a captured
-    per-provider fixture.
+    `test_provider_conformance.py` proves this shape with.
+
+    Scope, deliberately narrower than the name suggests: the *topology* comes
+    from the conformance profile, but the stage bindings come from the
+    captured `acme-data` contract, because no cluster exists here to render a
+    contract from this profile. So this proves the isolation logic over a real
+    two-stage contract; it does not prove that applying the conformance
+    profile yields isolated bindings -- the local root would derive
+    `olf-conformance-prod-bronze` where this exercises `acme-prod-bronze`.
+    Closing that gap needs a rendered contract, tracked in #220.
     """
     topology = deployment_context_for_profile(str(CONFORMANCE_PROFILE), stage=StageName.DEV.value).topology
     contract = _local_contract_for(topology)
@@ -149,27 +156,32 @@ def test_stage_generated_configuration_addresses_only_that_stage() -> None:
     for stage in CONFORMANCE_STAGES:
         exports = per_stage[stage]
         stage_contract = parsed.for_stage(stage)
+        # Absence is a mismatch, not a pass: an export dropped from generation
+        # entirely would otherwise be skipped here, and skipped again by the
+        # varying-key check below when it is missing for both stages.
         wrong = {
             key: (exports.get(key), str(expected(stage_contract)))
             for key, expected in STAGE_BINDINGS
-            if key in exports and exports[key] != str(expected(stage_contract))
+            if exports.get(key) != str(expected(stage_contract))
         }
         assert not wrong, (
-            f"the conformance profile's {stage.value!r} environment binds {wrong!r} as (emitted, contracted). "
-            f"Every one of these is how a run reaches data or authenticates to Trino, so a binding that is not "
-            f"this stage's own is one stage reading or writing another's."
+            f"the conformance profile's {stage.value!r} environment binds {wrong!r} as (emitted, contracted), "
+            f"where a None emitted value means the export is missing altogether. Every one of these is how a "
+            f"run reaches data or authenticates to Trino, so a binding that is not this stage's own is one "
+            f"stage reading or writing another's, and a binding that is absent is one the runtime never gets."
         )
 
         prefix = str(stage_contract.activation["prefix"])
         astray = {
-            key: exports[key]
+            key: exports.get(key)
             for key, suffix in ACTIVATION_URIS.items()
-            if key in exports and not exports[key].endswith(f"/{prefix}{suffix}")
+            if not (exports.get(key) or "").endswith(f"/{prefix}{suffix}")
         }
         assert not astray, (
             f"the conformance profile's {stage.value!r} activation artifacts land at {astray!r}, outside its "
-            f"contracted {prefix!r} prefix. Stages share the ops bucket; the prefix is the only thing keeping "
-            f"one stage's manifests, logs and run artifacts out of another's."
+            f"contracted {prefix!r} prefix, where None means the export is missing altogether. Stages share "
+            f"the ops bucket; the prefix is the only thing keeping one stage's manifests, logs and run "
+            f"artifacts out of another's."
         )
 
         others = {other.value for other in CONFORMANCE_STAGES if other != stage}
