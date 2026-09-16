@@ -176,8 +176,8 @@ def harness(external_project: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPa
 
 def _contract_with_reporting() -> dict:
     """The default fixture contract has no `reporting` binding on any stage
-    (every `harness` test above already exercises the analytics-disabled
-    skip, just without an assertion of why) -- report-import tests need a
+    (`test_analytics_disabled_stage_skips_reports_without_failing_activation`
+    below exercises that default directly) -- report-import tests need a
     stage whose contract actually resolves a Superset/Trino target."""
     contract = _contract()
     for name in ("dev", "prod"):
@@ -190,17 +190,37 @@ def _contract_with_reporting() -> dict:
     return contract
 
 
-@pytest.fixture
-def report_harness(external_project: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):  # noqa: ANN201
-    """Like `harness`, but drives the real report-import call instead of
-    stubbing it away, so it can assert what actually reaches Superset.
+# The one dashboard file `build_report_bundle` never rewrites (unlike
+# `databases/*.yaml`'s sqlalchemy_uri and, under a schema prefix,
+# `datasets/*.yaml`), so its content is a clean signal of *which tree* a
+# bundle was read from.
+_MUTATION_TARGET = Path("lakehouse_code/dashboards/superset/sales_order_revenue/dashboards/Sales_Order_Revenue_1.yaml")
+_MUTATION_MARKER = "MUTATED AFTER PUBLISH -- must never reach Superset"
 
-    Stubs only `superset.deploy_reports` -- the `kubectl exec` boundary this
-    test suite has no cluster to cross -- so `k8s.wait_for_rollout` and the
-    in-pod importer never run; everything upstream of that (which bundle,
-    which stage's namespace/connection) is real.
+
+def _build_report_harness(
+    contract: dict, *, external_project: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """Drive the real report-import dispatch (`deploy_optional_layer_artifacts`,
+    left intact -- unlike `harness`, which stubs it to a no-op) against
+    `contract`, stubbing only `superset.deploy_reports`, the `kubectl exec`
+    boundary this suite has no cluster to cross.
+
+    Publishes the revision first, then mutates the checkout's own copy of one
+    dashboard file. A test asserting on frozen content only proves anything if
+    checkout and revision can disagree -- unmutated, `external_project` is
+    byte-identical to what got frozen, so a regression reading either one back
+    would pass unnoticed. `OPENLAKEFORGE_REPO_ROOT`/`_PROJECT_ROOT` are pinned
+    to `external_project` too: the autouse `_pin_project_roots` fixture points
+    their ambient fallback at this actual repository checkout, whose
+    `lakehouse_code` is otherwise coincidentally identical to
+    `external_project`'s -- a regression that drops the contract
+    environment's root override would fall through to *that* pristine copy
+    and hide behind the same coincidence the mutation exists to break.
     """
-    contract = _contract_with_reporting()
+    monkeypatch.setenv("OPENLAKEFORGE_REPO_ROOT", str(external_project))
+    monkeypatch.setenv("OPENLAKEFORGE_PROJECT_ROOT", str(external_project))
+
     topology = _topology(contract)
     store = FilesystemRevisionStore(tmp_path / "store")
     spec = ProjectSpec(root=external_project, distribution_root=ROOT)
@@ -208,6 +228,12 @@ def report_harness(external_project: Path, tmp_path: Path, monkeypatch: pytest.M
         spec, image=_IMAGE, distribution_version=distribution_version_at(ROOT)
     )
     project_revision.publish(store, manifest, spec)
+
+    target = external_project / _MUTATION_TARGET
+    document = yaml.safe_load(target.read_text())
+    original_description = document["description"]
+    document["description"] = _MUTATION_MARKER
+    target.write_text(yaml.safe_dump(document, sort_keys=False))
 
     helm = _Helm()
 
@@ -229,12 +255,15 @@ def report_harness(external_project: Path, tmp_path: Path, monkeypatch: pytest.M
         bundle_dirs = sorted(
             path.name for path in Path(repo_root).glob("lakehouse_code/dashboards/superset/*") if path.is_dir()
         )
+        dashboard_file = Path(repo_root) / _MUTATION_TARGET
+        description = yaml.safe_load(dashboard_file.read_text())["description"] if dashboard_file.is_file() else None
         report_calls.append(
             {
                 "repo_root": Path(repo_root),
                 "namespace": namespace,
                 "sqlalchemy_uri": sqlalchemy_uri,
                 "bundle_dirs": bundle_dirs,
+                "dashboard_description": description,
                 **kwargs,
             }
         )
@@ -258,6 +287,15 @@ def report_harness(external_project: Path, tmp_path: Path, monkeypatch: pytest.M
         manifest=manifest,
         report_calls=report_calls,
         external_project=external_project,
+        original_dashboard_description=original_description,
+    )
+
+
+@pytest.fixture
+def report_harness(external_project: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):  # noqa: ANN201
+    """`_build_report_harness` against a contract with `reporting` enabled for dev/prod."""
+    return _build_report_harness(
+        _contract_with_reporting(), external_project=external_project, tmp_path=tmp_path, monkeypatch=monkeypatch
     )
 
 
@@ -266,26 +304,28 @@ def test_activating_a_revision_imports_the_frozen_reports_not_the_checkout(repor
 
     assert len(report_harness.report_calls) == 1
     call = report_harness.report_calls[0]
-    # Materialized by `materialize()` into a scratch dir under the deploy's
-    # own work root -- never the operator's checkout `external_project`,
-    # which is what #130 requires: PROD gets what DEV exported and froze.
-    assert call["repo_root"] != report_harness.external_project
     assert call["bundle_dirs"] == [
         "sales_customer_health",
         "sales_order_revenue",
         "supply_chain_inventory_reliability",
     ]
+    # The frozen revision's content, not the checkout's -- which was mutated
+    # to a different description *after* the revision was published.
+    assert call["dashboard_description"] == report_harness.original_dashboard_description
+    assert call["dashboard_description"] != _MUTATION_MARKER
 
 
 def test_activating_a_revision_imports_into_the_activated_stages_superset(report_harness) -> None:  # noqa: ANN001
     report_harness.deploy("dev")
     report_harness.deploy("prod")
 
-    namespaces = [call["namespace"] for call in report_harness.report_calls]
-    assert namespaces == ["olf-dev", "olf-prod"]
-    # Each stage's own Gold connection, not one stage's leaking into the other.
-    catalogs = [call["sqlalchemy_uri"] for call in report_harness.report_calls]
-    assert catalogs[0] != catalogs[1]
+    assert [call["namespace"] for call in report_harness.report_calls] == ["olf-dev", "olf-prod"]
+    # Each stage's own Gold connection and runtime principal -- not merely
+    # "different from each other", which a DEV/PROD swap would also satisfy.
+    assert [call["sqlalchemy_uri"] for call in report_harness.report_calls] == [
+        "trino://olf-dev-runtime@trino:8080/lakehouse_dev",
+        "trino://olf-prod-runtime@trino:8080/lakehouse_prod",
+    ]
 
 
 def test_reactivating_the_same_revision_does_not_reimport_reports(report_harness) -> None:  # noqa: ANN001
@@ -302,21 +342,28 @@ def test_reactivating_the_same_revision_does_not_reimport_reports(report_harness
     assert len(report_harness.report_calls) == 1
 
 
-def test_analytics_disabled_stage_skips_reports_without_failing_activation(harness) -> None:  # noqa: ANN001
-    """A slim stage has no Superset (`resolve_stage_report_target` refuses fail-
-    closed if asked to import into one) -- but activation is not an explicit
-    report-import request, so it must skip cleanly rather than propagate that
-    refusal and fail an otherwise-valid deploy. `harness`'s contract fixture
-    has no `reporting` binding on any stage, i.e. analytics is disabled."""
-    import olf.superset as superset_module
+def test_analytics_disabled_stage_skips_reports_without_failing_activation(
+    external_project: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A slim stage has no Superset (`resolve_stage_report_target` refuses
+    fail-closed if asked to import into one) -- but activation is not an
+    explicit report-import request, so it must skip cleanly rather than
+    propagate that refusal and fail an otherwise-valid deploy.
 
-    calls: list[object] = []
-    with pytest.MonkeyPatch.context() as mp:
-        mp.setattr(superset_module, "deploy_reports", lambda *a, **k: calls.append((a, k)))
-        activation = harness.deploy("prod")
+    Uses `_build_report_harness` directly (not `harness`, which stubs
+    `deploy_optional_layer_artifacts` to a no-op and would make the
+    `deploy_reports` assertion below pass no matter what the real dispatcher
+    does) against the default contract, which has no `reporting` binding on
+    any stage, i.e. analytics is disabled.
+    """
+    disabled = _build_report_harness(
+        _contract(), external_project=external_project, tmp_path=tmp_path, monkeypatch=monkeypatch
+    )
+
+    activation = disabled.deploy("prod")
 
     assert activation is not None
-    assert calls == []
+    assert disabled.report_calls == []
 
 
 def test_reapplying_the_active_revision_changes_nothing(harness) -> None:  # noqa: ANN001
