@@ -11,9 +11,9 @@ stale copy is worse than none.
 ## Quick reference
 
 ```bash
-make local-up         # bring up the local kind stack
-make local-down       # bring down the local stack 
-make local-e2e        # full runtime verification
+uv run --project tools/olf --locked olf deploy --provider local   # bring up the local kind stack
+uv run --project tools/olf --locked olf destroy --provider local  # bring down the local stack
+uv run --project tools/olf --locked olf e2e run --env local        # full runtime verification
 ```
 
 Before writing code: read `AGENTS.md`, then the issue you are working on in

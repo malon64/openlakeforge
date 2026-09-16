@@ -11,8 +11,6 @@ phase ordering is covered separately by
 from __future__ import annotations
 
 import json
-import re
-import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -612,79 +610,6 @@ def _check_helm_values_as_data(repo_root: Path) -> CheckResult:
     return CheckResult(name, ok=True, detail="infra/helm/values/local/dagster.yaml validated as data")
 
 
-# Makefile targets whose recipe bodies must resolve real, non-empty kubeconfig
-# and context inputs. `make -n <target>` prints the fully variable-expanded
-# recipe, so this catches a variable-name typo that would still `grep` as
-# present in the unexpanded Makefile source but resolve to empty/wrong at
-# expansion time.
-#
-# `local-forward`/`azure-forward`/`aws-forward` are deliberately absent:
-# since #124 (local) and #125 (AWS/Azure) they delegate to
-# `olf forward --provider <provider>`, which resolves KUBECONFIG/kube-context
-# internally - local through `DeploymentContext.local()`, cloud through
-# `CloudProvider.foundation_facts` reading the foundation's Terraform
-# outputs - rather than embedding them in the Make recipe text; that wiring
-# is covered by `tools/olf/tests/test_deployment_context.py`,
-# `tools/olf/tests/test_local_forward.py`, `tools/olf/tests/
-# test_cloud_provider.py`, `tools/olf/tests/test_cloud_aws.py`,
-# `tools/olf/tests/test_cloud_azure.py`, and `tools/olf/tests/
-# test_cli_deployment.py` instead.
-_KUBE_WIRED_TARGETS = (
-    "floe-manifest-upload",
-    "superset-reports-deploy",
-    "superset-reports-export",
-    "openmetadata-metadata-deploy",
-)
-
-_KUBECONFIG_PATTERN = re.compile(r'KUBECONFIG(?:_PATH)?="([^"]*)"')
-_KUBE_CONTEXT_PATTERN = re.compile(r'(?:KUBE_CONTEXT=|context=")([^\s"]+)"?')
-_KUBECONFIG_ARGUMENT_PATTERN = re.compile(r"--kubeconfig-path\s+(\S+)")
-_KUBE_CONTEXT_ARGUMENT_PATTERN = re.compile(r"--(?:kube-context|cluster-name)\s+(\S+)")
-
-
-def _check_makefile_target_wiring(repo_root: Path) -> CheckResult:
-    """Validate each Kubernetes-touching Make delegate's expanded runtime inputs.
-
-    The `Makefile` is deliberately excluded from the distribution payload as
-    deprecated checkout compatibility (ADR 0008), so its absence here is
-    expected for an installed project and is not a failure."""
-    name = "makefile_target_wiring"
-    if not (repo_root / "Makefile").is_file():
-        return CheckResult(name, ok=True, detail=f"skipped: no Makefile under {repo_root}")
-    errors: list[str] = []
-    checked = 0
-
-    for target in _KUBE_WIRED_TARGETS:
-        try:
-            result = subprocess.run(
-                ["make", "-n", target],
-                cwd=repo_root,
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-        except OSError as exc:
-            errors.append(f"{target}: failed to invoke make: {exc}")
-            continue
-        if result.returncode != 0:
-            errors.append(f"{target}: `make -n {target}` failed: {result.stderr.strip()}")
-            continue
-        checked += 1
-        output = result.stdout
-
-        kubeconfig_match = _KUBECONFIG_PATTERN.search(output) or _KUBECONFIG_ARGUMENT_PATTERN.search(output)
-        if not kubeconfig_match or not kubeconfig_match.group(1):
-            errors.append(f"{target}: recipe does not resolve a non-empty KUBECONFIG(_PATH) value")
-
-        context_match = _KUBE_CONTEXT_PATTERN.search(output) or _KUBE_CONTEXT_ARGUMENT_PATTERN.search(output)
-        if not context_match or not context_match.group(1):
-            errors.append(f"{target}: recipe does not resolve a non-empty kube context value")
-
-    if errors:
-        return CheckResult(name, ok=False, detail="; ".join(errors))
-    return CheckResult(name, ok=True, detail=f"{checked} target(s) dry-run and validated")
-
-
 def run_contracts_check(
     repo_root: str | Path = ".", *, distribution_root: str | Path | None = None
 ) -> ContractsCheckReport:
@@ -696,10 +621,7 @@ def run_contracts_check(
     installed project's `repo_root` has only `lakehouse_code/` (ADR 0009), so
     every payload-owned check below runs against `distribution_root` instead;
     `lakehouse_code/silver/*/contracts/floe/*.yml` remains project-owned and
-    always reads from `repo_root`. `_check_makefile_target_wiring` skips
-    rather than fails when there is no `Makefile` to invoke -- the Makefile is
-    deliberately excluded from the distribution payload as deprecated
-    checkout compatibility (ADR 0008).
+    always reads from `repo_root`.
     """
     root = Path(repo_root).resolve()
     if not root.is_dir():
@@ -715,5 +637,4 @@ def run_contracts_check(
     report.results.append(_check_floe_contract_structure(root))
     report.results.append(_check_floe_profile_templates(dist_root))
     report.results.append(_check_helm_values_as_data(dist_root))
-    report.results.append(_check_makefile_target_wiring(dist_root))
     return report

@@ -371,24 +371,6 @@ def test_helm_values_as_data_passes_against_real_repo() -> None:
     assert result.ok, result.detail
 
 
-def test_makefile_target_wiring_passes_against_real_repo() -> None:
-    result = contracts_check._check_makefile_target_wiring(ROOT)
-
-    assert result.ok, result.detail
-
-
-def test_makefile_target_wiring_rejects_empty_kubeconfig(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setattr(contracts_check, "_KUBE_WIRED_TARGETS", ("broken-forward",))
-    (tmp_path / "Makefile").write_text(
-        'broken-forward:\n\tKUBECONFIG="" KUBE_CONTEXT=some-context bash scripts/noop.sh\n'
-    )
-
-    result = contracts_check._check_makefile_target_wiring(tmp_path)
-
-    assert not result.ok
-    assert "KUBECONFIG" in result.detail
-
-
 def test_run_contracts_check_rejects_missing_repo_root(tmp_path: Path) -> None:
     with pytest.raises(ValueError):
         contracts_check.run_contracts_check(tmp_path / "does-not-exist")
@@ -402,8 +384,8 @@ def test_run_contracts_check_passes_against_real_repo() -> None:
 
 def test_run_contracts_check_passes_for_an_installed_project_layout(tmp_path: Path) -> None:
     """An installed project's root carries only `openlakeforge.yaml` and
-    `lakehouse_code/` (ADR 0009) -- `docs/schema`, `infra/`, `libs/`, and the
-    Makefile all live in the separate, immutable distribution root instead.
+    `lakehouse_code/` (ADR 0009) -- `docs/schema`, `infra/`, and `libs/` all
+    live in the separate, immutable distribution root instead.
     Copying the real repo's `lakehouse_code/` (which carries real Floe
     contracts under `silver/*/contracts/floe/`) and `openlakeforge.yaml` into
     an otherwise-bare project dir, and pointing `distribution_root` at the
@@ -417,25 +399,6 @@ def test_run_contracts_check_passes_for_an_installed_project_layout(tmp_path: Pa
     report = contracts_check.run_contracts_check(project_root, distribution_root=ROOT)
 
     assert report.ok, report.render()
-
-
-def test_run_contracts_check_skips_makefile_check_when_makefile_is_absent(tmp_path: Path) -> None:
-    project_root = tmp_path / "my-lakehouse"
-    shutil.copytree(
-        ROOT / "lakehouse_code", project_root / "lakehouse_code", ignore=shutil.ignore_patterns("__pycache__")
-    )
-    # A distribution root without a Makefile either (the payload never
-    # includes one -- this simulates that directly rather than relying on
-    # ROOT happening to have one).
-    dist_root = tmp_path / "distribution"
-    for name in ("infra", "libs", "docs/schema"):
-        shutil.copytree(ROOT / name, dist_root / name, ignore=shutil.ignore_patterns("__pycache__", ".terraform"))
-
-    report = contracts_check.run_contracts_check(project_root, distribution_root=dist_root)
-
-    makefile_result = next(r for r in report.results if r.name == "makefile_target_wiring")
-    assert makefile_result.ok
-    assert "skipped" in makefile_result.detail
 
 
 def test_lakehouse_schema_rejects_a_lakehouse_with_no_products_anywhere() -> None:

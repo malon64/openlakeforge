@@ -100,8 +100,8 @@ These are load-bearing. Breaking one means the change is wrong even if it works.
    artifact:** anything needing user code belongs in artifacts.
 4. **`olf` owns repository orchestration** (ADR 0008). Cross-environment
    logic lives in `tools/olf` with tests. There is no tracked shell; `olf
-   check structure` rejects it. `Makefile` is deprecated checkout
-   compatibility only — its targets are one-line delegates to `olf`.
+   check structure` rejects it. `olf` is the only orchestration surface —
+   there is no `Makefile`.
 5. **No hardcoded product knowledge in shared code.** Product lists, job names,
    table names, and dashboard names are moving to descriptor-driven discovery.
    Do not add new ones.
