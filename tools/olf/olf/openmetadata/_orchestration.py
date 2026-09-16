@@ -437,7 +437,12 @@ class OpenMetadataDeployer:
                 "OpenMetadata table assets are not available yet:\n"
                 f"{message}\n"
                 "Run the product ETL jobs in Dagster, wait for the catalog metadata ingestion to crawl the catalog, "
-                "then rerun 'make openmetadata-metadata-deploy'."
+                # The local overrides have to be repeated: `deployment_context`
+                # applies only explicit option values, so a retry without them
+                # silently targets the default cluster and kubeconfig.
+                "then rerun 'olf openmetadata deploy-metadata "
+                '--cluster-name "${CLUSTER_NAME:-openlakeforge-local}" '
+                '--kubeconfig-path "${LOCAL_KUBECONFIG_PATH:-.tmp/kubeconfigs/local.yaml}"\'.'
             )
             if self.config.allow_missing_assets:
                 import sys

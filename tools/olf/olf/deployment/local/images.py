@@ -1,11 +1,9 @@
 """Local Superset and project-code image build/load.
 
 Port of `scripts/local/images/{build,load}-{superset,project-code}.sh`. The
-`kind`-less Docker-node fallback in the shell `load-*.sh` scripts is not
-ported here: the local provider already hard-requires `kind` (kubeconfig
-export, `kind get nodes` during prefetch), and the shell scripts remain in
-place, untouched, for the standalone `make superset-load`/`project-code-load`
-targets.
+`kind`-less Docker-node fallback in the removed shell `load-*.sh` scripts is
+not ported here: the local provider already hard-requires `kind` (kubeconfig
+export, `kind get nodes` during prefetch).
 """
 
 from __future__ import annotations

@@ -402,7 +402,9 @@ def _manifest_path_for_dagster(spec: DomainDefinitionSpec) -> str:
     if not spec.manifest_path.exists():
         raise RuntimeError(
             f"Missing Floe manifest at {spec.manifest_path}. "
-            "Run 'make floe-manifest' before building the project-code image."
+            "Run 'olf floe generate-manifests --cluster-name \"${CLUSTER_NAME:-openlakeforge-local}\" "
+            "--kubeconfig-path \"${LOCAL_KUBECONFIG_PATH:-.tmp/kubeconfigs/local.yaml}\"' "
+            "before building the project-code image."
         )
     return str(spec.manifest_path)
 

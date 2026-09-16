@@ -5,8 +5,7 @@ Port of `scripts/artifacts/floe-manifest.sh`, kept out of
 unmodified. Only the branches the Python-orchestrated providers actually
 take are ported here (`PERSIST_RUNTIME_ARTIFACTS=true`, no `FLOE_PROFILE_
 PATH`/`FLOE_CONFIG_PATH`/`FLOE_MANIFEST_PATH`/`FLOE_REMOTE_RUNTIME_BASE_URI`
-override); the native-CLI runner mode stays in the shell script, which
-remains in place for `make floe-manifest`.
+override); the native-CLI runner mode stayed in the now-removed shell script.
 
 The one behavioral difference between providers is profile selection, which
 is why it's a `ProfileStrategy` seam rather than a branch inside
