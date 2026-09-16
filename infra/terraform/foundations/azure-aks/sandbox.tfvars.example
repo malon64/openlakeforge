@@ -4,7 +4,7 @@
 # temporary resource group supplied by your sandbox:
 #
 #     cp sandbox.tfvars.example sandbox.tfvars
-#     make azure-up
+#     uv run --project tools/olf --locked olf deploy --provider azure
 #
 # `sandbox.tfvars` is gitignored. To keep it elsewhere, set
 # AZURE_TFVARS_FILE=/path/to/your.tfvars.

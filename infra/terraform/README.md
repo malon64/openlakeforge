@@ -45,25 +45,27 @@ orchestration, reporting, and governance boundaries.
 ## Local workflow
 
 ```bash
-make local-foundation-up
-make local-up
-make local-down
-make local-foundation-down
+uv run --project tools/olf --locked olf deploy --provider local --phase foundation
+uv run --project tools/olf --locked olf deploy --provider local
+uv run --project tools/olf --locked olf destroy --provider local
+uv run --project tools/olf --locked olf destroy --provider local --phase foundation
 ```
 
-`make local-foundation-up` runs `terraform init` and `terraform apply` in
-`infra/terraform/foundations/local-kind`. Terraform owns the local kind cluster
-lifecycle while the cluster definition remains in `infra/kind/local`.
+`olf deploy --provider local --phase foundation` runs `terraform init` and
+`terraform apply` in `infra/terraform/foundations/local-kind`. Terraform owns
+the local kind cluster lifecycle while the cluster definition remains in
+`infra/kind/local`.
 
-`make local-up` runs two platform phases:
+`olf deploy --provider local` runs two platform phases:
 
 ```bash
-make local-platform-up
-make local-artifacts-deploy
+uv run --project tools/olf --locked olf deploy --provider local --phase platform
+uv run --project tools/olf --locked olf deploy --provider local --phase artifacts
 ```
 
-`make local-platform-up` runs `terraform init` and a normal `terraform apply` in
-`infra/terraform/environments/local`. Terraform owns:
+`olf deploy --provider local --phase platform` runs `terraform init` and a
+normal `terraform apply` in `infra/terraform/environments/local`. Terraform
+owns:
 
 - Kubernetes namespace creation
 - SeaweedFS, Polaris, Trino, and Superset Helm releases
@@ -80,7 +82,7 @@ make local-artifacts-deploy
 - OpenMetadata, Polaris service metadata, and catalog ingestion plumbing
 - SeaweedFS S3, Filer, and Master services for local object storage and inspection
 
-`make local-artifacts-deploy` owns the local/CD artifacts:
+`olf deploy --provider local --phase artifacts` owns the local/CD artifacts:
 
 - project-code image build/load
 - domain Floe manifest generation and upload to the local ops bucket
@@ -97,14 +99,14 @@ secret manager integration is implemented yet.
 ## Azure AKS POC workflow
 
 ```bash
-make azure-foundation-up
-make azure-up
-make azure-e2e
-make azure-down
-make azure-foundation-down
+uv run --project tools/olf --locked olf deploy --provider azure --phase foundation
+uv run --project tools/olf --locked olf deploy --provider azure
+uv run --project tools/olf --locked olf e2e run --env azure
+uv run --project tools/olf --locked olf destroy --provider azure
+uv run --project tools/olf --locked olf destroy --provider azure --phase foundation
 ```
 
-`make azure-foundation-up` runs Terraform in
+`olf deploy --provider azure --phase foundation` runs Terraform in
 `infra/terraform/foundations/azure-aks` to create the AKS cluster, ACR registry,
 AKS-to-ACR `AcrPull` role assignment, and AKS OIDC / Workload Identity
 readiness. The wrapper then runs `az aks get-credentials`.
@@ -117,7 +119,7 @@ cd infra/terraform/foundations/azure-aks
 cp sandbox.tfvars.example sandbox.tfvars
 # Edit resource_group_name, create_resource_group, location, and node_vm_size.
 cd ../../../..
-make azure-foundation-up
+uv run --project tools/olf --locked olf deploy --provider azure --phase foundation
 ```
 
 With `create_resource_group = false`, Terraform reads the resource group as
@@ -127,16 +129,17 @@ foundation directory. With `create_resource_group = true`, Terraform creates
 the group and uses `rg-openlakeforge-azure-poc` when `resource_group_name` is
 omitted.
 
-`make azure-up` runs:
+`olf deploy --provider azure` runs:
 
 ```bash
-make azure-platform-up
-make azure-artifacts-deploy
+uv run --project tools/olf --locked olf deploy --provider azure --phase platform
+uv run --project tools/olf --locked olf deploy --provider azure --phase artifacts
 ```
 
-`make azure-platform-up` builds and pushes the custom Superset image to ACR before
-Terraform apply because the Superset Helm release waits for pods during install.
-`make azure-artifacts-deploy` generates Floe manifests, builds and pushes the
+`olf deploy --provider azure --phase platform` builds and pushes the custom
+Superset image to ACR before Terraform apply because the Superset Helm release
+waits for pods during install.
+`olf deploy --provider azure --phase artifacts` generates Floe manifests, builds and pushes the
 project-code image, uploads manifests to the in-cluster SeaweedFS ops bucket,
 imports Superset reports, deploys OpenMetadata metadata, and restarts Dagster.
 
@@ -148,31 +151,32 @@ not active POC implementations.
 ## AWS EKS POC workflow
 
 ```bash
-make aws-foundation-up
-make aws-up
-make aws-e2e
-make aws-down
-make aws-foundation-down
+uv run --project tools/olf --locked olf deploy --provider aws --phase foundation
+uv run --project tools/olf --locked olf deploy --provider aws
+uv run --project tools/olf --locked olf e2e run --env aws
+uv run --project tools/olf --locked olf destroy --provider aws
+uv run --project tools/olf --locked olf destroy --provider aws --phase foundation
 ```
 
-`make aws-foundation-up` runs Terraform in
+`olf deploy --provider aws --phase foundation` runs Terraform in
 `infra/terraform/foundations/aws-eks` to create the VPC, EKS cluster, managed
 node group, EKS add-ons, ECR repositories, and EKS Pod Identity add-on/roles.
 The wrapper then runs `aws eks update-kubeconfig`.
 
-`make aws-up` runs:
+`olf deploy --provider aws` runs:
 
 ```bash
-make aws-platform-up
-make aws-artifacts-deploy
+uv run --project tools/olf --locked olf deploy --provider aws --phase platform
+uv run --project tools/olf --locked olf deploy --provider aws --phase artifacts
 ```
 
-`make aws-platform-up` builds and pushes the custom Superset image to ECR before
-Terraform apply. The AWS platform root creates S3 medallion and ops buckets,
-RDS PostgreSQL, product-layer Glue databases/namespaces, Pod Identity workload
-access, and the shared Helm services on EKS.
+`olf deploy --provider aws --phase platform` builds and pushes the custom
+Superset image to ECR before Terraform apply. The AWS platform root creates S3
+medallion and ops buckets, RDS PostgreSQL, product-layer Glue
+databases/namespaces, Pod Identity workload access, and the shared Helm
+services on EKS.
 
-`make aws-artifacts-deploy` generates Floe manifests, builds and pushes the
+`olf deploy --provider aws --phase artifacts` generates Floe manifests, builds and pushes the
 project-code image, uploads manifests directly to the S3 ops bucket, imports
 Superset reports, deploys OpenMetadata metadata, patches Dagster images, and
 restarts Dagster workloads.

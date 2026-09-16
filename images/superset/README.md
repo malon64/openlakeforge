@@ -11,8 +11,8 @@ ghcr.io/openlakeforge/superset:local
 Build and load it into kind with:
 
 ```bash
-make superset-image
-make superset-load
+uv run --project tools/olf --locked olf images build superset
+uv run --project tools/olf --locked olf images load superset
 ```
 
 It extends the official Superset image with the Trino Python driver so Superset

@@ -767,10 +767,6 @@ That workflow additionally needs Git and uv on `PATH`:
 | Git            | Clone OpenLakeForge                   |
 | uv             | Python dependency and CLI execution   |
 
-`Make` is optional, deprecated compatibility — its targets are one-line
-delegates to the same `uv run ... olf` commands and are never required to
-run them directly.
-
 Clone the repository and run commands from its root:
 
 ```bash
@@ -778,9 +774,10 @@ git clone https://github.com/malon64/openlakeforge.git
 cd openlakeforge
 ```
 
-`Make` targets such as `make local-up` remain as thin, deprecated
-delegates to the exact `olf` commands documented above — see
-[AGENTS.md](../../AGENTS.md) for the full contributor workflow and gates.
+`olf` is the primary supported orchestration surface; a checkout's `Makefile`
+provides deprecated one-line delegates to the same `olf` commands and is
+being removed (#222) — see [AGENTS.md](../../AGENTS.md) for the full
+contributor workflow and gates.
 
 ---
 
