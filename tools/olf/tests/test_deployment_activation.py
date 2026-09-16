@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 import yaml
+from openlakeforge_domain import load_lakehouse_inventory
 
 from olf import project_activation, project_revision
 from olf.artifact_store import FilesystemRevisionStore
@@ -190,34 +191,13 @@ def _contract_with_reporting() -> dict:
     return contract
 
 
-# The one dashboard file `build_report_bundle` never rewrites (unlike
-# `databases/*.yaml`'s sqlalchemy_uri and, under a schema prefix,
-# `datasets/*.yaml`), so its content is a clean signal of *which tree* a
-# bundle was read from.
-_MUTATION_TARGET = Path("lakehouse_code/dashboards/superset/sales_order_revenue/dashboards/Sales_Order_Revenue_1.yaml")
 _MUTATION_MARKER = "MUTATED AFTER PUBLISH -- must never reach Superset"
 
 
 def _build_report_harness(
     contract: dict, *, external_project: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
-    """Drive the real report-import dispatch (`deploy_optional_layer_artifacts`,
-    left intact -- unlike `harness`, which stubs it to a no-op) against
-    `contract`, stubbing only `superset.deploy_reports`, the `kubectl exec`
-    boundary this suite has no cluster to cross.
-
-    Publishes the revision first, then mutates the checkout's own copy of one
-    dashboard file. A test asserting on frozen content only proves anything if
-    checkout and revision can disagree -- unmutated, `external_project` is
-    byte-identical to what got frozen, so a regression reading either one back
-    would pass unnoticed. `OPENLAKEFORGE_REPO_ROOT`/`_PROJECT_ROOT` are pinned
-    to `external_project` too: the autouse `_pin_project_roots` fixture points
-    their ambient fallback at this actual repository checkout, whose
-    `lakehouse_code` is otherwise coincidentally identical to
-    `external_project`'s -- a regression that drops the contract
-    environment's root override would fall through to *that* pristine copy
-    and hide behind the same coincidence the mutation exists to break.
-    """
+    """Publish before mutating the checkout so its report bundle differs from the revision."""
     monkeypatch.setenv("OPENLAKEFORGE_REPO_ROOT", str(external_project))
     monkeypatch.setenv("OPENLAKEFORGE_PROJECT_ROOT", str(external_project))
 
@@ -229,7 +209,14 @@ def _build_report_harness(
     )
     project_revision.publish(store, manifest, spec)
 
-    target = external_project / _MUTATION_TARGET
+    inventory = load_lakehouse_inventory(external_project)
+    expected_dashboard_dirs = sorted(Path(dashboard.report_source_dir).name for dashboard in inventory.dashboards)
+    mutation_target = next(
+        path.relative_to(external_project)
+        for dashboard in inventory.dashboards
+        for path in sorted((external_project / dashboard.report_source_dir / "dashboards").glob("*.yaml"))
+    )
+    target = external_project / mutation_target
     document = yaml.safe_load(target.read_text())
     original_description = document["description"]
     document["description"] = _MUTATION_MARKER
@@ -244,6 +231,7 @@ def _build_report_harness(
     monkeypatch.setattr(activation_module, "sync_catalog_namespaces", lambda: None)
     monkeypatch.setattr(activation_module, "_generate_floe", lambda *a, **k: _FLOE)
 
+    import olf.commands.openmetadata as openmetadata_commands
     import olf.superset as superset_module
 
     report_calls: list[dict] = []
@@ -255,7 +243,7 @@ def _build_report_harness(
         bundle_dirs = sorted(
             path.name for path in Path(repo_root).glob("lakehouse_code/dashboards/superset/*") if path.is_dir()
         )
-        dashboard_file = Path(repo_root) / _MUTATION_TARGET
+        dashboard_file = Path(repo_root) / mutation_target
         description = yaml.safe_load(dashboard_file.read_text())["description"] if dashboard_file.is_file() else None
         report_calls.append(
             {
@@ -269,6 +257,8 @@ def _build_report_harness(
         )
 
     monkeypatch.setattr(superset_module, "deploy_reports", _fake_deploy_reports)
+    metadata_calls: list[None] = []
+    monkeypatch.setattr(openmetadata_commands, "deploy_openmetadata_metadata", lambda: metadata_calls.append(None))
 
     def deploy(stage: str):  # noqa: ANN202
         context = DeploymentContext.local(
@@ -286,7 +276,9 @@ def _build_report_harness(
         helm=helm,
         manifest=manifest,
         report_calls=report_calls,
+        metadata_calls=metadata_calls,
         external_project=external_project,
+        expected_dashboard_dirs=expected_dashboard_dirs,
         original_dashboard_description=original_description,
     )
 
@@ -304,11 +296,7 @@ def test_activating_a_revision_imports_the_frozen_reports_not_the_checkout(repor
 
     assert len(report_harness.report_calls) == 1
     call = report_harness.report_calls[0]
-    assert call["bundle_dirs"] == [
-        "sales_customer_health",
-        "sales_order_revenue",
-        "supply_chain_inventory_reliability",
-    ]
+    assert call["bundle_dirs"] == report_harness.expected_dashboard_dirs
     # The frozen revision's content, not the checkout's -- which was mutated
     # to a different description *after* the revision was published.
     assert call["dashboard_description"] == report_harness.original_dashboard_description
@@ -342,28 +330,30 @@ def test_reactivating_the_same_revision_does_not_reimport_reports(report_harness
     assert len(report_harness.report_calls) == 1
 
 
-def test_analytics_disabled_stage_skips_reports_without_failing_activation(
+def test_governance_enabled_analytics_disabled_stage_skips_reports_without_failing_activation(
     external_project: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A slim stage has no Superset (`resolve_stage_report_target` refuses
-    fail-closed if asked to import into one) -- but activation is not an
-    explicit report-import request, so it must skip cleanly rather than
-    propagate that refusal and fail an otherwise-valid deploy.
-
-    Uses `_build_report_harness` directly (not `harness`, which stubs
-    `deploy_optional_layer_artifacts` to a no-op and would make the
-    `deploy_reports` assertion below pass no matter what the real dispatcher
-    does) against the default contract, which has no `reporting` binding on
-    any stage, i.e. analytics is disabled.
-    """
+    """Governance still dispatches metadata while the disabled analytics layer skips reports."""
+    contract = _contract()
+    contract["shared"]["governance_service"] = {
+        "ref": "shared/governance_service",
+        "implementation": "governance.openmetadata",
+    }
+    stage = contract["stages"]["prod"]
+    stage["governance"] = {
+        "service_ref": "shared/governance_service",
+        "endpoint_ref": "stage/prod/endpoints/governance",
+    }
+    stage["endpoints"]["governance"] = "stage/prod/endpoints/governance"
     disabled = _build_report_harness(
-        _contract(), external_project=external_project, tmp_path=tmp_path, monkeypatch=monkeypatch
+        contract, external_project=external_project, tmp_path=tmp_path, monkeypatch=monkeypatch
     )
 
     activation = disabled.deploy("prod")
 
     assert activation is not None
     assert disabled.report_calls == []
+    assert disabled.metadata_calls == [None]
 
 
 def test_reapplying_the_active_revision_changes_nothing(harness) -> None:  # noqa: ANN001
