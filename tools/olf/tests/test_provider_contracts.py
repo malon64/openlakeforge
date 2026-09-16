@@ -1077,3 +1077,26 @@ def test_deployment_region_mismatch_names_both_values() -> None:
     message = str(excinfo.value)
     assert "'eu-west-9'" in message
     assert repr(topology.region) in message
+
+
+def test_analytics_stages_are_tracked_separately_from_governed_stages() -> None:
+    """#131: analytics and governance are independent per-stage capabilities
+    (ADR 0011), so the dashboard roots OpenMetadata registers cannot be found
+    by iterating the governed set. A stage with analytics and no governance
+    owns the only `superset_<stage>` that exists; looping `governed_stages`
+    for all three service types would skip it silently."""
+    contract = _fixture("aws-provider-contracts-v3.json")
+    contract["stages"]["prod"].pop("governance", None)
+    topology = _topology(contract)
+
+    parsed = parse_provider_contracts(contract, topology)
+
+    analytics_only = set(parsed.analytics_stages) - set(parsed.governed_stages)
+    assert analytics_only, (
+        "the fixture no longer has an analytics stage without governance, so this "
+        "test cannot show the two sets differ; pick another stage rather than deleting it."
+    )
+    for stage in analytics_only:
+        reporting = parsed.analytics_stages[stage].reporting
+        assert reporting is not None
+        assert reporting["dashboard_service_name"] == f"superset_{stage.value}"

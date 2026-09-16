@@ -391,11 +391,25 @@ class ProviderContracts:
         stage name. #131: the shared OpenMetadata instance's single Iceberg/
         Dagster/Superset connection today comes from Terraform collapsing
         this same set to one stage (main.tf's governance_dagster_stage); this
-        map is what a future bootstrap loops over instead, using each
-        governed stage's own deterministic service-root names (catalog.
-        catalog_name, orchestration.pipeline_service_name, reporting.
-        dashboard_service_name)."""
+        map is what a future bootstrap loops over for the database and
+        pipeline roots (catalog.catalog_name,
+        orchestration.pipeline_service_name).
+
+        Not for dashboard roots -- see `analytics_stages`. Analytics and
+        governance are independent per-stage capabilities (ADR 0011), so the
+        two sets differ whenever a stage enables one and not the other."""
         return MappingProxyType({name: stage for name, stage in self.stages.items() if stage.governance is not None})
+
+    @property
+    def analytics_stages(self) -> Mapping[StageName, StageContract]:
+        """Every enabled stage whose analytics capability is on, keyed by
+        stage name. Separate from `governed_stages` because the capabilities
+        are independent: with governance on DEV and analytics on PROD, looping
+        the governed set alone would register DEV's services and silently skip
+        `superset_prod`, which is the one Superset root that exists. Terraform
+        already draws this distinction -- main.tf selects the Superset
+        connection from `analytics_stages`, not the governed set."""
+        return MappingProxyType({name: stage for name, stage in self.stages.items() if stage.reporting is not None})
 
 
 def _parse_shared(value: object) -> SharedPlatformContract:
