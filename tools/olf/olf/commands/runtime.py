@@ -27,8 +27,8 @@ def provider_contract_environment(
     """Hydrate Terraform contracts for a command outside the full deploy flow."""
     from olf.commands.deployment import _build_context, _build_engine
     from olf.deployment import contract_env
+    from olf.deployment.engine import is_cloud_provider, is_local_provider
     from olf.deployment.local.artifacts import applied_contract_environment
-    from olf.deployment.local.provider import LocalProvider
 
     context = _build_context(
         provider,
@@ -40,7 +40,7 @@ def provider_contract_environment(
         stage=stage,
     )
     deployment_provider = _build_engine(context, var_file="").provider
-    if isinstance(deployment_provider, LocalProvider):
+    if is_local_provider(deployment_provider):
         # environ=deployment_provider.env: an installed distribution's
         # state/data roots live under OLF_HOME, not next to the contract
         # Terraform dir - without this, the contract read below silently
@@ -53,16 +53,17 @@ def provider_contract_environment(
         ):
             yield
         return
-    facts = deployment_provider._foundation_facts  # noqa: SLF001 - shared standalone command context.
-    with contract_env.applied_contract_environment(
-        contract_terraform_dir=_contract_terraform_dir(context.paths.platform_terraform_dir),
-        repo_root=context.paths.repo_root,
-        namespace=context.namespace,
-        kube_context=facts.kube_context,
-        kubeconfig_path=context.paths.kubeconfig_path,
-        port_forward_log_prefix=context.paths.port_forward_log_prefix,
-        environ=deployment_provider.env,
-        topology=context.topology,
-        stage=context.stage,
-    ):
-        yield
+    if is_cloud_provider(deployment_provider):
+        facts = deployment_provider.foundation_facts
+        with contract_env.applied_contract_environment(
+            contract_terraform_dir=_contract_terraform_dir(context.paths.platform_terraform_dir),
+            repo_root=context.paths.repo_root,
+            namespace=context.namespace,
+            kube_context=facts.kube_context,
+            kubeconfig_path=context.paths.kubeconfig_path,
+            port_forward_log_prefix=context.paths.port_forward_log_prefix,
+            environ=deployment_provider.env,
+            topology=context.topology,
+            stage=context.stage,
+        ):
+            yield

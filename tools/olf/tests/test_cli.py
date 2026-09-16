@@ -7,6 +7,7 @@ from typer.testing import CliRunner
 
 import olf
 from olf.cli import app
+from olf.deployment.context import Provider
 
 runner = CliRunner()
 
@@ -344,6 +345,7 @@ def test_floe_generation_passes_the_selected_namespace_to_the_local_profile(
     generated: list[dict] = []
 
     class FakeLocalProvider:
+        context = SimpleNamespace(provider=Provider.LOCAL)
         config = SimpleNamespace(floe=object())
         tools = object()
         env = {}
@@ -397,7 +399,8 @@ def test_floe_generation_honors_custom_contract_root_for_cloud(
             captured["generation"] = kwargs
 
     class FakeCloudProvider:
-        _foundation_facts = SimpleNamespace(kube_context="custom-cluster")
+        foundation_facts = SimpleNamespace(kube_context="custom-cluster")
+        context = SimpleNamespace(provider=Provider.AWS)
         config = object()
         backend = FakeBackend()
         tools = object()

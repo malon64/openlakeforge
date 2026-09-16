@@ -71,8 +71,8 @@ def platform_up(
     log.step(f"Initializing Terraform {backend.scope} platform...")
     tools.terraform.init(platform_dir, env=env)
 
-    require_no_stage_removal(config, tools, env=env)
-    require_no_shared_namespace_replacement(config, tools, env=env)
+    require_no_stage_removal(config, tools, kube_context=facts.kube_context, env=env)
+    require_no_shared_namespace_replacement(config, tools, kube_context=facts.kube_context, env=env)
 
     variables = backend.platform_apply_variables(config, facts)
     var_files = (str(config.terraform.var_file),) if config.terraform.var_file is not None else ()

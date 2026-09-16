@@ -211,6 +211,24 @@ def test_platform_up_uses_backend_apply_variables_and_var_file(tmp_path: Path) -
     assert "-var=namespace=olf-dev" in apply_call.argv
 
 
+def test_platform_guards_use_the_foundation_kube_context(tmp_path: Path) -> None:
+    config = _config(tmp_path, enable_analytics="false")
+    config.paths.helm_cache_dir.mkdir(parents=True, exist_ok=True)
+    config.charts["trino"].package_path.write_text("cached")
+    config.charts["dagster"].package_path.write_text("cached")
+    runner = _PlatformScriptedRunner()
+
+    platform.platform_up(config, _toolkit(runner), FakeCloudBackend(scope="aws"), _FACTS, env={})
+
+    guard_calls = [
+        call
+        for call in runner.calls
+        if call.argv[0] == "kubectl" and ("-l" in call.argv or "lakehouse" in call.argv)
+    ]
+    assert guard_calls
+    assert all(call.argv[1:3] == ["--context", _FACTS.kube_context] for call in guard_calls)
+
+
 def test_platform_up_never_passes_var_file_to_azure_apply_even_with_explicit_override(tmp_path: Path) -> None:
     """P1 regression: an explicit `--var-file` for a combined `olf deploy
     --provider azure --var-file <foundation.tfvars>` run must reach the

@@ -3,7 +3,7 @@
 The facts-before-env ordering here is the single highest-risk detail in the
 AWS/Azure port: `DeploymentContext.kube_context` is unknown until the
 foundation's Terraform outputs are read, unlike local's static
-`kind-<cluster>`. `env` must resolve `_foundation_facts` before building the
+`kind-<cluster>`. `env` must resolve `foundation_facts` before building the
 command environment, or `KUBE_CONTEXT` gets baked in empty.
 """
 
@@ -71,7 +71,7 @@ def test_status_reports_every_owned_namespace(tmp_path: Path, monkeypatch: pytes
     context = DeploymentContext.aws(repo_root=tmp_path, topology=topology)
     config = CloudDeploymentConfig.from_environment({}, context=context)
     provider = CloudProvider.create(config, FakeCloudBackend(scope="aws", facts=_FACTS), toolkit=_toolkit(), environ={})
-    provider.__dict__["_foundation_facts"] = _FACTS
+    provider.__dict__["foundation_facts"] = _FACTS
     provider.__dict__["env"] = {}
     captured: dict[str, object] = {}
 
