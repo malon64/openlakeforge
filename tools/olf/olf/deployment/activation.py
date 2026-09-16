@@ -711,6 +711,29 @@ def deploy_revision(
                 env=env,
             ):
                 return activation
+            # Imports the revision's frozen `reports` component (#130) into this
+            # stage's Superset. `deploy_optional_layer_artifacts` reaches
+            # `olf.superset.deploy_reports` through `config.project_spec()`,
+            # which reads OPENLAKEFORGE_PROJECT_ROOT -- and the contract
+            # environment applied above bound that to `root`, the revision
+            # `materialize()`d a few lines up, not this process's checkout. So
+            # PROD imports exactly the bundle DEV exported and froze, never a
+            # rebuild from source. It is stage-correct for the same reason:
+            # `resolve_stage_report_target` (reused, not re-derived) resolves
+            # from this same applied contract, which is scoped to `context.stage`.
+            # Idempotent because Superset's importer (`superset._IMPORT_SCRIPT`)
+            # matches every asset by its stable uuid and overwrites in place --
+            # reapplying the same bundle updates the same rows rather than
+            # duplicating them -- and because this call only runs on an actual
+            # rollout: the idempotency gate above already returns before this
+            # point when the activation is unchanged and the release is already
+            # running it, so a no-op redeploy touches Superset zero times.
+            # A stage with analytics disabled is skipped, not refused, even
+            # though `resolve_stage_report_target` itself refuses fail-closed:
+            # `layers.enabled` short-circuits before deploy_reports ever calls
+            # it, because activation is not an explicit report-import request,
+            # and a slim stage with no Superset must not fail an otherwise-
+            # valid promotion.
             if activation.capabilities["analytics"] or activation.capabilities["governance"]:
                 deploy_optional_layer_artifacts(contract_environ)
             config = provider.config
