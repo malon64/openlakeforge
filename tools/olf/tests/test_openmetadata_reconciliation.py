@@ -6,6 +6,15 @@ from olf.clients.openmetadata import OpenMetadataClient, OpenMetadataError
 from olf.openmetadata._config import OpenMetadataConfig
 from olf.openmetadata._reconciliation import OpenMetadataReconciler
 
+# `build_contract_env` writes these only where a provider contract was
+# actually applied for the stage being deployed; `OpenMetadataConfig` refuses
+# an environment that carries neither.
+APPLIED_DEV_CONTRACT = {
+    "OPENLAKEFORGE_CONTRACT_STAGE": "dev",
+    "OPENLAKEFORGE_CATALOG_NAME": "lakehouse_dev",
+}
+
+
 
 def _single_product_reconciler(tmp_path: Path) -> OpenMetadataReconciler:
     (tmp_path / "bronze" / "crm").mkdir(parents=True)
@@ -52,7 +61,7 @@ dashboards: []
 """
     )
     cfg = OpenMetadataConfig.from_environment(
-        {},
+        dict(APPLIED_DEV_CONTRACT),
         base_url="http://x",
         admin_email="a",
         admin_password="p",
@@ -61,7 +70,6 @@ dashboards: []
         allow_missing_assets=False,
         catalog_service="polaris",
         catalog_database="lakehouse_dev",
-        cleanup_legacy_default_database=False,
     )
     return OpenMetadataReconciler(cfg, OpenMetadataClient(cfg.base_url))
 
@@ -111,3 +119,27 @@ def test_ensure_database_schema_rejects_a_malformed_fqn(tmp_path: Path) -> None:
 
     with pytest.raises(OpenMetadataError, match="Malformed schema FQN"):
         reconciler.ensure_database_schema("sales_order_revenue_silver")
+
+
+def test_write_primitives_refuse_another_stages_entities(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Every governed stage shares one OpenMetadata, separated only by the
+    `<service>.lakehouse_<stage>` database root, so a reconcile scoped to one
+    stage must not create or claim entities under another's."""
+    reconciler = _single_product_reconciler(tmp_path)
+    requests: list[str] = []
+
+    monkeypatch.setattr(
+        reconciler.client, "request", lambda method, path, **_kwargs: requests.append(path) or {}
+    )
+
+    for call in (
+        lambda: reconciler.ensure_database_schema("polaris.lakehouse_prod.sales_silver"),
+        lambda: reconciler.ensure_table_stub("polaris.lakehouse_prod.sales_silver", "raw_orders", ""),
+        lambda: reconciler.resolve_table_asset("polaris.lakehouse_prod.sales_silver.raw_orders"),
+    ):
+        with pytest.raises(OpenMetadataError, match="belongs to another stage"):
+            call()
+
+    assert requests == []

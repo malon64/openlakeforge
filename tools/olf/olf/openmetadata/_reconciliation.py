@@ -37,6 +37,30 @@ class OpenMetadataReconciler:
                 time.sleep(2)
         raise OpenMetadataError(f"OpenMetadata did not become reachable: {last_error}")
 
+    def require_stage_scoped(self, fqn: str, entity: str) -> None:
+        """Reject an entity FQN that lies outside this stage's database root.
+
+        One OpenMetadata deployment represents every governed stage, and the
+        only thing separating their catalog entities is the
+        `<service>.lakehouse_<stage>` database root (#131). The schemas and
+        tables a deploy seeds arrive on their own environment channel
+        (OPENLAKEFORGE_CATALOG_{SILVER,GOLD}_SCHEMA_FQNS_JSON), which
+        `build_contract_env` leaves alone once it is set; one left behind by
+        an earlier stage would otherwise seed that stage's catalog while this
+        deploy reports the stage it was asked for. Check them against the
+        root `OpenMetadataConfig` derives from the selected catalog database,
+        so reconciling one stage never writes over another stage's entities.
+        """
+        root = self.config.catalog_database_fqn
+        if fqn == root or fqn.startswith(f"{root}."):
+            return
+        raise OpenMetadataError(
+            f"Refusing to reconcile {entity} {fqn!r}: it belongs to another stage. This deploy is scoped to the "
+            f"database root {root!r}; check that OPENMETADATA_CATALOG_DATABASE and "
+            "OPENLAKEFORGE_CATALOG_{SILVER,GOLD}_SCHEMA_FQNS_JSON come from the same stage's contract "
+            "environment."
+        )
+
     def resolve_table_asset(self, asset):
         if isinstance(asset, str):
             asset_type = "table"
@@ -53,6 +77,7 @@ class OpenMetadataReconciler:
             )
         if not fqn:
             raise OpenMetadataError(f"OpenMetadata data-product asset is missing 'fqn': {asset!r}")
+        self.require_stage_scoped(fqn, "table")
 
         encoded_fqn = urllib.parse.quote(fqn, safe="")
         try:
@@ -164,6 +189,7 @@ class OpenMetadataReconciler:
         database_fqn, _, name = schema_fqn.rpartition(".")
         if not database_fqn or not name:
             raise OpenMetadataError(f"Malformed schema FQN {schema_fqn!r}: expected '<service>.<database>.<schema>'")
+        self.require_stage_scoped(schema_fqn, "database schema")
         if schema_fqn in self._ensured_schema_fqns:
             return
         self.client.request(
@@ -176,47 +202,9 @@ class OpenMetadataReconciler:
         print(f"Upserted OpenMetadata database schema: {schema_fqn}")
 
     def ensure_table_stub(self, schema_fqn, name, description) -> None:
+        self.require_stage_scoped(schema_fqn, "table")
         payload = {"name": name, "databaseSchema": schema_fqn, "columns": []}
         if description:
             payload["description"] = description
         self.client.request("PUT", "/api/v1/tables", payload=payload, ok_statuses=(200, 201))
         print(f"Upserted OpenMetadata table stub: {schema_fqn}.{name}")
-
-    def cleanup_legacy_default_database(self) -> None:
-        if not self.config.cleanup_legacy_default_database or self.config.catalog_database == "default":
-            return
-        target_fqn = self.config.catalog_database_fqn
-        legacy_fqn = f"{self.config.catalog_service}.default"
-        encoded_target = urllib.parse.quote(target_fqn, safe="")
-        encoded_legacy = urllib.parse.quote(legacy_fqn, safe="")
-
-        try:
-            self.client.request("GET", f"/api/v1/databases/name/{encoded_target}")
-        except OpenMetadataError as exc:
-            if "HTTP 404" in str(exc):
-                import sys
-
-                print(
-                    "WARN: Skipping legacy OpenMetadata database cleanup because "
-                    f"target database is missing: {target_fqn}",
-                    file=sys.stderr,
-                )
-                return
-            raise
-
-        try:
-            legacy = self.client.request("GET", f"/api/v1/databases/name/{encoded_legacy}")
-        except OpenMetadataError as exc:
-            if "HTTP 404" in str(exc):
-                return
-            raise
-
-        legacy_id = legacy.get("id")
-        if not legacy_id:
-            raise OpenMetadataError(f"OpenMetadata database lookup for '{legacy_fqn}' did not return an id: {legacy}")
-        self.client.request(
-            "DELETE",
-            f"/api/v1/databases/{legacy_id}?recursive=true&hardDelete=true",
-            ok_statuses=(200, 202, 204),
-        )
-        print(f"Deleted legacy OpenMetadata database metadata: {legacy_fqn}")

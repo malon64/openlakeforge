@@ -56,21 +56,22 @@ def deploy_openmetadata_metadata() -> None:
     log_prefix = config.env("OPENLAKEFORGE_PORT_FORWARD_LOG_PREFIX", "/tmp/openlakeforge")
     log_path = f"{log_prefix}-openmetadata-port-forward.log"
     with k8s.port_forward(service, remote_port, namespace, log_path=log_path) as local_port:
-        cfg = om.OpenMetadataConfig.from_environment(
-            os.environ,
-            base_url=f"http://127.0.0.1:{local_port}",
-            admin_email=config.env("OPENMETADATA_ADMIN_EMAIL", "admin@open-metadata.org"),
-            admin_password=config.env("OPENMETADATA_ADMIN_PASSWORD", "admin"),
-            metadata_root=config.env("OPENMETADATA_METADATA_ROOT", str(project.code_root)),
-            metadata_source_dir=os.environ.get("OPENMETADATA_METADATA_SOURCE_DIR", ""),
-            allow_missing_assets=config.truthy(config.env("OPENMETADATA_ALLOW_MISSING_ASSETS", "false")),
-            catalog_service=config.env("OPENMETADATA_CATALOG_SERVICE") or config.env("OPENLAKEFORGE_CATALOG_PROVIDER"),
-            catalog_database=config.env("OPENMETADATA_CATALOG_DATABASE") or config.env("OPENLAKEFORGE_CATALOG_NAME"),
-            cleanup_legacy_default_database=config.truthy(
-                config.env("OPENMETADATA_CLEANUP_LEGACY_DEFAULT_DATABASE", "true")
-            ),
-        )
         try:
+            cfg = om.OpenMetadataConfig.from_environment(
+                os.environ,
+                base_url=f"http://127.0.0.1:{local_port}",
+                admin_email=config.env("OPENMETADATA_ADMIN_EMAIL", "admin@open-metadata.org"),
+                admin_password=config.env("OPENMETADATA_ADMIN_PASSWORD", "admin"),
+                metadata_root=config.env("OPENMETADATA_METADATA_ROOT", str(project.code_root)),
+                metadata_source_dir=os.environ.get("OPENMETADATA_METADATA_SOURCE_DIR", ""),
+                allow_missing_assets=config.truthy(config.env("OPENMETADATA_ALLOW_MISSING_ASSETS", "false")),
+                catalog_service=(
+                    config.env("OPENMETADATA_CATALOG_SERVICE") or config.env("OPENLAKEFORGE_CATALOG_PROVIDER")
+                ),
+                catalog_database=(
+                    config.env("OPENMETADATA_CATALOG_DATABASE") or config.env("OPENLAKEFORGE_CATALOG_NAME")
+                ),
+            )
             om.OpenMetadataDeployer(cfg, om.OpenMetadataClient(cfg.base_url)).deploy()
         except om.OpenMetadataError as exc:
             raise typer.Exit(code=fail(str(exc))) from exc

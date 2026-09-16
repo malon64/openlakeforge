@@ -9,6 +9,7 @@ from pathlib import Path
 from openlakeforge_domain import load_lakehouse_inventory_from_descriptors
 
 from olf.clients.openmetadata import OpenMetadataError
+from olf.contracts import CONTRACT_STAGE_ENV
 
 
 @dataclass
@@ -21,7 +22,6 @@ class OpenMetadataConfig:
     allow_missing_assets: bool
     catalog_service: str
     catalog_database: str
-    cleanup_legacy_default_database: bool
     catalog_database_fqn: str
     catalog_silver_schema_fqns: dict
     catalog_gold_schema_fqns: dict
@@ -46,13 +46,18 @@ class OpenMetadataConfig:
         allow_missing_assets: bool,
         catalog_service: str,
         catalog_database: str,
-        cleanup_legacy_default_database: bool,
     ) -> OpenMetadataConfig:
         catalog_service = catalog_service or "polaris"
         catalog_database = catalog_database or "lakehouse_dev"
-        catalog_database_fqn = environ.get(
-            "OPENLAKEFORGE_CATALOG_DATABASE_FQN", f"{catalog_service}.{catalog_database}"
-        )
+        _require_applied_contract(environ, catalog_database)
+        # The root every entity this deploy writes has to sit under, built
+        # from the catalog database `_require_applied_contract` just tied to
+        # an applied contract -- never read from
+        # OPENLAKEFORGE_CATALOG_DATABASE_FQN, which only restates the same
+        # root and is inherited on exactly the same terms as everything else
+        # (#131). A schema FQN map left behind by another stage is then
+        # rejected against this root rather than trusted for defining it.
+        catalog_database_fqn = f"{catalog_service}.{catalog_database}"
         silver_schema_fqns_raw = environ.get("OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON")
         gold_schema_fqns_raw = environ.get("OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON")
         return cls(
@@ -64,7 +69,6 @@ class OpenMetadataConfig:
             allow_missing_assets=allow_missing_assets,
             catalog_service=catalog_service,
             catalog_database=catalog_database,
-            cleanup_legacy_default_database=cleanup_legacy_default_database,
             catalog_database_fqn=catalog_database_fqn,
             catalog_silver_schema_fqns=(
                 _parse_json_env("OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON", silver_schema_fqns_raw)
@@ -86,6 +90,41 @@ class OpenMetadataConfig:
             ),
             storage_silver_bucket=environ.get("OPENLAKEFORGE_STORAGE_SILVER_BUCKET", "lakehouse-silver"),
             storage_gold_bucket=environ.get("OPENLAKEFORGE_STORAGE_GOLD_BUCKET", "lakehouse-gold"),
+        )
+
+
+def _require_applied_contract(environ, catalog_database: str) -> None:
+    """Refuse to seed governance metadata from values merely inherited.
+
+    `build_contract_env` writes CONTRACT_STAGE_ENV only when a provider
+    contract was actually applied, and unsets it otherwise. When the Terraform
+    output cannot be read, `load_provider_contracts` returns None and every
+    nonempty catalog value the calling shell already carried survives the
+    default-only assignments that follow -- so a PROD run started from a shell
+    still holding a complete DEV contract environment would resolve a DEV
+    catalog that every check downstream then agrees with. One OpenMetadata
+    deployment holds every governed stage's entities (#131), so unverifiable
+    contract state fails closed here instead.
+
+    Provenance is the precondition, not the name source: the database name
+    comes from the contract's own OPENLAKEFORGE_CATALOG_NAME, and nothing here
+    maps a stage onto a `lakehouse_<stage>` catalog. Physical names stay
+    contract-derived, and this stays true for a provider that names its
+    catalogs some other way.
+    """
+    applied_stage = environ.get(CONTRACT_STAGE_ENV, "")
+    if not applied_stage:
+        raise OpenMetadataError(
+            f"No applied provider contract in this environment ({CONTRACT_STAGE_ENV} is unset), so the catalog "
+            "this deploy would seed cannot be attributed to a stage. Deploy the platform for this stage, or "
+            "re-resolve the contract environment, before seeding governance metadata."
+        )
+    contract_database = environ.get("OPENLAKEFORGE_CATALOG_NAME", "")
+    if catalog_database != contract_database:
+        raise OpenMetadataError(
+            f"OpenMetadata deploy would seed catalog database {catalog_database!r}, but the contract applied in "
+            f"this environment serves stage {applied_stage!r}, whose catalog is {contract_database!r}. An "
+            "OPENMETADATA_CATALOG_DATABASE inherited from another stage is not an override."
         )
 
 

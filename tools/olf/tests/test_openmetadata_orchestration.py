@@ -4,10 +4,20 @@ import pytest
 
 from olf import openmetadata as om
 
+# `build_contract_env` writes these only where a provider contract was
+# actually applied for the stage being deployed; `OpenMetadataConfig` refuses
+# an environment that carries neither.
+APPLIED_DEV_CONTRACT = {
+    "OPENLAKEFORGE_CONTRACT_STAGE": "dev",
+    "OPENLAKEFORGE_CATALOG_NAME": "lakehouse_dev",
+}
+
+
 
 def test_storage_bucket_specs_dedup() -> None:
     cfg = om.OpenMetadataConfig.from_environment(
         {
+            **APPLIED_DEV_CONTRACT,
             "OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON": "{}",
             "OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON": "{}",
         },
@@ -19,7 +29,6 @@ def test_storage_bucket_specs_dedup() -> None:
         allow_missing_assets=False,
         catalog_service="polaris",
         catalog_database="lakehouse_dev",
-        cleanup_legacy_default_database=False,
     )
     deployer = om.OpenMetadataDeployer(cfg, om.OpenMetadataClient(cfg.base_url))
     names = [spec["name"] for spec in deployer.storage_bucket_specs()]
@@ -29,6 +38,7 @@ def test_storage_bucket_specs_dedup() -> None:
 def test_product_assets_use_provider_schema_fqns_and_dedup() -> None:
     cfg = om.OpenMetadataConfig.from_environment(
         {
+            **APPLIED_DEV_CONTRACT,
             "OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON": (
                 '{"sales": "aws_glue.lakehouse_dev.sales_silver"}'
             ),
@@ -44,7 +54,6 @@ def test_product_assets_use_provider_schema_fqns_and_dedup() -> None:
         allow_missing_assets=False,
         catalog_service="aws_glue",
         catalog_database="lakehouse_dev",
-        cleanup_legacy_default_database=False,
     )
     deployer = om.OpenMetadataDeployer(cfg, om.OpenMetadataClient(cfg.base_url))
     product = {
@@ -84,6 +93,7 @@ def test_product_assets_use_provider_schema_fqns_and_dedup() -> None:
 def test_logical_asset_name_resolves_through_provider_contract() -> None:
     cfg = om.OpenMetadataConfig.from_environment(
         {
+            **APPLIED_DEV_CONTRACT,
             "OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON": "{}",
             "OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON":
             '{"sales_order_revenue": "aws_glue.lakehouse_dev.sales_order_revenue_gold"}',
@@ -96,7 +106,6 @@ def test_logical_asset_name_resolves_through_provider_contract() -> None:
         allow_missing_assets=False,
         catalog_service="aws_glue",
         catalog_database="lakehouse_dev",
-        cleanup_legacy_default_database=False,
     )
     deployer = om.OpenMetadataDeployer(cfg, om.OpenMetadataClient(cfg.base_url))
     product = {
@@ -113,6 +122,7 @@ def test_logical_asset_name_resolves_through_provider_contract() -> None:
 def test_deployment_input_validation_rejects_new_product_without_contract() -> None:
     cfg = om.OpenMetadataConfig.from_environment(
         {
+            **APPLIED_DEV_CONTRACT,
             "OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON": "{}",
             "OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON": "{}",
         },
@@ -124,7 +134,6 @@ def test_deployment_input_validation_rejects_new_product_without_contract() -> N
         allow_missing_assets=False,
         catalog_service="polaris",
         catalog_database="lakehouse_dev",
-        cleanup_legacy_default_database=False,
     )
     deployer = om.OpenMetadataDeployer(cfg, om.OpenMetadataClient(cfg.base_url))
     domain_specs = [
@@ -150,6 +159,7 @@ def test_deployment_input_validation_rejects_new_product_without_contract() -> N
 def test_deployment_input_validation_rejects_unknown_logical_asset() -> None:
     cfg = om.OpenMetadataConfig.from_environment(
         {
+            **APPLIED_DEV_CONTRACT,
             "OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON": "{}",
             "OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON": (
                 '{"sales_order_revenue": "polaris.lakehouse_dev.sales_order_revenue_gold"}'
@@ -163,7 +173,6 @@ def test_deployment_input_validation_rejects_unknown_logical_asset() -> None:
         allow_missing_assets=False,
         catalog_service="polaris",
         catalog_database="lakehouse_dev",
-        cleanup_legacy_default_database=False,
     )
     deployer = om.OpenMetadataDeployer(cfg, om.OpenMetadataClient(cfg.base_url))
     domain_specs = [
@@ -190,6 +199,7 @@ def test_deployment_input_validation_rejects_unknown_logical_asset() -> None:
 def test_deployment_input_validation_rejects_malformed_bronze_before_writes() -> None:
     cfg = om.OpenMetadataConfig.from_environment(
         {
+            **APPLIED_DEV_CONTRACT,
             "OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON": "{}",
             "OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON": "{}",
         },
@@ -201,7 +211,6 @@ def test_deployment_input_validation_rejects_malformed_bronze_before_writes() ->
         allow_missing_assets=False,
         catalog_service="polaris",
         catalog_database="lakehouse_dev",
-        cleanup_legacy_default_database=False,
     )
     deployer = om.OpenMetadataDeployer(cfg, om.OpenMetadataClient(cfg.base_url))
     domain_specs = [
@@ -263,6 +272,7 @@ dashboards: []
     )
     cfg = om.OpenMetadataConfig.from_environment(
         {
+            **APPLIED_DEV_CONTRACT,
             "OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON": (
                 '{"sales": "polaris.lakehouse_dev.sales_silver"}'
             ),
@@ -278,7 +288,6 @@ dashboards: []
         allow_missing_assets=False,
         catalog_service="polaris",
         catalog_database="lakehouse_dev",
-        cleanup_legacy_default_database=False,
     )
 
     with pytest.raises(
@@ -336,7 +345,7 @@ dashboards: []
 """
     )
     cfg = om.OpenMetadataConfig.from_environment(
-        {},
+        dict(APPLIED_DEV_CONTRACT),
         base_url="http://x",
         admin_email="a",
         admin_password="p",
@@ -345,7 +354,6 @@ dashboards: []
         allow_missing_assets=False,
         catalog_service="polaris",
         catalog_database="lakehouse_dev",
-        cleanup_legacy_default_database=False,
     )
     deployer = om.OpenMetadataDeployer(cfg, om.OpenMetadataClient(cfg.base_url))
     seeded_containers = []
@@ -390,7 +398,9 @@ dashboards: []
     assert seeded_containers[-1][3] == "Raw sales orders."
 
 
-def _single_product_deployer(tmp_path: Path) -> om.OpenMetadataDeployer:
+def _single_product_deployer(
+    tmp_path: Path, *, environ: dict[str, str] | None = None, catalog_database: str = "lakehouse_dev"
+) -> om.OpenMetadataDeployer:
     (tmp_path / "bronze" / "crm").mkdir(parents=True)
     (tmp_path / "bronze" / "crm" / "source.yaml").write_text(
         """apiVersion: openlakeforge.io/v1alpha3
@@ -439,7 +449,7 @@ dashboards: []
 """
     )
     cfg = om.OpenMetadataConfig.from_environment(
-        {},
+        {**APPLIED_DEV_CONTRACT, **(environ or {})},
         base_url="http://x",
         admin_email="a",
         admin_password="p",
@@ -447,10 +457,31 @@ dashboards: []
         metadata_source_dir="",
         allow_missing_assets=False,
         catalog_service="polaris",
-        catalog_database="lakehouse_dev",
-        cleanup_legacy_default_database=False,
+        catalog_database=catalog_database,
     )
     return om.OpenMetadataDeployer(cfg, om.OpenMetadataClient(cfg.base_url))
+
+
+def test_deploy_does_not_touch_the_unscoped_legacy_database(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    deployer = _single_product_deployer(tmp_path)
+    requests: list[tuple[str, str]] = []
+
+    monkeypatch.setattr(deployer, "wait_for_openmetadata", lambda: None)
+    monkeypatch.setattr(deployer, "login", lambda: None)
+    monkeypatch.setattr(deployer, "_domain_specs", lambda: [])
+    monkeypatch.setattr(deployer, "ensure_storage_service", lambda: None)
+    monkeypatch.setattr(deployer, "storage_bucket_specs", lambda: [])
+    monkeypatch.setattr(
+        deployer.client,
+        "request",
+        lambda method, path, **_kwargs: requests.append((method, path)) or {"id": "legacy"},
+    )
+
+    deployer.deploy()
+
+    assert requests == []
 
 
 def test_deploy_creates_each_schema_before_seeding_its_tables(
@@ -496,3 +527,46 @@ def test_deploy_creates_each_schema_before_seeding_its_tables(
         f"schema:{gold}",
         f"table:{gold}.mart_order_revenue",
     ]
+
+
+def test_deploy_refuses_another_stages_schemas_before_any_write(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One OpenMetadata deployment holds every governed stage, so a deploy that
+    resolved its schema FQNs from one stage's contract environment and its
+    database from another's would seed the wrong stage's catalog."""
+    deployer = _single_product_deployer(
+        tmp_path,
+        environ={
+            # A PROD contract was applied, so this environment is attributable
+            # -- but it still carries the database FQN and schema maps a DEV
+            # run left behind, which agree with each other and must not be
+            # what the guard trusts.
+            "OPENLAKEFORGE_CONTRACT_STAGE": "prod",
+            "OPENLAKEFORGE_CATALOG_NAME": "lakehouse_prod",
+            "OPENLAKEFORGE_CATALOG_DATABASE_FQN": "polaris.lakehouse_dev",
+            "OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON": '{"sales": "polaris.lakehouse_dev.sales_silver"}',
+            "OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON": (
+                '{"order_revenue": "polaris.lakehouse_dev.order_revenue_gold"}'
+            ),
+        },
+        catalog_database="lakehouse_prod",
+    )
+    requests: list[tuple[str, str]] = []
+
+    monkeypatch.setattr(deployer, "wait_for_openmetadata", lambda: None)
+    monkeypatch.setattr(deployer, "login", lambda: None)
+    def request(method: str, path: str, **_kwargs):
+        requests.append((method, path))
+        return {"id": "t", "fullyQualifiedName": "t"}
+
+    monkeypatch.setattr(deployer.client, "request", request)
+    monkeypatch.setattr(deployer, "ensure_container", lambda *args, **kwargs: None)
+    monkeypatch.setattr(deployer, "ensure_storage_service", lambda: None)
+
+    with pytest.raises(om.OpenMetadataError) as excinfo:
+        deployer.deploy()
+
+    assert "polaris.lakehouse_dev.sales_silver" in str(excinfo.value)
+    assert "polaris.lakehouse_prod" in str(excinfo.value)
+    assert requests == []
