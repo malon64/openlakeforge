@@ -109,22 +109,29 @@ def test_stage_identities_do_not_collide_between_dev_and_prod() -> None:
     reused for the other."""
     parsed = _parsed_conformance_contract()
 
-    seen: dict[str, str] = {}
+    # Compared per resource domain, not globally: `provider_contracts.py`
+    # tracks namespaces, catalogs, principals and storage independently, so a
+    # stage whose namespace and principal happen to share a spelling is
+    # legitimate. Collapsing them into one map would fail that deployment
+    # while proving nothing about cross-stage isolation. Storage keeps its
+    # layers together, so two layers sharing one bucket is still a collision.
+    seen: dict[str, dict[str, str]] = {}
     for stage in CONFORMANCE_STAGES:
         stage_contract = parsed.for_stage(stage)
         identities = {
-            "namespace": stage_contract.namespace,
-            "catalog": str(stage_contract.catalog["catalog_name"]),
-            "runtime_identity.principal": str(stage_contract.runtime_identity["principal"]),
-            **{f"storage.{layer}": bucket(stage_contract, layer) for layer in MEDALLION_LAYERS},
+            "namespace": ("namespace", stage_contract.namespace),
+            "catalog": ("catalog", str(stage_contract.catalog["catalog_name"])),
+            "runtime_identity.principal": ("principal", str(stage_contract.runtime_identity["principal"])),
+            **{f"storage.{layer}": ("storage", bucket(stage_contract, layer)) for layer in MEDALLION_LAYERS},
         }
-        for kind, value in identities.items():
+        for kind, (domain, value) in identities.items():
             owner = f"{stage.value}/{kind}"
-            assert value not in seen, (
-                f"{owner} shares its {kind} identity ({value!r}) with {seen[value]}. Stage isolation depends on "
-                f"every one of these being unique to its own stage."
+            within = seen.setdefault(domain, {})
+            assert value not in within, (
+                f"{owner} shares its {domain} identity ({value!r}) with {within[value]}. Stage isolation "
+                f"depends on every one of these being unique to its own stage."
             )
-            seen[value] = owner
+            within[value] = owner
 
 
 def test_stage_generated_configuration_addresses_only_that_stage() -> None:
