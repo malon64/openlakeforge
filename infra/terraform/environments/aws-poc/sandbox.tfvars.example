@@ -3,7 +3,8 @@
 # Copy this file to `sandbox.tfvars` (same directory) and fill in your own values.
 # olf picks it up automatically via -var-file:
 #
-#     cp sandbox.tfvars.example sandbox.tfvars
+#     # from the repository root, so `uv run --project tools/olf` resolves:
+#     cp infra/terraform/environments/aws-poc/sandbox.tfvars.example infra/terraform/environments/aws-poc/sandbox.tfvars
 #     uv run --project tools/olf --locked olf deploy --provider aws --phase platform
 #
 # `sandbox.tfvars` is gitignored so your account details never land in the repo.
