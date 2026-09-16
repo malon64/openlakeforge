@@ -437,7 +437,7 @@ class OpenMetadataDeployer:
                 "OpenMetadata table assets are not available yet:\n"
                 f"{message}\n"
                 "Run the product ETL jobs in Dagster, wait for the catalog metadata ingestion to crawl the catalog, "
-                "then rerun 'make openmetadata-metadata-deploy'."
+                "then rerun 'olf openmetadata deploy-metadata'."
             )
             if self.config.allow_missing_assets:
                 import sys

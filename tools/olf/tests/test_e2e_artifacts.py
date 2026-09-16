@@ -168,7 +168,7 @@ def test_assert_ops_artifacts_skips_floe_report_prefix_for_a_product_less_domain
     the domain-first scaffolding flow); no product job ever selects its
     Silver tables, so Floe never runs for it and it never writes a runtime
     report under floe/reports/<domain>/. Requiring that prefix would fail
-    `make local-e2e` for this supported state."""
+    `olf e2e run --env local` for this supported state."""
     product_less_domain = dataclasses.replace(E2E_INVENTORY.domains[0], products=())
     inventory = dataclasses.replace(E2E_INVENTORY, domains=(product_less_domain, *E2E_INVENTORY.domains[1:]))
     monkeypatch.setattr(_artifacts, "assert_legacy_floe_manifests", lambda *_args: None)
