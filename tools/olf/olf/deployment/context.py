@@ -296,8 +296,8 @@ class DeploymentContext:
         `kubeconfig_path`, when given, overrides the default
         `<repo_root>/.tmp/kubeconfigs/aws.yaml` - the concurrent-deployment
         workflow in `docs/setup/cloud-poc-setup.md` isolates a parallel
-        `olf deploy --provider aws` run with its own kubeconfig file via
-        `AWS_KUBECONFIG_PATH`, matching `local()`'s override.
+        `olf deploy --provider aws --kubeconfig-path "$AWS_KUBECONFIG_PATH"`
+        run with its own kubeconfig file, matching `local()`'s override.
         """
         context = cls._build(
             provider=Provider.AWS,
