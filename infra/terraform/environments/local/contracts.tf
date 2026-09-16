@@ -494,6 +494,12 @@ locals {
           # on the activation side points the webserver at a Service nobody
           # creates, and the stage comes up with no code server reachable.
           code_locations = local.orchestration_contract.code_locations
+          # Deterministic OpenMetadata pipeline-service root (#131). Present
+          # for every enabled stage, not just governed ones: the name itself
+          # is a stage property, independent of whether anything registers
+          # it. Sourced from stage_databases rather than a literal
+          # "dagster_${name}" so the two never drift.
+          pipeline_service_name = local.stage_databases["dagster_${name}"].db_name
         }
         activation = {
           ops_storage_ref = "shared/ops_storage"
@@ -517,6 +523,9 @@ locals {
           reporting = {
             service_ref  = "stage/${name}/reporting"
             endpoint_ref = "stage/${name}/endpoints/reporting"
+            # Deterministic OpenMetadata dashboard-service root (#131), same
+            # rationale as orchestration.pipeline_service_name above.
+            dashboard_service_name = local.stage_databases["superset_${name}"].db_name
           }
         } : {},
         stage.governance ? {

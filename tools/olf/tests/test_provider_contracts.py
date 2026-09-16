@@ -8,7 +8,7 @@ import jsonschema
 import pytest
 
 from olf.contracts import build_contract_env
-from olf.profile import resolve_topology, validate_deployment_profile
+from olf.profile import StageName, resolve_topology, validate_deployment_profile
 from olf.provider_contracts import ProviderContractError, aws_catalog_name, parse_provider_contracts
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -18,6 +18,58 @@ SCHEMA = json.loads((REPO_ROOT / "docs/schema/provider-contracts.schema.json").r
 
 def _fixture(name: str) -> dict:
     return json.loads((FIXTURES / name).read_text())
+
+
+def _synthetic_multi_capability_contract() -> dict:
+    """A hand-assembled v3 contract exercising two governed stages plus one
+    analytics-only stage - deliberately NOT a captured `terraform output -json
+    provider_contracts`, unlike every other fixture in this file.
+
+    No committed fixture combination has this shape: `local-provider-
+    contracts-v3.json` (the only fixture whose contracts.tf root actually
+    emits `pipeline_service_name`/`dashboard_service_name` - see
+    infra/terraform/environments/local/contracts.tf) governs no stage at all,
+    and `aws-provider-contracts-v3.json` is a hand-authored capture standing
+    in for `aws-poc/contracts.tf`, which does not emit either field yet (that
+    adapter work is deliberately still open in #131). Building this input
+    from local's dev stage - the one root that is honest about these fields -
+    keeps the test from asserting behaviour no real provider produces.
+    """
+    base = _fixture("local-provider-contracts-v3.json")
+    base["shared"]["governance_service"] = {
+        "ref": "shared/governance_service",
+        "implementation": "governance.openmetadata",
+    }
+
+    dev = base["stages"]["dev"]
+    dev["governance"] = {"service_ref": "shared/governance_service", "endpoint_ref": "stage/dev/endpoints/governance"}
+    dev["reporting"] = {
+        "service_ref": "stage/dev/reporting",
+        "endpoint_ref": "stage/dev/endpoints/reporting",
+        "dashboard_service_name": "superset_dev",
+    }
+    dev["endpoints"]["governance"] = "stage/dev/endpoints/governance"
+    dev["endpoints"]["reporting"] = "stage/dev/endpoints/reporting"
+
+    # uat: governed like dev, but analytics-off - cloned from dev (post-
+    # governance) by renaming every dev-scoped token, then stripped of the
+    # reporting capability it would otherwise inherit.
+    uat = json.loads(json.dumps(dev).replace("dev", "uat"))
+    del uat["reporting"]
+    del uat["endpoints"]["reporting"]
+
+    # prod: analytics-on, governance-off - the mirror image of uat, proving
+    # `analytics_stages` and `governed_stages` diverge in both directions.
+    prod = base["stages"]["prod"]
+    prod["reporting"] = {
+        "service_ref": "stage/prod/reporting",
+        "endpoint_ref": "stage/prod/endpoints/reporting",
+        "dashboard_service_name": "superset_prod",
+    }
+    prod["endpoints"]["reporting"] = "stage/prod/endpoints/reporting"
+
+    base["stages"] = {"dev": dev, "uat": uat, "prod": prod}
+    return base
 
 
 def _topology(contract: dict):
@@ -810,6 +862,57 @@ def test_governance_service_ref_must_be_the_shared_governance_service_specifical
         parse_provider_contracts(contract, topology)
 
 
+def test_two_governed_stages_each_expose_their_own_deterministic_service_roots() -> None:
+    """#131: a contract declaring more than one governed stage must parse as
+    that many entries, each with its own lakehouse_<stage>/dagster_<stage>/
+    superset_<stage> service roots - not collapse to Terraform's single
+    selected stage the way main.tf's governance_dagster_stage/
+    governance_superset_stage still do for the shared instance's live
+    connections. See _synthetic_multi_capability_contract for why this input
+    is built rather than read from a captured fixture."""
+    contract = _synthetic_multi_capability_contract()
+    topology = _topology(contract)
+
+    parsed = parse_provider_contracts(contract, topology)
+
+    assert {stage.value for stage in parsed.governed_stages} == {"dev", "uat"}
+    dev = parsed.governed_stages[StageName.DEV]
+    uat = parsed.governed_stages[StageName.UAT]
+    assert dev.catalog["catalog_name"] == "lakehouse_dev"
+    assert dev.orchestration["pipeline_service_name"] == "dagster_dev"
+    assert dev.reporting["dashboard_service_name"] == "superset_dev"
+    assert uat.catalog["catalog_name"] == "lakehouse_uat"
+    assert uat.orchestration["pipeline_service_name"] == "dagster_uat"
+    # uat is governed without analytics: its own deterministic roots are
+    # still present even though it has no dashboard root to go with them.
+    assert uat.reporting is None
+    # prod is enabled but not governed: excluded from the governed map even
+    # though it has its own reporting/orchestration service roots too.
+    assert StageName.PROD not in parsed.governed_stages
+
+
+@pytest.mark.parametrize(
+    ("field", "path", "bad_value", "match"),
+    [
+        ("orchestration", "pipeline_service_name", "dagster-dev", "pipeline_service_name must be canonical"),
+        ("reporting", "dashboard_service_name", "superset-dev", "dashboard_service_name must be canonical"),
+    ],
+)
+def test_governed_stage_service_root_names_must_be_canonical(
+    field: str, path: str, bad_value: str, match: str
+) -> None:
+    """A stage-qualified service root that drifts from lakehouse_<stage>'s own
+    naming convention would register an OpenMetadata service under a name a
+    future bootstrap does not expect, silently orphaning it from the stage it
+    describes."""
+    contract = _fixture("aws-provider-contracts-v3.json")
+    topology = _topology(contract)
+    contract["stages"]["dev"][field][path] = bad_value
+
+    with pytest.raises(ProviderContractError, match=match):
+        parse_provider_contracts(contract, topology)
+
+
 @pytest.mark.parametrize(
     ("principal", "match"),
     [
@@ -1029,3 +1132,27 @@ def test_deployment_region_mismatch_names_both_values() -> None:
     message = str(excinfo.value)
     assert "'eu-west-9'" in message
     assert repr(topology.region) in message
+
+
+def test_analytics_stages_are_tracked_separately_from_governed_stages() -> None:
+    """#131: analytics and governance are independent per-stage capabilities
+    (ADR 0011), so the dashboard roots OpenMetadata registers cannot be found
+    by iterating the governed set. A stage with analytics and no governance
+    owns the only `superset_<stage>` that exists; looping `governed_stages`
+    for all three service types would skip it silently. See
+    _synthetic_multi_capability_contract for why this input is built rather
+    than read from a captured fixture."""
+    contract = _synthetic_multi_capability_contract()
+    topology = _topology(contract)
+
+    parsed = parse_provider_contracts(contract, topology)
+
+    analytics_only = set(parsed.analytics_stages) - set(parsed.governed_stages)
+    assert analytics_only, (
+        "the fixture no longer has an analytics stage without governance, so this "
+        "test cannot show the two sets differ; pick another stage rather than deleting it."
+    )
+    for stage in analytics_only:
+        reporting = parsed.analytics_stages[stage].reporting
+        assert reporting is not None
+        assert reporting["dashboard_service_name"] == f"superset_{stage.value}"
