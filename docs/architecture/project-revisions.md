@@ -129,6 +129,7 @@ trip, and `olf report validate` runs the same rules on demand:
 - **No `lakehouse_<stage>` or `olf-<stage>` name.** Target connectivity is
   resolved at import time, so a checked-in stage name would survive
   promotion and point PROD at another stage.
+
 `s3://` paths, `http://` endpoints, and credential literals are rejected for
 every component, reports included, by the revision's own scan.
 
