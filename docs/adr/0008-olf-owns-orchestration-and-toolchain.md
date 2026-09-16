@@ -35,9 +35,11 @@ Terraform remains the state and drift engine; Helm remains the chart and release
 engine. `olf` does not reimplement either — it sequences them.
 
 There is **no tracked shell**. `olf check structure` rejects shell scripts in the
-repository, so this is enforced rather than conventional. `Makefile` targets are
-deprecated checkout compatibility: each is a one-line delegate to the equivalent
-`olf` command, and none is the supported interface.
+repository, so this is enforced rather than conventional. `olf` is the only
+orchestration surface: there is no `Makefile` and no other entry point. Every
+target it once carried was a one-line delegate to an `olf` command, so deleting
+it removed nothing but a second, untested surface that could drift from the
+CLI it wrapped.
 
 The substrate is a `DeploymentEngine` sequencing a `DeploymentProvider`, with
 typed adapters per external tool under `tools/olf/olf/tooling/`. Cloud providers
@@ -93,3 +95,11 @@ Merges the decisions previously recorded as ADR 0028 (Python owns repository
 orchestration, which fully superseded ADR 0017's shell/Python split after ADRs
 0025 and 0027 ported the local and cloud lifecycles), 0029 (the managed
 toolchain), and 0030 (SDK-managed cloud authentication).
+
+Issue #212 deleted the `Makefile`: every target was a one-line `olf` delegate,
+so its only remaining function was a second, untested surface that had
+already drifted once (PR #207 fixed `local-e2e`/`local-slim-e2e` invocations
+that could not have worked). `olf` is now the only orchestration surface, not
+merely the supported one; `_check_makefile_target_wiring` in
+`tools/olf/olf/contracts_check.py` and its test coverage were removed along
+with it.
