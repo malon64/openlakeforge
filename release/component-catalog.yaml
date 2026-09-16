@@ -118,6 +118,6 @@ update_process:
   owner: release-engineering
   steps:
     - Update the source version and digest in this catalog together with its lockfile.
-    - Run `make check-components` and all repository checks.
+    - Run `uv run --project tools/olf --locked olf check components` and all repository checks.
     - Review the generated dependency diff and build both runtime images.
     - Merge the catalog change before creating an immutable semver release tag.

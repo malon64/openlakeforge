@@ -28,7 +28,7 @@ being constructed without entity metadata.
 
 | Requirement | Expected State |
 | --- | --- |
-| Local stack | `make local-foundation-up` and `make local-up` have completed. |
+| Local stack | `uv run --project tools/olf --locked olf deploy --provider local --phase foundation` and `uv run --project tools/olf --locked olf deploy --provider local` have completed. |
 | Floe runner image | Rendered profile and generated manifests use the current configured Floe runner image. |
 | OpenLineage proxy | Not deployed. The test uses a temporary capture endpoint. |
 | dbt OpenLineage | Disabled. The test isolates Floe events only. |

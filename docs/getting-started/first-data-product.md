@@ -111,7 +111,10 @@ olf deploy --provider local
 ```
 
 The preset comes from `openlakeforge.yaml`, which `olf init` writes as Slim.
-In a contributor checkout, use `make local-up` instead.
+From a contributor checkout, where `olf` is not on `PATH`, run the same
+deployment through `uv` instead: `uv run --project tools/olf --locked olf
+deploy --provider local`. Its `openlakeforge.yaml` resolves the profile the
+same way.
 
 See the [local installation guide](../setup/local.md) for the complete setup.
 

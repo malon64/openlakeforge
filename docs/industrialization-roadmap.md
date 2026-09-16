@@ -371,10 +371,9 @@ private networking, ingress/TLS, and restore validation.
 
 ## Supported Interfaces and Versioning
 
-- Make targets remain the supported interface for developing and operating from
-  a checkout. The `olf` CLI remains the tested cross-environment implementation
-  layer, and from Milestone 2 also carries the product-scaffolding and consumer
-  install paths (#40, #80) that do not assume a repository clone.
+- `olf` remains the only supported interface for developing and operating from
+  a checkout, and from Milestone 2 also carries the product-scaffolding and
+  consumer install paths (#40, #80) that do not assume a repository clone.
 - Add explicit preflight, conformance, backup, restore, and release-check
   targets as those capabilities are delivered.
 - `provider_contracts` v3 separates shared platform bindings from explicit
@@ -392,7 +391,7 @@ private networking, ingress/TLS, and restore validation.
 
 | Cadence | Required verification |
 | --- | --- |
-| Pull request | Existing static/unit checks, contract-schema validation, image build, SBOM, vulnerability/IaC/secret scans, and — from `v0.2-alpha` — the 45-minute `make local-slim-smoke` kind gate on the slim profile (#81) |
+| Pull request | Existing static/unit checks, contract-schema validation, image build, SBOM, vulnerability/IaC/secret scans, and — from `v0.2-alpha` — the 45-minute `olf smoke run` kind gate on the slim profile (#81) |
 | Main/nightly | Fresh local full end-to-end run on the full profile from `v0.2-alpha` onward (#60); `v0.1.0-alpha.1` records one clean local release run instead |
 | Scheduled AWS | Ephemeral deployment, all product pipelines, restore drill, and teardown after the secure beta profile is introduced |
 | Release | `v0.1.0-alpha.1`: digest-mismatch negative test, clean local install, full three-product result, and release-bundle verification. `v0.2-alpha` adds consumer install from a published release (#80) and fourth-product onboarding (#40). Later releases add lifecycle and recovery gates cumulatively. |

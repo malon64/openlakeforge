@@ -1,10 +1,11 @@
 # AWS POC platform environment — account-specific configuration TEMPLATE.
 #
 # Copy this file to `sandbox.tfvars` (same directory) and fill in your own values.
-# The stack scripts pick it up automatically via -var-file:
+# olf picks it up automatically via -var-file:
 #
-#     cp sandbox.tfvars.example sandbox.tfvars
-#     make aws-platform-up
+#     # from the repository root, so `uv run --project tools/olf` resolves:
+#     cp infra/terraform/environments/aws-poc/sandbox.tfvars.example infra/terraform/environments/aws-poc/sandbox.tfvars
+#     uv run --project tools/olf --locked olf deploy --provider aws --phase platform
 #
 # `sandbox.tfvars` is gitignored so your account details never land in the repo.
 # Override the path with AWS_TFVARS_FILE=/path/to/your.tfvars if you prefer.

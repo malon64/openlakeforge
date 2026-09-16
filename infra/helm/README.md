@@ -34,11 +34,11 @@ infra/helm/
 ## Workflow
 
 ```bash
-make local-foundation-up
-make local-platform-up
-make local-artifacts-deploy
-make local-up
-make local-forward
-make local-down
-make local-foundation-down
+uv run --project tools/olf --locked olf deploy --provider local --phase foundation
+uv run --project tools/olf --locked olf deploy --provider local --phase platform
+uv run --project tools/olf --locked olf deploy --provider local --phase artifacts
+uv run --project tools/olf --locked olf deploy --provider local
+uv run --project tools/olf --locked olf forward --provider local
+uv run --project tools/olf --locked olf destroy --provider local
+uv run --project tools/olf --locked olf destroy --provider local --phase foundation
 ```

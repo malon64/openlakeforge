@@ -82,7 +82,7 @@ See [ADR 0008](../adr/0008-olf-owns-orchestration-and-toolchain.md).
    v<version>` (see below) to confirm the published release is independently
    verifiable and installs from a clean checkout.
 
-`make release-check` fails a release if:
+`olf check all` fails a release if:
 
 - `distribution.version` isn't a valid alpha semver, or (when `--tag` is
   passed) the tag doesn't match it.
@@ -187,7 +187,7 @@ the pipeline described above is documented as exercised rather than intended.
 | Release workflow | Run `31401253176`, `event=push`, `ref=v0.1.0-alpha.1`, concluded `success` on 2026-08-10 |
 | Published release | `v0.1.0-alpha.1`, not a draft, marked pre-release, published 2026-08-10 |
 | Release assets | `CHANGELOG.md`, `checksums.txt`, `checksums.txt.bundle`, `compatibility-matrix.md`, `component-catalog.yaml`, `component-manifest.json`, `project-code.spdx.json`, `superset.spdx.json` |
-| Static gates | `make release-check` runs as a job on every pull request. `main` is unprotected, so it is not merge-blocking yet (#37) |
+| Static gates | `olf check all` runs as a job on every pull request. `main` is unprotected, so it is not merge-blocking yet (#37) |
 
 Because the tag-triggered run is the one that builds, pushes, signs, and attests
 the images, a failure in that stage would have failed the run; the successful

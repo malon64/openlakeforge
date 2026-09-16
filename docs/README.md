@@ -137,7 +137,7 @@ It provides shared cross-environment functionality used by local, AWS, and Azure
 * a managed Terraform/Helm/kubectl/kind toolchain, so those tools do not
   need to be installed on the host
 
-The current CLI is the supported OpenLakeForge interface for deployment, checks, and release workflows; a checkout's `Makefile` provides deprecated one-line delegates to the same `olf` commands.
+`olf` is the primary supported OpenLakeForge interface for deployment, checks, and release workflows; a checkout's `Makefile` provides deprecated one-line delegates to the same `olf` commands and is being removed (#222).
 
 ➡️ [`olf` CLI documentation](../tools/olf/README.md)
 

@@ -531,7 +531,7 @@ logical inventory the files share.
 Run descriptor and provider-contract validation from the repository root:
 
 ```bash
-make check-contracts
+uv run --project tools/olf --locked olf check contracts
 ```
 
 This checks `lakehouse_code/lakehouse.yaml` and every
@@ -546,15 +546,15 @@ docs/schema/source.schema.json
 For broader repository validation:
 
 ```bash
-make check-structure
-make check-contracts
-make check-dbt
+uv run --project tools/olf --locked olf check structure
+uv run --project tools/olf --locked olf check contracts
+uv run --project tools/olf --locked olf check dbt
 ```
 
 or run the complete release validation:
 
 ```bash
-make release-check
+uv run --project tools/olf --locked olf check all
 ```
 
 ---

@@ -1,20 +1,21 @@
 # AWS EKS foundation — account-specific configuration TEMPLATE.
 #
 # Copy this file to `sandbox.tfvars` (same directory) and fill in your own values,
-# then run the foundation scripts (they pick it up automatically via -var-file):
+# then deploy the foundation (olf picks it up automatically via -var-file):
 #
-#     cp sandbox.tfvars.example sandbox.tfvars
-#     make aws-foundation-up
+#     # from the repository root, so `uv run --project tools/olf` resolves:
+#     cp infra/terraform/foundations/aws-eks/sandbox.tfvars.example infra/terraform/foundations/aws-eks/sandbox.tfvars
+#     uv run --project tools/olf --locked olf deploy --provider aws --phase foundation
 #
 # `sandbox.tfvars` is gitignored so your account details never land in the repo.
 # Override the path with AWS_TFVARS_FILE=/path/to/your.tfvars if you prefer.
 # See docs/setup/cloud-poc-setup.md for the full walkthrough.
 
 # NOTE: the cluster name is NOT set here. It comes from the AWS_CLUSTER_NAME
-# environment variable (the Makefile defaults it to a "limited-"-prefixed name for
+# environment variable (olf defaults it to a "limited-"-prefixed name for
 # sandbox IAM guardrails) so it stays in sync with the kube context and kubeconfig
 # alias the tooling derives from it. Set AWS_CLUSTER_NAME to change it; a value put
-# here would be overridden by the -var the scripts pass.
+# here would be overridden by the -var olf passes.
 
 # Tags applied to every resource. Many managed accounts REQUIRE a specific set of
 # tags (case-sensitive) and delete untagged resources. Adjust keys/values to match

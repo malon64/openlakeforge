@@ -12,9 +12,9 @@ ghcr.io/openlakeforge/project-code:local
 Generate the Floe manifests, then build and load the image into kind with:
 
 ```bash
-make floe-manifest
-make project-code-image
-make project-code-load
+uv run --project tools/olf --locked olf floe generate-manifests --provider local
+uv run --project tools/olf --locked olf images build project-code
+uv run --project tools/olf --locked olf images load project-code
 ```
 
 The image contains Dagster, `dagster-floe`, dlt extract code, domain-owned
@@ -23,12 +23,12 @@ domain Python code, and shared OpenLakeForge libraries. It intentionally does
 not install the Floe CLI.
 The base image is configurable with `PROJECT_CODE_PYTHON_BASE_IMAGE`; AWS
 builds default this to `public.ecr.aws/docker/library/python:3.12-slim` to avoid
-Docker Hub during `make aws-artifacts-deploy`.
+Docker Hub during `olf deploy --provider aws --phase artifacts`.
 The dbt profile rendered into the image is selected with
 `PROJECT_CODE_DBT_PROFILE_ENV` (`local`, `azure`, or `aws`). The Docker build
 renders `libs/dbt/profiles/<env>.yml` into each product project before baking
 dbt manifests.
-`make floe-manifest` generates the product manifests locally, bakes them into
+`olf floe generate-manifests` generates the product manifests locally, bakes them into
 this image for Dagster asset loading, and publishes the same files to SeaweedFS
 outside Terraform for separate runner pods.
 
