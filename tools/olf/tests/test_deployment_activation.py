@@ -317,13 +317,9 @@ def test_activating_a_revision_imports_into_the_activated_stages_superset(report
 
 
 def test_reactivating_the_same_revision_does_not_reimport_reports(report_harness) -> None:  # noqa: ANN001
-    """Re-promoting an already-active revision must not duplicate or corrupt
-    dashboards. The activation-level idempotency gate already skips the whole
-    rollout (`release_runs_activation`); report import rides that gate rather
-    than adding a second one, so a no-op redeploy touches Superset zero times
-    -- and *any* rollout that does happen reimports a bundle whose assets
-    Superset's importer (`_IMPORT_SCRIPT`) matches and overwrites by stable
-    uuid, so even a repeated import cannot duplicate an asset."""
+    """Re-promoting an already-active revision imports its reports once, not
+    twice -- promotion is replayed routinely, and a second import is how
+    dashboards get duplicated."""
     report_harness.deploy("prod")
     report_harness.deploy("prod")
 
