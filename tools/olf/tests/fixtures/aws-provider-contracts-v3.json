@@ -104,12 +104,17 @@
         "service_ref": "stage/dev/orchestration",
         "endpoint_ref": "stage/dev/endpoints/orchestration",
         "code_locations": [
-          {"name": "openlakeforge-dagster", "definitions_module": "lakehouse_code.definitions"}
-        ]
+          {
+            "name": "openlakeforge-dagster",
+            "definitions_module": "lakehouse_code.definitions"
+          }
+        ],
+        "pipeline_service_name": "dagster_dev"
       },
       "reporting": {
         "service_ref": "stage/dev/reporting",
-        "endpoint_ref": "stage/dev/endpoints/reporting"
+        "endpoint_ref": "stage/dev/endpoints/reporting",
+        "dashboard_service_name": "superset_dev"
       },
       "governance": {
         "service_ref": "shared/governance_service",
@@ -181,12 +186,17 @@
         "service_ref": "stage/uat/orchestration",
         "endpoint_ref": "stage/uat/endpoints/orchestration",
         "code_locations": [
-          {"name": "openlakeforge-dagster", "definitions_module": "lakehouse_code.definitions"}
-        ]
+          {
+            "name": "openlakeforge-dagster",
+            "definitions_module": "lakehouse_code.definitions"
+          }
+        ],
+        "pipeline_service_name": "dagster_uat"
       },
       "reporting": {
         "service_ref": "stage/uat/reporting",
-        "endpoint_ref": "stage/uat/endpoints/reporting"
+        "endpoint_ref": "stage/uat/endpoints/reporting",
+        "dashboard_service_name": "superset_uat"
       },
       "governance": {
         "service_ref": "shared/governance_service",
@@ -258,12 +268,17 @@
         "service_ref": "stage/prod/orchestration",
         "endpoint_ref": "stage/prod/endpoints/orchestration",
         "code_locations": [
-          {"name": "openlakeforge-dagster", "definitions_module": "lakehouse_code.definitions"}
-        ]
+          {
+            "name": "openlakeforge-dagster",
+            "definitions_module": "lakehouse_code.definitions"
+          }
+        ],
+        "pipeline_service_name": "dagster_prod"
       },
       "reporting": {
         "service_ref": "stage/prod/reporting",
-        "endpoint_ref": "stage/prod/endpoints/reporting"
+        "endpoint_ref": "stage/prod/endpoints/reporting",
+        "dashboard_service_name": "superset_prod"
       },
       "activation": {
         "ops_storage_ref": "shared/ops_storage",

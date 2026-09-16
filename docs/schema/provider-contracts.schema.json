@@ -185,6 +185,7 @@
       "properties": {
         "service_ref": {"$ref": "#/definitions/nonEmptyString"},
         "endpoint_ref": {"$ref": "#/definitions/nonEmptyString"},
+        "pipeline_service_name": {"$ref": "#/definitions/nonEmptyString"},
         "code_locations": {
           "type": "array",
           "minItems": 1,
@@ -198,6 +199,16 @@
             }
           }
         }
+      }
+    },
+    "reportingBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["service_ref", "endpoint_ref"],
+      "properties": {
+        "service_ref": {"$ref": "#/definitions/nonEmptyString"},
+        "endpoint_ref": {"$ref": "#/definitions/nonEmptyString"},
+        "dashboard_service_name": {"$ref": "#/definitions/nonEmptyString"}
       }
     },
     "stage": {
@@ -219,7 +230,7 @@
         "catalog": {"$ref": "#/definitions/catalog"},
         "query": {"$ref": "#/definitions/query"},
         "orchestration": {"$ref": "#/definitions/orchestrationBinding"},
-        "reporting": {"$ref": "#/definitions/serviceBinding"},
+        "reporting": {"$ref": "#/definitions/reportingBinding"},
         "governance": {"$ref": "#/definitions/serviceBinding"},
         "activation": {
           "type": "object",

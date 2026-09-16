@@ -8,7 +8,7 @@ import jsonschema
 import pytest
 
 from olf.contracts import build_contract_env
-from olf.profile import resolve_topology, validate_deployment_profile
+from olf.profile import StageName, resolve_topology, validate_deployment_profile
 from olf.provider_contracts import ProviderContractError, aws_catalog_name, parse_provider_contracts
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -807,6 +807,54 @@ def test_governance_service_ref_must_be_the_shared_governance_service_specifical
     contract["stages"]["dev"]["governance"]["service_ref"] = "shared/ops_storage"
 
     with pytest.raises(ProviderContractError, match="must reference the shared governance service"):
+        parse_provider_contracts(contract, topology)
+
+
+def test_two_governed_stages_each_expose_their_own_deterministic_service_roots() -> None:
+    """#131: a contract declaring more than one governed stage must parse as
+    that many entries, each with its own lakehouse_<stage>/dagster_<stage>/
+    superset_<stage> service roots - not collapse to Terraform's single
+    selected stage the way main.tf's governance_dagster_stage/
+    governance_superset_stage still do for the shared instance's live
+    connections."""
+    contract = _fixture("aws-provider-contracts-v3.json")
+    topology = _topology(contract)
+
+    parsed = parse_provider_contracts(contract, topology)
+
+    assert {stage.value for stage in parsed.governed_stages} == {"dev", "uat"}
+    dev = parsed.governed_stages[StageName.DEV]
+    uat = parsed.governed_stages[StageName.UAT]
+    assert dev.catalog["catalog_name"] == "lakehouse_dev"
+    assert dev.orchestration["pipeline_service_name"] == "dagster_dev"
+    assert dev.reporting["dashboard_service_name"] == "superset_dev"
+    assert uat.catalog["catalog_name"] == "lakehouse_uat"
+    assert uat.orchestration["pipeline_service_name"] == "dagster_uat"
+    assert uat.reporting["dashboard_service_name"] == "superset_uat"
+    # prod is enabled but not governed: excluded from the governed map even
+    # though it has its own reporting/orchestration service roots too.
+    assert StageName.PROD not in parsed.governed_stages
+
+
+@pytest.mark.parametrize(
+    ("field", "path", "bad_value", "match"),
+    [
+        ("orchestration", "pipeline_service_name", "dagster-dev", "pipeline_service_name must be canonical"),
+        ("reporting", "dashboard_service_name", "superset-dev", "dashboard_service_name must be canonical"),
+    ],
+)
+def test_governed_stage_service_root_names_must_be_canonical(
+    field: str, path: str, bad_value: str, match: str
+) -> None:
+    """A stage-qualified service root that drifts from lakehouse_<stage>'s own
+    naming convention would register an OpenMetadata service under a name a
+    future bootstrap does not expect, silently orphaning it from the stage it
+    describes."""
+    contract = _fixture("aws-provider-contracts-v3.json")
+    topology = _topology(contract)
+    contract["stages"]["dev"][field][path] = bad_value
+
+    with pytest.raises(ProviderContractError, match=match):
         parse_provider_contracts(contract, topology)
 
 

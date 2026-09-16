@@ -385,6 +385,18 @@ class ProviderContracts:
         except KeyError as exc:
             raise ProviderContractError(f"provider contract has no enabled {stage_name.value!r} stage") from exc
 
+    @property
+    def governed_stages(self) -> Mapping[StageName, StageContract]:
+        """Every enabled stage whose governance capability is on, keyed by
+        stage name. #131: the shared OpenMetadata instance's single Iceberg/
+        Dagster/Superset connection today comes from Terraform collapsing
+        this same set to one stage (main.tf's governance_dagster_stage); this
+        map is what a future bootstrap loops over instead, using each
+        governed stage's own deterministic service-root names (catalog.
+        catalog_name, orchestration.pipeline_service_name, reporting.
+        dashboard_service_name)."""
+        return MappingProxyType({name: stage for name, stage in self.stages.items() if stage.governance is not None})
+
 
 def _parse_shared(value: object) -> SharedPlatformContract:
     required = {
@@ -633,7 +645,7 @@ def _parse_stage(
         document["orchestration"],
         where=f"stages.{name.value}.orchestration",
         required={"service_ref", "endpoint_ref"},
-        optional={"code_locations"},
+        optional={"code_locations", "pipeline_service_name"},
     )
     if "code_locations" in orchestration:
         _code_locations(orchestration["code_locations"], where=f"stages.{name.value}.orchestration.code_locations")
@@ -649,6 +661,20 @@ def _parse_stage(
         stage=name,
         path="endpoints/orchestration",
     )
+    # Every enabled stage runs its own Dagster instance regardless of
+    # governance, so this deterministic root name lives on orchestration,
+    # not gated behind the governance block below. #131: a future OpenMetadata
+    # bootstrap loops over the governed subset of `stages` and needs each
+    # one's pipeline-service root without re-deriving it from the stage name.
+    # Optional because a persisted v3 contract from before this field (same
+    # backward-compat rationale as _LEGACY_CODE_LOCATIONS above) has none.
+    if "pipeline_service_name" in orchestration:
+        expected_pipeline_service = f"dagster_{name.value}"
+        if orchestration["pipeline_service_name"] != expected_pipeline_service:
+            raise ProviderContractError(
+                f"stages.{name.value}.orchestration.pipeline_service_name must be canonical "
+                f"{expected_pipeline_service!r}"
+            )
     activation = _fields(
         document["activation"],
         where=f"stages.{name.value}.activation",
@@ -697,6 +723,7 @@ def _parse_stage(
             reporting,
             where=f"stages.{name.value}.reporting",
             required={"service_ref", "endpoint_ref"},
+            optional={"dashboard_service_name"},
         )
         _canonical_stage_reference(
             reporting["service_ref"],
@@ -710,6 +737,17 @@ def _parse_stage(
             stage=name,
             path="endpoints/reporting",
         )
+        # Deterministic OpenMetadata dashboard-service root (#131), same
+        # backward-compat optionality as orchestration.pipeline_service_name
+        # above - only present on an analytics stage, since that is the only
+        # case Terraform has a Superset instance to name.
+        if "dashboard_service_name" in reporting:
+            expected_dashboard_service = f"superset_{name.value}"
+            if reporting["dashboard_service_name"] != expected_dashboard_service:
+                raise ProviderContractError(
+                    f"stages.{name.value}.reporting.dashboard_service_name must be canonical "
+                    f"{expected_dashboard_service!r}"
+                )
         if endpoints.get("reporting") != reporting["endpoint_ref"]:
             raise ProviderContractError(f"stages.{name.value}.endpoints.reporting must resolve reporting")
     elif "reporting" in endpoints:
