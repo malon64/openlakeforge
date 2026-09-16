@@ -14,6 +14,7 @@ import pytest
 from openlakeforge_domain import inventory_for
 
 from olf.e2e._shell import E2EConfig, Environment, Suite
+from olf.profile import StageName
 
 
 @pytest.fixture(autouse=True)
@@ -36,6 +37,8 @@ def _isolate_toolchain(monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest
 
 E2E_REPO_ROOT = Path(__file__).resolve().parents[3]
 E2E_INVENTORY = inventory_for(E2E_REPO_ROOT)
+CONFORMANCE_PROFILE = E2E_REPO_ROOT / "openlakeforge.conformance.yaml"
+CONFORMANCE_STAGES = (StageName.DEV, StageName.PROD)
 
 
 @pytest.fixture(autouse=True)

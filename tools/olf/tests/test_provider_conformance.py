@@ -45,7 +45,7 @@ import hcl2
 import pytest
 from _cloud_support import FakeCloudBackend
 from _tooling_support import RecordedCall, RecordingRunner
-from conftest import write_two_product_fixture
+from conftest import CONFORMANCE_STAGES, write_two_product_fixture
 
 from olf.contracts import build_contract_env
 from olf.deployment.cloud.backend import FoundationFacts
@@ -132,13 +132,6 @@ _PHASE_STEP = {
 _REQUIRED_ROOT_OUTPUTS = ("provider_contracts", "shared_namespace", "stage_names")
 
 _MEDALLION_LAYERS = ("bronze", "silver", "gold")
-
-# The stages every provider's captured contract must serve, so cross-provider
-# comparison is over a declared set rather than whatever the fixtures happen to
-# share - an intersection would skip a dropped stage instead of failing on it.
-# A provider may serve more (AWS's fixture also carries UAT); it may not serve
-# fewer.
-_CONFORMANCE_STAGES = (StageName.DEV, StageName.PROD)
 
 
 def _ok(stdout: str = "") -> CommandResult:
@@ -883,14 +876,11 @@ def test_a_stage_bucket_that_extends_another_stages_name_is_not_a_leak() -> None
 
 
 def test_logical_stage_identities_are_identical_across_providers() -> None:
-    """The same profile, deployed to a different provider, addresses a stage by
-    the same logical names. Deliberately limited to the logical identities:
-    physical bucket names and runtime principals may legitimately be
-    account-derived, and rule 2 delegates them to the provider contract.
+    """Each provider gives the conformance stages the same logical identities.
 
-    The stages compared are declared here rather than intersected from the
-    fixtures, so a captured contract that quietly drops one fails instead of
-    being skipped.
+    Physical bucket names and principals remain provider-owned. Using the
+    declared baseline instead of intersecting fixtures makes a missing stage
+    fail rather than disappear from the comparison.
     """
     parsed = {}
     for provider in Provider:
@@ -902,14 +892,14 @@ def test_logical_stage_identities_are_identical_across_providers() -> None:
         f"like with like. Capture every provider's contract from the same profile."
     )
     for provider, contracts in parsed.items():
-        missing = sorted(stage.value for stage in _CONFORMANCE_STAGES if stage not in contracts.stages)
+        missing = sorted(stage.value for stage in CONFORMANCE_STAGES if stage not in contracts.stages)
         assert not missing, (
             f"{provider.value}'s captured contract does not serve {missing!r}. Every provider must serve the "
             f"same baseline stages for this suite to compare them; a provider missing one is the omission the "
             f"suite exists to catch, not a case to skip."
         )
 
-    for stage in _CONFORMANCE_STAGES:
+    for stage in CONFORMANCE_STAGES:
         identities = {
             provider.value: tuple(
                 actual for _, actual, _ in _logical_identities(stage, contracts.for_stage(stage))
