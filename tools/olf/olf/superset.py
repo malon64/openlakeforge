@@ -561,10 +561,15 @@ def deploy_reports(
     admin_username: str,
     schema_prefix: str = "",
 ) -> None:
-    log.step("Waiting for Superset web deployment...")
-    k8s.wait_for_rollout("deployment/superset", namespace)
-    pod = _running_superset_pod(namespace)
-
+    # Computed before touching the cluster: a declared-but-unmounted bundle
+    # must still fail loudly, and validate_report_registry already does that
+    # (raises before returning) whenever declared_report_dirs is given, so
+    # reaching the empty check below means every declared dashboard really
+    # is missing -- i.e. none are declared at all (#228's scaffolded-but-
+    # undeclared draft, or any project that simply has no dashboards yet).
+    # That is a legitimate state, not a misconfiguration: importing nothing
+    # is the correct outcome, not an error to wait for a live Superset pod
+    # just to report.
     report_dirs = (
         [report_source_dir]
         if report_source_dir
@@ -573,7 +578,12 @@ def deploy_reports(
         else discover_report_dirs(repo_root)
     )
     if not report_dirs:
-        raise RuntimeError("no product Superset report assets found.")
+        log.step("No Superset report bundles are declared; nothing to import.")
+        return
+
+    log.step("Waiting for Superset web deployment...")
+    k8s.wait_for_rollout("deployment/superset", namespace)
+    pod = _running_superset_pod(namespace)
 
     work_dir.mkdir(parents=True, exist_ok=True)
     for report_dir in report_dirs:
