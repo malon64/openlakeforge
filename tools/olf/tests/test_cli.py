@@ -591,6 +591,119 @@ dashboards:
     assert calls[0]["dashboard_title"] == "The Actual Live Dashboard Title"
 
 
+def _seed_project_with_no_declared_dashboards(tmp_path: Path, *, bundle_dir_name: str) -> Path:
+    """A project like #205's `--with-report` scaffold: one declared product,
+    zero declared dashboards, and an undeclared report bundle directory that
+    has no `dashboards/*.yaml` yet -- the draft state export-reports must be
+    able to target."""
+    lakehouse_dir = tmp_path / "lakehouse_code"
+    source_dir = lakehouse_dir / "bronze" / "crm"
+    source_dir.mkdir(parents=True)
+    (source_dir / "source.yaml").write_text(
+        """apiVersion: openlakeforge.io/v1alpha3
+kind: Source
+name: crm
+displayName: CRM
+description: CRM source.
+status: planned
+resources:
+  - name: orders
+""",
+        encoding="utf-8",
+    )
+    (lakehouse_dir / "lakehouse.yaml").write_text(
+        """apiVersion: openlakeforge.io/v1alpha3
+kind: Lakehouse
+name: test
+displayName: Test
+description: Test lakehouse.
+status: planned
+sources:
+  - crm
+domains:
+  - name: sales
+    displayName: Sales
+    description: Sales domain.
+    status: planned
+    silver_tables:
+      tables:
+        - name: orders
+          source: crm
+          resource: orders
+    products:
+      - id: orders
+        displayName: Sales Orders Product Metadata Name
+        description: Sales orders.
+        status: planned
+        silver_inputs: [orders]
+        gold_tables:
+          tables:
+            - name: mart_orders
+dashboards: []
+""",
+        encoding="utf-8",
+    )
+    (lakehouse_dir / "dashboards" / "superset" / bundle_dir_name).mkdir(parents=True)
+    return tmp_path
+
+
+def test_superset_export_reports_refuses_with_no_declared_dashboard_and_no_target(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    repo_root = _seed_project_with_no_declared_dashboards(tmp_path, bundle_dir_name="orders")
+    monkeypatch.setenv("OPENLAKEFORGE_REPO_ROOT", str(repo_root))
+    monkeypatch.delenv("SUPERSET_REPORT_SOURCE_DIR", raising=False)
+    monkeypatch.setattr("olf.superset.export_report", lambda *a, **k: pytest.fail("must not export"))
+    monkeypatch.setattr("olf.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
+    _hydrate_stage_contract(monkeypatch)
+
+    result = runner.invoke(app, ["superset", "export-reports", "--stage", "dev"])
+
+    assert result.exit_code == 2
+    assert "declares no dashboard to export" in result.output
+
+
+def test_superset_export_reports_refuses_a_target_that_is_not_an_existing_directory(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    repo_root = _seed_project_with_no_declared_dashboards(tmp_path, bundle_dir_name="orders")
+    monkeypatch.setenv("OPENLAKEFORGE_REPO_ROOT", str(repo_root))
+    monkeypatch.setenv("SUPERSET_REPORT_SOURCE_DIR", "lakehouse_code/dashboards/superset/typo_ordrs")
+    monkeypatch.setattr("olf.superset.export_report", lambda *a, **k: pytest.fail("must not export"))
+    monkeypatch.setattr("olf.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
+    _hydrate_stage_contract(monkeypatch)
+
+    result = runner.invoke(app, ["superset", "export-reports", "--stage", "dev"])
+
+    assert result.exit_code == 2
+    assert "does not exist" in result.output
+
+
+def test_superset_export_reports_exports_an_undeclared_target_named_explicitly(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """#229: a project's first dashboard has no declared entry yet, but the
+    scaffolded bundle directory already exists -- naming it explicitly must
+    be enough to export it."""
+    repo_root = _seed_project_with_no_declared_dashboards(tmp_path, bundle_dir_name="orders")
+    monkeypatch.setenv("OPENLAKEFORGE_REPO_ROOT", str(repo_root))
+    monkeypatch.setenv("SUPERSET_REPORT_SOURCE_DIR", "lakehouse_code/dashboards/superset/orders")
+    calls: list[dict] = []
+    monkeypatch.setattr("olf.superset.export_report", lambda *args, **kwargs: calls.append(kwargs))
+    monkeypatch.setattr("olf.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
+    _hydrate_stage_contract(monkeypatch)
+
+    result = runner.invoke(app, ["superset", "export-reports", "--stage", "dev"])
+
+    assert result.exit_code == 0
+    assert calls[0]["report_source_dir"] == "lakehouse_code/dashboards/superset/orders"
+    assert calls[0]["bundle_name"] == "orders_superset_assets_export.zip"
+    # No bundle title checked in yet, and nothing declares this bundle as any
+    # particular product's dashboard, so the fallback is its own directory
+    # name rather than a guessed product match.
+    assert calls[0]["dashboard_title"] == "orders"
+
+
 def test_catalog_sync_namespaces_dispatches_to_glue_for_aws_glue_provider(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

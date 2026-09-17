@@ -357,16 +357,6 @@ This directory is a draft, not yet a promotable bundle: it has no
 build` and `olf report validate` both ignore it until you finish these two
 steps.
 
-If this is the project's first declared dashboard, do step 2 before step 1:
-`export-reports` refuses with "lakehouse.yaml declares no dashboard to
-export" whenever `inventory.dashboards` is empty, before it ever reads
-`SUPERSET_REPORT_SOURCE_DIR`, so it cannot run against an undeclared bundle
-yet (#229 tracks letting it accept an explicit source directory instead).
-Declaring first leaves the tree transiently invalid -- `olf project
-build`/`olf report validate` will report this bundle as declared but not
-mounted until the export below writes `metadata.yaml` -- but nothing forces
-you to build or validate in that window.
-
 1. Build the dashboard in Superset, then export it back into this directory.
    `export-reports` defaults to the lakehouse's *first* declared dashboard,
    so target this one explicitly with `SUPERSET_REPORT_SOURCE_DIR` --
