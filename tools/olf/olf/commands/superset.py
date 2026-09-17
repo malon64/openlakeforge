@@ -18,6 +18,27 @@ if TYPE_CHECKING:
 app = typer.Typer(help="Superset report deploy/export helpers.")
 report_app = typer.Typer(help="Source-controlled Superset report bundles.")
 
+_REPORT_BUNDLE_ROOT = "lakehouse_code/dashboards/superset"
+
+
+def _validate_report_target_dir(project_root: Path, override: str) -> None:
+    """Refuse a SUPERSET_REPORT_SOURCE_DIR that can't be a real bundle directory.
+
+    `export_report` -> `unpack_export_bundle` deletes metadata.yaml/databases/
+    datasets/charts/dashboards under whatever this resolves to, so this is a
+    trust boundary, not a validation nicety. `project_root / override` silently
+    drops `project_root` when `override` is absolute (`PurePath.__truediv__`),
+    and a `..`-bearing override can walk out of the report tree without ever
+    tripping an unresolved string comparison -- both have to be resolved and
+    checked for real containment.
+    """
+    report_root = (project_root / _REPORT_BUNDLE_ROOT).resolve()
+    target = (project_root / override).resolve()
+    if report_root not in target.parents:
+        raise typer.BadParameter(
+            f"SUPERSET_REPORT_SOURCE_DIR {override!r} must be a bundle directory under {_REPORT_BUNDLE_ROOT}"
+        )
+
 
 @report_app.command("validate")
 def report_validate(
@@ -150,6 +171,8 @@ def export_superset_reports(stage: str = "") -> None:
     target = _report_target(stage)
     inventory = inventory_for(project.root)
     override = os.environ.get("SUPERSET_REPORT_SOURCE_DIR") or None
+    if override is not None:
+        _validate_report_target_dir(project.root, override)
     if inventory.dashboards:
         # Unchanged from before #229: the first declared dashboard is always
         # the title/bundle-name source, even when an override targets a
