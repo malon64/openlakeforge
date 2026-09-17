@@ -112,41 +112,6 @@ def test_source_new_handles_a_flow_style_sources_list(tmp_path: Path) -> None:
     assert set(inventory.source_names) == {"crm", "erp", "marketing_platform"}
 
 
-def test_product_new_handles_a_flow_style_dashboards_list_with_mappings(tmp_path: Path) -> None:
-    """`dashboards: [{name: x, products: [a]}]` is valid, schema-accepted
-    YAML; converting it must re-parse each mapping item rather than split
-    the flow text on commas, which would break on the commas inside the
-    nested `products: [...]` value."""
-    repo_root = _seed_repo(tmp_path)
-    lakehouse_path = repo_root / "lakehouse_code" / "lakehouse.yaml"
-    text = lakehouse_path.read_text(encoding="utf-8")
-    text = re.sub(
-        r"dashboards:\n(.*\n)+?$",
-        "dashboards: [{name: sales_order_revenue, products: [order_revenue, customer_health]}]\n",
-        text,
-    )
-    lakehouse_path.write_text(text, encoding="utf-8")
-    assert yaml.safe_load(text)["dashboards"] == [
-        {"name": "sales_order_revenue", "products": ["order_revenue", "customer_health"]}
-    ]
-
-    plan = plan_product_new(
-        repo_root,
-        target="sales/order_summary",
-        display_name=None,
-        silver_inputs=("orders",),
-        inputs=(),
-        gold_tables=("mart_order_summary",),
-        with_report=True,
-    )
-    commit_plan(repo_root, plan)
-
-    inventory = load_lakehouse_inventory(repo_root)
-    dashboard_names = {d.name: d.products for d in inventory.dashboards}
-    assert dashboard_names["sales_order_revenue"] == ("order_revenue", "customer_health")
-    assert dashboard_names["order_summary"] == ("order_summary",)
-
-
 def test_product_new_handles_a_flow_style_non_empty_products_list(tmp_path: Path) -> None:
     """A domain may represent its existing products as a schema-valid,
     non-empty flow sequence (`products: [{id: ..., ...}]`); appending a new
@@ -204,32 +169,6 @@ def test_source_new_preserves_a_trailing_comment_after_a_flow_style_list(tmp_pat
     assert "# TODO: add the marketing source once it's ready." in result_text
     inventory = load_lakehouse_inventory(repo_root)
     assert set(inventory.source_names) == {"crm", "erp", "marketing_platform"}
-
-
-def test_product_new_with_report_handles_a_lakehouse_missing_its_final_newline(tmp_path: Path) -> None:
-    """`dashboards:` is the document's last top-level key, so appending to
-    it is the one insertion point that can land at true end-of-file. If the
-    file itself doesn't end in a newline, the new dashboard must not be
-    concatenated directly onto the unterminated last line."""
-    repo_root = _seed_repo(tmp_path)
-    lakehouse_path = repo_root / "lakehouse_code" / "lakehouse.yaml"
-    text = lakehouse_path.read_text(encoding="utf-8")
-    assert text.endswith("\n")
-    lakehouse_path.write_text(text.rstrip("\n"), encoding="utf-8")
-
-    plan = plan_product_new(
-        repo_root,
-        target="sales/order_summary",
-        display_name=None,
-        silver_inputs=("orders",),
-        inputs=(),
-        gold_tables=("mart_order_summary",),
-        with_report=True,
-    )
-    commit_plan(repo_root, plan)
-
-    inventory = load_lakehouse_inventory(repo_root)
-    assert any(d.name == "order_summary" for d in inventory.dashboards)
 
 
 def test_domain_new_handles_a_flow_style_domains_list(tmp_path: Path) -> None:
@@ -883,8 +822,18 @@ def test_product_new_requires_at_least_one_gold_table(tmp_path: Path) -> None:
         )
 
 
-def test_product_new_with_report_generates_superset_skeleton_and_registers_dashboard(tmp_path: Path) -> None:
+def test_product_new_with_report_generates_a_draft_bundle_the_scaffold_can_build(tmp_path: Path) -> None:
+    """#205: a scaffold-fresh `--with-report` bundle has no dashboard, so
+    #201's promotion-contract rule ('exports no Superset dashboard') would
+    fail it immediately. The scaffold must leave it undeclared and without
+    `metadata.yaml` -- what makes a directory a bundle to
+    `discover_report_dirs`/`validate_report_registry` -- so the draft is
+    invisible to both the descriptor/tree parity check and the promotion
+    contract until a real dashboard is exported and declared."""
+    from olf import superset
+
     repo_root = _seed_repo(tmp_path)
+    before = load_lakehouse_inventory(repo_root).dashboards
 
     plan = plan_product_new(
         repo_root,
@@ -898,45 +847,18 @@ def test_product_new_with_report_generates_superset_skeleton_and_registers_dashb
     commit_plan(repo_root, plan)
 
     dashboard_dir = repo_root / "lakehouse_code" / "dashboards" / "superset" / "order_summary"
-    assert (dashboard_dir / "metadata.yaml").is_file()
+    assert not (dashboard_dir / "metadata.yaml").exists()
     assert (dashboard_dir / "databases" / "openlakeforge_trino.yaml").is_file()
     assert (dashboard_dir / "datasets" / "OpenLakeForge_Trino" / "mart_order_summary.yaml").is_file()
-
-    inventory = load_lakehouse_inventory(repo_root)
-    assert any(d.name == "order_summary" and d.products == ("order_summary",) for d in inventory.dashboards)
-    # This dashboard is not inventory.dashboards[0] (two dashboards already exist),
-    # so `export-reports`' default-to-first-dashboard behavior would silently target
-    # the wrong bundle unless the README tells the user to pin SUPERSET_REPORT_SOURCE_DIR.
-    assert inventory.dashboards[0].name != "order_summary"
     readme = (dashboard_dir / "README.md").read_text(encoding="utf-8")
     assert "SUPERSET_REPORT_SOURCE_DIR=lakehouse_code/dashboards/superset/order_summary" in readme
-
-
-def test_product_new_with_report_handles_an_inline_empty_dashboards_list(tmp_path: Path) -> None:
-    """`dashboards:` has no schema minimum, so a lakehouse.yaml with no
-    dashboards yet legitimately spells it `dashboards: []`. Appending the
-    first dashboard must convert that to block style, not splice a list item
-    directly after the inline empty list (which is invalid YAML)."""
-    repo_root = _seed_repo(tmp_path)
-    lakehouse_path = repo_root / "lakehouse_code" / "lakehouse.yaml"
-    text = lakehouse_path.read_text(encoding="utf-8")
-    text = text[: text.index("dashboards:")] + "dashboards: []\n"
-    lakehouse_path.write_text(text, encoding="utf-8")
-    assert yaml.safe_load(text)["dashboards"] == []
-
-    plan = plan_product_new(
-        repo_root,
-        target="sales/order_summary",
-        display_name=None,
-        silver_inputs=("orders",),
-        inputs=(),
-        gold_tables=("mart_order_summary",),
-        with_report=True,
-    )
-    commit_plan(repo_root, plan)
+    assert "dashboards:" in readme and "order_summary" in readme
 
     inventory = load_lakehouse_inventory(repo_root)
-    assert [d.name for d in inventory.dashboards] == ["order_summary"]
+    assert inventory.dashboards == before
+
+    declared = tuple(d.report_source_dir for d in inventory.dashboards)
+    assert superset.validate_report_registry(repo_root, declared) == sorted(declared)
 
 
 def test_running_the_same_command_twice_is_refused_not_reapplied(tmp_path: Path) -> None:
