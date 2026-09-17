@@ -108,6 +108,32 @@ def test_config_from_environment_reads_schema_fqns() -> None:
     assert cfg.storage_gold_bucket == "openlakeforge-poc-gold"
 
 
+def test_config_from_environment_rejects_a_non_string_schema_fqn_value() -> None:
+    """A schema-FQN map value that isn't a string must fail closed at parse time,
+    not surface as an AttributeError once `_reconciliation.py` calls `.startswith`
+    on it (#218)."""
+    environ = {
+        **APPLIED_DEV_CONTRACT,
+        "OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON": '{"order_revenue": null}',
+        "OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON": "{}",
+    }
+    with pytest.raises(
+        om.OpenMetadataError,
+        match="OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON.*'order_revenue'",
+    ):
+        OpenMetadataConfig.from_environment(
+            environ,
+            base_url="http://x",
+            admin_email="a",
+            admin_password="p",
+            metadata_root="domains",
+            metadata_source_dir="",
+            allow_missing_assets=False,
+            catalog_service="polaris",
+            catalog_database="lakehouse_dev",
+        )
+
+
 def test_config_from_environment_defaults_seed_schema_fqns_for_direct_cli(tmp_path: Path) -> None:
     _write_lakehouse(tmp_path)
 

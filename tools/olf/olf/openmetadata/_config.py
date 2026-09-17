@@ -135,6 +135,11 @@ def _parse_json_env(name: str, raw: str) -> dict:
         raise OpenMetadataError(f"Environment variable {name} must be valid JSON: {exc}") from exc
     if not isinstance(value, dict):
         raise OpenMetadataError(f"Environment variable {name} must contain a JSON object.")
+    for key, entry in value.items():
+        if not isinstance(entry, str):
+            raise OpenMetadataError(
+                f"Environment variable {name} must map {key!r} to a string schema FQN, got {entry!r}."
+            )
     return value
 
 
