@@ -853,6 +853,10 @@ def test_product_new_with_report_generates_a_draft_bundle_the_scaffold_can_build
     readme = (dashboard_dir / "README.md").read_text(encoding="utf-8")
     assert "SUPERSET_REPORT_SOURCE_DIR=lakehouse_code/dashboards/superset/order_summary" in readme
     assert "dashboards:" in readme and "order_summary" in readme
+    # `export-reports` refuses before it reads SUPERSET_REPORT_SOURCE_DIR when
+    # no dashboard is declared yet, so a first-dashboard project must declare
+    # before it can export -- the README must say so, or step 1 cannot run.
+    assert "do step 2 before step 1" in readme
 
     inventory = load_lakehouse_inventory(repo_root)
     assert inventory.dashboards == before
