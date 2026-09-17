@@ -108,6 +108,102 @@ def test_validate_report_registry_rejects_declared_mounted_mismatch(tmp_path: Pa
         )
 
 
+def _fail_if_called(*_args: object, **_kwargs: object) -> None:
+    pytest.fail("must not reach a live Superset for an empty or invalid registry")
+
+
+def test_deploy_reports_with_no_declared_dashboards_imports_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#228: `olf product new --with-report` leaves its draft bundle
+    undeclared, so a Full profile's first artifacts deploy runs with zero
+    declared dashboards. That is a legitimate 'nothing to import' state, not
+    a misconfiguration -- deploying must succeed, and without ever waiting
+    for the Superset pod that has nothing to receive."""
+    monkeypatch.setattr(k8s, "wait_for_rollout", _fail_if_called)
+    monkeypatch.setattr(superset, "_running_superset_pod", _fail_if_called)
+
+    superset.deploy_reports(
+        tmp_path,
+        "openlakeforge-dev",
+        "trino://superset@trino:8080/iceberg",
+        report_source_dir=None,
+        declared_report_dirs=(),
+        work_dir=tmp_path / "work",
+        reports_mount_path=superset.REPORTS_MOUNT_PATH_DEFAULT,
+        admin_username="admin",
+    )
+
+
+def test_deploy_reports_still_fails_for_a_declared_but_missing_bundle(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The empty-registry skip must not swallow a real misconfiguration: a
+    dashboard declared in lakehouse.yaml whose bundle is missing from disk
+    is not the same state as nothing being declared at all, and must still
+    fail loudly (and, since it's a descriptor problem, before ever touching
+    the cluster)."""
+    monkeypatch.setattr(k8s, "wait_for_rollout", _fail_if_called)
+    monkeypatch.setattr(superset, "_running_superset_pod", _fail_if_called)
+
+    with pytest.raises(RuntimeError, match="declared but not mounted"):
+        superset.deploy_reports(
+            tmp_path,
+            "openlakeforge-dev",
+            "trino://superset@trino:8080/iceberg",
+            report_source_dir=None,
+            declared_report_dirs=("lakehouse_code/dashboards/superset/missing",),
+            work_dir=tmp_path / "work",
+            reports_mount_path=superset.REPORTS_MOUNT_PATH_DEFAULT,
+            admin_username="admin",
+        )
+
+
+def test_deploy_reports_imports_a_declared_bundle_exactly_as_before(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The empty-registry skip must not touch the path that has something to
+    import: with a declared, mounted bundle, deploy_reports still waits for
+    Superset, finds the pod, and copies/imports the bundle."""
+    _write_report_bundle(tmp_path)
+    calls: list[str] = []
+
+    def fake_wait(*_args: object, **_kwargs: object) -> None:
+        calls.append("wait")
+
+    def fake_pod(*_args: object, **_kwargs: object) -> str:
+        calls.append("pod")
+        return "superset-pod-0"
+
+    def fake_run(argv: list[str], **_kwargs: object) -> object:  # noqa: ANN001
+        calls.append("exec")
+
+        class _Result:
+            returncode = 0
+
+        return _Result()
+
+    monkeypatch.setattr(k8s, "wait_for_rollout", fake_wait)
+    monkeypatch.setattr(superset, "_running_superset_pod", fake_pod)
+    monkeypatch.setattr(superset.subprocess, "run", fake_run)
+    monkeypatch.setattr(k8s, "_kubectl_executable", lambda: "/managed/bin/kubectl")
+    monkeypatch.setenv("KUBE_CONTEXT", "kind-openlakeforge-local")
+
+    superset.deploy_reports(
+        tmp_path,
+        "openlakeforge-dev",
+        "trino://superset@trino:8080/iceberg",
+        report_source_dir=None,
+        declared_report_dirs=(_REPORT_DIR,),
+        work_dir=tmp_path / "work",
+        reports_mount_path=superset.REPORTS_MOUNT_PATH_DEFAULT,
+        admin_username="admin",
+    )
+
+    assert calls[:2] == ["wait", "pod"]
+    assert "exec" in calls
+
+
 @pytest.mark.parametrize(
     "source_uri",
     [

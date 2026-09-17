@@ -326,22 +326,3 @@ def add_product(text: str, domain_name: str, product_block: str) -> str:
     return _join(lines)
 
 
-def add_dashboard(text: str, dashboard_block: str) -> str:
-    """Append a fully-rendered dashboard entry to `dashboards:`, converting
-    a flow-style list (most commonly the inline-empty `dashboards: []`) to
-    block style first if needed. Unlike `sources:`/`domains:`,
-    `dashboards:` has no schema minimum, so a fresh lakehouse.yaml
-    legitimately starts out as `dashboards: []`.
-
-    `dashboards:` is normally the document's last top-level key (`end` is
-    then end-of-file), but property order is unconstrained at every level
-    of this document, so `_ensure_newline_before` -- not a special case
-    just for this function -- guards every insertion point in this module
-    against a missing final newline.
-    """
-    lines = _lines(text)
-    start, end = _top_level_span(lines, "dashboards")
-    end = _ensure_block_style(lines, start, end)
-    _ensure_newline_before(lines, end)
-    lines[end:end] = _lines(dashboard_block)
-    return _join(lines)

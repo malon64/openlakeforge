@@ -211,8 +211,17 @@ def plan_product_new(
         )
 
     if with_report:
+        # No `metadata.yaml` and no `dashboards:` entry: `metadata.yaml` is
+        # what makes a directory a bundle to `discover_report_dirs`, so
+        # leaving it out keeps this directory outside both the declared and
+        # the discovered set. Declaring it here (#201) would fail its own
+        # promotion contract before a dashboard exists (`exports no Superset
+        # dashboard`), and `validate_report_registry` would fail the same
+        # scaffold with "mounted but not declared" if `metadata.yaml` were
+        # written without a matching declaration. The database and dataset
+        # drafts are still written so authoring in Superset has something to
+        # connect. See #205.
         dashboard_dir = f"lakehouse_code/dashboards/superset/{product}"
-        product_files.append(ScaffoldFile(f"{dashboard_dir}/metadata.yaml", _templates.render_superset_metadata_yaml()))
         product_files.append(
             ScaffoldFile(
                 f"{dashboard_dir}/databases/openlakeforge_trino.yaml",
@@ -235,12 +244,9 @@ def plan_product_new(
             ScaffoldFile(
                 f"{dashboard_dir}/README.md",
                 _templates.render_superset_readme(
-                    display_name=resolved_display_name, report_source_dir=dashboard_dir
+                    display_name=resolved_display_name, dashboard_name=product, report_source_dir=dashboard_dir
                 ),
             )
-        )
-        lakehouse_text = _lakehouse_edit.add_dashboard(
-            lakehouse_text, f"  - name: {product}\n    products: [{product}]\n"
         )
 
     all_files = tuple(extra_files) + tuple(product_files)
@@ -254,6 +260,10 @@ def plan_product_new(
             f"Extended domain {domain!r} with {len(inputs)} new Silver table(s): {', '.join(new_table_names)}."
         )
     if with_report:
-        summary.append(f"Generated a Superset report skeleton at lakehouse_code/dashboards/superset/{product}/.")
+        summary.append(
+            f"Generated a draft Superset report skeleton at lakehouse_code/dashboards/superset/{product}/ "
+            "(not yet declared or promotable -- author the dashboard in Superset, export it back, then "
+            "declare it in lakehouse.yaml's dashboards: list; see the bundle's README.md)."
+        )
 
     return ScaffoldPlan(files=all_files, lakehouse_yaml=lakehouse_text, summary=tuple(summary), edits=tuple(edits))

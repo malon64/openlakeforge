@@ -310,10 +310,6 @@ defs = build_product_definitions(
 # --------------------------------------------------------------------------
 
 
-def render_superset_metadata_yaml() -> str:
-    return "version: 1.0.0\ntype: assets\n"
-
-
 def render_superset_database_yaml() -> str:
     return f'''database_name: OpenLakeForge Trino
 sqlalchemy_uri: trino://superset@trino:8080/iceberg
@@ -349,22 +345,50 @@ database_uuid: {_SUPERSET_TRINO_DATABASE_UUID}
 '''
 
 
-def render_superset_readme(*, display_name: str, report_source_dir: str) -> str:
+def render_superset_readme(*, display_name: str, dashboard_name: str, report_source_dir: str) -> str:
     return f"""# {display_name} Superset Assets
 
 Scaffolded by `olf product new --with-report`. This bundle registers the
 Gold mart dataset(s) and a Trino database connection; it does not include a
 dashboard layout or charts, which the scaffold cannot generate meaningfully.
 
-Build the dashboard in Superset, then export it back into this directory.
-`export-reports` defaults to the lakehouse's *first* declared dashboard, so
-target this one explicitly with `SUPERSET_REPORT_SOURCE_DIR` -- otherwise it
-silently re-exports into an unrelated, already-checked-in bundle instead of
-this one:
+This directory is a draft, not yet a promotable bundle: it has no
+`metadata.yaml` and `lakehouse.yaml` does not declare it, so `olf project
+build` and `olf report validate` both ignore it until you finish these two
+steps.
 
-```bash
-SUPERSET_REPORT_SOURCE_DIR={report_source_dir} \\
-SUPERSET_DASHBOARD_TITLE="<the title you gave it in Superset>" \\
-uv run --project tools/olf olf superset export-reports --stage dev
-```
+If this is the project's first declared dashboard, do step 2 before step 1:
+`export-reports` refuses with "lakehouse.yaml declares no dashboard to
+export" whenever `inventory.dashboards` is empty, before it ever reads
+`SUPERSET_REPORT_SOURCE_DIR`, so it cannot run against an undeclared bundle
+yet (#229 tracks letting it accept an explicit source directory instead).
+Declaring first leaves the tree transiently invalid -- `olf project
+build`/`olf report validate` will report this bundle as declared but not
+mounted until the export below writes `metadata.yaml` -- but nothing forces
+you to build or validate in that window.
+
+1. Build the dashboard in Superset, then export it back into this directory.
+   `export-reports` defaults to the lakehouse's *first* declared dashboard,
+   so target this one explicitly with `SUPERSET_REPORT_SOURCE_DIR` --
+   otherwise it silently re-exports into an unrelated, already-checked-in
+   bundle instead of this one:
+
+   ```bash
+   SUPERSET_REPORT_SOURCE_DIR={report_source_dir} \\
+   SUPERSET_DASHBOARD_TITLE="<the title you gave it in Superset>" \\
+   uv run --project tools/olf olf superset export-reports --stage dev
+   ```
+
+   The export writes this bundle's `metadata.yaml`.
+
+2. Declare the dashboard by adding it to `lakehouse_code/lakehouse.yaml`'s
+   `dashboards:` list:
+
+   ```yaml
+     - name: {dashboard_name}
+       products: [{dashboard_name}]
+   ```
+
+Once both are done, this bundle is validated and promoted exactly like any
+other declared Superset dashboard.
 """
