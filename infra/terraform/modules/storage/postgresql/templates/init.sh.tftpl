@@ -46,6 +46,11 @@ create_database_if_missing() {
 
   psql_base -c "ALTER DATABASE \"$db_name\" OWNER TO \"$owner_name\";"
   psql_base -c "GRANT ALL PRIVILEGES ON DATABASE \"$db_name\" TO \"$owner_name\";"
+  # PostgreSQL grants CONNECT on every new database to PUBLIC by default, so
+  # every other stage's role can otherwise authenticate into this one over
+  # the shared server. Revoke it and grant back only to the owner - #225.
+  psql_base -c "REVOKE CONNECT ON DATABASE \"$db_name\" FROM PUBLIC;"
+  psql_base -c "GRANT CONNECT ON DATABASE \"$db_name\" TO \"$owner_name\";"
   psql_with_retry --dbname "$db_name" \
     -c "GRANT ALL ON SCHEMA public TO \"$owner_name\";" \
     -c "ALTER SCHEMA public OWNER TO \"$owner_name\";"
