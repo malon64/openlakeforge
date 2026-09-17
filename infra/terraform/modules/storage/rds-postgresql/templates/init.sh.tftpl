@@ -19,6 +19,13 @@ create_role_and_db() {
   SELECT format('ALTER ROLE %I WITH LOGIN PASSWORD %L', :'db_user', :'db_password')\gexec
   SELECT format('CREATE DATABASE %I OWNER %I', :'db_name', :'db_user')
   WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = :'db_name')\gexec
+  -- PostgreSQL grants CONNECT on every new database to PUBLIC by default, so
+  -- every other stage's role can otherwise authenticate into this one over
+  -- the shared RDS instance. Revoke it and grant back only to the owner -
+  -- #225. Not IF-NOT-EXISTS guarded like the statements above: REVOKE/GRANT
+  -- are no-ops when already applied, so re-running on every apply is safe.
+  SELECT format('REVOKE CONNECT ON DATABASE %I FROM PUBLIC', :'db_name')\gexec
+  SELECT format('GRANT CONNECT ON DATABASE %I TO %I', :'db_name', :'db_user')\gexec
 SQL
 }
 
