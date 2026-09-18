@@ -18,6 +18,31 @@ if TYPE_CHECKING:
 app = typer.Typer(help="Superset report deploy/export helpers.")
 report_app = typer.Typer(help="Source-controlled Superset report bundles.")
 
+_REPORT_BUNDLE_ROOT = "lakehouse_code/dashboards/superset"
+
+
+def _validate_report_target_dir(project_root: Path, override: str) -> None:
+    """Refuse a SUPERSET_REPORT_SOURCE_DIR that can't be a real bundle directory.
+
+    `export_report` -> `unpack_export_bundle` deletes metadata.yaml/databases/
+    datasets/charts/dashboards under whatever this resolves to, so this is a
+    trust boundary, not a validation nicety. `project_root / override` silently
+    drops `project_root` when `override` is absolute (`PurePath.__truediv__`),
+    and a `..`-bearing override can walk out of the report tree without ever
+    tripping an unresolved string comparison -- both have to be resolved and
+    checked for real containment.
+    """
+    report_root = (project_root / _REPORT_BUNDLE_ROOT).resolve()
+    target = (project_root / override).resolve()
+    # Direct child, not any descendant: a bundle is one directory under the
+    # report root, so `.../superset/orders/datasets` is a bundle's *contents*.
+    # Accepting it would make `unpack_export_bundle` treat that subtree as a
+    # bundle root and delete the managed entries inside it.
+    if target.parent != report_root:
+        raise typer.BadParameter(
+            f"SUPERSET_REPORT_SOURCE_DIR {override!r} must be a bundle directory directly under {_REPORT_BUNDLE_ROOT}"
+        )
+
 
 @report_app.command("validate")
 def report_validate(
@@ -142,30 +167,53 @@ def superset_export_reports(
 def export_superset_reports(stage: str = "") -> None:
     """Export a live Superset dashboard back into a source-controlled bundle."""
     import yaml
+    from openlakeforge_domain import Dashboard
 
     from olf import superset
 
     project = config.project_spec()
     target = _report_target(stage)
     inventory = inventory_for(project.root)
-    if not inventory.dashboards:
-        raise typer.BadParameter("lakehouse.yaml declares no dashboard to export")
-    default_dashboard = inventory.dashboards[0]
-    default_product = next(product for product in inventory.products if product.id == default_dashboard.products[0])
-    default_report_source_dir = default_dashboard.report_source_dir
-    report_source_dir = config.env("SUPERSET_REPORT_SOURCE_DIR", default_report_source_dir)
+    override = os.environ.get("SUPERSET_REPORT_SOURCE_DIR") or None
+    if override is not None:
+        _validate_report_target_dir(project.root, override)
+    if inventory.dashboards:
+        # Unchanged from before #229: the first declared dashboard is always
+        # the title/bundle-name source, even when an override targets a
+        # different (declared or undeclared) bundle.
+        default_dashboard = inventory.dashboards[0]
+        default_product = next(
+            product for product in inventory.products if product.id == default_dashboard.products[0]
+        )
+        report_source_dir = override or default_dashboard.report_source_dir
+    elif override:
+        # Nothing declared yet (e.g. a scaffolded --with-report draft, #205):
+        # a named target is still exportable, but only if it already exists,
+        # so a typo doesn't silently create a bundle.
+        if not (project.root / override).is_dir():
+            raise typer.BadParameter(f"SUPERSET_REPORT_SOURCE_DIR {override!r} does not exist")
+        report_source_dir = override
+        default_dashboard = Dashboard(name=Path(override).name, products=())
+        default_product = None
+    else:
+        raise typer.BadParameter(
+            "lakehouse.yaml declares no dashboard to export; "
+            "set SUPERSET_REPORT_SOURCE_DIR to target an undeclared bundle"
+        )
 
     def _default_dashboard_title() -> str:
         # Dashboard identity can differ from product metadata (see
         # e2e.discovered_dashboards) — prefer the checked-in bundle's own
         # title so a re-export finds the same dashboard it last exported.
-        # Falls back to displayName only when no bundle exists yet to read.
+        # Falls back to displayName only when no bundle exists yet to read,
+        # and to the bundle's directory name when nothing is declared enough
+        # to resolve a product either.
         for dashboard_file in superset.discover_dashboard_files(project.root / report_source_dir):
             document = yaml.safe_load(dashboard_file.read_text())
             title = document.get("dashboard_title") if isinstance(document, dict) else None
             if title:
                 return title
-        return default_product.display_name
+        return default_product.display_name if default_product else default_dashboard.name
 
     log.step(f"Exporting Superset reports from stage '{target.stage}' (namespace {target.namespace})")
     superset.export_report(
