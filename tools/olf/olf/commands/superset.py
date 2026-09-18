@@ -34,9 +34,13 @@ def _validate_report_target_dir(project_root: Path, override: str) -> None:
     """
     report_root = (project_root / _REPORT_BUNDLE_ROOT).resolve()
     target = (project_root / override).resolve()
-    if report_root not in target.parents:
+    # Direct child, not any descendant: a bundle is one directory under the
+    # report root, so `.../superset/orders/datasets` is a bundle's *contents*.
+    # Accepting it would make `unpack_export_bundle` treat that subtree as a
+    # bundle root and delete the managed entries inside it.
+    if target.parent != report_root:
         raise typer.BadParameter(
-            f"SUPERSET_REPORT_SOURCE_DIR {override!r} must be a bundle directory under {_REPORT_BUNDLE_ROOT}"
+            f"SUPERSET_REPORT_SOURCE_DIR {override!r} must be a bundle directory directly under {_REPORT_BUNDLE_ROOT}"
         )
 
 

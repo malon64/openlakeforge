@@ -1039,3 +1039,25 @@ def test_report_validate_rejects_an_undeclared_dashboard(external_project: Path)
     result = runner.invoke(app, ["report", "validate", "nope", "--project-root", str(external_project)])
 
     assert result.exit_code != 0
+
+
+def test_superset_export_reports_refuses_a_directory_nested_inside_a_bundle(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A bundle is one directory under the report root, so a bundle's own
+    `datasets/` is its contents, not another bundle. Accepting it would make
+    `unpack_export_bundle` delete the managed entries inside that subtree."""
+    root = _seed_project_with_no_declared_dashboards(tmp_path, bundle_dir_name="orders")
+    nested = root / "lakehouse_code/dashboards/superset/orders/datasets"
+    nested.mkdir(parents=True, exist_ok=True)
+
+    monkeypatch.setenv("OPENLAKEFORGE_REPO_ROOT", str(root))
+    monkeypatch.setenv("SUPERSET_REPORT_SOURCE_DIR", "lakehouse_code/dashboards/superset/orders/datasets")
+    monkeypatch.setattr("olf.superset.export_report", lambda *a, **k: pytest.fail("must not export"))
+    monkeypatch.setattr("olf.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
+    _hydrate_stage_contract(monkeypatch)
+
+    result = runner.invoke(app, ["superset", "export-reports", "--stage", "dev"])
+
+    assert result.exit_code == 2
+    assert "directly under" in result.output
