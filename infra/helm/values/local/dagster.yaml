@@ -3,10 +3,13 @@
 # imports lakehouse_code, they reach user code over gRPC. Pinning the upstream
 # image here keeps a platform apply independent of any project build (#115),
 # and the tag must track the chart version pinned in the component catalog.
+# Never pin a build shipping the kubernetes 36.0.0 client (1.13.6 did): its
+# in-cluster loader drops the service-account token, so the daemon's run
+# launcher calls the API as system:anonymous and every launch 403s (#234).
 dagsterWebserver:
   image:
     repository: docker.io/dagster/dagster-celery-k8s
-    tag: "1.13.6@sha256:1f8ccf43d820bb4ace7507ceacc896304733b03f841301e690ce4310972d4286"
+    tag: "1.13.7@sha256:7e9fa5d3f9724bdf382932f34294dbfe5c9ca550641795dff793d6b59f3cc4ee"
   replicaCount: 1
   service:
     type: ClusterIP
@@ -22,7 +25,7 @@ dagsterDaemon:
   enabled: true
   image:
     repository: docker.io/dagster/dagster-celery-k8s
-    tag: "1.13.6@sha256:1f8ccf43d820bb4ace7507ceacc896304733b03f841301e690ce4310972d4286"
+    tag: "1.13.7@sha256:7e9fa5d3f9724bdf382932f34294dbfe5c9ca550641795dff793d6b59f3cc4ee"
   resources:
     requests:
       cpu: 250m

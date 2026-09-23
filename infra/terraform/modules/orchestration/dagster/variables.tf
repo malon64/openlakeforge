@@ -18,7 +18,7 @@ variable "chart_repository" {
 variable "chart_version" {
   description = "Dagster Helm chart version. Keep this aligned with the project-code Dagster Python package."
   type        = string
-  default     = "1.13.6"
+  default     = "1.13.7"
 }
 
 variable "chart_package_path" {
